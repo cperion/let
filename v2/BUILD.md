@@ -75,6 +75,7 @@ executed by the compiler.
 | §9.4 | Indexed assignment | Writing through a constant or runtime index updates the selected member, reusing the destination-then-right-hand-side order and the same storage rule as a projected assignment. |
 | §9.4 | Assignment through a projected place | The aggregate lives in a place, so the updated record is stored back into that storage. Replacing the cell's value would put a record where its address belongs. |
 | §15.1 | A `do` terminal is the initialization body | Its return is the namespace, and the module's preludes are still the state the host destroys, so every return inside the body is paired with the state record rather than returned as the state. The body's own locals are activation state in their own scope, destroyed by that return; new owned state in the *namespace* would have no unload path, so it is rejected while a prelude moved into the namespace is allowed. |
+| §15.1 | A module's exported words are host entry points | An entry takes the word's own fields -- the construction it has been through, which the host reads from the namespace the initializer returned -- followed by the stages it still needs. Advancing uses the same protocol a call site uses, so the entry runs whatever preludes lie between those stages: a host supplies stages, not the values a call site would have computed. A parameter is shaped by its stage's capability -- a mutable stage is a place reached through a borrow, an owned stage arrives fresh -- because the entry *is* the contract. A stage whose type only an argument can determine (unannotated, or constrained only by `Copy`) has no entry, since there is no signature to publish, and the builder records why. Entries are roots of emission, and `statistics` reports each one's C name for the host to call. |
 | §15.1 | Module state outlives the initializer | A module-lifetime cell is file-scope storage, because a captured word holds its address beyond the initializer's frame. |
 | §§4.1–4.2 | Lexical scope, initializer-before-binding, source self name | Scope maps contain binding IDs; nested scopes may shadow; duplicate same-scope bindings fail. A source self name cannot silently fall back to an outer host word. |
 | §4.3 | Left-to-right observable evaluation | Operands and arguments construct left to right; effect references serialize ordered work. Earlier operand values are pinned across CFG construction. |
@@ -124,57 +125,12 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 These are specified behaviours that the implementation does not yet provide, so each is a
 construction diagnostic rather than a language limitation.
 
-- **A module's exported words are not host entry points.** The initializer's job is to build the
-  namespace, so it folds to a constant and nothing calls the words the namespace holds: emitting
-  `bench/kernels.let` produces one function (the initializer) where the old compiler produces
-  eighteen, and a host that wants to invoke `sum_loop` has no function to call. The semantics are
-  already implied by §5 -- a word with unsatisfied stages is invoked by supplying exactly those
-  stages -- so the entry is the saturated invocation of the exported word, and what is missing is
-  that the builder creates it and the emitter roots it. This is the largest gap to embedding, and
-  it is why the runtime benchmark comparison against the old compiler cannot run yet.
-
-  A first attempt built the entry with `Builder:entry` directly, from the word's fields plus its
-  remaining stages, and it does not work; the reason is worth keeping. An entry's parameters are a
-  word's captures and its *stages* -- never its preludes -- because §6.2 runs a stage's preludes at
-  the call site, between the arguments, so their values are computed there rather than passed. So
-  `entry` describes an already-advanced word, and a host entry has to be built the other way round:
-  replay the word's construction (`instantiate`, then one `supply` per remaining stage) with those
-  stages supplied as *parameters* rather than as source expressions. That needs `supply` to take a
-  value instead of an AST argument, which is a small refactor of the function that already does the
-  work rather than a new mechanism.
-
-  **The architectural fix, now verified against the code.** A host entry is not a new kind of
-  function: it is the *normal advancement sequence* run with parameters where a call site would
-  have built expressions. `Builder:supply` already is that protocol -- "the next stage is
-  `layout.steps[word.supplied+1]`; bind it, run the preludes belonging to it, carry the trace
-  forward" -- so the fix is to split it, not to reimplement it:
-
-      advance(ctx, value, supplied_value, span, destination)   -- one implementation
-      supply(ctx, value, argument, destination)                -- builds the value, then advances
-
-  Everything the earlier attempts got wrong disappears rather than being corrected: the
-  captures-first walk, the `bound` counter, the item/step map, the stage counter and the arity
-  assert all existed only because I was recomputing, in `build_entry`, what `advance` looks up.
-  Two implementations of one rule disagree where their conventions differ, and mine did -- in the
-  parameter *order*, which is why a prelude subtracted from the wrong stage.
-
-  One design detail is left, and it is the reason `build_entry` cannot simply be reused:
-  **`advance` pops the scope holding the bindings it made.** Each advance re-binds the whole
-  bundle's fields precisely because the previous advance's scope is gone, so after the last
-  stage returns, nothing it bound is in scope -- and a host entry's terminal body runs *there*.
-  So the protocol needs a completion step: when the word reaches saturation the caller says what
-  that means. A call site packs a bundle (or takes a data terminal); a host entry runs the
-  terminal body *inside* that final advance, where its stages are still bound. That is one hook on
-  `advance`, not another walk, and it is what remains to be written.
-
-  **Run the whole suite before committing WIP, even on a branch.** The branch's own commit broke
-  ordinary builds -- `entry parameter count does not match its stages`, from that arity assert --
-  and only `v2/test/host_entry.lua` was run, so it went unnoticed. A branch whose base is red is
-  not a base.
-
-  It also leaves a semantics question to state explicitly, as §18 requires: a host that invokes an
-  exported word supplies the remaining stages, and *the entry runs whatever preludes lie between
-  them*. The host does not supply those, and nothing in the current text says so.
+- **The runtime benchmark against the old compiler.** Emitting `bench/kernels.let` produced one
+  function where the old compiler produces eighteen, because a module's exported words had no host
+  entry point: the initializer builds the namespace, the namespace holds words, and nothing made
+  those words live or callable. That is fixed -- see the §15.1 obligation below -- so what remains
+  is the harness: a generated shim that calls each entry with the fields the namespace returned and
+  times it, and the comparison it reports.
 
   Two further attempts got the construction right and then failed on belt typing. What they
   established, in the order the failures moved:
