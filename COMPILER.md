@@ -1,6 +1,6 @@
 # AST-to-belt construction: specification grounding
 
-The authoritative input is [the Let specification](../let-language-specification.md),
+The authoritative input is [the Let specification](let-language-specification.md),
 not an earlier compiler's accepted subset. The full specification was read before
 this construction step. These implementation boundaries do not redefine Let.
 
@@ -12,8 +12,8 @@ by `verify_flow`. `V.parse(text, file)` independently parses source into the AST
 neither parsing nor construction depends on `let.*`. The parser preserves stage
 preludes, word-valued arguments/returns, aggregates, constraints and projected places
 without claiming that all of them can already be lowered. It validates UTF-8 and
-Text escapes and preserves exact integer spelling until sign-sensitive checking.
-Whitespace has no grammatical force; `;` separates otherwise adjacent expressions.
+Text escapes, preserves exact integer spelling until sign-sensitive checking, and rounds
+Float spelling once, in `let/literal.lua`, for every consumer.
 
 ```lua
 package.path = './?.lua;./?/init.lua;' .. package.path
@@ -117,8 +117,11 @@ invocation; `program.lua` implements the shared advancement protocol.
 Word values are `Belt.Word` SSA field bundles. Because advancement clones the bundle,
 a specialized receiver keeps its own stage count and fields, and `multiply 2` followed
 by `multiply 6 7` produces two independent words. Fields record retention: word-owned
-state is written back after invocation; invocation-local prelude state is destroyed by
-the activation. `Belt.Program:verify_flow` re-checks every generated function
+state is written back after invocation. A field a call site built is handed to the entry that
+receives it -- the callee for an invocation, the word bundle for a specialization -- and that
+entry releases it: an own-stage argument and a non-Copy prelude alike, at the transfer for a
+tail call and at the return otherwise. A host entry keeps and releases its own parameters.
+`Belt.Program:verify_flow` re-checks every generated function
 independently of construction, including `CallFunction`/`TailCall` contracts.
 
 ## Work still required
@@ -126,30 +129,18 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 These are specified behaviours that the implementation does not yet provide, so each is a
 construction diagnostic rather than a language limitation.
 
-- **The runtime benchmark**, which is milestone C's acceptance, measured against the
-  handwritten C reference the harness already links. The harness works: `bench/emit.lua ` builds the kernels, emits the C plus a shim that
-  calls each host entry the way the driver does, and `bench/run.lua ` compiles, links
-  against the driver and the reference, and compares. What the shim passes comes from
-  `statistics.entries`: each entry's C name, the fields its signature kept, and how many stages it
-  takes -- a field or stage whose fate is not `value` is not in the signature, and a generic
-  instance never has a constant parameter, so one left out is one nothing reads.
-
-  The first run immediately found a wrong answer, which is the point of having one:
+- **The runtime benchmark**, milestone C's acceptance, measured against the handwritten C
+  reference the harness links. The harness works: `bench/emit.lua` builds the kernels and a
+  shim over `statistics.entries`, and `bench/run.lua` compiles, links and compares. Its first
+  run found a wrong answer, which is the point of having one:
 
       gcd(-3): Let=-3, C=-1
 
-  The emitted loop is
-
-      bool v2_2_0 = (!(p2_4 != INT64_C(0)));   /* y == 0 */
-      if (v2_2_0) { ... goto b3; }             /* b3 is the loop body */
-      else        { ... return x; }            /* exits when y != 0 */
-
-  so `gcd` returns `x` at once: the condition carries a `Not` the arms do not match. The source is
-  `while y != 0`, so the negation is not in the text, and it appears only where the loop's condition
-  is checkable at entry -- `y` begins at the known constant 65537. The module-level path hid it
-  because a known input is constant-folded before the loop is ever emitted. One operator to find:
-  something negates a loop condition without swapping the arms, and only when the condition is
-  known.
+  The emitted loop branched on a `Not` of `y != 0` without swapping the arms, so `gcd`
+  returned `x` at once; the negation was not in the source and appeared only where the known
+  constant `65537` made the condition checkable at entry. That is fixed -- the entry branches
+  on `y != 0` into the body -- and every probe now validates against the reference. The
+  resource-pressure workload the harness does not yet carry remains.
 - A partial move *introduced inside* a loop whose path is still a hole at the backedge
   (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
   the loop entry a fact per owned subplace is not enough on its own: the entry's fact must
@@ -164,9 +155,12 @@ construction diagnostic rather than a language limitation.
   count, and the fields are the members of what the callee returned -- and an owned one is
   diagnosed, because the rules for a word value crossing a call boundary would have to be stated
   before it could be honoured.
-- Remaining constraint words: `Bool`, `Int`, `Unit`, `Text`, `Copy` and `Executable` are
-  implemented, while a constraint word that takes specialization arguments waits on the
-  surface vocabulary §11.2 defers.
+- Constraint words: `Bool`, `Int`, `Float`, `Unit`, `Text`, `Copy` and `Executable` are
+  registered. A constraint word that takes specialization arguments waits on the surface
+  vocabulary §11.2 defers. A stage whose type only an argument determines -- unannotated,
+  constrained only by `Copy`, or `Executable` -- has no type to bind it until argument-
+  determined stage typing lands, so a word that takes one (the continuation idiom in
+  `examples/continuations.let`) is diagnosed.
 - Consumer-driven known evaluation, specialization stabilization, and C scheduling.
   Emission consumes `Function:demands()` and `let/known.lua`'s answers: unneeded pure
   producers, known producers, their helpers, unused non-entry packet fields and
@@ -232,11 +226,13 @@ evaluator. These are semantic/structural tests, not native C tests.
 it with `cc -std=c11 -O1`, links host implementations, runs the module initializer, and
 compares process output. It covers native currying/invocation, persistent interior
 mutable state, prelude ordering, 200000-deep proper tail transfer, 64-bit wrapping and
-truncation, Text equality, and the division trap. Generated C lives in `test/out/`.
+truncation, Text equality, the division trap, aggregates, owned resources (including a user
+word with an `own` stage). Generated C lives in `test/out/`.
 This is real native execution, not the interpreter.
 
 The emitted C contains only what the program needs: the module initializer, live word
-entries, the trap hook, and at most one shared helper for division and one for remainder.
+entries, the trap hook, and, when used, one shared helper for division, one for remainder,
+and `let_to_int` for the Float narrowing.
 Effects are erased, single results return directly, and wrapping arithmetic is a macro.
 
 `test/aggregate.lua` covers §8.1 named projection, §8.2 positional and nested indexing,
@@ -261,7 +257,8 @@ indices (including a nested path), indexed and projected assignment, partial mov
 uninitialized-subplace diagnostics they raise and the run-time facts a conditional move
 produces, the borrow diagnostics, and §10.1's shared-state capture with its escape
 rejections. Native witnesses (`mut_place`,
-`ownership_lend`, `capture`, `partial_move`) execute the same cases.
+`ownership_lend`, `capture`, `partial_move`) execute the same cases, and the own-stage and
+resource-prelude cases run through the belt interpreter with their close traces checked.
 
 `test/import.lua` covers the implicit namespace, a written terminal, a configurable file,
 word members of an imported namespace, two imports as independent instances, an owned
@@ -287,7 +284,6 @@ runtime argument keeps the emitted call path.
 
 `test/demand.lua` checks unused pure calls across joins, dead loop-carried value
 cycles, ordered calls whose data is unused, and effects in nonreturning cycles.
-Actual known-branch specialization and C emission remain later steps.
 
 `test/float.lua` covers §13.3: the four literal spellings, the arithmetic and comparison
 operators, the `float`/`int` conversions and their saturation, division by zero as an

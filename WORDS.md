@@ -109,9 +109,9 @@ identifies an owner and path; it is not erased to an unqualified machine pointer
 | Persistent own / own mut stage | Acquire fresh or visibly moved ownership; own mut creates writable state |
 | Transient plain stage | Copy or read loan, as specified by the actual shape |
 | Transient mut stage | Loan of the actual place, not copy-in/copy-out |
-| Transient own / own mut stage | Activation acquires ownership, before its reached prelude runs |
+| Transient own / own mut stage | The receiving entry owns it and releases it at that entry's exit |
 | Reached persistent prelude | Newly initialized state belongs to the resulting word |
-| Reached transient prelude | Newly initialized state belongs to this activation |
+| Reached transient prelude | The call site builds it; the entry it is handed to releases it |
 
 An existing receiver's stable state stays with that receiver. An invocation borrows
 the access it needs; it does not destroy persistent state on ordinary return.
@@ -294,9 +294,10 @@ not assumed away by a global mutable-state cache.
    written back; prelude state carries an explicit retention flag.
 4. **Partly done.** Terminal entry, return, and bounded self tail retirement work.
    Concrete callable constraints and general recursive/mutual contracts remain.
-5. **Not started.** No consumer answers, scheduling, or C emission yet.
-5. Implement consumer answers and scheduling against the resulting belt. Add C layout
-   and explicit tail dispatch without adding another semantic IR.
+5. **Done for the covered shapes.** The binding-time evaluator (`let/known.lua`) answers
+   producers, demand folds and prunes, and `let/emit.lua` prints C with a direct `TailCall`
+   becoming a `goto`. Remaining: mutual-recursion summaries and block instances for
+   effect-carrying loops, as COMPILER.md records.
 
 Each step may be unfinished while under construction. It must not introduce a competing
 meaning of words or a temporary special-case call path. Reuse the existing scalar/control
@@ -336,10 +337,11 @@ write access to its owned state, while owning access permits its declared interi
 mutation. Captured external loans must be checked by their own provenance, not assumed
 to grant ownership of their referents.
 
-### Two editorial inconsistencies
+### One resolved and one open editorial question
 
-§3.1 restricts constraint arguments more than §11.1's specialization_argument rule.
-§9.2 describes partial moves as an implementation gap, while §18 explicitly defers
-their language design. Resolve these in the specification before extending those paths;
-neither ambiguity justifies an ad hoc runtime meaning in the compiler.
+Partial moves are now stated in §9.2 as language behavior, with only their interaction
+with run-time-computed paths deferred in §18, so that inconsistency is resolved. §3.1 still
+restricts constraint arguments more than §11.1's `specialization_argument` rule; resolve
+that in the specification before extending constraint-word arguments, because neither
+reading justifies an ad hoc runtime meaning in the compiler.
 

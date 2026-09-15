@@ -38,25 +38,20 @@ Whitespace is insignificant. `let`, `do`, `end`, `if`, `else`, and `return` prov
 structural boundaries; use `;` where adjacent expressions would otherwise run
 together (`f(x); g(y)`, not `f(x) g(y)`). Assignment remains `name = value`.
 
-Structured control keeps its familiar spelling. Continuation words handle alternative
-outcomes without forcing callback plumbing into every statement. See
-[`examples/continuations.let`](examples/continuations.let).
+Structured control keeps its familiar spelling. Continuation words are specified to handle
+alternative outcomes without forcing callback plumbing into every statement, but a stage whose
+type only an argument determines (`Executable`) is not lowered yet, so
+[`examples/continuations.let`](examples/continuations.let) does not compile today.
 
 ## Run
 
-Requires LuaJIT and a C99 compiler.
+Requires LuaJIT and a C11 compiler.
 
 ```sh
 luajit letc.lua examples/scalars.let output.c
-cc -std=c99 -O2 -fPIC -shared output.c -o output.so
+cc -std=c11 -O2 -fPIC -shared output.c -o output.so
 
-luajit test/compiler.lua
-luajit test/recursion.lua
-luajit test/ownership.lua
-luajit test/residual.lua
-luajit test/partial.lua
-luajit test/continuations.lua
-luajit test/control.lua
+luajit test/all.lua
 ```
 
 Set `CC=clang` to run the tests with Clang. Benchmarks use LuaJIT orchestration

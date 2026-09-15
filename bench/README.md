@@ -73,23 +73,24 @@ There are no array/memory-bandwidth, floating-point, string, or allocation-heavy
 workloads yet. CPU boost and other system load are not controlled. Sub-nanosecond
 differences between trivial functions are dominated by harness/code-layout effects.
 
-## Current partial evaluator
+## Demand-driven evaluation
 
 ```sh
-luajit bench/run.lua --out bench/out-pe
-luajit test/partial.lua
+luajit bench/run.lua --out bench/out-current
 ```
 
-The intermediate lowering-based evaluator was deleted, not retained behind the
-new interface. `domain.lua`, `state.lua`, `evaluate.lua`, and `specialize.lua` now
-evaluate explicit known values, residual values, mutable places, ownership state,
-and non-returning computations. `codegen.lua` only prints residual code.
+The intermediate lowering-based evaluator was deleted, not retained behind the new
+interface. The compiler now has one path: `let/known.lua` evaluates the belt abstractly
+(`Known(v)` or `Runtime`, with ordered work scheduled and never executed), `let/demand.lua`
+supplies the structural demand fixed point, and `let/emit.lua` prints the residual C. There
+is no separate residual IR.
 
-The most important acceptance checks occur before GCC: static mutation and finite
-loops become literal returns; invariant recursive arguments disappear from helper
-ABIs; changing arguments generalize; and only differing initialization states need
-runtime alive flags. Tests also cover return-state joins, memoized prelude effects,
-escaped-memory invalidation, and known traps. Existing native behavior tests remain.
+The most important acceptance checks occur before GCC: a decidable pure loop is enumerated
+to its result, a known branch selects one edge, a fully known call emits no callee, and a
+known zero divisor keeps a residual trapping operation rather than becoming a diagnostic.
+`test/known.lua` and `test/emit.lua` cover these, and the native witnesses execute them. The
+benchmark's statistics report each instance's folded flag, block count, widened packet
+fields and parameter count.
 
 The first five-sample probe run emitted about 10.8 KB of C in 20 ms. Arithmetic
 loops remained close to the handwritten `-O3` reference; tail/prelude reductions

@@ -1,7 +1,7 @@
 # Let compiler
 
 The compiler. It replaced the earlier one outright; nothing of that one remains.
-[Let's specification](../let-language-specification.md) remains authoritative.
+[Let's specification](let-language-specification.md) remains authoritative.
 `V.parse(text, file):build(options)` parses, constructs, and verifies a program;
 `program:emit(options)` produces C and `V.print(unit)` renders it. Native
 compilation of the covered language is tested end to end, so this is now a
@@ -75,8 +75,9 @@ point. Dead loop-carried value cycles do not root themselves. Control decisions,
 returns and effect interfaces are roots; this preserves effects in nonreturning
 loops too. Unreachable blocks do not seed demand.
 
-This is conservative CFG demand, not yet binding-time evaluation: both successors
-of a reachable branch are considered possible, and no known condition is folded.
+This pure CFG demand is conservative: both successors of a reachable branch are considered
+possible, and it folds no condition. Binding-time evaluation is the separate `known.lua`
+layer on top, which does fold known conditions and branches.
 The representation remains immutable and is never renumbered. Feed verified flow
 to demand analysis; it cannot repair an omitted effect dependency.
 
@@ -120,8 +121,8 @@ The emitted C is kept to what the program actually needs:
   directly. Only a genuine multiple result gets a struct.
 - Names come from the belt: `let_module_init` and `let_<source name>_<id>`, so a function
   says what it is.
-- `Int`/`Bool`/`Unit` are `int64_t`/`bool`/`uint8_t`; a record with no fields is `uint8_t`
-  because an empty struct is not ISO C.
+- `Int`/`Float`/`Bool`/`Unit` are `int64_t`/`double`/`bool`/`uint8_t`; a record with no fields
+  is `uint8_t` because an empty struct is not ISO C.
 - A word or aggregate value is a struct of its fields; `Construct`/`LoadField`/
   `StoreField` are value construction and field access.
 - A `CallFunction` passes the effect token first and receives a result struct; a
@@ -131,13 +132,15 @@ The emitted C is kept to what the program actually needs:
   are one-line and branch-free, so they are macros (`LET_ADD`, `LET_SUB`, `LET_MUL`,
   `LET_NEG`, `LET_TEXT_EQ`) rather than functions. Division and remainder keep one shared
   static helper each, because inlining a trap check at every site would duplicate control
-  flow instead of removing a function.
+  flow instead of removing a function. Float arithmetic is native binary64; `float` is a
+  `(double)` cast and `int` emits one `let_to_int` helper mirroring `scalar.to_int`'s
+  truncation and saturation.
 - Text is a `{data,size}` struct with byte-wise equality; a `Trap` calls the
   embedding host's `let_trap` hook.
 
 Emission is demand-driven rather than print-everything, and demand now *computes* as well
 as prunes. `let/known.lua` is an abstract evaluator over the belt whose domain is
-`Known(v)` or `Runtime`; `let/scalar.lua` gives it the same exact §13.2 arithmetic the
+`Known(v)` or `Runtime`; `let/scalar.lua` gives it the same exact §13.2 and §13.3 arithmetic the
 concrete interpreter uses, so folding cannot disagree with execution. See
 [DEMAND.md](DEMAND.md) for the design and its normative gates.
 
@@ -202,11 +205,12 @@ compiler.
 ## Next implementation steps
 
 Follow the connected implementation sequence in [WORDS.md §10](WORDS.md#10-build-sequence-connected-contracts-not-supported-case-shortcuts).
-Steps 1–4 are implemented for the covered shapes, and step 5's C output exists and
-is tested natively. Remaining work is consumer-driven known evaluation and scheduling,
-plus the gaps listed in COMPILER.md: non-Copy captures, mutable borrowed stage storage,
-aggregate owned members, projection/indexing places, general recursive and mutual
-call contracts, and a shared cross-function tail dispatcher.
+Steps 1–5 are implemented for the covered shapes: the shared advancement protocol, the
+binding-time evaluator (`known.lua`), and demand-driven C emission are in place and tested
+natively. Remaining work is the list in COMPILER.md's "Work still required": the benchmark's
+remaining measurement, a partial move introduced inside a loop, word values outside a call
+result, argument-determined stage types (the continuation idiom), mutual-recursion summaries,
+and a shared cross-function tail dispatcher.
 
 Reuse the scalar/control machinery where it fits these contracts, rather than
 adding a separate limited source-call path. Existing coverage and remaining gaps
@@ -216,18 +220,7 @@ Run from the repository root (the execution oracle is test-only, not a compiler
 evaluator or a claim of native-code validation):
 
 ```sh
-luajit let/test.lua
-luajit test/build.lua
-luajit test/demand.lua
-luajit test/source.lua
-luajit test/resolve.lua
-luajit test/program.lua
-luajit test/emit.lua
-luajit test/aggregate.lua
-luajit test/known.lua
-luajit test/import.lua
-luajit test/place.lua
-luajit test/native.lua
+luajit test/all.lua
 ```
 
 `let/file.lua` is a default import resolver — reading files, assuming an extension, and

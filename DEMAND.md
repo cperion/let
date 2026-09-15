@@ -1,7 +1,7 @@
 # Demand-driven evaluation: design
 
 Design target for the step after AST-to-belt construction and C emission. The
-authoritative input is [the Let specification](../let-language-specification.md);
+authoritative input is [the Let specification](let-language-specification.md);
 this document does not redefine Let. Where an implementation limit is chosen, it says
 so instead of presenting the limit as a language rule.
 
@@ -11,12 +11,10 @@ Related: [WORDS.md](WORDS.md) (staged words), [COMPILER.md](COMPILER.md) (constr
 ## 1. Where we are
 
 Emission is already demand-*pruning*: `Function:demands()` decides which producers are
-written out. What is missing is demand's second job — **computing**. Today a value is
-either emitted as a runtime variable or dropped; it is never *known*.
-
-So the gap is precisely: **the compiler never executes the pure fragment.** That is why
-`multiply 6 7` followed by `a()` still emits a call, an entry function and a multiply,
-when the entire computation is a compile-time constant.
+written out. The layer this document designed adds demand's second job — **computing** —
+and it is implemented as `let/known.lua` (Milestone A below). A value is now emitted as a
+runtime variable, dropped, or inlined as a `Known` constant, and `multiply 6 7` followed
+by `a()` becomes the constant 42 with no call, no entry function and no multiply.
 
 ## 2. What folding is permitted to do
 
@@ -115,7 +113,7 @@ producers are asked (§7).
 
 | Operation | Rule |
 | --- | --- |
-| `IntegerLiteral`, `BooleanLiteral`, `UnitLiteral`, `TextLiteral` | `Known` |
+| `IntegerLiteral`, `FloatLiteral`, `BooleanLiteral`, `UnitLiteral`, `TextLiteral` | `Known` |
 | `Unary` | fold iff operand `Known` |
 | `Binary` | fold iff both operands `Known` |
 | `CheckedBinary` | divisor `Known ≠ 0` → `Known`, check omitted; otherwise the residual checked operation is kept, so a known-zero divisor still traps at run time rather than becoming a compile-time diagnostic |
@@ -131,8 +129,9 @@ producers are asked (§7).
 | `Ref` to an unsupplied word field | `Runtime` (Milestone A) |
 
 Arithmetic must reproduce §13.2 exactly: wrapping `+ - *`, truncated `/`, dividend-sign
-`%`, and `INT_MIN / -1 == INT_MIN`. Reusing the concrete interpreter's operators
-guarantees this by construction.
+`%`, and `INT_MIN / -1 == INT_MIN`. Float arithmetic reproduces §13.3 through the same
+shared `scalar` layer, including the `float`/`int` conversions. Reusing the concrete
+interpreter's operators guarantees this by construction.
 
 ## 7. Demand roots and the worklist
 

@@ -311,7 +311,7 @@ specialization_atom := literal
                      | NAME { postfix_suffix }
                      | aggregate_literal
 
-literal              := BOOL | INT | TEXT
+literal              := BOOL | INT | FLOAT | TEXT
 ~~~
 
 Specialization arguments are intentionally restricted.
@@ -1385,7 +1385,7 @@ The prelude is reached after the first stage and therefore runs before the secon
 
 ## 21. Semantic closure and representation independence
 
-The specified semantics govern token boundaries, expression precedence, stage advancement, invocation, control scope, evaluation order, ownership transfer, borrow lifetime, normal destruction, and primitive integer behavior. Compiler implementation gaps do not redefine those semantics.
+The specified semantics govern token boundaries, expression precedence, stage advancement, invocation, control scope, evaluation order, ownership transfer, borrow lifetime, normal destruction, and primitive integer and Float behavior. Compiler implementation gaps do not redefine those semantics.
 
 Object layouts, internal compiler data structures, source-map compression, diagnostic presentation, and execution techniques are not language semantics. The host's action after an unrecoverable trap is governed by §14.2.
 
