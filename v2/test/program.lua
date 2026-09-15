@@ -1,0 +1,134 @@
+package.path='./?.lua;./?/init.lua;' .. package.path
+local V=require('v2'); local A,B,L=V.AST,V.Belt,V.List
+local execute=require('v2.test.execute')
+local count=0
+local function check(value,message) assert(value,message); count=count+1 end
+local function eq(actual,expected,message)
+    assert(actual==expected,('%s: expected %s, got %s'):format(message or 'value',tostring(expected),tostring(actual))); count=count+1
+end
+local read=B.Parameter(B.Text,A.Read)
+local hosts={mark={symbol='mark',phase='runtime',purity='ordered',signature=B.Signature(L{read},L{B.Text})}}
+local function build(source,extra)
+    local options={hosts=hosts}
+    for key,value in pairs(extra or {}) do options[key]=value end
+    return V.parse(source,'program.let'):build(options)
+end
+-- Evaluates the module initializer and returns the namespace bundle.
+local function module_namespace(program,host_functions)
+    return execute(program.functions[1],{},host_functions or {},100000,program.functions)
+end
+local function field(order,name,namespace)
+    for i,entry in ipairs(order) do if entry==name then return namespace.fields[i] end end
+    error('no module binding ' .. name)
+end
+
+-- §17.1 Currying versus calling. `multiply 6 7` stays an uninvoked saturated word.
+local program,builder=build[[
+let multiply =
+    let x : Int
+    let y : Int
+    do
+        return x * y
+    end
+let double = multiply 2
+let pending = multiply 6 7
+let a = double(21)
+let b = pending()
+let c = multiply(6, 7)
+]]
+local ns=module_namespace(program)
+eq(field(builder.module_order,'a',ns),42,'specialized word invoked')
+eq(field(builder.module_order,'b',ns),42,'saturated word invoked explicitly')
+eq(field(builder.module_order,'c',ns),42,'direct invocation')
+check(type(field(builder.module_order,'pending',ns))=='table','a saturated word is a word value, not its result')
+
+-- Invoking a partial word must not change it: a second call site still sees the
+-- unsupplied receiver and supplies its own transient stages.
+program,builder=build[[
+let multiply = let x : Int let y : Int do return x * y end
+let first = multiply(6, 7)
+let second = multiply(3, 4)
+]]
+ns=module_namespace(program)
+eq(field(builder.module_order,'first',ns),42,'first invocation of a partial word')
+eq(field(builder.module_order,'second',ns),12,'a partial receiver is unchanged by an invocation')
+
+-- §17.2 An inter-stage prelude runs when its stage is supplied, not at invocation.
+program,builder=build[[
+let affine =
+    let scale : Int
+    let bias : Int
+    let twice_bias = bias * 2
+    do
+        return scale + twice_bias
+    end
+let configured = affine 10 16
+let result = configured()
+]]
+ns=module_namespace(program)
+eq(field(builder.module_order,'result',ns),42,'prelude value is stable state')
+
+-- §20 Argument/prelude order: prelude between stages fires before the next argument.
+program,builder=build[[
+let staged =
+    let first
+    let prelude = mark("prelude")
+    let second
+    do
+        return {}
+    end
+let result = staged(mark("first"), mark("second"))
+]]
+local events={}
+ns=module_namespace(program,{mark=function(text) events[#events+1]=text; return text end})
+eq(table.concat(events,','),'first,prelude,second','§20 prelude ordering')
+
+-- §5.2 A data terminal returns data immediately and does not become an executable word.
+program,builder=build[[
+let pair =
+    let left : Int
+    let right : Int
+    { left, right }
+let p = pair 10 20
+]]
+ns=module_namespace(program)
+local p=field(builder.module_order,'p',ns)
+eq(p.fields[1],10,'positional data terminal, first element')
+eq(p.fields[2],20,'positional data terminal, second element')
+
+-- §10.2 Private mutable prelude state: two specializations do not share a counter.
+program,builder=build[[
+let counter =
+    let start : Int
+    let value mut = start
+    do
+        value = value + 1
+        return value
+    end
+let errors = counter 0
+let requests = counter 100
+let first = errors()
+let second = errors()
+let third = requests()
+]]
+ns=module_namespace(program)
+eq(field(builder.module_order,'first',ns),1,'first counter invocation')
+eq(field(builder.module_order,'second',ns),2,'interior mutable state persists across invocations')
+eq(field(builder.module_order,'third',ns),101,'independent specializations own distinct state')
+
+-- §4.2 Self recursion through a tail transfer reuses one frame.
+program,builder=build[[
+let countdown =
+    let n : Int
+    do
+        if n == 0 do
+            return 0
+        end
+        return countdown(n - 1)
+    end
+let answer = countdown(20000)
+]]
+ns=module_namespace(program)
+eq(field(builder.module_order,'answer',ns),0,'tail self recursion is bounded')
+
+print(('passed %d v2 program construction checks'):format(count))
