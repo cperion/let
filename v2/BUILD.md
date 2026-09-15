@@ -143,6 +143,35 @@ construction diagnostic rather than a language limitation.
   value instead of an AST argument, which is a small refactor of the function that already does the
   work rather than a new mechanism.
 
+  **The architectural fix, now verified against the code.** A host entry is not a new kind of
+  function: it is the *normal advancement sequence* run with parameters where a call site would
+  have built expressions. `Builder:supply` already is that protocol -- "the next stage is
+  `layout.steps[word.supplied+1]`; bind it, run the preludes belonging to it, carry the trace
+  forward" -- so the fix is to split it, not to reimplement it:
+
+      advance(ctx, value, supplied_value, span, destination)   -- one implementation
+      supply(ctx, value, argument, destination)                -- builds the value, then advances
+
+  Everything the earlier attempts got wrong disappears rather than being corrected: the
+  captures-first walk, the `bound` counter, the item/step map, the stage counter and the arity
+  assert all existed only because I was recomputing, in `build_entry`, what `advance` looks up.
+  Two implementations of one rule disagree where their conventions differ, and mine did -- in the
+  parameter *order*, which is why a prelude subtracted from the wrong stage.
+
+  One design detail is left, and it is the reason `build_entry` cannot simply be reused:
+  **`advance` pops the scope holding the bindings it made.** Each advance re-binds the whole
+  bundle's fields precisely because the previous advance's scope is gone, so after the last
+  stage returns, nothing it bound is in scope -- and a host entry's terminal body runs *there*.
+  So the protocol needs a completion step: when the word reaches saturation the caller says what
+  that means. A call site packs a bundle (or takes a data terminal); a host entry runs the
+  terminal body *inside* that final advance, where its stages are still bound. That is one hook on
+  `advance`, not another walk, and it is what remains to be written.
+
+  **Run the whole suite before committing WIP, even on a branch.** The branch's own commit broke
+  ordinary builds -- `entry parameter count does not match its stages`, from that arity assert --
+  and only `v2/test/host_entry.lua` was run, so it went unnoticed. A branch whose base is red is
+  not a base.
+
   It also leaves a semantics question to state explicitly, as §18 requires: a host that invokes an
   exported word supplies the remaining stages, and *the entry runs whatever preludes lie between
   them*. The host does not supply those, and nothing in the current text says so.
