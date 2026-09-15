@@ -73,6 +73,7 @@ function Known.key(answer)
     if answer.type==B.Bool then return answer.value and 'b1' or 'b0' end
     if answer.type==B.Unit then return 'u' end
     if answer.type==B.Text then return 't' .. #answer.value .. ':' .. answer.value end
+    if answer.type==B.Float then return ('f%a'):format(answer.value) end
     return '?' .. tostring(answer.type)
 end
 
@@ -301,6 +302,8 @@ function Evaluator:instruction(block,block_id,index,instruction)
 
     if B.IntegerLiteral:isclassof(operation) then
         put(0,Known.value(B.Int,scalar.integer(operation.spelling,error)))
+    elseif B.FloatLiteral:isclassof(operation) then
+        put(0,Known.value(B.Float,scalar.float(operation.spelling,error)))
     elseif B.BooleanLiteral:isclassof(operation) then
         put(0,Known.value(B.Bool,operation.value))
     elseif B.UnitLiteral:isclassof(operation) then
@@ -318,6 +321,11 @@ function Evaluator:instruction(block,block_id,index,instruction)
             local left,right=arguments[1].value,arguments[2].value
             local value
             if arguments[1].type==B.Text then value=equalities[operation.operator](left,right)
+            elseif arguments[1].type==B.Float then
+                if arithmetic[operation.operator] then value=arithmetic[operation.operator](left,right)
+                elseif operation.operator==A.Divide then value=scalar.fdivide(left,right)
+                elseif relations[operation.operator] then value=relations[operation.operator](left,right)
+                elseif equalities[operation.operator] then value=equalities[operation.operator](left,right) end
             elseif arithmetic[operation.operator] then value=arithmetic[operation.operator](left,right)
             elseif relations[operation.operator] then value=relations[operation.operator](left,right)
             elseif equalities[operation.operator] then value=equalities[operation.operator](left,right)

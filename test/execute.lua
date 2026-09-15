@@ -13,22 +13,17 @@ end
 function Run:arguments(refs) local values={}; for i,ref in ipairs(refs) do values[i]=self:get(ref) end; return values end
 function B.Op:execute() error('missing test interpreter opcode') end
 function B.IntegerLiteral:execute() return scalar.integer(self.spelling,error) end
+function B.FloatLiteral:execute() return scalar.float(self.spelling,error) end
 function B.BooleanLiteral:execute() return self.value end
 function B.TextLiteral:execute() return self.value end
 function B.UnitLiteral:execute() return unit end
 function A.Add:execute(a,b) return scalar.add(a,b) end
 function A.Subtract:execute(a,b) return scalar.subtract(a,b) end
 function A.Multiply:execute(a,b) return scalar.multiply(a,b) end
--- `scalar` is the exact-arithmetic authority; these wrappers add the interpreter's
--- presentation of a trap, which is `trap: <reason>` like the C host hook.
-function A.Divide:execute(a,b)
-    if b==0 then error('trap: division by zero',0) end
-    return scalar.divide(a,b)
-end
-function A.Remainder:execute(a,b)
-    if b==0 then error('trap: remainder by zero',0) end
-    return scalar.remainder(a,b)
-end
+-- `scalar` is the exact-arithmetic authority. Division and remainder do not trap here: an Int
+-- operation is a CheckedBinary, which raises the trap, while a Float one is IEEE.
+function A.Divide:execute(a,b) return a/b end
+function A.Remainder:execute(a,b) return a%b end
 function A.Equal:execute(a,b) return scalar.equal(a,b) end
 function A.NotEqual:execute(a,b) return scalar.not_equal(a,b) end
 function A.Less:execute(a,b) return scalar.less(a,b) end
@@ -41,7 +36,11 @@ function A.Negate:execute(a) return scalar.negate(a) end
 function A.Not:execute(a) return not a end
 function B.Unary:execute(ctx) return self.operator:execute(ctx:get(self.operand)) end
 function B.Binary:execute(ctx) return self.operator:execute(ctx:get(self.left),ctx:get(self.right)) end
-function B.CheckedBinary:execute(ctx) return self.operator:execute(ctx:get(self.left),ctx:get(self.right)),ctx:get(self.effect)+1 end
+function B.CheckedBinary:execute(ctx)
+    local a,b=ctx:get(self.left),ctx:get(self.right)
+    if b==0 then error('trap: '..(self.operator==A.Divide and 'division' or 'remainder')..' by zero',0) end
+    return self.operator:execute(a,b),ctx:get(self.effect)+1
+end
 function B.PureHostCall:execute(ctx)
     local result=assert(ctx.hosts[self.symbol])(unpack(ctx:arguments(self.arguments)))
     if result==nil then result=unit end; return result

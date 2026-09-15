@@ -126,6 +126,7 @@ end
 function A.Prelude:resolve(ctx,scope) self.binding:resolve(ctx,scope) end
 function A.Expr:resolve() error('missing lexical resolver for expression',0) end
 function A.Integer:resolve() end
+function A.Float:resolve() end
 function A.Boolean:resolve() end
 function A.Text:resolve() end
 function A.Unit:resolve() end
@@ -206,7 +207,7 @@ function A.Program:resolve(options)
     local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},constraints={},scopes={},templates={},
         imports={},import_words={},importing={},import_resolver=options.resolve,file=self.file.span.file},Context)
     local builtins={}
-    for _,name in ipairs{'Bool','Int','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
+    for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
     local outer=dictionary(ctx,nil,builtins)
     outer=dictionary(ctx,outer,options.dictionary or {})
     local resources={}

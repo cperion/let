@@ -109,6 +109,9 @@ NAME        := [A-Za-z_][A-Za-z0-9_]*
 DECIMAL     := DIGIT { DIGIT | "_" DIGIT }
 HEX         := "0x" HEXDIGIT { HEXDIGIT | "_" HEXDIGIT }
 INT         := DECIMAL | HEX
+FLOAT       := DECIMAL "." DIGIT { DIGIT | "_" DIGIT } [ EXPONENT ]
+             | DECIMAL EXPONENT
+EXPONENT    := ("e" | "E") [ "+" | "-" ] DIGIT { DIGIT | "_" DIGIT }
 BOOL        := "true" | "false"
 TEXT        := '"' { UTF8_CHAR | ESCAPE } '"'
 ~~~
@@ -129,11 +132,12 @@ The grammar recognizes:
 true false                    Boolean
 0 42 1_000                    decimal Int
 0x2a 0xff                     hexadecimal Int
+1.0 0.5 1_000.25 1e9 1.5e-3   Float
 "text\n"                      UTF-8 text literal
 {}                            empty aggregate / Unit
 ~~~
 
-Underscores may occur between digits and are ignored. `-7` is the unary `-` token applied to the literal `7`; the scanner never folds the sign into the integer token. String escapes are `\\`, `\"`, `\n`, `\r`, `\t`, and `\u{HEX}`. A Unicode escape contains one to six hexadecimal digits and must name a Unicode scalar value. An unescaped newline cannot occur inside a string.
+Underscores may occur between digits and are ignored. A Float literal has a digit on each side of its `.` and, when it carries an exponent, at least one digit after `e` or `E`; `1.` and `.5` are therefore not Float literals. `-7` is the unary `-` token applied to the literal `7`; the scanner never folds the sign into the literal token. String escapes are `\\`, `\"`, `\n`, `\r`, `\t`, and `\u{HEX}`. A Unicode escape contains one to six hexadecimal digits and must name a Unicode scalar value. An unescaped newline cannot occur inside a string.
 
 ### 2.3 Reserved spellings
 
@@ -1043,17 +1047,30 @@ Division or remainder by zero traps. `INT_MIN / -1` wraps to `INT_MIN`; `INT_MIN
 
 There are no implicit numeric conversions or promotion rules. Additional numeric vocabularies use distinct constraints and explicit conversion words.
 
-### 13.3 Equality
+### 13.3 Float
 
-`==` and `!=` are defined for Unit, Bool, Int, and Text. Both operands must have the same semantic kind. Unit values are always equal; Bool and Int compare by value; Text compares its UTF-8 byte sequence.
+`Float` is an IEEE 754 binary64 value. A Float literal is correctly rounded to nearest, ties to
+even by the embedding's decimal conversion; hexadecimal floating literals are not part of the
+source. Division by zero does not trap: it produces the IEEE infinity or NaN the operation
+defines. A NaN is unequal to every value including itself, and every ordered comparison
+involving a NaN is false. Positive and negative zero compare equal.
+
+Unary `-` and the four arithmetic operators `+`, `-`, `*`, and `/` accept only Float operands
+and return Float. `%` is not defined for Float. Relational operators accept two Float values
+and return Bool. There are no implicit conversions between Int and Float; a conversion
+between numeric vocabularies is explicit vocabulary (§13.2, §13.6).
+
+### 13.4 Equality
+
+`==` and `!=` are defined for Unit, Bool, Int, Float, and Text. Both operands must have the same semantic kind. Unit values are always equal; Bool, Int, and Float compare by value, with Float following §13.3; Text compares its UTF-8 byte sequence.
 
 Aggregate, word, handle, and owned-resource equality is not implicit. A vocabulary may provide an explicit pure or ordered equality word for such a value.
 
-### 13.4 Text
+### 13.5 Text
 
 A Text literal denotes an immutable, module-lifetime UTF-8 byte sequence with a known byte length. It is Copy; this does not require copying its bytes on every binding. Dynamically allocated or host-owned strings use a separately declared vocabulary and ownership contract. The core specifies no concatenation, Unicode indexing, normalization, formatting, or allocation policy.
 
-### 13.5 Primitive spelling
+### 13.6 Primitive spelling
 
 The operator spellings in §3.4 resolve to language dictionary entries. They are not user-overloadable. Host I/O, allocation, buffers, arenas, and opaque handles are ordinary named vocabulary with explicit constraints, ownership behavior, and purity metadata.
 
@@ -1171,7 +1188,7 @@ A conforming implementation rejects at least:
 
 | Condition | Phase |
 | --- | --- |
-| Invalid UTF-8, escape, integer spelling, or out-of-range literal | scanning/parsing |
+| Invalid UTF-8, escape, integer or Float spelling, or out-of-range literal | scanning/parsing |
 | Unknown name or duplicate name in one scope | binding |
 | Wrong-phase use of runtime, construction, or constraint word | construction |
 | Invalid qualifier order or `own` on a completed binding | parsing/elaboration |
@@ -1283,7 +1300,7 @@ These language extensions remain explicitly deferred. Note that partial moves *a
 - storing a borrow in an aggregate, which is what §20's vector was reaching for: the grammar admits
   a value or `move place` as a member (§3.3) and confines `mut place` to a call argument (§3.4), so
   a program that tries it is rejected while parsing rather than by the ownership rules;
-- floating-point and mixed numeric promotion;
+- mixed numeric promotion and implicit numeric conversion;
 - dynamic constraint tests and reflection;
 - pattern matching, `break`, and `continue`;
 - catchable exceptions;

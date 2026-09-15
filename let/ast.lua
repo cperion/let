@@ -18,7 +18,7 @@ module AST {
     Item = Stage(string name, Capability capability, Constraint? constraint, Source.Span span)
          | Prelude(Binding binding)
     Terminal = Data(Expr value) | Body(Stmt* statements)
-    Expr = Name(string name) | Integer(string spelling) | Boolean(boolean value)
+    Expr = Name(string name) | Integer(string spelling) | Float(string spelling) | Boolean(boolean value)
          | Text(string value) | Unit
          | Unary(UnaryOp operator, Expr operand)
          | Binary(BinaryOp operator, Expr left, Expr right)

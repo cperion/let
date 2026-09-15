@@ -74,6 +74,24 @@ function Lexer:next()
     local name=rest:match('^[A-Za-z_][A-Za-z_0-9]*')
     if name then for _=1,#name do self:advance() end; return Source.Token(keywords[name] and name or 'name',name,nil,span) end
     if c:match('^[0-9]$') then
+        -- A Float has a digit on each side of its `.`; an exponent may follow either form.
+        local mantissa=rest:match('^%d[%d_]*%.%d[%d_]*')
+        if mantissa then
+            local exponent=rest:sub(#mantissa+1):match('^[eE][%+%-]?%d[%d_]*')
+            if not exponent and rest:sub(#mantissa+1):match('^[eE]') then
+                Lexer.fail(span,'invalid Float exponent')
+            end
+            local spelling=mantissa .. (exponent or '')
+            require('let.literal').float(spelling,function(m) Lexer.fail(span,m) end)
+            for _=1,#spelling do self:advance() end
+            return Source.Token('float',spelling,nil,span)
+        end
+        local exponent=rest:match('^%d[%d_]*[eE][%+%-]?%d[%d_]*')
+        if exponent then
+            require('let.literal').float(exponent,function(m) Lexer.fail(span,m) end)
+            for _=1,#exponent do self:advance() end
+            return Source.Token('float',exponent,nil,span)
+        end
         local spelling=rest:match('^[A-Za-z_0-9]+')
         -- Permit the magnitude of INT_MIN here; its literal sign is checked on
         -- the AST, after parentheses and unary operators have been parsed.

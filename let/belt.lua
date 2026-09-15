@@ -5,7 +5,7 @@ module Belt {
     Destination = Persistent | Transient
     Access = CopyAccess | OwnAccess | ReadAccess | MutAccess
     Field = (string? name, Type type, boolean mutable)
-    Type = Int | Bool | Unit | Text | Effect
+    Type = Int | Float | Bool | Unit | Text | Effect
          | Named(string name) | Address(Type pointee)
          | Borrow(Type pointee, boolean stable)
          | Aggregate(Field* fields, boolean is_copy)
@@ -15,7 +15,7 @@ module Belt {
     Signature = (Parameter* parameters, Type* results)
     Ref = (number distance, number output)
     Instruction = (Op operation, Type* results, Source.Span? span)
-    Op = IntegerLiteral(string spelling) | BooleanLiteral(boolean value) | UnitLiteral | TextLiteral(string value)
+    Op = IntegerLiteral(string spelling) | FloatLiteral(string spelling) | BooleanLiteral(boolean value) | UnitLiteral | TextLiteral(string value)
        | Unary(AST.UnaryOp operator, Ref operand)
        | Binary(AST.BinaryOp operator, Ref left, Ref right)
        | CheckedBinary(AST.BinaryOp operator, Ref effect, Ref left, Ref right)

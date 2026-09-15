@@ -25,6 +25,7 @@ function C.Void:print() return 'void' end
 function C.Bool:print() return 'bool' end
 function C.I64:print() return 'int64_t' end
 function C.U64:print() return 'uint64_t' end
+function C.F64:print() return 'double' end
 function C.U8:print() return 'uint8_t' end
 function C.Size:print() return 'size_t' end
 function C.Pointer:print() return self.pointee:print() .. '*' end
@@ -32,6 +33,12 @@ function C.Named:print() return self.name end
 
 function C.Expr:print() error('missing C expression printer',0) end
 function C.Integer:print() return integer(self.hi,self.lo) end
+function C.Float:print()
+    if self.value~=self.value then return 'NAN' end
+    if self.value==math.huge then return 'INFINITY' end
+    if self.value==-math.huge then return '(-INFINITY)' end
+    return string.format('%a',self.value)
+end
 function C.Boolean:print() return self.value and 'true' or 'false' end
 function C.String:print() return quoted(self.value) end
 function C.Name:print() return self.name end

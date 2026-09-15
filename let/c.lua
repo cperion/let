@@ -2,9 +2,9 @@
 return function(context)
     context:Define [[
 module C {
-    Type = Void | Bool | I64 | U64 | U8 | Size
+    Type = Void | Bool | I64 | F64 | U64 | U8 | Size
          | Pointer(Type pointee) | Named(string name)
-    Expr = Integer(number hi, number lo) | Boolean(boolean value) | String(string value)
+    Expr = Integer(number hi, number lo) | Float(number value) | Boolean(boolean value) | String(string value)
          | Name(string name) | Unary(string operator, Expr operand)
          | Binary(string operator, Expr left, Expr right)
          | Cast(Type type, Expr value) | Call(Expr callee, Expr* arguments)

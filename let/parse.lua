@@ -198,6 +198,7 @@ function Parser:atom()
     local token=self:token()
     if self:accept('name') then return A.Name(token.spelling,token.span) end
     if self:accept('integer') then return A.Integer(token.spelling,token.span) end
+    if self:accept('float') then return A.Float(token.spelling,token.span) end
     if self:accept('text') then return A.Text(token.value,token.span) end
     if self:accept('true') then return A.Boolean(true,token.span) end
     if self:accept('false') then return A.Boolean(false,token.span) end

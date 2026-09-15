@@ -51,6 +51,7 @@ function Emitter:ctype(type_)
     if type_==B.Bool then return C.Bool end
     if type_==B.Unit then return C.U8 end
     if type_==B.Effect then return C.U64 end
+    if type_==B.Float then self.math=true; return C.F64 end
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if B.Named:isclassof(type_) then return C.I64 end
     if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
@@ -117,6 +118,7 @@ function Emitter:value(belt_id,index,output) return 'v' .. belt_id .. '_' .. ind
 function Emitter:constant(answer)
     local type_=answer.type
     if type_==B.Int then local hi,lo=scalar.limbs(answer.value); return C.Integer(hi,lo) end
+    if type_==B.Float then self.math=true; return C.Float(answer.value) end
     if type_==B.Bool then return C.Boolean(answer.value) end
     if type_==B.Unit then return C.Integer(0,0) end
     if type_==B.Text then return C.Compound(self:ctype(B.Text),L{C.String(answer.value),C.Integer(0,#answer.value)}) end
@@ -143,7 +145,7 @@ function Emitter:arglist(block,block_id,position,refs)
     return out
 end
 
-local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Less]='<',[A.LessEqual]='<=',
+local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Divide]='/',[A.Less]='<',[A.LessEqual]='<=',
     [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||'}
 local arithmetic={[A.Add]={'add','LET_ADD'}, [A.Subtract]={'sub','LET_SUB'}, [A.Multiply]={'mul','LET_MUL'}}
 
@@ -174,6 +176,9 @@ function Emitter:instruction(block,block_id,index,instruction)
     end
     if B.IntegerLiteral:isclassof(operation) then
         declare(0,B.Int,self:literal(operation.spelling))
+    elseif B.FloatLiteral:isclassof(operation) then
+        self.math=true
+        declare(0,B.Float,C.Float(scalar.float(operation.spelling,error)))
     elseif B.BooleanLiteral:isclassof(operation) then
         declare(0,B.Bool,C.Boolean(operation.value))
     elseif B.UnitLiteral:isclassof(operation) then
@@ -184,12 +189,16 @@ function Emitter:instruction(block,block_id,index,instruction)
     elseif B.Unary:isclassof(operation) then
         local operand=self:arglist(block,block_id,position,{operation.operand})[1]
         if operation.operator==A.Not then declare(0,B.Bool,C.Unary('!',operand))
+        elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
         local arguments=self:arglist(block,block_id,position,{operation.left,operation.right})
         local _,type_=block:resolve(position,operation.left)
         if known(0) then return statement_list(out) end
-        if operation.operator==A.Equal or operation.operator==A.NotEqual then
+        if type_==B.Float then
+            self.math=true
+            declare(0,instruction.results[1],C.Binary(symbolic[operation.operator],arguments[1],arguments[2]))
+        elseif operation.operator==A.Equal or operation.operator==A.NotEqual then
             -- `symbolic` already spells the operator: `==` or `!=` for a scalar, and the one Text
             -- macro *is* equality, so only that case has anything left to negate. Negating the
             -- scalar case too made `!=` compare equal and vice versa.
@@ -794,6 +803,7 @@ function Emitter:program(program,options)
     local helpers=self:helper_declarations()
     local includes=L{'stdint.h','stdbool.h'}
     if self.text and self.helpers.text_eq then includes:insert('string.h') end
+    if self.math then includes:insert('math.h') end
     local declarations=L()
     declarations:insertall(helpers)
     declarations:insertall(self.statics)

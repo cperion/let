@@ -30,7 +30,7 @@ function Builder.new(ast,resolved,options)
 end
 
 function Builder:types()
-    local types={Int=B.Int,Bool=B.Bool,Unit=B.Unit,Text=B.Text}
+    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}
     for name,descriptor in pairs(self.options.resources or {}) do
         assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z0-9_]*$'),'resource requires a destructor symbol')
         types[name]=B.Named(name)

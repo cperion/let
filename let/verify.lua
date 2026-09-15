@@ -29,12 +29,28 @@ end
 function B.BooleanLiteral:verify(ctx) ctx:results(L{B.Bool}) end
 function B.UnitLiteral:verify(ctx) ctx:results(L{B.Unit}) end
 function B.TextLiteral:verify(ctx) ctx:results(L{B.Text}) end
-function B.Unary:verify(ctx)
-    local type_=self.operator==A.Not and B.Bool or B.Int
-    ctx:expect(self.operand,type_); ctx:results(L{type_})
+function B.FloatLiteral:verify(ctx)
+    require('let.literal').float(self.spelling,function(m) error(m,0) end)
+    ctx:results(L{B.Float})
 end
-function A.BinaryOp:verify(ctx,left,right) ctx:expect(left,B.Int); ctx:expect(right,B.Int); return B.Int end
-local function compare(_,ctx,left,right) ctx:expect(left,B.Int); ctx:expect(right,B.Int); return B.Bool end
+function B.Unary:verify(ctx)
+    local type_=ctx:type(self.operand)
+    if self.operator==A.Not then ctx:expect(self.operand,B.Bool); ctx:results(L{B.Bool})
+    else
+        assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
+        ctx:results(L{type_})
+    end
+end
+function A.BinaryOp:verify(ctx,left,right)
+    local type_=ctx:type(left)
+    ctx:expect(right,type_)
+    assert(type_==B.Int or type_==B.Float,'arithmetic requires a numeric operand')
+    return type_
+end
+local function compare(_,ctx,left,right)
+    local type_=ctx:type(left); ctx:expect(right,type_)
+    assert(type_==B.Int or type_==B.Float,'comparison requires a numeric operand'); return B.Bool
+end
 A.Less.verify=compare; A.LessEqual.verify=compare; A.Greater.verify=compare; A.GreaterEqual.verify=compare
 local function equal_(_,ctx,left,right)
     local type_=ctx:type(left); assert(type_:copyable(),'no implicit equality for this type'); ctx:expect(right,type_); return B.Bool
@@ -43,8 +59,9 @@ A.Equal.verify=equal_; A.NotEqual.verify=equal_
 local function boolean_(_,ctx,left,right) ctx:expect(left,B.Bool); ctx:expect(right,B.Bool); return B.Bool end
 A.And.verify=boolean_; A.Or.verify=boolean_
 function B.Binary:verify(ctx)
-    assert(self.operator~=A.Divide and self.operator~=A.Remainder,'potential trap must consume an effect')
-    ctx:results(L{self.operator:verify(ctx,self.left,self.right)})
+    local result=self.operator:verify(ctx,self.left,self.right)
+    assert(not ((self.operator==A.Divide or self.operator==A.Remainder) and result==B.Int),'potential trap must consume an effect')
+    ctx:results(L{result})
 end
 function B.CheckedBinary:verify(ctx)
     assert(self.operator==A.Divide or self.operator==A.Remainder,'unsupported checked operator')

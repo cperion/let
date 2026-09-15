@@ -19,6 +19,12 @@ function M.integer(spelling,fail)
     return negative and -ffi.cast('int64_t',magnitude) or ffi.cast('int64_t',magnitude)
 end
 
+-- A Float value is a Lua number (a binary64), and this conversion is the one authority for
+-- both folding and C emission, so the two cannot round differently.
+function M.float(spelling,fail) return literal.float(spelling,fail or error) end
+
+function M.fdivide(a,b) return a/b end
+
 function M.add(a,b) return a+b end
 function M.subtract(a,b) return a-b end
 function M.multiply(a,b) return a*b end

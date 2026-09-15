@@ -30,6 +30,7 @@ function B.Word:same(other)
 end
 function B.Type:copyable() return false end
 function B.Int:copyable() return true end
+function B.Float:copyable() return true end
 function B.Bool:copyable() return true end
 function B.Unit:copyable() return true end
 function B.Text:copyable() return true end
@@ -509,6 +510,7 @@ function A.Integer:build(ctx)
     local spelling=literal.integer(self.spelling,false,function(m) fail(self.span,m) end)
     return ctx:emit(B.IntegerLiteral(spelling),L{B.Int},self.span)
 end
+function A.Float:build(ctx) return ctx:emit(B.FloatLiteral(self.spelling),L{B.Float},self.span) end
 function A.Boolean:build(ctx) return ctx:boolean(self.value,self.span) end
 function A.Unit:build(ctx) return ctx:emit(B.UnitLiteral,L{B.Unit},self.span) end
 function A.Text:build(ctx) return ctx:emit(B.TextLiteral(self.value),L{B.Text},self.span) end
@@ -517,15 +519,19 @@ function A.Unary:build(ctx)
         local spelling=literal.integer(self.operand.spelling,true,function(m) fail(self.span,m) end)
         return ctx:emit(B.IntegerLiteral(spelling),L{B.Int},self.span)
     end
-    local value=self.operand:build(ctx); expect(value,self.operator==A.Not and B.Bool or B.Int,self.span)
-    return ctx:emit(B.Unary(self.operator,ctx:ref(value)),L{value.type},self.span)
+    local value=self.operand:build(ctx)
+    local type_=self.operator==A.Not and B.Bool or (value.type==B.Float and B.Float or B.Int)
+    expect(value,type_,self.span)
+    return ctx:emit(B.Unary(self.operator,ctx:ref(value)),L{type_},self.span)
 end
 function A.BinaryOp:apply(ctx,left,right,span)
-    expect(left,B.Int,span); expect(right,B.Int,span)
-    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Int},span)
+    if left.type==B.Float then expect(right,B.Float,span)
+    else expect(left,B.Int,span); expect(right,B.Int,span) end
+    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{left.type},span)
 end
 local function comparison(self,ctx,left,right,span)
-    expect(left,B.Int,span); expect(right,B.Int,span)
+    if left.type==B.Float then expect(right,B.Float,span)
+    else expect(left,B.Int,span); expect(right,B.Int,span) end
     return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Bool},span)
 end
 A.Less.apply=comparison; A.LessEqual.apply=comparison; A.Greater.apply=comparison; A.GreaterEqual.apply=comparison
@@ -536,6 +542,10 @@ local function equality(self,ctx,left,right,span)
 end
 A.Equal.apply=equality; A.NotEqual.apply=equality
 local function checked(self,ctx,left,right,span)
+    if self==A.Divide and left.type==B.Float then
+        expect(right,B.Float,span)
+        return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Float},span)
+    end
     expect(left,B.Int,span); expect(right,B.Int,span)
     return ctx:ordered(B.CheckedBinary(self,ctx:ref(ctx.effect),ctx:ref(left),ctx:ref(right)),B.Int,span)
 end
@@ -1258,7 +1268,7 @@ function A.Prelude:entry() gap(self.binding.span,'stage preparation: preludes mu
 function A.Chain:build_function(name,options)
     options=options or {}
     if not A.Body:isclassof(self.terminal) then gap(self.span,'data-terminal construction (not a runtime function)') end
-    local fn={name=name,span=self.span,blocks={},bindings={},next_value=0,result=options.result,resources=options.resources or {},hosts=options.hosts or {},types={Int=B.Int,Bool=B.Bool,Unit=B.Unit,Text=B.Text}}
+    local fn={name=name,span=self.span,blocks={},bindings={},next_value=0,result=options.result,resources=options.resources or {},hosts=options.hosts or {},types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}}
     for resource,descriptor in pairs(fn.resources) do
         assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z_0-9]*$'),'resource requires a destructor symbol')
         fn.types[resource]=B.Named(resource)

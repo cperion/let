@@ -885,7 +885,7 @@ module AST {
     Item = Stage(string name, Capability capability, Constraint? constraint, Source.Span span)
          | Prelude(Binding binding)
     Terminal = Data(Expr value) | Body(Stmt* statements)
-    Expr = Name(string name) | Integer(string spelling) | Boolean(boolean value)
+    Expr = Name(string name) | Integer(string spelling) | Float(string spelling) | Boolean(boolean value)
          | Text(string value) | Unit
          | Unary(UnaryOp operator, Expr operand)
          | Binary(BinaryOp operator, Expr left, Expr right)
@@ -919,7 +919,7 @@ module Belt {
     Destination = Persistent | Transient
     Access = CopyAccess | OwnAccess | ReadAccess | MutAccess
     Field = (string? name, Type type, boolean mutable)
-    Type = Int | Bool | Unit | Text | Effect
+    Type = Int | Float | Bool | Unit | Text | Effect
          | Named(string name) | Address(Type pointee)
          | Borrow(Type pointee, boolean stable)
          | Aggregate(Field* fields, boolean is_copy)
@@ -929,7 +929,7 @@ module Belt {
     Signature = (Parameter* parameters, Type* results)
     Ref = (number distance, number output)
     Instruction = (Op operation, Type* results, Source.Span? span)
-    Op = IntegerLiteral(string spelling) | BooleanLiteral(boolean value) | UnitLiteral | TextLiteral(string value)
+    Op = IntegerLiteral(string spelling) | FloatLiteral(string spelling) | BooleanLiteral(boolean value) | UnitLiteral | TextLiteral(string value)
        | Unary(AST.UnaryOp operator, Ref operand)
        | Binary(AST.BinaryOp operator, Ref left, Ref right)
        | CheckedBinary(AST.BinaryOp operator, Ref effect, Ref left, Ref right)
@@ -966,9 +966,9 @@ module('let.c', function(require, ...)
 return function(context)
     context:Define [[
 module C {
-    Type = Void | Bool | I64 | U64 | U8 | Size
+    Type = Void | Bool | I64 | F64 | U64 | U8 | Size
          | Pointer(Type pointee) | Named(string name)
-    Expr = Integer(number hi, number lo) | Boolean(boolean value) | String(string value)
+    Expr = Integer(number hi, number lo) | Float(number value) | Boolean(boolean value) | String(string value)
          | Name(string name) | Unary(string operator, Expr operand)
          | Binary(string operator, Expr left, Expr right)
          | Cast(Type type, Expr value) | Call(Expr callee, Expr* arguments)
@@ -1111,6 +1111,7 @@ function B.Word:same(other)
 end
 function B.Type:copyable() return false end
 function B.Int:copyable() return true end
+function B.Float:copyable() return true end
 function B.Bool:copyable() return true end
 function B.Unit:copyable() return true end
 function B.Text:copyable() return true end
@@ -1590,6 +1591,7 @@ function A.Integer:build(ctx)
     local spelling=literal.integer(self.spelling,false,function(m) fail(self.span,m) end)
     return ctx:emit(B.IntegerLiteral(spelling),L{B.Int},self.span)
 end
+function A.Float:build(ctx) return ctx:emit(B.FloatLiteral(self.spelling),L{B.Float},self.span) end
 function A.Boolean:build(ctx) return ctx:boolean(self.value,self.span) end
 function A.Unit:build(ctx) return ctx:emit(B.UnitLiteral,L{B.Unit},self.span) end
 function A.Text:build(ctx) return ctx:emit(B.TextLiteral(self.value),L{B.Text},self.span) end
@@ -1598,15 +1600,19 @@ function A.Unary:build(ctx)
         local spelling=literal.integer(self.operand.spelling,true,function(m) fail(self.span,m) end)
         return ctx:emit(B.IntegerLiteral(spelling),L{B.Int},self.span)
     end
-    local value=self.operand:build(ctx); expect(value,self.operator==A.Not and B.Bool or B.Int,self.span)
-    return ctx:emit(B.Unary(self.operator,ctx:ref(value)),L{value.type},self.span)
+    local value=self.operand:build(ctx)
+    local type_=self.operator==A.Not and B.Bool or (value.type==B.Float and B.Float or B.Int)
+    expect(value,type_,self.span)
+    return ctx:emit(B.Unary(self.operator,ctx:ref(value)),L{type_},self.span)
 end
 function A.BinaryOp:apply(ctx,left,right,span)
-    expect(left,B.Int,span); expect(right,B.Int,span)
-    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Int},span)
+    if left.type==B.Float then expect(right,B.Float,span)
+    else expect(left,B.Int,span); expect(right,B.Int,span) end
+    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{left.type},span)
 end
 local function comparison(self,ctx,left,right,span)
-    expect(left,B.Int,span); expect(right,B.Int,span)
+    if left.type==B.Float then expect(right,B.Float,span)
+    else expect(left,B.Int,span); expect(right,B.Int,span) end
     return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Bool},span)
 end
 A.Less.apply=comparison; A.LessEqual.apply=comparison; A.Greater.apply=comparison; A.GreaterEqual.apply=comparison
@@ -1617,6 +1623,10 @@ local function equality(self,ctx,left,right,span)
 end
 A.Equal.apply=equality; A.NotEqual.apply=equality
 local function checked(self,ctx,left,right,span)
+    if self==A.Divide and left.type==B.Float then
+        expect(right,B.Float,span)
+        return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Float},span)
+    end
     expect(left,B.Int,span); expect(right,B.Int,span)
     return ctx:ordered(B.CheckedBinary(self,ctx:ref(ctx.effect),ctx:ref(left),ctx:ref(right)),B.Int,span)
 end
@@ -2339,7 +2349,7 @@ function A.Prelude:entry() gap(self.binding.span,'stage preparation: preludes mu
 function A.Chain:build_function(name,options)
     options=options or {}
     if not A.Body:isclassof(self.terminal) then gap(self.span,'data-terminal construction (not a runtime function)') end
-    local fn={name=name,span=self.span,blocks={},bindings={},next_value=0,result=options.result,resources=options.resources or {},hosts=options.hosts or {},types={Int=B.Int,Bool=B.Bool,Unit=B.Unit,Text=B.Text}}
+    local fn={name=name,span=self.span,blocks={},bindings={},next_value=0,result=options.result,resources=options.resources or {},hosts=options.hosts or {},types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}}
     for resource,descriptor in pairs(fn.resources) do
         assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z_0-9]*$'),'resource requires a destructor symbol')
         fn.types[resource]=B.Named(resource)
@@ -2384,6 +2394,31 @@ function M.integer(spelling,negative,fail)
     local sign=negative and (hi~=0 or lo~=0) and '-' or ''
     return sign .. (base==16 and '0x' or '') .. digits,sign .. hi .. ':' .. lo,hi,lo
 end
+-- A Float literal: the grammar has a digit on each side of `.`, and an exponent carries at
+-- least one digit. Value and C emission both take their bits from this one conversion, so
+-- folding and execution cannot round differently.
+local function digits(text)
+    return text~='' and text:sub(1,1)~='_' and text:sub(-1)~='_' and not text:find('__',1,true)
+        and text:match('^[0-9_]+$')~=nil
+end
+function M.float(spelling,fail)
+    local mantissa,exponent=spelling,nil
+    local at=spelling:find('[eE]')
+    if at then
+        mantissa=spelling:sub(1,at-1); exponent=spelling:sub(at+1)
+        local sign=exponent:sub(1,1)
+        if sign=='+' or sign=='-' then exponent=exponent:sub(2) end
+        if not digits(exponent) then fail('invalid Float spelling') end
+    end
+    local point=mantissa:find('.',1,true)
+    if point then
+        if not digits(mantissa:sub(1,point-1)) or not digits(mantissa:sub(point+1)) then fail('invalid Float spelling') end
+    elseif not digits(mantissa) then fail('invalid Float spelling') end
+    if not point and not at then fail('invalid Float spelling') end
+    local value=tonumber((spelling:gsub('_','')))
+    if value==nil then fail('invalid Float spelling') end
+    return value
+end
 return M
 
 
@@ -2422,12 +2457,28 @@ end
 function B.BooleanLiteral:verify(ctx) ctx:results(L{B.Bool}) end
 function B.UnitLiteral:verify(ctx) ctx:results(L{B.Unit}) end
 function B.TextLiteral:verify(ctx) ctx:results(L{B.Text}) end
-function B.Unary:verify(ctx)
-    local type_=self.operator==A.Not and B.Bool or B.Int
-    ctx:expect(self.operand,type_); ctx:results(L{type_})
+function B.FloatLiteral:verify(ctx)
+    require('let.literal').float(self.spelling,function(m) error(m,0) end)
+    ctx:results(L{B.Float})
 end
-function A.BinaryOp:verify(ctx,left,right) ctx:expect(left,B.Int); ctx:expect(right,B.Int); return B.Int end
-local function compare(_,ctx,left,right) ctx:expect(left,B.Int); ctx:expect(right,B.Int); return B.Bool end
+function B.Unary:verify(ctx)
+    local type_=ctx:type(self.operand)
+    if self.operator==A.Not then ctx:expect(self.operand,B.Bool); ctx:results(L{B.Bool})
+    else
+        assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
+        ctx:results(L{type_})
+    end
+end
+function A.BinaryOp:verify(ctx,left,right)
+    local type_=ctx:type(left)
+    ctx:expect(right,type_)
+    assert(type_==B.Int or type_==B.Float,'arithmetic requires a numeric operand')
+    return type_
+end
+local function compare(_,ctx,left,right)
+    local type_=ctx:type(left); ctx:expect(right,type_)
+    assert(type_==B.Int or type_==B.Float,'comparison requires a numeric operand'); return B.Bool
+end
 A.Less.verify=compare; A.LessEqual.verify=compare; A.Greater.verify=compare; A.GreaterEqual.verify=compare
 local function equal_(_,ctx,left,right)
     local type_=ctx:type(left); assert(type_:copyable(),'no implicit equality for this type'); ctx:expect(right,type_); return B.Bool
@@ -2436,8 +2487,9 @@ A.Equal.verify=equal_; A.NotEqual.verify=equal_
 local function boolean_(_,ctx,left,right) ctx:expect(left,B.Bool); ctx:expect(right,B.Bool); return B.Bool end
 A.And.verify=boolean_; A.Or.verify=boolean_
 function B.Binary:verify(ctx)
-    assert(self.operator~=A.Divide and self.operator~=A.Remainder,'potential trap must consume an effect')
-    ctx:results(L{self.operator:verify(ctx,self.left,self.right)})
+    local result=self.operator:verify(ctx,self.left,self.right)
+    assert(not ((self.operator==A.Divide or self.operator==A.Remainder) and result==B.Int),'potential trap must consume an effect')
+    ctx:results(L{result})
 end
 function B.CheckedBinary:verify(ctx)
     assert(self.operator==A.Divide or self.operator==A.Remainder,'unsupported checked operator')
@@ -2737,6 +2789,24 @@ function Lexer:next()
     local name=rest:match('^[A-Za-z_][A-Za-z_0-9]*')
     if name then for _=1,#name do self:advance() end; return Source.Token(keywords[name] and name or 'name',name,nil,span) end
     if c:match('^[0-9]$') then
+        -- A Float has a digit on each side of its `.`; an exponent may follow either form.
+        local mantissa=rest:match('^%d[%d_]*%.%d[%d_]*')
+        if mantissa then
+            local exponent=rest:sub(#mantissa+1):match('^[eE][%+%-]?%d[%d_]*')
+            if not exponent and rest:sub(#mantissa+1):match('^[eE]') then
+                Lexer.fail(span,'invalid Float exponent')
+            end
+            local spelling=mantissa .. (exponent or '')
+            require('let.literal').float(spelling,function(m) Lexer.fail(span,m) end)
+            for _=1,#spelling do self:advance() end
+            return Source.Token('float',spelling,nil,span)
+        end
+        local exponent=rest:match('^%d[%d_]*[eE][%+%-]?%d[%d_]*')
+        if exponent then
+            require('let.literal').float(exponent,function(m) Lexer.fail(span,m) end)
+            for _=1,#exponent do self:advance() end
+            return Source.Token('float',exponent,nil,span)
+        end
         local spelling=rest:match('^[A-Za-z_0-9]+')
         -- Permit the magnitude of INT_MIN here; its literal sign is checked on
         -- the AST, after parentheses and unary operators have been parsed.
@@ -2962,6 +3032,7 @@ function Parser:atom()
     local token=self:token()
     if self:accept('name') then return A.Name(token.spelling,token.span) end
     if self:accept('integer') then return A.Integer(token.spelling,token.span) end
+    if self:accept('float') then return A.Float(token.spelling,token.span) end
     if self:accept('text') then return A.Text(token.value,token.span) end
     if self:accept('true') then return A.Boolean(true,token.span) end
     if self:accept('false') then return A.Boolean(false,token.span) end
@@ -3240,6 +3311,7 @@ end
 function A.Prelude:resolve(ctx,scope) self.binding:resolve(ctx,scope) end
 function A.Expr:resolve() error('missing lexical resolver for expression',0) end
 function A.Integer:resolve() end
+function A.Float:resolve() end
 function A.Boolean:resolve() end
 function A.Text:resolve() end
 function A.Unit:resolve() end
@@ -3320,7 +3392,7 @@ function A.Program:resolve(options)
     local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},constraints={},scopes={},templates={},
         imports={},import_words={},importing={},import_resolver=options.resolve,file=self.file.span.file},Context)
     local builtins={}
-    for _,name in ipairs{'Bool','Int','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
+    for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
     local outer=dictionary(ctx,nil,builtins)
     outer=dictionary(ctx,outer,options.dictionary or {})
     local resources={}
@@ -3385,7 +3457,7 @@ function Builder.new(ast,resolved,options)
 end
 
 function Builder:types()
-    local types={Int=B.Int,Bool=B.Bool,Unit=B.Unit,Text=B.Text}
+    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}
     for name,descriptor in pairs(self.options.resources or {}) do
         assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z0-9_]*$'),'resource requires a destructor symbol')
         types[name]=B.Named(name)
@@ -4258,6 +4330,7 @@ function Known.key(answer)
     if answer.type==B.Bool then return answer.value and 'b1' or 'b0' end
     if answer.type==B.Unit then return 'u' end
     if answer.type==B.Text then return 't' .. #answer.value .. ':' .. answer.value end
+    if answer.type==B.Float then return ('f%a'):format(answer.value) end
     return '?' .. tostring(answer.type)
 end
 
@@ -4486,6 +4559,8 @@ function Evaluator:instruction(block,block_id,index,instruction)
 
     if B.IntegerLiteral:isclassof(operation) then
         put(0,Known.value(B.Int,scalar.integer(operation.spelling,error)))
+    elseif B.FloatLiteral:isclassof(operation) then
+        put(0,Known.value(B.Float,scalar.float(operation.spelling,error)))
     elseif B.BooleanLiteral:isclassof(operation) then
         put(0,Known.value(B.Bool,operation.value))
     elseif B.UnitLiteral:isclassof(operation) then
@@ -4503,6 +4578,11 @@ function Evaluator:instruction(block,block_id,index,instruction)
             local left,right=arguments[1].value,arguments[2].value
             local value
             if arguments[1].type==B.Text then value=equalities[operation.operator](left,right)
+            elseif arguments[1].type==B.Float then
+                if arithmetic[operation.operator] then value=arithmetic[operation.operator](left,right)
+                elseif operation.operator==A.Divide then value=scalar.fdivide(left,right)
+                elseif relations[operation.operator] then value=relations[operation.operator](left,right)
+                elseif equalities[operation.operator] then value=equalities[operation.operator](left,right) end
             elseif arithmetic[operation.operator] then value=arithmetic[operation.operator](left,right)
             elseif relations[operation.operator] then value=relations[operation.operator](left,right)
             elseif equalities[operation.operator] then value=equalities[operation.operator](left,right)
@@ -4824,6 +4904,12 @@ function M.integer(spelling,fail)
     return negative and -ffi.cast('int64_t',magnitude) or ffi.cast('int64_t',magnitude)
 end
 
+-- A Float value is a Lua number (a binary64), and this conversion is the one authority for
+-- both folding and C emission, so the two cannot round differently.
+function M.float(spelling,fail) return literal.float(spelling,fail or error) end
+
+function M.fdivide(a,b) return a/b end
+
 function M.add(a,b) return a+b end
 function M.subtract(a,b) return a-b end
 function M.multiply(a,b) return a*b end
@@ -4922,6 +5008,7 @@ function C.Void:print() return 'void' end
 function C.Bool:print() return 'bool' end
 function C.I64:print() return 'int64_t' end
 function C.U64:print() return 'uint64_t' end
+function C.F64:print() return 'double' end
 function C.U8:print() return 'uint8_t' end
 function C.Size:print() return 'size_t' end
 function C.Pointer:print() return self.pointee:print() .. '*' end
@@ -4929,6 +5016,12 @@ function C.Named:print() return self.name end
 
 function C.Expr:print() error('missing C expression printer',0) end
 function C.Integer:print() return integer(self.hi,self.lo) end
+function C.Float:print()
+    if self.value~=self.value then return 'NAN' end
+    if self.value==math.huge then return 'INFINITY' end
+    if self.value==-math.huge then return '(-INFINITY)' end
+    return string.format('%a',self.value)
+end
 function C.Boolean:print() return self.value and 'true' or 'false' end
 function C.String:print() return quoted(self.value) end
 function C.Name:print() return self.name end
@@ -5072,6 +5165,7 @@ function Emitter:ctype(type_)
     if type_==B.Bool then return C.Bool end
     if type_==B.Unit then return C.U8 end
     if type_==B.Effect then return C.U64 end
+    if type_==B.Float then self.math=true; return C.F64 end
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if B.Named:isclassof(type_) then return C.I64 end
     if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
@@ -5138,6 +5232,7 @@ function Emitter:value(belt_id,index,output) return 'v' .. belt_id .. '_' .. ind
 function Emitter:constant(answer)
     local type_=answer.type
     if type_==B.Int then local hi,lo=scalar.limbs(answer.value); return C.Integer(hi,lo) end
+    if type_==B.Float then self.math=true; return C.Float(answer.value) end
     if type_==B.Bool then return C.Boolean(answer.value) end
     if type_==B.Unit then return C.Integer(0,0) end
     if type_==B.Text then return C.Compound(self:ctype(B.Text),L{C.String(answer.value),C.Integer(0,#answer.value)}) end
@@ -5164,7 +5259,7 @@ function Emitter:arglist(block,block_id,position,refs)
     return out
 end
 
-local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Less]='<',[A.LessEqual]='<=',
+local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Divide]='/',[A.Less]='<',[A.LessEqual]='<=',
     [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||'}
 local arithmetic={[A.Add]={'add','LET_ADD'}, [A.Subtract]={'sub','LET_SUB'}, [A.Multiply]={'mul','LET_MUL'}}
 
@@ -5195,6 +5290,9 @@ function Emitter:instruction(block,block_id,index,instruction)
     end
     if B.IntegerLiteral:isclassof(operation) then
         declare(0,B.Int,self:literal(operation.spelling))
+    elseif B.FloatLiteral:isclassof(operation) then
+        self.math=true
+        declare(0,B.Float,C.Float(scalar.float(operation.spelling,error)))
     elseif B.BooleanLiteral:isclassof(operation) then
         declare(0,B.Bool,C.Boolean(operation.value))
     elseif B.UnitLiteral:isclassof(operation) then
@@ -5205,12 +5303,16 @@ function Emitter:instruction(block,block_id,index,instruction)
     elseif B.Unary:isclassof(operation) then
         local operand=self:arglist(block,block_id,position,{operation.operand})[1]
         if operation.operator==A.Not then declare(0,B.Bool,C.Unary('!',operand))
+        elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
         local arguments=self:arglist(block,block_id,position,{operation.left,operation.right})
         local _,type_=block:resolve(position,operation.left)
         if known(0) then return statement_list(out) end
-        if operation.operator==A.Equal or operation.operator==A.NotEqual then
+        if type_==B.Float then
+            self.math=true
+            declare(0,instruction.results[1],C.Binary(symbolic[operation.operator],arguments[1],arguments[2]))
+        elseif operation.operator==A.Equal or operation.operator==A.NotEqual then
             -- `symbolic` already spells the operator: `==` or `!=` for a scalar, and the one Text
             -- macro *is* equality, so only that case has anything left to negate. Negating the
             -- scalar case too made `!=` compare equal and vice versa.
@@ -5815,6 +5917,7 @@ function Emitter:program(program,options)
     local helpers=self:helper_declarations()
     local includes=L{'stdint.h','stdbool.h'}
     if self.text and self.helpers.text_eq then includes:insert('string.h') end
+    if self.math then includes:insert('math.h') end
     local declarations=L()
     declarations:insertall(helpers)
     declarations:insertall(self.statics)
