@@ -12,7 +12,7 @@ local Emitter={}; Emitter.__index=Emitter
 
 function Emitter.new(options)
     return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
-        names={},helpers={},used_hosts={},text=false,stdbool=true,trap=false,
+        names={},helpers={},used_hosts={},used_destroys={},destroy_pointer={},text=false,stdbool=true,trap=false,
         instances={},pending={},generic={},serial={},self_tail={}},Emitter)
 end
 
@@ -74,7 +74,12 @@ function Emitter:ctype(type_)
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if type_==B.CString then return C.Pointer(C.Named('const char')) end
     if type_==B.CPointer then return C.Pointer(C.Named('void')) end
-    if B.Named:isclassof(type_) then return C.I64 end
+    if B.Named:isclassof(type_) then
+        -- A resource is an integer handle by default, or a C pointer when it declares one.
+        local descriptor=self.options.resources and self.options.resources[type_.name]
+        if descriptor and descriptor.representation=='pointer' then return C.Pointer(C.Named('void')) end
+        return C.I64
+    end
     if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         -- A record with no fields carries no information, and an empty struct is not ISO C.
@@ -346,6 +351,7 @@ function Emitter:instruction(block,block_id,index,instruction)
             declare(1,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
         else declare(1,B.Effect,self:ref(block,block_id,position,operation.effect)) end
     elseif B.Destroy:isclassof(operation) then
+        self.used_destroys[operation.destructor]=true
         local value=self:ref(block,block_id,position,operation.value)
         out[#out+1]=C.Evaluate(C.Call(C.Name(operation.destructor),L{value}))
         declare(0,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
@@ -710,13 +716,16 @@ function Emitter:host_declarations()
     local names={}
     -- Symbol sources are Lua tables, so sort them: an emitted unit must not depend on
     -- `pairs` order, or two builds of one program would differ byte for byte.
+    -- A destructor is declared only when a `Destroy` names it, for the same reason hosts are: a
+    -- registered resource the program does not use must not appear in its C.
     local destroys={}
-    for _,descriptor in pairs(self.options.resources or {}) do
-        if not names[descriptor.destroy] then names[descriptor.destroy]=true; destroys[#destroys+1]=descriptor.destroy end
-    end
+    for symbol in pairs(self.used_destroys) do destroys[#destroys+1]=symbol end
     table.sort(destroys)
     for _,symbol in ipairs(destroys) do
-        declarations:insert(C.Function(symbol,true,false,C.Void,L{C.Parameter(C.I64,'a0')},nil))
+        -- A resource that is a C pointer is destroyed through that pointer; a handle stays an
+        -- integer. The representation belongs to the resource, not to the destructor's spelling.
+        local type_=self.destroy_pointer[symbol] and C.Pointer(C.Named('void')) or C.I64
+        declarations:insert(C.Function(symbol,true,false,C.Void,L{C.Parameter(type_,'a0')},nil))
     end
     local symbols={}
     -- Only a host the program actually calls is declared: a vocabulary may be registered for
@@ -836,6 +845,9 @@ function Emitter:program(program,options)
     -- is a host (`c.puts`).
     self.hosts={}
     for _,host in pairs(options.hosts or {}) do self.hosts[host.symbol]=host end
+    for _,descriptor in pairs(options.resources or {}) do
+        self.destroy_pointer[descriptor.destroy]=descriptor.representation=='pointer'
+    end
     for _,namespace in pairs(options.dictionary or {}) do
         for _,member in pairs(namespace.members or {}) do
             if member.signature then self.hosts[member.symbol]=member end

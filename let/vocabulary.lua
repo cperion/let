@@ -16,6 +16,10 @@ function Vocabulary.new(options)
     for name,descriptor in pairs(options.resources or {}) do
         assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z0-9_]*$'),
             'resource requires a destructor symbol')
+        if descriptor.representation~=nil then
+            assert(descriptor.representation=='pointer' or descriptor.representation=='value',
+                'resource representation must be pointer or value')
+        end
         types[name]=B.Named(name)
         destroy[name]=descriptor.destroy
     end

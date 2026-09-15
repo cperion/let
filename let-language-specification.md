@@ -1015,24 +1015,27 @@ contract such a word declares:
 - the C symbol it calls, and the C prototype of each parameter and the result where that differs
   from the natural mapping;
 - its purity;
-- the ownership of a pointer result: `owned` (the caller must release it) or `borrowed` (it must
-  not outlive the call);
+- the ownership of a borrowed result: whether it may be kept past the call;
 - whether a pointer result may be null.
 
-Two types exist only at that boundary, and they are not `Text`:
+Three kinds of value exist at that boundary, and none of them is `Text`:
 
-- `CString` is a borrowed, NUL-terminated byte sequence (the C `const char*`): no length and no
-  owner in Let. One conversion borrows a `Text`'s bytes as a `CString`, which requires them to
-  be NUL-terminated; the other measures a `CString` into a `Text` at its terminator, producing a
-  **borrowed view**, so the C storage must outlive it.
-- `CPointer` is an opaque C pointer (`void*`): Copy, possibly null, and supporting no operation
-  in Let. It cannot be dereferenced, indexed, compared, or turned into an integer; it may only
-  be passed back to a foreign word. An owned pointer is released explicitly, because Let does
-  not destroy storage C allocated.
+- **A scalar** crosses as itself: `Int`, `Float`, `Bool`, and `Unit` map to a declared C integer
+  width, `double`, `bool`, and `void`. There is no implicit numeric conversion; the declared
+  prototype is authoritative and the value is converted once at the boundary.
+- **A borrowed view** is one of two foreign types. `CString` is a NUL-terminated `const char*`
+  with no length and no owner in Let; `CPointer` is an opaque `void*` supporting no operation in
+  Let -- it cannot be dereferenced, indexed, compared, or turned into an integer, and may only
+  be passed back to a foreign word. Both are Copy and both may be null.
+- **An owned foreign value** is a **resource**: a declared type with a C representation -- a
+  handle by default, or a pointer -- and a destructor. Let owns it and destroys it exactly once
+  at the exit of the scope that owns it. C memory is not released by a manual `free`: the
+  allocation is the resource, and its destructor is the release.
 
-Scalars cross as themselves: `Int`, `Float`, `Bool`, and `Unit` map to a declared C integer
-width, `double`, `bool`, and `void`. There is no implicit numeric conversion; the declared
-prototype is authoritative and the value is converted once at the boundary.
+Two conversions cross between `Text` and `CString`: one borrows a `Text`'s bytes, which requires
+them to be NUL-terminated, and the other measures a `CString` into a `Text` at its terminator,
+producing a **borrowed view**, so the C storage must outlive it.
+
 
 `Text` and `CString` are never interchangeable: a `Text` has a known length and no terminator
 guarantee, while a `CString` is terminated, borrowed, and mutable. Every crossing is an explicit

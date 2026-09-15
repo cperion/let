@@ -1698,6 +1698,10 @@ function Vocabulary.new(options)
     for name,descriptor in pairs(options.resources or {}) do
         assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z0-9_]*$'),
             'resource requires a destructor symbol')
+        if descriptor.representation~=nil then
+            assert(descriptor.representation=='pointer' or descriptor.representation=='value',
+                'resource representation must be pointer or value')
+        end
         types[name]=B.Named(name)
         destroy[name]=descriptor.destroy
     end
@@ -1757,6 +1761,11 @@ module('let.libc', function(require, ...)
 -- `CString` is a borrowed `const char*` and `CPointer` an opaque `void*`; both are types of their
 -- own rather than `Text`, and `c.string` / `c.text` are the explicit crossings.
 --
+-- Owned C memory is a `resource` whose C representation is a pointer (`CAlloc`), so Let owns it
+-- and destroys it exactly once with `free`; there is no `c.free` to call. A foreign call that
+-- mutates the bytes behind the pointer does so outside Let's invariants, which is why those calls
+-- are `ordered`.
+--
 -- The set is deliberately small and sound at the Let type level: string, integer and byte
 -- functions, no variadic form (`printf`), and no dereference or pointer arithmetic. Those need a
 -- surface the specification does not define yet, and inventing one here would be a language
@@ -1765,7 +1774,7 @@ return function(V)
 local A,B,L=V.AST,V.Belt,V.List
 local int=B.Parameter(B.Int,A.Read)
 local cstring=B.Parameter(B.CString,A.Read)
-local cpointer=B.Parameter(B.CPointer,A.Read)
+local allocation=B.Parameter(B.Named('CAlloc'),A.Read)
 
 local function word(symbol,purity,signature,extra)
     local descriptor={symbol=symbol,phase='runtime',purity=purity,signature=signature}
@@ -1776,30 +1785,31 @@ local function ordered(symbol,signature,extra) return word(symbol,'ordered',sign
 local function pure(symbol,signature,extra) return word(symbol,'pure',signature,extra) end
 
 return {
-    -- The explicit crossings between a Let Text and a borrowed C string, and an opaque pointer.
-    string={phase='runtime',conversion='cstring'},
-    text={phase='runtime',conversion='ctext'},
+    -- A pointer-shaped resource: owned by Let, destroyed by `free`, never dereferenced by Let.
+    resources={CAlloc={destroy='free',representation='pointer'}},
+    members={
+        -- The explicit crossings between a Let Text and a borrowed C string.
+        string={phase='runtime',conversion='cstring'},
+        text={phase='runtime',conversion='ctext'},
 
-    puts=ordered('puts',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
-    putchar=ordered('putchar',B.Signature(L{int},L{B.Int}),{c={params={'int'},result='int'}}),
-    strlen=pure('strlen',B.Signature(L{cstring},L{B.Int}),{c={result='size_t'}}),
-    strcmp=pure('strcmp',B.Signature(L{cstring,cstring},L{B.Int}),{c={result='int'}}),
-    atoi=pure('atoi',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
-    llabs=pure('llabs',B.Signature(L{int},L{B.Int}),{c={params={'long long'},result='long long'}}),
-    getenv=pure('getenv',B.Signature(L{cstring},L{B.CString}),{ownership='borrowed',nullable=true}),
+        puts=ordered('puts',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
+        putchar=ordered('putchar',B.Signature(L{int},L{B.Int}),{c={params={'int'},result='int'}}),
+        strlen=pure('strlen',B.Signature(L{cstring},L{B.Int}),{c={result='size_t'}}),
+        strcmp=pure('strcmp',B.Signature(L{cstring,cstring},L{B.Int}),{c={result='int'}}),
+        atoi=pure('atoi',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
+        llabs=pure('llabs',B.Signature(L{int},L{B.Int}),{c={params={'long long'},result='long long'}}),
+        getenv=pure('getenv',B.Signature(L{cstring},L{B.CString}),{ownership='borrowed',nullable=true}),
 
-    -- C memory. Let never dereferences a `CPointer`, so the result of `malloc` is released by an
-    -- explicit `free`; the ownership call is the program's, exactly as in C.
-    malloc=ordered('malloc',B.Signature(L{int},L{B.CPointer}),
-        {c={params={'size_t'},result='void *'},ownership='owned'}),
-    free=ordered('free',B.Signature(L{cpointer},L{B.Unit}),
-        {c={params={'void *'},result='void'}}),
-    memcpy=ordered('memcpy',B.Signature(L{cpointer,cstring,int},L{B.CPointer}),
-        {c={params={'void *','const void *','size_t'},result='void *'}}),
-    memset=ordered('memset',B.Signature(L{cpointer,int,int},L{B.CPointer}),
-        {c={params={'void *','int','size_t'},result='void *'}}),
-    memcmp=pure('memcmp',B.Signature(L{cpointer,cstring,int},L{B.Int}),
-        {c={params={'const void *','const void *','size_t'},result='int'}}),
+        -- C memory. The allocation is the owner; `memset`/`memcpy`/`memcmp` borrow it.
+        malloc=ordered('malloc',B.Signature(L{int},L{B.Named('CAlloc')}),
+            {c={params={'size_t'},result='void *'}}),
+        memset=ordered('memset',B.Signature(L{allocation,int,int},L{B.CPointer}),
+            {c={params={'void *','int','size_t'},result='void *'}}),
+        memcpy=ordered('memcpy',B.Signature(L{allocation,cstring,int},L{B.CPointer}),
+            {c={params={'void *','const void *','size_t'},result='void *'}}),
+        memcmp=pure('memcmp',B.Signature(L{allocation,cstring,int},L{B.Int}),
+            {c={params={'const void *','const void *','size_t'},result='int'}}),
+    },
 }
 end
 
@@ -5856,7 +5866,7 @@ local Emitter={}; Emitter.__index=Emitter
 
 function Emitter.new(options)
     return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
-        names={},helpers={},used_hosts={},text=false,stdbool=true,trap=false,
+        names={},helpers={},used_hosts={},used_destroys={},destroy_pointer={},text=false,stdbool=true,trap=false,
         instances={},pending={},generic={},serial={},self_tail={}},Emitter)
 end
 
@@ -5918,7 +5928,12 @@ function Emitter:ctype(type_)
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if type_==B.CString then return C.Pointer(C.Named('const char')) end
     if type_==B.CPointer then return C.Pointer(C.Named('void')) end
-    if B.Named:isclassof(type_) then return C.I64 end
+    if B.Named:isclassof(type_) then
+        -- A resource is an integer handle by default, or a C pointer when it declares one.
+        local descriptor=self.options.resources and self.options.resources[type_.name]
+        if descriptor and descriptor.representation=='pointer' then return C.Pointer(C.Named('void')) end
+        return C.I64
+    end
     if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         -- A record with no fields carries no information, and an empty struct is not ISO C.
@@ -6190,6 +6205,7 @@ function Emitter:instruction(block,block_id,index,instruction)
             declare(1,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
         else declare(1,B.Effect,self:ref(block,block_id,position,operation.effect)) end
     elseif B.Destroy:isclassof(operation) then
+        self.used_destroys[operation.destructor]=true
         local value=self:ref(block,block_id,position,operation.value)
         out[#out+1]=C.Evaluate(C.Call(C.Name(operation.destructor),L{value}))
         declare(0,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
@@ -6554,13 +6570,16 @@ function Emitter:host_declarations()
     local names={}
     -- Symbol sources are Lua tables, so sort them: an emitted unit must not depend on
     -- `pairs` order, or two builds of one program would differ byte for byte.
+    -- A destructor is declared only when a `Destroy` names it, for the same reason hosts are: a
+    -- registered resource the program does not use must not appear in its C.
     local destroys={}
-    for _,descriptor in pairs(self.options.resources or {}) do
-        if not names[descriptor.destroy] then names[descriptor.destroy]=true; destroys[#destroys+1]=descriptor.destroy end
-    end
+    for symbol in pairs(self.used_destroys) do destroys[#destroys+1]=symbol end
     table.sort(destroys)
     for _,symbol in ipairs(destroys) do
-        declarations:insert(C.Function(symbol,true,false,C.Void,L{C.Parameter(C.I64,'a0')},nil))
+        -- A resource that is a C pointer is destroyed through that pointer; a handle stays an
+        -- integer. The representation belongs to the resource, not to the destructor's spelling.
+        local type_=self.destroy_pointer[symbol] and C.Pointer(C.Named('void')) or C.I64
+        declarations:insert(C.Function(symbol,true,false,C.Void,L{C.Parameter(type_,'a0')},nil))
     end
     local symbols={}
     -- Only a host the program actually calls is declared: a vocabulary may be registered for
@@ -6680,6 +6699,9 @@ function Emitter:program(program,options)
     -- is a host (`c.puts`).
     self.hosts={}
     for _,host in pairs(options.hosts or {}) do self.hosts[host.symbol]=host end
+    for _,descriptor in pairs(options.resources or {}) do
+        self.destroy_pointer[descriptor.destroy]=descriptor.representation=='pointer'
+    end
     for _,namespace in pairs(options.dictionary or {}) do
         for _,member in pairs(namespace.members or {}) do
             if member.signature then self.hosts[member.symbol]=member end
@@ -6792,7 +6814,13 @@ return function(V,arg)
         -- The C vocabulary is a namespace, so it cannot collide with a program's own names;
         -- an embedding or options file that declares `c` itself wins.
         local dictionary=options.dictionary or {}
-        if not dictionary.c then dictionary.c={members=V.libc} end
+        if not dictionary.c then dictionary.c={members=V.libc.members} end
+        options.dictionary=dictionary
+        -- The C memory resource is the CLI's, and the embedding's own resources still win.
+        local resources={}
+        for name,descriptor in pairs(V.libc.resources or {}) do resources[name]=descriptor end
+        for name,descriptor in pairs(options.resources or {}) do resources[name]=descriptor end
+        options.resources=resources
         options.dictionary=dictionary
         local program,builder=V.parse(text,input):build(options)
         -- This is a host, and it publishes every exported word: §15.1's "the host selects".

@@ -623,7 +623,7 @@ check(output:find('trap: division by zero',1,true)~=nil,'§14.2 native division 
 -- members take a borrowed `CString` (a `const char*`), and `c.string`/`c.text` are the
 -- explicit crossings between that and Let's `Text`. No shim, and no implicit string conflation.
 local c_members={}
-for name,host in pairs(V.libc) do c_members[name]=host end
+for name,host in pairs(V.libc.members) do c_members[name]=host end
 c_members.greeting={symbol='ffi_greeting',phase='runtime',purity='pure',
     signature=B.Signature(L{},L{B.CString})}
 output=native('libc',[[
@@ -637,15 +637,44 @@ let shown = print_int(r)
     'int main(void){ let_module_init(); return 0; }',{dictionary={c={members=c_members}}})
 eq(output,'from-libc\n17\n','§15.3 native libc: `c.strlen`, `c.puts` and `c.string` over a borrowed C string')
 
--- §12.4 C memory: `c.malloc` returns an owned `CPointer`, which Let never dereferences; the
--- program releases it with `c.free`, and `c.memcpy`/`c.memcmp` take it back to C.
+-- §12.4 C memory is an owned pointer resource: `c.malloc` returns it and Let destroys it with
+-- `free`; `c.memcpy`/`c.memcmp` borrow it. Let never dereferences it, and there is no `c.free`.
+local c_memory={dictionary={c={members=V.libc.members}},
+    resources={Box={destroy='close'},Buffer={destroy='close_buffer'},CAlloc=V.libc.resources.CAlloc}}
 output=native('cmemory',[[
 let buffer = c.malloc(6)
 let copied = c.memcpy(buffer, c.string("hello"), 6)
-let same = c.memcmp(copied, c.string("hello"), 6)
-let freed = c.free(copied)
+let same = c.memcmp(buffer, c.string("hello"), 6)
 let shown = c.putchar(48 + same)
-]],'int main(void){ let_module_init(); return 0; }',{dictionary={c={members=V.libc}}})
-eq(output,'0','§12.4 native C memory: malloc, memcpy, memcmp and free')
+]],'int main(void){ let_module_init(); return 0; }',c_memory)
+eq(output,'0','§12.4 native C memory: an owned pointer resource, malloc/memcpy/memcmp')
+
+-- A pointer resource is released exactly once, at the exit of the scope that owns it, rather
+-- than freed by hand; the destructor's C parameter is the pointer, not a handle.
+local tracked_members={}
+for name,host in pairs(V.libc.members) do tracked_members[name]=host end
+tracked_members.alloc={symbol='ffi_alloc',phase='runtime',purity='ordered',
+    signature=B.Signature(L{int_parameter},L{B.Named('Tracked')}), c={params={'size_t'},result='void *'}}
+tracked_members.released={symbol='ffi_released',phase='runtime',purity='pure',
+    signature=B.Signature(L{},L{B.Int}), c={result='int'}}
+output=native('cownership',[[
+let allocate = do
+    let a = c.alloc(8)
+    let b = c.alloc(16)
+    return 0
+end
+let ran = allocate()
+let released = c.released()
+let shown = c.putchar(48 + released)
+]],[[
+static int tracked_released=0;
+void* ffi_alloc(size_t n){ return malloc(n); }
+void ffi_release(void* p){ ++tracked_released; free(p); }
+int ffi_released(void){ return tracked_released; }
+int main(void){ let_module_init(); return 0; }
+]],{dictionary={c={members=tracked_members}},
+    resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
+        Tracked={destroy='ffi_release',representation='pointer'}}})
+eq(output,'2','§12.4 a pointer resource is released once at its scope exit')
 
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))

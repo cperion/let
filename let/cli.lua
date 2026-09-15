@@ -49,7 +49,13 @@ return function(V,arg)
         -- The C vocabulary is a namespace, so it cannot collide with a program's own names;
         -- an embedding or options file that declares `c` itself wins.
         local dictionary=options.dictionary or {}
-        if not dictionary.c then dictionary.c={members=V.libc} end
+        if not dictionary.c then dictionary.c={members=V.libc.members} end
+        options.dictionary=dictionary
+        -- The C memory resource is the CLI's, and the embedding's own resources still win.
+        local resources={}
+        for name,descriptor in pairs(V.libc.resources or {}) do resources[name]=descriptor end
+        for name,descriptor in pairs(options.resources or {}) do resources[name]=descriptor end
+        options.resources=resources
         options.dictionary=dictionary
         local program,builder=V.parse(text,input):build(options)
         -- This is a host, and it publishes every exported word: §15.1's "the host selects".
