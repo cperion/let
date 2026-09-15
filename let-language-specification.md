@@ -1280,6 +1280,9 @@ These language extensions remain explicitly deferred. Note that partial moves *a
 - private exports and package resolution (file chains and imports are specified in §15.2);
 - mutual-recursion declarations;
 - non-escaping partial specialization that retains a `mut` borrow;
+- storing a borrow in an aggregate, which is what §20's vector was reaching for: the grammar admits
+  a value or `move place` as a member (§3.3) and confines `mut place` to a call argument (§3.4), so
+  a program that tries it is rejected while parsing rather than by the ownership rules;
 - floating-point and mixed numeric promotion;
 - dynamic constraint tests and reflection;
 - pattern matching, `break`, and `continue`;
@@ -1331,7 +1334,7 @@ These tests are normative even if a test harness uses different spelling for the
 | `true or trapping_word()` | Returns `true`; the right operand is not invoked |
 | `{ mark("a"), mark("b") }` | Event order is `a`, then `b` |
 | Read after `consume(move x)` | Ownership diagnostic at the read |
-| Store a `mut x` borrow in an aggregate | Ownership diagnostic at the store |
+| Store a `mut x` borrow in an aggregate | Parse error: §3.3 admits a value or `move place` as a member, and §3.4 confines `mut place` to a call argument. A borrow cannot be stored; see the deferred borrow-in-aggregate design in §18 |
 
 Prelude and invocation order use this definition:
 

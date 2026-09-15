@@ -1628,6 +1628,14 @@ function A.BinaryOp:build(ctx,expression)
     ctx:unpin(); return self:apply(ctx,left,right,expression.span)
 end
 local function short(self,ctx,expression)
+    -- §3.1: a literal on the left already decides the outcome, so the operator is not a branch at
+    -- all and the right-hand side is not evaluated -- which is exactly what short-circuiting is.
+    local deciding=self==A.And and false or true
+    if A.Boolean:isclassof(expression.left) then
+        local left=expression.left:build(ctx); expect(left,B.Bool,expression.span)
+        if expression.left.value==deciding then return left end
+        local right=expression.right:build(ctx); expect(right,B.Bool,expression.span); return right
+    end
     local left=expression.left:build(ctx); expect(left,B.Bool,expression.span)
     local function rhs(child) local right=expression.right:build(child); expect(right,B.Bool,expression.span); return right end
     local function skip(child) return child:boolean(self==A.Or,expression.span) end
@@ -3634,7 +3642,14 @@ function Builder:specialize(ctx,expression)
         if not file then fail(expression.span,'unresolved import') end
         return self:instantiate(ctx,{template=ctx.resolved.chains[file]})
     end
-    if not value.word then fail(expression.span,'specialization requires a word value') end
+    if not value.word then
+        -- Adjacent statements juxtapose: `f() g()` is a specialization whose receiver is an
+        -- invocation. That is legal shape, illegal meaning, and almost always a missing `;`.
+        if A.Invoke:isclassof(expression.word) then
+            fail(expression.span,'an invocation cannot be specialized: separate the two statements with ";"')
+        end
+        fail(expression.span,'specialization requires a word value')
+    end
     -- The receiver is unchanged. A Copy receiver is copied; a fresh receiver transfers
     -- its state; an existing non-Copy receiver needs explicit independent-copy vocabulary.
     if value.mode=='borrow' then

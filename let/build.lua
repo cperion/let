@@ -547,6 +547,14 @@ function A.BinaryOp:build(ctx,expression)
     ctx:unpin(); return self:apply(ctx,left,right,expression.span)
 end
 local function short(self,ctx,expression)
+    -- §3.1: a literal on the left already decides the outcome, so the operator is not a branch at
+    -- all and the right-hand side is not evaluated -- which is exactly what short-circuiting is.
+    local deciding=self==A.And and false or true
+    if A.Boolean:isclassof(expression.left) then
+        local left=expression.left:build(ctx); expect(left,B.Bool,expression.span)
+        if expression.left.value==deciding then return left end
+        local right=expression.right:build(ctx); expect(right,B.Bool,expression.span); return right
+    end
     local left=expression.left:build(ctx); expect(left,B.Bool,expression.span)
     local function rhs(child) local right=expression.right:build(child); expect(right,B.Bool,expression.span); return right end
     local function skip(child) return child:boolean(self==A.Or,expression.span) end

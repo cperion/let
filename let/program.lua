@@ -287,7 +287,14 @@ function Builder:specialize(ctx,expression)
         if not file then fail(expression.span,'unresolved import') end
         return self:instantiate(ctx,{template=ctx.resolved.chains[file]})
     end
-    if not value.word then fail(expression.span,'specialization requires a word value') end
+    if not value.word then
+        -- Adjacent statements juxtapose: `f() g()` is a specialization whose receiver is an
+        -- invocation. That is legal shape, illegal meaning, and almost always a missing `;`.
+        if A.Invoke:isclassof(expression.word) then
+            fail(expression.span,'an invocation cannot be specialized: separate the two statements with ";"')
+        end
+        fail(expression.span,'specialization requires a word value')
+    end
     -- The receiver is unchanged. A Copy receiver is copied; a fresh receiver transfers
     -- its state; an existing non-Copy receiver needs explicit independent-copy vocabulary.
     if value.mode=='borrow' then

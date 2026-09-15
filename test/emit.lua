@@ -288,4 +288,15 @@ check(specialized:find('(int64_t p1_2);',1,true)~=nil,'and is dropped from the s
 check(specialized:find('(int64_t p1_1, int64_t p1_2);',1,true)~=nil,'while the generic instance keeps both')
 check(specialized:find('let_scale_%d+_%d+%(v[%w_]+%);')~=nil,'and the call passes only what is left')
 
+-- §3.1 A literal on the deciding side of a short-circuit settles the operator, so no branch is
+-- built and the other side is never evaluated. Each folded operator is a join and its edges that
+-- stop existing -- the quantity that decides whether the belt is competitive for boolean guards.
+local shorted=emitted[[
+let n = ordered_int(0)
+let x = false and (n != 0);
+let y = true or (n != 0);
+]]
+check(not shorted:find('if (',1,true),'a decided short-circuit emits no branch')
+check(not shorted:find('ordered_int',1,true)~=nil,'and still evaluates what it was given')
+
 print(('passed %d demand and folding emission checks'):format(checks))
