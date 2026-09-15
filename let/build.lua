@@ -243,6 +243,18 @@ function Context:constraint(annotation,type_,span)
     if annotation.name=='Copy' and type_ then
         if not type_:copyable() then fail(span,'constraint Copy is not satisfied') end; return type_
     end
+    -- §11.2 `Executable` is a shape, not a type: the word an argument supplies *is* the type.
+    -- An entry that has no argument yet therefore has no type to bind, and returns nil so the
+    -- caller can say so (a host entry skips; advancement gets the type from the argument).
+    if annotation.name=='Executable' then
+        if not type_ then return nil end
+        if not B.Word:isclassof(type_) then fail(span,'Executable requires an executable word') end
+        local template=self.resolved and self.resolved.templates[type_.template]
+        if template and not A.Body:isclassof(template.source.terminal) then
+            fail(span,'Executable requires a do terminal')
+        end
+        return type_
+    end
     local declared=self.fn.types[annotation.name]
     if not declared then gap(span,'constraint ' .. annotation.name) end
     if type_ then expect({type=type_},declared,span) end; return declared

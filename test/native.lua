@@ -292,6 +292,33 @@ let answer = run()
 ]],[[int main(void){ let_module_init(); return 0; }]])
 eq(output,'open:8\nclose_buffer:7\n','§6.3 a user word owns and destroys its own-stage argument once')
 
+-- §11.2 `Executable`: the stage's type is the word the argument supplies, so the argument
+-- chosen at the call site is the function that runs.
+output=native('executable',[[
+let success = let value : Int do return value end
+let failure = let code : Int do return -code end
+let checked_divide =
+    let ok : Executable
+    let bad : Executable
+    let numerator : Int
+    let denominator : Int
+    do
+        if denominator == 0 do
+            return bad(1)
+        else
+            return ok(numerator / denominator)
+        end
+    end
+let divide = checked_divide success failure
+let run = do
+    print_int(divide(84, 2));
+    print_int(divide(1, 0));
+    return 0
+end
+let shown = run()
+]],[[int main(void){ let_module_init(); return 0; }]])
+eq(output,'42\n-1\n','§11.2 an Executable stage runs the word its argument supplied')
+
 -- §4.2 Self recursion that is not a tail call: the recursive call returns whatever the
 -- word returns, so its result type comes from the word itself.
 output=native('recursion',[[

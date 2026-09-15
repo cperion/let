@@ -38,10 +38,10 @@ Whitespace is insignificant. `let`, `do`, `end`, `if`, `else`, and `return` prov
 structural boundaries; use `;` where adjacent expressions would otherwise run
 together (`f(x); g(y)`, not `f(x) g(y)`). Assignment remains `name = value`.
 
-Structured control keeps its familiar spelling. Continuation words are specified to handle
-alternative outcomes without forcing callback plumbing into every statement, but a stage whose
-type only an argument determines (`Executable`) is not lowered yet, so
-[`examples/continuations.let`](examples/continuations.let) does not compile today.
+Structured control keeps its familiar spelling. Continuation words handle alternative
+outcomes without forcing callback plumbing into every statement: a stage constrained only by
+`Executable` takes the type of the word an argument supplies, so the callee is selected at the
+call site. See [`examples/continuations.let`](examples/continuations.let).
 
 ## Run
 

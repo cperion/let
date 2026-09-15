@@ -179,4 +179,39 @@ let answer = countdown(20000)
 ns=module_namespace(program)
 eq(field(builder.module_order,'answer',ns),0,'tail self recursion is bounded')
 
+-- §11.2 `Executable` is a shape, not a type: the word an argument supplies is the stage's
+-- type. The continuation idiom passes two words and invokes the selected one.
+program,builder=build[[
+let success = let value : Int do return value end
+let failure = let code : Int do return -code end
+let checked_divide =
+    let ok : Executable
+    let bad : Executable
+    let numerator : Int
+    let denominator : Int
+    do
+        if denominator == 0 do
+            return bad(1)
+        else
+            return ok(numerator / denominator)
+        end
+    end
+let divide = checked_divide success failure
+let good = divide(84, 2)
+let bad = divide(1, 0)
+]]
+ns=module_namespace(program)
+eq(field(builder.module_order,'good',ns),42,'an Executable stage resolves to the word the argument supplies')
+eq(field(builder.module_order,'bad',ns),-1,'and reaches the word the other branch selects')
+check(builder.host_entry_skips.checked_divide~=nil,'an Executable stage leaves the word without a host entry')
+check(tostring(builder.host_entry_skips.checked_divide):find('no type without an argument',1,true)~=nil,'and records why')
+
+-- The supplied value must be an executable word, with a `do` terminal.
+local function rejects(source)
+    local ok=pcall(build,source)
+    check(not ok,'expected a rejection: '..source)
+end
+rejects('let apply = let f : Executable do return f(1) end\nlet y = apply(3)')
+rejects('let apply = let f : Executable do return f(1) end\nlet data = let n : Int; n + 1\nlet y = apply(data)')
+
 print(('passed %d program construction checks'):format(count))

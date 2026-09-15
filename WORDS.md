@@ -292,8 +292,8 @@ not assumed away by a global mutable-state cache.
 3. **Done for Copy and owned data.** One `Builder:supply` serves persistent
    specialization and transient invocation; interior mutable state is returned and
    written back; prelude state carries an explicit retention flag.
-4. **Partly done.** Terminal entry, return, and bounded self tail retirement work.
-   Concrete callable constraints and general recursive/mutual contracts remain.
+4. **Done for the covered shapes.** Terminal entry, return, bounded self tail retirement and
+   argument-determined (`Executable`) stages work. General recursive and mutual contracts remain.
 5. **Done for the covered shapes.** The binding-time evaluator (`let/known.lua`) answers
    producers, demand folds and prunes, and `let/emit.lua` prints C with a direct `TailCall`
    becoming a `goto`. Remaining: mutual-recursion summaries and block instances for

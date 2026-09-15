@@ -157,10 +157,11 @@ construction diagnostic rather than a language limitation.
   before it could be honoured.
 - Constraint words: `Bool`, `Int`, `Float`, `Unit`, `Text`, `Copy` and `Executable` are
   registered. A constraint word that takes specialization arguments waits on the surface
-  vocabulary §11.2 defers. A stage whose type only an argument determines -- unannotated,
-  constrained only by `Copy`, or `Executable` -- has no type to bind it until argument-
-  determined stage typing lands, so a word that takes one (the continuation idiom in
-  `examples/continuations.let`) is diagnosed.
+  vocabulary §11.2 defers. `Executable` is argument-determined: the word an argument supplies
+  is the stage's type, so a word that receives one (`examples/continuations.let`) builds and
+  runs, but offers no host entry -- an entry with no argument has no type to publish. An
+  unannotated stage still needs a concrete parameter type; general inference from uses is the
+  remaining piece.
 - Consumer-driven known evaluation, specialization stabilization, and C scheduling.
   Emission consumes `Function:demands()` and `let/known.lua`'s answers: unneeded pure
   producers, known producers, their helpers, unused non-entry packet fields and

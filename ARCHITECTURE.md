@@ -209,8 +209,7 @@ Steps 1–5 are implemented for the covered shapes: the shared advancement proto
 binding-time evaluator (`known.lua`), and demand-driven C emission are in place and tested
 natively. Remaining work is the list in COMPILER.md's "Work still required": the benchmark's
 remaining measurement, a partial move introduced inside a loop, word values outside a call
-result, argument-determined stage types (the continuation idiom), mutual-recursion summaries,
-and a shared cross-function tail dispatcher.
+result, mutual-recursion summaries, and a shared cross-function tail dispatcher.
 
 Reuse the scalar/control machinery where it fits these contracts, rather than
 adding a separate limited source-call path. Existing coverage and remaining gaps
