@@ -926,7 +926,7 @@ module Belt {
     Destination = Persistent | Transient
     Access = CopyAccess | OwnAccess | ReadAccess | MutAccess
     Field = (string? name, Type type, boolean mutable)
-    Type = Int | Float | Bool | Unit | Text | Effect | CString
+    Type = Int | Float | Bool | Unit | Text | Effect | CString | CPointer
          | Named(string name) | Address(Type pointee)
          | Borrow(Type pointee, boolean stable)
          | Aggregate(Field* fields, boolean is_copy)
@@ -995,6 +995,8 @@ function B.Unit:copyable() return true end
 function B.Text:copyable() return true end
 -- A C string is a borrowed `const char*`: Copy as a value, owned by C rather than by Let.
 function B.CString:copyable() return true end
+-- An opaque C pointer: Copy as a value, and never dereferenced or owned by Let.
+function B.CPointer:copyable() return true end
 -- §8.5: an aggregate is Copy exactly when every contained value is Copy and it declares
 -- no mutable member. Both facts are recorded in the type, because member types alone
 -- cannot express a declared mutable member.
@@ -1021,6 +1023,7 @@ function B.Bool:key() return 'bool' end
 function B.Unit:key() return 'unit' end
 function B.Text:key() return 'text' end
 function B.CString:key() return 'cstring' end
+function B.CPointer:key() return 'cpointer' end
 function B.Effect:key() return 'effect' end
 function B.Named:key() return 'named('..self.name..')' end
 function B.Address:key() return '&'..self.pointee:key() end
@@ -1707,6 +1710,20 @@ function Vocabulary.new(options)
             'host requires a symbol')
         assert(B.Signature:isclassof(host.signature) and #host.signature.results==1,
             'host requires one Let result')
+        -- The boundary declares ownership and nullability, which C's type system cannot: they
+        -- only mean anything for a pointer result.
+        if host.ownership~=nil then
+            assert(host.ownership=='owned' or host.ownership=='borrowed',
+                'host ownership must be owned or borrowed')
+        end
+        if host.nullable~=nil then
+            assert(type(host.nullable)=='boolean','host nullability must be a boolean')
+        end
+        if host.ownership~=nil or host.nullable~=nil then
+            local result=host.signature.results[1]
+            assert(result==B.CString or result==B.CPointer,
+                'ownership and nullability apply to a pointer result')
+        end
         assert(not symbols[host.symbol],'duplicate host symbol')
         symbols[host.symbol]=host
         hosts[name]=host
@@ -1733,35 +1750,56 @@ end)
 -- let/libc.lua
 module('let.libc', function(require, ...)
 -- The C library the command-line host offers under the `c` namespace, so a Let program can call
--- libc with no hand-written host. Each entry states the Let signature the frontend checks and,
--- where a C integer is not `Int64`, the C prototype the emitter spells (§15.3).
+-- libc with no hand-written host. Each entry states the Let signature the frontend checks, the C
+-- prototype the emitter spells where a C type is not the Let type's natural mapping (§15.3), and
+-- the ownership and nullability the boundary declares (spec §12.4).
 --
--- `CString` is a borrowed `const char*`, a type of its own rather than `Text`: the two are not
--- the same thing, and `c.string`/`c.text` are the explicit crossings.
+-- `CString` is a borrowed `const char*` and `CPointer` an opaque `void*`; both are types of their
+-- own rather than `Text`, and `c.string` / `c.text` are the explicit crossings.
 --
--- The set is deliberately small and sound at the Let type level: string and integer functions,
--- no variadic form (`printf`), and no raw pointer (`malloc`). Those need a surface this compiler
--- does not define yet, and inventing one here would be a language decision, not a vocabulary.
+-- The set is deliberately small and sound at the Let type level: string, integer and byte
+-- functions, no variadic form (`printf`), and no dereference or pointer arithmetic. Those need a
+-- surface the specification does not define yet, and inventing one here would be a language
+-- decision, not a vocabulary.
 return function(V)
 local A,B,L=V.AST,V.Belt,V.List
 local int=B.Parameter(B.Int,A.Read)
 local cstring=B.Parameter(B.CString,A.Read)
+local cpointer=B.Parameter(B.CPointer,A.Read)
 
-local function ordered(symbol,signature,c) return {symbol=symbol,phase='runtime',purity='ordered',signature=signature,c=c} end
-local function pure(symbol,signature,c) return {symbol=symbol,phase='runtime',purity='pure',signature=signature,c=c} end
+local function word(symbol,purity,signature,extra)
+    local descriptor={symbol=symbol,phase='runtime',purity=purity,signature=signature}
+    for key,value in pairs(extra or {}) do descriptor[key]=value end
+    return descriptor
+end
+local function ordered(symbol,signature,extra) return word(symbol,'ordered',signature,extra) end
+local function pure(symbol,signature,extra) return word(symbol,'pure',signature,extra) end
 
 return {
-    -- The explicit crossings between a Let Text and a borrowed C string.
+    -- The explicit crossings between a Let Text and a borrowed C string, and an opaque pointer.
     string={phase='runtime',conversion='cstring'},
     text={phase='runtime',conversion='ctext'},
 
-    puts=ordered('puts',B.Signature(L{cstring},L{B.Int}),{result='int'}),
-    putchar=ordered('putchar',B.Signature(L{int},L{B.Int}),{params={'int'},result='int'}),
-    strlen=pure('strlen',B.Signature(L{cstring},L{B.Int}),{result='size_t'}),
-    strcmp=pure('strcmp',B.Signature(L{cstring,cstring},L{B.Int}),{result='int'}),
-    atoi=pure('atoi',B.Signature(L{cstring},L{B.Int}),{result='int'}),
-    llabs=pure('llabs',B.Signature(L{int},L{B.Int}),{params={'long long'},result='long long'}),
-    getenv=pure('getenv',B.Signature(L{cstring},L{B.CString})),
+    puts=ordered('puts',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
+    putchar=ordered('putchar',B.Signature(L{int},L{B.Int}),{c={params={'int'},result='int'}}),
+    strlen=pure('strlen',B.Signature(L{cstring},L{B.Int}),{c={result='size_t'}}),
+    strcmp=pure('strcmp',B.Signature(L{cstring,cstring},L{B.Int}),{c={result='int'}}),
+    atoi=pure('atoi',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
+    llabs=pure('llabs',B.Signature(L{int},L{B.Int}),{c={params={'long long'},result='long long'}}),
+    getenv=pure('getenv',B.Signature(L{cstring},L{B.CString}),{ownership='borrowed',nullable=true}),
+
+    -- C memory. Let never dereferences a `CPointer`, so the result of `malloc` is released by an
+    -- explicit `free`; the ownership call is the program's, exactly as in C.
+    malloc=ordered('malloc',B.Signature(L{int},L{B.CPointer}),
+        {c={params={'size_t'},result='void *'},ownership='owned'}),
+    free=ordered('free',B.Signature(L{cpointer},L{B.Unit}),
+        {c={params={'void *'},result='void'}}),
+    memcpy=ordered('memcpy',B.Signature(L{cpointer,cstring,int},L{B.CPointer}),
+        {c={params={'void *','const void *','size_t'},result='void *'}}),
+    memset=ordered('memset',B.Signature(L{cpointer,int,int},L{B.CPointer}),
+        {c={params={'void *','int','size_t'},result='void *'}}),
+    memcmp=pure('memcmp',B.Signature(L{cpointer,cstring,int},L{B.Int}),
+        {c={params={'const void *','const void *','size_t'},result='int'}}),
 }
 end
 
@@ -5879,6 +5917,7 @@ function Emitter:ctype(type_)
     if type_==B.Float then self.math=true; return C.F64 end
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if type_==B.CString then return C.Pointer(C.Named('const char')) end
+    if type_==B.CPointer then return C.Pointer(C.Named('void')) end
     if B.Named:isclassof(type_) then return C.I64 end
     if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then

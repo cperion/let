@@ -28,6 +28,20 @@ function Vocabulary.new(options)
             'host requires a symbol')
         assert(B.Signature:isclassof(host.signature) and #host.signature.results==1,
             'host requires one Let result')
+        -- The boundary declares ownership and nullability, which C's type system cannot: they
+        -- only mean anything for a pointer result.
+        if host.ownership~=nil then
+            assert(host.ownership=='owned' or host.ownership=='borrowed',
+                'host ownership must be owned or borrowed')
+        end
+        if host.nullable~=nil then
+            assert(type(host.nullable)=='boolean','host nullability must be a boolean')
+        end
+        if host.ownership~=nil or host.nullable~=nil then
+            local result=host.signature.results[1]
+            assert(result==B.CString or result==B.CPointer,
+                'ownership and nullability apply to a pointer result')
+        end
         assert(not symbols[host.symbol],'duplicate host symbol')
         symbols[host.symbol]=host
         hosts[name]=host

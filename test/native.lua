@@ -637,4 +637,15 @@ let shown = print_int(r)
     'int main(void){ let_module_init(); return 0; }',{dictionary={c={members=c_members}}})
 eq(output,'from-libc\n17\n','§15.3 native libc: `c.strlen`, `c.puts` and `c.string` over a borrowed C string')
 
+-- §12.4 C memory: `c.malloc` returns an owned `CPointer`, which Let never dereferences; the
+-- program releases it with `c.free`, and `c.memcpy`/`c.memcmp` take it back to C.
+output=native('cmemory',[[
+let buffer = c.malloc(6)
+let copied = c.memcpy(buffer, c.string("hello"), 6)
+let same = c.memcmp(copied, c.string("hello"), 6)
+let freed = c.free(copied)
+let shown = c.putchar(48 + same)
+]],'int main(void){ let_module_init(); return 0; }',{dictionary={c={members=V.libc}}})
+eq(output,'0','§12.4 native C memory: malloc, memcpy, memcmp and free')
+
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))

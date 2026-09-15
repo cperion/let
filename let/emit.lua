@@ -73,6 +73,7 @@ function Emitter:ctype(type_)
     if type_==B.Float then self.math=true; return C.F64 end
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if type_==B.CString then return C.Pointer(C.Named('const char')) end
+    if type_==B.CPointer then return C.Pointer(C.Named('void')) end
     if B.Named:isclassof(type_) then return C.I64 end
     if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then

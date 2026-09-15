@@ -1004,6 +1004,42 @@ Construction does not execute the conditions or controlled runtime effects. The 
 
 Hosts may register another descriptor. Source syntax for defining a construction word in Let itself is deferred; construction must not become a hidden textual macro language.
 
+### 12.4 Foreign words and the C boundary
+
+An implementation may compile to a foreign calling convention; Let prescribes none (§15.4). A
+**foreign word** is a dictionary entry whose body is supplied outside Let, so a program calls it
+like any other word. Registration is an embedding matter (§15.3); what the language fixes is the
+contract such a word declares:
+
+- its ordered stages, capabilities, and result, in Let types;
+- the C symbol it calls, and the C prototype of each parameter and the result where that differs
+  from the natural mapping;
+- its purity;
+- the ownership of a pointer result: `owned` (the caller must release it) or `borrowed` (it must
+  not outlive the call);
+- whether a pointer result may be null.
+
+Two types exist only at that boundary, and they are not `Text`:
+
+- `CString` is a borrowed, NUL-terminated byte sequence (the C `const char*`): no length and no
+  owner in Let. One conversion borrows a `Text`'s bytes as a `CString`, which requires them to
+  be NUL-terminated; the other measures a `CString` into a `Text` at its terminator, producing a
+  **borrowed view**, so the C storage must outlive it.
+- `CPointer` is an opaque C pointer (`void*`): Copy, possibly null, and supporting no operation
+  in Let. It cannot be dereferenced, indexed, compared, or turned into an integer; it may only
+  be passed back to a foreign word. An owned pointer is released explicitly, because Let does
+  not destroy storage C allocated.
+
+Scalars cross as themselves: `Int`, `Float`, `Bool`, and `Unit` map to a declared C integer
+width, `double`, `bool`, and `void`. There is no implicit numeric conversion; the declared
+prototype is authoritative and the value is converted once at the boundary.
+
+`Text` and `CString` are never interchangeable: a `Text` has a known length and no terminator
+guarantee, while a `CString` is terminated, borrowed, and mutable. Every crossing is an explicit
+word, so no call silently assumes termination or ownership. The declared ownership,
+nullability, and prototype are part of a foreign word's contract; an implementation may check
+them and must not weaken them.
+
 ---
 
 ## 13. Scalar semantics
@@ -1298,7 +1334,7 @@ These language extensions remain explicitly deferred. Note that partial moves *a
 - pattern matching, `break`, and `continue`;
 - catchable exceptions;
 - coroutines, async suspension, and generators;
-- raw pointers and a stable foreign-function ABI;
+- dereferencing, pointer arithmetic, foreign struct layout, and variadic calls;
 - a built-in cyclic collector;
 - operator overloading;
 - a mandatory universal aggregate or closure layout.
