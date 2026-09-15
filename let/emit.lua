@@ -16,6 +16,51 @@ function Emitter.new(options)
         instances={},pending={},generic={},serial={},self_tail={}},Emitter)
 end
 
+-- A host may state the C prototype it calls, because that ABI is an embedding detail (§15.3): a
+-- libc function takes `const char*` and `int`, which are not Let's `Text` and `Int`. The
+-- conversion between the two is one rule per pair, stated here rather than at every call.
+local function compact(name) return (name:gsub('%s','')) end
+local function c_string_type(name) local c=compact(name); return c=='char*' or c=='constchar*' end
+local c_integer={}
+for _,name in ipairs{'char','signedchar','unsignedchar','short','unsignedshort','int','unsigned',
+    'long','unsignedlong','longlong','unsignedlonglong','size_t','ssize_t','ptrdiff_t','intptr_t',
+    'uintptr_t','int8_t','uint8_t','int16_t','uint16_t','int32_t','uint32_t','int64_t','uint64_t'} do
+    c_integer[name]=true
+end
+local function c_integer_type(name) return c_integer[compact(name)]==true end
+
+-- Each Let argument becomes the C parameter the host declared: a `Text` passes its bytes as a
+-- `char*`, an `Int` is cast to the declared width, anything else passes through.
+function Emitter:host_arguments(host,arguments)
+    local converted=L()
+    for i,value in ipairs(arguments) do
+        local spelling=host.c and host.c.params and host.c.params[i]
+        local parameter=host.signature.parameters[i]
+        local place=parameter and (parameter.capability==A.Mut or parameter.capability==A.OwnMut)
+        if spelling and c_string_type(spelling) and not place then
+            converted:insert(C.Field(value,'data'))
+        elseif spelling and c_integer_type(spelling) then
+            converted:insert(C.Cast(C.Named(spelling),value))
+        else
+            converted:insert(value)
+        end
+    end
+    return converted
+end
+
+-- The C result becomes the Let result: a `char*` is measured into a `Text`, an integer is
+-- widened to `Int`, anything else passes through.
+function Emitter:host_result(host,call)
+    local spelling=host.c and host.c.result
+    if not spelling then return call end
+    if c_string_type(spelling) then
+        self.text=true; self.helpers.text_from_c=true
+        return C.Call(C.Name('let_text_from_c'),L{call})
+    end
+    if c_integer_type(spelling) then return C.Cast(C.I64,call) end
+    return call
+end
+
 function Emitter:error(message) error('C emission: ' .. message,0) end
 
 function Emitter:register_struct(fields)
@@ -121,6 +166,10 @@ end
 
 -- Resolve a belt reference to the C expression holding that output.
 function Emitter:ref(block,block_id,position,ref)
+    -- Unit has exactly one value. It is materialized by whatever produced it -- an ordered call
+    -- emits a statement rather than a variable -- so a use of it is the constant, never a name.
+    local _,ref_type=block:resolve(position,ref)
+    if ref_type==B.Unit then return C.Integer(0,0) end
     local producer=position-1-ref.distance
     local fate,answer=self:disposition(self.current_instance.analysis,self.current,block_id,producer,ref.output)
     if fate=='constant' then return self:constant(answer) end
@@ -288,8 +337,8 @@ function Emitter:instruction(block,block_id,index,instruction)
         end
     elseif B.HostCall:isclassof(operation) or B.PureHostCall:isclassof(operation) then
         local host=self.hosts[operation.symbol] or self:error('missing host contract for ' .. operation.symbol)
-        local arguments=self:arglist(block,block_id,position,operation.arguments)
-        local call=C.Call(C.Name(operation.symbol),statement_list(arguments))
+        local arguments=self:host_arguments(host,self:arglist(block,block_id,position,operation.arguments))
+        local call=self:host_result(host,C.Call(C.Name(operation.symbol),statement_list(arguments)))
         local pure=B.PureHostCall:isclassof(operation)
         if instruction.results[1]==B.Unit then out[#out+1]=C.Evaluate(call)
         else out[#out+1]=C.Declare(self:ctype(instruction.results[1]),self:value(block_id,index,0),call) end
@@ -684,20 +733,29 @@ function Emitter:host_declarations()
         local host=self.hosts[symbol]
         local parameters=L()
         for i,parameter in ipairs(host.signature.parameters) do
-            local type_=parameter.capability==A.Mut and C.Pointer(self:ctype(parameter.type)) or self:ctype(parameter.type)
+            local spelling=host.c and host.c.params and host.c.params[i]
+            local type_
+            if spelling then type_=C.Named(spelling)
+            else type_=parameter.capability==A.Mut and C.Pointer(self:ctype(parameter.type)) or self:ctype(parameter.type) end
             parameters:insert(C.Parameter(type_,'a' .. i))
         end
         local result=host.signature.results[1]
-        declarations:insert(C.Function(host.symbol,true,false,result==B.Unit and C.Void or self:ctype(result),parameters,nil))
+        local result_type
+        if host.c and host.c.result then result_type=C.Named(host.c.result)
+        else result_type=result==B.Unit and C.Void or self:ctype(result) end
+        declarations:insert(C.Function(host.symbol,true,false,result_type,parameters,nil))
     end
     return declarations
 end
 
 function Emitter:helper_declarations()
     local declarations=L()
-    if self.text or self.helpers.text_eq then declarations:insert(C.Struct('let_text',L{C.Parameter(C.Pointer(C.Named('char')),'data'),C.Parameter(C.U64,'size')})) end
+    if self.text or self.helpers.text_eq or self.helpers.text_from_c then declarations:insert(C.Struct('let_text',L{C.Parameter(C.Pointer(C.Named('char')),'data'),C.Parameter(C.U64,'size')})) end
     declarations:insert(C.Function('let_trap',true,false,C.Void,L{C.Parameter(C.Pointer(C.Named('char')),'reason')},nil))
     local function raw(code) declarations:insert(C.Raw(code)) end
+    -- A `char*` the host returns has no length; the Let Text takes its size from the bytes up
+    -- to the terminator, which is the contract a C string already implies.
+    if self.helpers.text_from_c then raw('static struct let_text let_text_from_c(const char* s){struct let_text t;t.data=(char*)s;t.size=s?(size_t)strlen(s):0;return t;}') end
     -- Signed overflow is undefined in C, so wrapping arithmetic must go through unsigned.
     -- These are one-line and branch-free, so a macro inlines them without adding a function.
     if self.helpers.add then raw('#define LET_ADD(a,b) ((int64_t)((uint64_t)(a)+(uint64_t)(b)))') end
@@ -776,7 +834,11 @@ function Emitter:program(program,options)
     self.program=program
     self.functions=program.functions
     self.hosts={}
-    for _,host in pairs(options.hosts or {}) do self.hosts[host.symbol]=host end
+    self.c_hosts=false
+    for _,host in pairs(options.hosts or {}) do
+        self.hosts[host.symbol]=host
+        if host.c then self.c_hosts=true end
+    end
     -- One shared run: an instance is analysed once and reused by every call site that asks
     -- for the same entry packet.
     self.run=Known.run(program,options)
@@ -800,8 +862,12 @@ function Emitter:program(program,options)
     if options.statistics then self:report(options.statistics) end
     local host_declarations=self:host_declarations()
     local helpers=self:helper_declarations()
-    local includes=L{'stdint.h','stdbool.h'}
-    if self.text and self.helpers.text_eq then includes:insert('string.h') end
+    -- A host that declares its C prototype may name `size_t` or `ptrdiff_t` (§15.3); a program
+    -- that does not keeps the smaller include set.
+    local includes=L()
+    if self.c_hosts then includes:insert('stddef.h') end
+    includes:insert('stdint.h'); includes:insert('stdbool.h')
+    if self.text and (self.helpers.text_eq or self.helpers.text_from_c) then includes:insert('string.h') end
     if self.math then includes:insert('math.h') end
     local declarations=L()
     declarations:insertall(helpers)

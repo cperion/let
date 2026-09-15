@@ -609,4 +609,28 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 check(output:find('trap: division by zero',1,true)~=nil,'§14.2 native division trap')
 
+-- §15.3 How a host reaches C is an embedding detail, so a host may state the C prototype it
+-- calls. That is what lets a libc function be called directly: no shim, and the conversions
+-- (Text passes as `const char*`, a `char*` result is measured back into Text, and an `Int` casts
+-- to the declared width) happen at the call.
+local libc_hosts={}
+for name,host in pairs(hosts) do libc_hosts[name]=host end
+local text_parameter=B.Parameter(B.Text,A.Read)
+libc_hosts.strlen={symbol='strlen',phase='runtime',purity='pure',
+    signature=B.Signature(L{text_parameter},L{B.Int}), c={params={'const char *'},result='size_t'}}
+libc_hosts.puts={symbol='puts',phase='runtime',purity='ordered',
+    signature=B.Signature(L{text_parameter},L{B.Int}), c={params={'const char *'},result='int'}}
+libc_hosts.greeting={symbol='ffi_greeting',phase='runtime',purity='pure',
+    signature=B.Signature(L{},L{B.Text}), c={result='const char *'}}
+output=native('libc',[[
+let n = strlen("hello")
+let g = greeting()
+let gn = strlen(g)
+let wrote = puts("from-libc")
+let r = n + gn
+let shown = print_int(r)
+]],'const char* ffi_greeting(void){ return "hello-from-c"; }\n'..
+    'int main(void){ let_module_init(); return 0; }',{hosts=libc_hosts})
+eq(output,'from-libc\n17\n','§15.3 native libc: a size_t result and two `const char*` prototypes')
+
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))
