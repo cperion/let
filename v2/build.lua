@@ -145,13 +145,29 @@ function Context:force_bind(name,value,mutable,owned,external,address,span)
     scope.names[name]=id; scope.ids[#scope.ids+1]=id
     self.cells[id]={value=value,initialized=true,alive=owned}; return id
 end
+-- §10.1: a value borrows when its type holds an address, because an address is how a
+-- borrow is represented. Such a value may not leave the activation that owns the storage,
+-- so escape points can be decided from the type alone, with no value-level tracking.
+function Context:borrows(type_)
+    if B.Address:isclassof(type_) then return true end
+    if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
+        for _,field in ipairs(type_.fields) do if self:borrows(field.type) then return true end end
+    end
+    return false
+end
+
 function Context:take(name,span)
     local id,binding,cell=self:binding(name,span)
     if not cell.initialized then fail(span,'use after move or uninitialized binding ' .. name) end
     self:access(id,true,span)
     if binding.type:copyable() then gap(span,'move of Copy bindings') end
     if not binding.owned then fail(span,'cannot move from a borrowed stage') end
-    local value=self:ordered(B.Move(self:ref(self.effect),self:ref(cell.value)),binding.type,span)
+    -- Moving out of a place reads its contents first; the cell itself stays.
+    local source=cell.value
+    if binding.address then
+        source=self:ordered(B.Load(self:ref(self.effect),self:ref(source)),binding.type,span)
+    end
+    local value=self:ordered(B.Move(self:ref(self.effect),self:ref(source)),binding.type,span)
     self.cells[id]={value=cell.value,initialized=false,alive=false}
     value.mode='fresh'; value.origin=id; return value
 end
@@ -225,6 +241,7 @@ end
 -- A non-Copy value carries ownership: a resource by its declared destructor, a record by
 -- destroying its owned fields in reverse initialization order (§8.5, §9.5).
 function Context:owns(type_)
+    if B.Address:isclassof(type_) then return self:owns(type_.pointee) end
     if type_:copyable() then return false end
     if B.Named:isclassof(type_) then return true end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
@@ -236,7 +253,11 @@ end
 
 function Context:destroy(value,span)
     local type_=value.type
-    if B.Named:isclassof(type_) then
+    if B.Address:isclassof(type_) then
+        -- Destroying a place destroys what it contains. A module's owned state lives in
+        -- places so that a captured word can borrow it (§10.1).
+        self:destroy(self:ordered(B.Load(self:ref(self.effect),self:ref(value)),type_.pointee,span),span)
+    elseif B.Named:isclassof(type_) then
         self:ordered(B.Destroy(self:ref(self.effect),self:ref(value),self:resource(type_,span).destroy),nil,span)
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         for index=#type_.fields,1,-1 do
@@ -254,7 +275,15 @@ function Context:release(id)
     if not binding.owned or cell.alive==false then return end
     self:access(id,true,binding.span)
     self.cells[id]={value=cell.value,initialized=false,alive=false}
-    if cell.alive==true then self:destroy(cell.value,binding.span)
+    if cell.alive==true then
+        -- For a place, the owned value is the cell's contents, not the address.
+        local contents=cell.value
+        if binding.address then
+            contents=self:ordered(B.Load(self:ref(self.effect),self:ref(contents)),binding.type,binding.span)
+        end
+        self:destroy(contents,binding.span)
+    elseif binding.address then
+        gap(binding.span,'conditional destruction of an address-taken binding')
     else
         -- Pin the old value: conditional destruction introduces new block parameters.
         self:pin(cell.value)
@@ -286,6 +315,9 @@ function Context:finish_pair(namespace,state,span)
 end
 
 function Context:finish(value,span)
+    if not self.allow_borrow_escape and self:borrows(value.type) then
+        fail(span,'a word that borrows enclosing state cannot be returned from the invocation that owns it')
+    end
     self:accept_owned(value,span)
     if self.fn.result then expect(value,self.fn.result,span) else self.fn.result=value.type end
     self:pin(value); self:cleanup(); self.block.exit=B.Return(L{self:ref(value),self:ref(self.effect)}); self:unpin()
@@ -525,6 +557,20 @@ function A.Binding:build(ctx)
     if value.host then gap(self.span,'stored host words') end
     ctx:constraint(self.constraint,value.type,self.span); ctx:accept_owned(value,self.span)
     ctx:validate_ownership(value.type,self.span)
+    local definition=ctx.resolved and ctx.resolved.bindings[self]
+    -- A binding becomes a place when its address is asked for, and also when a nested word
+    -- captures it: §10.1 makes that capture a borrow, and a borrow of a value is its
+    -- storage. Either way the binding is a cell, and read, assign, borrow, move and
+    -- destruction already go through an address when the binding has one.
+    local captured=definition and definition.captured and not value.type:copyable()
+    if definition and (definition.address_taken or captured) then
+        if definition.address_taken and not self.mutable then
+            fail(self.span,'a mutable borrow requires a mutable binding ' .. self.name)
+        end
+        local address=ctx:ordered(B.Allocate(ctx:ref(ctx.effect),ctx:ref(value)),B.Address(value.type),self.span)
+        ctx:bind(self.name,address,self.mutable,not value.type:copyable(),false,address,self.span)
+        return
+    end
     ctx:bind(self.name,value,self.mutable,not value.type:copyable(),false,false,self.span)
 end
 function A.Local:build(ctx) self.binding:build(ctx) end

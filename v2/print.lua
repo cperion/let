@@ -100,6 +100,8 @@ local function declaration(node,lines)
         lines[#lines+1]=head .. ' {'
         statement(node.body,1,lines)
         lines[#lines+1]='}'
+    elseif C.Global:isclassof(node) then
+        lines[#lines+1]='static ' .. node.type:print() .. ' ' .. node.name .. ';'
     elseif C.Raw:isclassof(node) then
         lines[#lines+1]=node.code
     else error('missing C declaration printer',0) end

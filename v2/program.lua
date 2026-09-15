@@ -132,12 +132,23 @@ function Builder:instantiate(ctx,definition)
     ctx:push(); ctx:retain()
     local function captures()
         for _,capture in ipairs(layout.captures) do
-            local value=ctx:read(capture.name,capture.span)
-            if not value.type:copyable() then
-                gap(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)')
+            local id=ctx:find(capture.name)
+            local binding=ctx.fn.bindings[id]
+            local value,borrows
+            if binding.address then
+                -- §10.1: a non-escaping word captures an owned binding as a read borrow, and
+                -- a borrow of a value is the owner's storage. The word therefore holds the
+                -- owner's address, and invoking through it mutates the owner in place.
+                value=copy(ctx.cells[id].value); value.mode='borrow'
+                borrows={id}
+            else
+                value=ctx:read(capture.name,capture.span)
+                if not value.type:copyable() then
+                    gap(capture.span,'a non-Copy capture needs the owner to be a place')
+                end
             end
             word.fields[#word.fields+1]={name=capture.name,value=value,type=value.type,
-                mutable=false,owned=false,retained=true,span=capture.span}
+                mutable=binding.mutable,owned=false,retained=true,span=capture.span,borrows=borrows}
         end
         for _,field in ipairs(word.fields) do
             ctx:force_bind(field.name,field.value,field.mutable,field.owned,false,false,field.span)
@@ -184,8 +195,15 @@ function Builder:supply(ctx,value,argument,destination)
     end
     local _,temporary=item.capability:bind_argument(supplied,destination,function(message) fail(argument.span,message) end)
     if temporary then gap(argument.span,'transient read borrow of owned state') end
-    local type_=ctx:constraint(item.constraint,supplied.type,argument.span)
-    if type_ then expect(supplied,type_,argument.span) end
+    -- A mutable stage is a place, so its argument is the declared type's address and the
+    -- constraint describes what that place contains.
+    local mut=item.capability==A.Mut
+    local subject=mut and (B.Address:isclassof(supplied.type) and supplied.type.pointee or supplied.type) or supplied.type
+    local type_=ctx:constraint(item.constraint,subject,argument.span)
+    if type_ then expect(supplied,mut and B.Address(type_) or type_,argument.span) end
+    if (item.capability==A.Own or item.capability==A.OwnMut) and ctx:borrows(supplied.type) then
+        gap(argument.span,'passing a word that borrows enclosing state to an ownership-taking stage')
+    end
     local owned=not supplied.type:copyable() and (item.capability==A.Own or item.capability==A.OwnMut)
     -- Advancement happens in a scope holding every field the word already has. Earlier steps
     -- closed their own scopes, so without this a prelude reached at this stage could not see
@@ -284,17 +302,28 @@ function Builder:build_entry(template,fields,id)
     for i,field in ipairs(fields) do
         ctx:push(); if field.retained then ctx:retain() end
         local value=ctx:parameter(field.type,A.Read)
-        local binding=ctx:force_bind(names[i],value,field.mutable,not field.type:copyable() and not field.mutable,false,false,template.source.span)
+        -- A mutable stage arrives as an address, so the field is that place, not a copy.
+        local address=B.Address:isclassof(field.type) and value or false
+        local owned=not address and not field.type:copyable() and not field.mutable
+        local binding=ctx:force_bind(names[i],value,field.mutable,owned,false,address,template.source.span)
         records[i]={field=field,id=binding,value=value}
     end
     if template.self then ctx.self_name=template.self.name; ctx.self_definition=template.self end
     ctx.finish=function(self_,value,span)
+        -- §10.1: the storage this word borrowed belongs to this activation, so the word
+        -- cannot leave it.
+        if self_:borrows(value.type) then
+            fail(span,'a word that borrows enclosing state cannot be returned from the invocation that owns it')
+        end
         self_:accept_owned(value,span)
         if self_.fn.result then expect(value,self_.fn.result,span) else self_.fn.result=value.type end
         self_:pin(value)
         local updated={}
         for _,record in ipairs(records) do
-            if record.field.mutable and record.field.retained then updated[#updated+1]=self_:ref(self_.cells[record.id].value) end
+            -- A place is written back by the callee itself, so it is not a result.
+            if record.field.mutable and record.field.retained and not B.Address:isclassof(record.field.type) then
+                updated[#updated+1]=self_:ref(self_.cells[record.id].value)
+            end
         end
         self_:cleanup()
         local values=L{self_:ref(value)}; values:insertall(updated); values:insert(self_:ref(self_.effect))
@@ -309,7 +338,9 @@ function Builder:build_entry(template,fields,id)
     for _,block in ipairs(fn.blocks) do assert(block.exit,'unfinished block'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit)) end
     local results=L{fn.result}
     for _,record in ipairs(records) do
-        if record.field.mutable and record.field.retained then results:insert(record.field.type) end
+        if record.field.mutable and record.field.retained and not B.Address:isclassof(record.field.type) then
+            results:insert(record.field.type)
+        end
     end
     results:insert(B.Effect)
     return B.Function(fn.name,B.Signature(blocks[1].parameters,results),blocks)
@@ -351,8 +382,23 @@ function Builder:invoke(ctx,expression,tail)
             -- §6.5: the *caller's* own word state is not a local, so it must survive the
             -- transfer. Carrying it through the tail result needs address-taken state.
             if ctx.mutable_state then gap(expression.span,'tail invocation from a word with mutable state') end
+            -- §6.5: a tail transfer retires this activation, so a place this activation owns
+            -- cannot be passed. Only a borrow of module storage would survive, and the type
+            -- does not distinguish that, so any borrow is conservative here.
+            for _,field in ipairs(word.fields) do
+                if B.Address:isclassof(field.type) then
+                    fail(expression.span,'tail invocation borrow does not outlive caller cleanup')
+                end
+            end
             local callee=self.functions[target]
             if callee and #callee.signature.results>2 then
+                local borrowed=false
+                for _,field in ipairs(word.fields) do
+                    if B.Address:isclassof(field.type) then borrowed=true end
+                end
+                if borrowed then
+                    gap(expression.span,'tail invocation of a captured word: its state must be written back, which a tail transfer cannot do')
+                end
                 gap(expression.span,'tail invocation of a word whose state belongs to the retiring activation')
             end
             -- A function whose only exit is a tail call takes its result type from the callee.
@@ -402,7 +448,14 @@ function Builder:invoke(ctx,expression,tail)
             -- no writable place of its own yet, so its state update would be silently lost.
             if not origin then gap(expression.span,'invoking a projected word member with mutable state') end
             local packed=self:pack(ctx,updated)
-            ctx.cells[origin]={value=packed,initialized=true,alive=ctx.fn.bindings[origin].owned}
+            local binding=ctx.fn.bindings[origin]
+            if binding.address then
+                -- The owner's record is a place: write the updated record back into it, which
+                -- is what lets a captured word share its state with the capture's owner.
+                ctx:ordered(B.Store(ctx:ref(ctx.effect),ctx:ref(ctx.cells[origin].value),ctx:ref(packed)),nil,expression.span)
+            else
+                ctx.cells[origin]={value=packed,initialized=true,alive=binding.owned}
+            end
         end
         local result=results[1]; result.mode=result.type:copyable() and 'copy' or 'fresh'; result.origin=origin
         return result
@@ -438,8 +491,10 @@ function Builder:build_module()
             fields:insert({name=item.binding.name,type=ctx.cells[id].value.type,mutable=item.binding.mutable})
         end
     end
-    -- Module bindings live until module unload, not until initialization returns.
+    -- Module bindings live until module unload, not until initialization returns, so a
+    -- borrow of module storage outlives any value that holds it.
     ctx.scopes[1].retained=true
+    ctx.allow_borrow_escape=true
     self.module_order=order
     local namespace
     if file.terminal==nil then

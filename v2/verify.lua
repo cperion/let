@@ -91,6 +91,10 @@ function Check:callee(target,arguments)
     for i,ref in ipairs(arguments) do self:expect(ref,callee.parameters[i+1].type) end
     return callee
 end
+function B.Allocate:verify(ctx)
+    local type_=ctx:type(self.initial)
+    ctx:ordered(self.effect,L{B.Address(type_)})
+end
 function B.Load:verify(ctx)
     local address=ctx:type(self.address); assert(B.Address:isclassof(address),'load requires an address')
     ctx:ordered(self.effect,L{address.pointee})

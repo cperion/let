@@ -14,6 +14,11 @@ local hosts={
     print_bool={symbol='print_bool',phase='runtime',purity='ordered',signature=B.Signature(L{B.Parameter(B.Bool,A.Read)},L{B.Unit})},
     runtime_int={symbol='runtime_int',phase='runtime',purity='pure',signature=B.Signature(L{int_parameter},L{B.Int})},
     open={symbol='open',phase='runtime',purity='ordered',signature=B.Signature(L{int_parameter},L{B.Named('Box')})},
+    open_buffer={symbol='open_buffer',phase='runtime',purity='ordered',signature=B.Signature(L{int_parameter},L{B.Named('Buffer')})},
+    write_byte={symbol='write_byte',phase='runtime',purity='ordered',
+        signature=B.Signature(L{B.Parameter(B.Named('Buffer'),A.Mut),int_parameter,int_parameter},L{B.Unit})},
+    consume_buffer={symbol='consume_buffer',phase='runtime',purity='ordered',
+        signature=B.Signature(L{B.Parameter(B.Named('Buffer'),A.Own)},L{B.Unit})},
     mark={symbol='mark',phase='runtime',purity='ordered',signature=B.Signature(L{read_parameter},L{B.Text})},
 }
 local host_code=[[
@@ -22,6 +27,10 @@ local host_code=[[
 int64_t runtime_int(int64_t value){ return value; }
 int64_t open(int64_t value){ printf("open:%lld\n",(long long)value); return value; }
 void close(int64_t value){ printf("close:%lld\n",(long long)value); }
+int64_t open_buffer(int64_t n){ printf("open:%lld\n",(long long)n); return 7; }
+void write_byte(int64_t* buffer,int64_t index,int64_t value){ printf("write:%lld:%lld\n",(long long)index,(long long)value); }
+void consume_buffer(int64_t buffer){ printf("consume:%lld\n",(long long)buffer); }
+void close_buffer(int64_t buffer){ printf("close_buffer:%lld\n",(long long)buffer); }
 void print_bool(bool value){ printf("%d\n",value?1:0); }
 void print_int(int64_t value){ printf("%lld\n",(long long)value); }
 struct let_text mark(struct let_text text){ fwrite(text.data,1,(size_t)text.size,stdout); fputc('\n',stdout); return text; }
@@ -36,7 +45,7 @@ local modules={
     ['codec.let']='let scale : Int\nlet factor = scale * 2;\n{ let encode = factor }',
 }
 local function native(name,source,extra_c,extra_options)
-    local build_options={hosts=hosts,resources={Box={destroy='close'}},
+    local build_options={hosts=hosts,resources={Box={destroy='close'},Buffer={destroy='close_buffer'}},
         resolve=function(path) local text=modules[path]; if text then return {text=text,file=path} end end}
     for key,value in pairs(extra_options or {}) do build_options[key]=value end
     local program=V.parse(source,name..'.let'):build(build_options)
@@ -262,6 +271,46 @@ let show = do print_int(factorial(5)); print_int(fib(10)) end
 let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'120\n55\n','§4.2 non-tail self recursion, including two recursive calls')
+
+-- §17.4 A mutable stage lends the caller's place: the host receives a pointer and its write
+-- is visible in the caller afterwards.
+output=native('mut_place',[[
+let bump = let counter mut : Int let by : Int do counter = counter + by; return counter end
+let run = do
+    let n mut = 40;
+    let r = bump(mut n, 2);
+    return r + n
+end
+let answer = run()
+let show = do print_int(answer) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'84\n','§17.4 a mutable stage writes the caller place through a pointer')
+
+-- §17.4's ownership example: lending a place, then moving the resource out of it.
+events={}
+output=native('ownership_lend',[[
+let example = do
+    let buffer mut = open_buffer(1024);
+    write_byte(mut buffer, 0, 42);
+    consume_buffer(move buffer)
+end
+let r = example()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'open:1024\nwrite:0:42\nconsume:7\n','§17.4 borrow then move, in that order')
+
+-- §10.1 A non-escaping word captures an owned binding as a borrow, so the two share state.
+output=native('capture',[[
+let counter = let start : Int let v mut = start do v = v + 1; return v end
+let c = counter 0
+let f = do let r = c(); return r end
+let a = f()
+let b = f()
+let d = c()
+let show = do print_int(a); print_int(b); print_int(d) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'1\n2\n3\n','§10.1 a captured word shares its owner state: 1, 2, then 3')
 
 -- §6.2 Prelude effects reached between stages precede the following argument.
 output=native('preludes',[[

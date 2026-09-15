@@ -24,6 +24,9 @@ function Context:lookup(scope,name,span)
 end
 function Context:use(scope,name,node,access,path)
     local definition=self:lookup(scope,name,node.span)
+    -- A mutable borrow needs the binding's address, so its storage must be observable. This
+    -- is a declaration-level fact, so it is decided here rather than by promotion later.
+    if access=='mut' then definition.address_taken='mutable borrow' end
     local use={definition=definition,node=node,scope=scope,access=access,path=path,template=self.current}
     self.uses[#self.uses+1]=use
     local occurrences=self.references[node] or {}; self.references[node]=occurrences
@@ -33,6 +36,12 @@ function Context:use(scope,name,node,access,path)
     local template=self.current
     while template and template~=definition.owner and definition.kind~='dictionary' do
         if template.self==definition then break end
+        -- Crossing a template boundary is not yet a capture: §10.1 is about a *word body*
+        -- reaching out, and a binding initializer is not a word. Which enclosing templates
+        -- are words is only known once they are fully resolved, so record and decide later.
+        local seen=definition.capture_templates
+        if not seen then seen={}; definition.capture_templates=seen end
+        seen[#seen+1]=template
         if not template.capture_set[definition.id] then
             template.capture_set[definition.id]=true; template.captures[#template.captures+1]=definition
         end
@@ -212,6 +221,15 @@ function A.Program:resolve(options)
     -- namespace: the terminal and every nested chain resolve through it.
     ctx.module=ctx:chain(self.file,ctx.module,nil,'<module>').scope
     ctx.importing[ctx.file]=nil
+    -- A binding is captured when a *word* reaches out to it. A word is a template that has
+    -- stages or a runtime do terminal; a binding initializer is neither.
+    for _,definition in ipairs(ctx.definitions) do
+        for _,template in ipairs(definition.capture_templates or {}) do
+            if #template.steps>0 or A.Body:isclassof(template.source.terminal) then
+                definition.captured=true
+            end
+        end
+    end
     return ctx
 end
 end

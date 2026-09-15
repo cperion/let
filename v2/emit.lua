@@ -252,6 +252,29 @@ function Emitter:instruction(block,block_id,index,instruction)
             else fields:insert(C.Field(word,'f' .. i)) end
         end
         declare(0,type_,C.Compound(self:ctype(type_),fields))
+    elseif B.Allocate:isclassof(operation) then
+        -- A cell is storage whose address is taken. Storage is chosen after the contract is
+        -- known (WORDS.md §9): a value that must be observable as a place becomes memory, and
+        -- an address that never escapes can still be promoted by the C compiler.
+        local address=instruction.results[1]
+        local cell=self:value(block_id,index,'c')
+        if self.current_id==1 then
+            -- Module state lives until unload, so a module cell needs storage that outlives
+            -- the initializer's frame: a captured word holds this address.
+            self.statics[#self.statics+1]=C.Global(self:ctype(address.pointee),cell)
+            out[#out+1]=C.Assign(C.Name(cell),self:ref(block,block_id,position,operation.initial))
+        else
+            out[#out+1]=C.Declare(self:ctype(address.pointee),cell,self:ref(block,block_id,position,operation.initial))
+        end
+        declare(0,address,C.Unary('&',C.Name(cell)))
+        declare(1,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
+    elseif B.Load:isclassof(operation) then
+        declare(0,instruction.results[1],C.Unary('*',self:ref(block,block_id,position,operation.address)))
+        declare(1,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
+    elseif B.Store:isclassof(operation) then
+        out[#out+1]=C.Assign(C.Unary('*',self:ref(block,block_id,position,operation.address)),
+            self:ref(block,block_id,position,operation.value))
+        declare(0,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
     elseif B.CallFunction:isclassof(operation) then
         if self:folded_call(self.current_id,block_id,position,instruction) then return statement_list(out) end
         local callee=self.functions[operation.target]
@@ -527,6 +550,7 @@ function Emitter:helper_declarations()
 end
 
 function Emitter:program(program,options)
+    self.statics=L()
     self.program=program
     self.functions=program.functions
     self.hosts={}
@@ -547,6 +571,7 @@ function Emitter:program(program,options)
     if self.text and self.helpers.text_eq then includes:insert('string.h') end
     local declarations=L()
     declarations:insertall(helpers)
+    declarations:insertall(self.statics)
     for _,struct in ipairs(self.structs) do declarations:insert(struct) end
     for _,struct in ipairs(self.results) do declarations:insert(struct) end
     declarations:insertall(host_declarations)

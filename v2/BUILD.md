@@ -65,6 +65,8 @@ executed by the compiler.
 | §10.3, §17.3 | Projected word members | A word member is rebuilt from the projected record so its field values belong to the invoked region, which is why `arithmetic.add(40, 2)` works even when the aggregate was captured. |
 | §§15.1–15.2 | File chains, namespace, imports | A file is a chain: top-level `let` forms are its items, and its namespace is the terminal — the named record of its preludes, or a written terminal that chooses the export surface. `import` is a construction-phase dictionary entry whose one slot is a constant `Text` path; the file's preludes are constructed at the import site, its stages are supplied by the following arguments, and the result is its terminal value. Two imports are two specializations, so their state is independent (§5.2), and the namespace is destroyed with the binding the importer gave it. Cycles are diagnosed. |
 | §15.1 | Module unload destroys owned state in reverse | The initializer returns the namespace plus the state record that owns every top-level value in construction order; `let_module_unload` destroys that record. A moved prelude stays at its original position in the state, so a written terminal cannot cause a double destruction or reorder it. |
+| §§9.3, 10.1 | Places, borrows, captures | A binding whose address is requested — by `mut place`, or because a nested word captures it — becomes a place: a cell, bound as its own address. A mutable stage is then a pointer parameter, and a non-Copy capture is the owner's address, so a captured word and its owner share state (§10.1's read borrow). An address is what a borrow is, so `Context:borrows` decides escape from the type alone. |
+| §15.1 | Module state outlives the initializer | A module-lifetime cell is file-scope storage, because a captured word holds its address beyond the initializer's frame. |
 | §§4.1–4.2 | Lexical scope, initializer-before-binding, source self name | Scope maps contain binding IDs; nested scopes may shadow; duplicate same-scope bindings fail. A source self name cannot silently fall back to an outer host word. |
 | §4.3 | Left-to-right observable evaluation | Operands and arguments construct left to right; effect references serialize ordered work. Earlier operand values are pinned across CFG construction. |
 | §§5–6.2 | Specialization is not invocation; preludes run between arguments | `program.lua` advances a word bundle one stage at a time and runs each reached prelude in the caller before the next argument is evaluated. A data terminal returns data; a `do` terminal yields a word, never implicit execution. |
@@ -116,10 +118,10 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 - Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
   paths, an optional extension, configured roots), but the language fixes none of it, so a
   host with its own layout should pass its own resolver.
-- Non-Copy lexical captures: capturing an owned or borrowed binding requires the
-  escape analysis of §10.1 and is currently diagnosed, not silently copied.
-- Mutable borrowed stage storage for `mut place` invocation arguments, which needs
-  address-taken object lifetimes rather than SSA scalars.
+- Partial moves out of a projected or indexed aggregate path, and projected/indexed
+  borrows (`mut a.b`): a whole binding can be lent today, a subplace cannot.
+- Dynamic positional indexing still needs a runtime index to address a record's members;
+  the record is already a place, but the members need a uniform layout to be indexed.
 - Dynamic positional indexing: a runtime index needs address-taken aggregate storage, so
   only a compile-time index is resolved today.
 - Projection and assignment through a nested path (`a.b.c = ...`), and invoking a
@@ -183,6 +185,11 @@ word invocation at module level and through a capture, and the four diagnostics.
 recursive calls), and module unload: owned top-level state is destroyed in reverse
 successful-construction order, and a written terminal that moves an owned prelude into the
 namespace still destroys it exactly once at its original position.
+
+`test/place.lua` covers §17.4's canonical ownership example, a mutable stage writing the
+caller's place, an address-taken Copy local, the three borrow diagnostics, and §10.1's
+shared-state capture with its escape rejections. Native witnesses (`mut_place`,
+`ownership_lend`, `capture`) execute the same cases.
 
 `test/import.lua` covers the implicit namespace, a written terminal, a configurable file,
 word members of an imported namespace, two imports as independent instances, an owned

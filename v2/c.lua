@@ -19,6 +19,7 @@ module C {
     Declaration = Function(string name, boolean external, boolean exported, Type result, Parameter* parameters, Stmt? body)
                 | Struct(string name, Parameter* fields)
                 | Raw(string code)
+                | Global(Type type, string name)
     Unit = (string* includes, Declaration* declarations)
 }
     ]]
