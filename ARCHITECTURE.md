@@ -5,7 +5,7 @@ The compiler. It replaced the earlier one outright; nothing of that one remains.
 `V.parse(text, file):build(options)` parses, constructs, and verifies a program;
 `program:emit(options)` produces C and `V.print(unit)` renders it. Native
 compilation of the covered language is tested end to end, so this is now a
-compiler rather than a vocabulary sketch. See [BUILD.md](BUILD.md) for the
+compiler rather than a vocabulary sketch. See [COMPILER.md](COMPILER.md) for the
 specification cross-check, API, implemented paths, and outstanding work.
 
 ## Three vocabularies
@@ -204,7 +204,7 @@ compiler.
 Follow the connected implementation sequence in [WORDS.md §10](WORDS.md#10-build-sequence-connected-contracts-not-supported-case-shortcuts).
 Steps 1–4 are implemented for the covered shapes, and step 5's C output exists and
 is tested natively. Remaining work is consumer-driven known evaluation and scheduling,
-plus the gaps listed in BUILD.md: non-Copy captures, mutable borrowed stage storage,
+plus the gaps listed in COMPILER.md: non-Copy captures, mutable borrowed stage storage,
 aggregate owned members, projection/indexing places, general recursive and mutual
 call contracts, and a shared cross-function tail dispatcher.
 

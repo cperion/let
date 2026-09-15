@@ -5,8 +5,8 @@ authoritative input is [the Let specification](../let-language-specification.md)
 this document does not redefine Let. Where an implementation limit is chosen, it says
 so instead of presenting the limit as a language rule.
 
-Related: [WORDS.md](WORDS.md) (staged words), [BUILD.md](BUILD.md) (construction),
-[README.md](README.md) (current status).
+Related: [WORDS.md](WORDS.md) (staged words), [COMPILER.md](COMPILER.md) (construction),
+[ARCHITECTURE.md](ARCHITECTURE.md) (current status).
 
 ## 1. Where we are
 
