@@ -1,275 +1,284 @@
-# Let compiler
+# AST-to-belt construction: specification grounding
 
-Run with LuaJIT and a C compiler. Neither Terra nor CBlock is required.
+The authoritative input is [the Let specification](../let-language-specification.md),
+not an earlier compiler's accepted subset. The full specification was read before
+this construction step. These implementation boundaries do not redefine Let.
 
-```sh
-luajit letc.lua examples/scalars.let output.c
-cc -std=c99 -O2 -fPIC -shared output.c -o output.so
-luajit test/compiler.lua
-luajit test/recursion.lua
-luajit test/ownership.lua
-luajit test/residual.lua
-luajit test/partial.lua
-```
+## What is built now
 
-The generated module exposes runtime words as `let_<source_name>` C functions.
-There is no implicit `main`. The Lua API returns generated C, an export manifest,
-the ASDL residual module, and per-function emission statistics:
-
-```lua
-local source, exports, residual, statistics = require('let').compile(text, 'example.let')
-```
-
-## Architecture
-
-```text
-source -> lexer -> parser -> Let Syntax ASDL
-       -> constructor-owned scalar signature inference
-       -> constructor-owned ownership and borrow checking
-       -> partial evaluation with ordered activation/cleanup residualization
-       -> Residual ASDL -> direct C emission
-```
-
-- `let/vocab.lua`: source, semantic, analysis, and residual ASDL constructors.
-- `let/integer.lua`: shared exact literal validation, including dead source branches.
-- `let/lexer.lua`: tokens with source spans.
-- `let/parser.lua`: whitespace-independent recursive descent and precedence.
-  Structured control uses one closing `end`; switch sugar creates a hygienic
-  subject binding and conditional arms inside a scoped ASDL `Switch` constructor.
-  Existing inference, ownership joins, partial evaluation, and C branches apply;
-  there are no branch closures or runtime control macros.
-- `let/infer.lua`: signature constraints, recursive result inference, scoped analysis.
-- `let/callable.lua`: structural continuation contracts, saturation, and indirect call edges.
-- `let/ownership.lua`: ASDL ownership meanings and flow-sensitive legality checks.
-- `let/host.lua`: explicit host vocabulary and resource ABI declarations.
-- `let/program.lua`: module construction, checking, and specialization context.
-- `let/domain.lua`: explicit known/dynamic/place/resource/bottom binding-time values.
-- `let/state.lua`: abstract cells, ownership initialization, and continuation joins.
-- `let/evaluate.lua`: constructor-owned source evaluation and loop generalization.
-- `let/specialize.lua`: memoized recursive entries, activation preparation, and widening.
-- `let/codegen.lua`: printing the residual C vocabulary; no partial evaluation.
-- `asdl.lua`, `terralist.lua`: standalone structural helpers (see `THIRD_PARTY.md`).
-- `let/init.lua`: pipeline composition.
-- `letc.lua`: command-line interface.
-
-ASDL nodes own `infer`, `own`, `evaluate`, `prepare`, `pack`, `unpack`, and `emit` methods.
-Contexts own scopes, unification cells, ownership flow state, IDs, and pending output.
-`Analysis.Value` describes type variables or partially supplied words; resolved
-`Semantic.Signature` and `ActivationField` nodes describe the callable boundary.
-Activation fields own pack/unpack; capability and value constructors determine ABI. Ownership
-abstract values also use an ASDL vocabulary; mutable initialization/borrow maps
-stay in the checker context. No pass decorates or mutates the source AST.
-Nodes are treated as immutable. Lists are frozen by convention after construction.
-ASDL checks structure; it does not perform Let semantic checking automatically.
-
-The old `residualize.lua`, `lifetime.lua`, and `residual.lua` implementations were
-deleted. This evaluator does not classify residual expressions as a substitute for
-binding-time values: `Known` contains a semantic atom, `Dynamic` contains residual
-code, and `Place` identifies a cell in a separate abstract store. `Bottom` denotes
-a computation that cannot return. No CBlock graph or runtime Let word objects remain.
-
-Assignments to unescaped known cells update the abstract store without emitting C.
-Branches preserve equal known values; differing states become residual storage.
-Returning paths are joined at the invocation boundary so mutations reach callers.
-Known finite loops execute during evaluation, appending rather than executing any
-ordered operations. Unknown effects synchronize and invalidate escaped storage;
-private unescaped state stays known. Known traps stop evaluation without cleanup.
-
-Recursive entries are keyed by their known inputs. Invariant known arguments are
-omitted from native helper parameters and tail-transfer packets. Pure known answers
-are memoized only when the terminal has no residual effects; argument/prelude
-preparation still occurs for every invocation. Changing recursive inputs widen to
-dynamic values after eight contexts (or earlier when the shared evaluation budget
-is exhausted). Static loop execution also has an eight-iteration local limit and
-shares a 512-step budget with recursive specialization.
-
-Ownership initialization is tracked as known true, known false, or dynamic.
-Only genuinely differing initialization states require runtime alive flags.
-Normal cleanup and proper tail transfer preserve their specified order.
-
-`statistics.partial_evaluation` exposes cache counts, remaining fuel, and native
-specialization masks. This is bounded partial evaluation, not maximal optimization:
-dynamic control can still require C slots/labels, and large known computations can
-be residualized when the budget is exhausted.
-
-## Implemented features
-
-- Top-level words with `Int`, `Bool`, `Unit`, or registered resource annotations.
-- `own`, `own mut`, and `mut` stages; visible `move` and mutable-borrow arguments.
-- Resource returns, replacement, conditional ownership, and reverse-order cleanup.
-- Exact signed 64-bit literals, wrapping arithmetic, comparisons, and Booleans.
-- Division/remainder checks and the `INT_MIN / -1` exceptional result.
-- `let`, scalar `mut` locals, assignment, lexical shadowing, `return`.
-- One-`end` `if`/`else if`/`else`, `while`, and short-circuit `and`/`or`.
-- `switch`/`case` over Int and Bool literals: evaluate once, no fallthrough, optional default.
-- Exact invocation saturation, scalar calls, and statically supplied continuation words.
-- Direct recursion, including non-tail calls, and inferred scalar result shapes.
-- Proper tail transfers, including continuation-mediated cycles, with parallel rebinding.
-- Juxtaposition specialization, including saturated words and immutable Copy captures.
-- `Executable` stages (also inferred from word uses), forwarding, and host continuations.
-- Top-level literals/aliases and scalar local word aliases/specializations.
-- Transient preludes in stage/argument order, including recursive words.
-- Scalar, resource, borrowed-place, and Copy-word-alias prelude bindings.
-
-Ordinary calls are expanded inline with explicit return continuations. Tail cycles
-become block backedges with ordered argument snapshots and simultaneous parameter
-rebinding; no compiler tail-call optimization or `musttail` ABI is required.
-Non-tail recursive calls use lazily emitted native helpers and retain the native
-return stack required by those source calls. Preparation evaluates arguments and
-reached preludes in order, then packs all terminal inputs (including prelude state).
-Both recursive helpers and tail backedges enter the terminal body with that packet;
-they do not replay the preludes. Resource fields carry initialization flags so a
-move between stages and preludes cannot introduce a second destructor.
-
-On a tail transfer, the new packet is prepared first, moved ownership is preserved,
-the old activation is cleaned up, and only then is the new terminal entered.
-On a non-tail call, caller resources remain alive until that caller exits.
-Specialization supports Copy scalar and statically identified word state on words
-without preludes. Continuation identities and nested capture layouts are static;
-only dynamic scalar captures enter residual helper ABIs. Widening compares contexts
-with the same closure layout, never turns a word identity into a C function pointer,
-and diagnoses excessive capture depth (16) or active same-word contexts (32).
-
-Result inference establishes scalar signatures before code emission, including when
-a recursive use appears before a base-case return. It does not invent a result shape
-for an unconstrained recursive cycle: `let spin = do return spin() end` is diagnosed
-unless surrounding uses determine the shape. Continuation arguments can close
-indirect recursive cycles; later top-level names are still invisible earlier.
-
-Large non-recursive call trees can still produce large C output. Non-tail recursion
-can exhaust the native stack; only tail transfers promise bounded stack usage.
-
-Unsigned C arithmetic implements wrapping, followed by a `memcpy` bit reinterpretation
-to `int64_t` (an exact-width two's-complement type). Constants are emitted exactly
-with `INT64_C`/`UINT64_C`, not reconstructed through arithmetic trees. Compile-time
-folding uses exact LuaJIT 64-bit integers. Division/remainder guard zero and the
-exceptional signed pair explicitly. Zero divisors call `abort()` without cleanup.
-
-## Host resource vocabulary
-
-The optional third API argument declares resources and runtime host words:
+`AST.Chain:build_function(name, options)` builds the **terminal body** of a runtime
+word with already-bound stages. It returns an immutable `Belt.Function`, checked
+by `verify_flow`. `V.parse(text, file)` independently parses source into the AST;
+neither parsing nor construction depends on `let.*`. The parser preserves stage
+preludes, word-valued arguments/returns, aggregates, constraints and projected places
+without claiming that all of them can already be lowered. It validates UTF-8 and
+Text escapes and preserves exact integer spelling until sign-sensitive checking.
+Whitespace has no grammatical force; `;` separates otherwise adjacent expressions.
 
 ```lua
+package.path = './?.lua;./?/init.lua;' .. package.path
+local V = require('let')
+local program = V.parse('let example = let n : Int do return n + 1 end', 'example.let')
+local chain = program.file.items[1].binding.value
+local fn = chain:build_function('example', options)
+local needed, reachable = fn:demands()
+```
+
+`options.parameters` may supply concrete stage types, including for unannotated
+stages. Otherwise implemented scalar/resource annotations provide them. Inferring
+unresolved parameter types from uses is pending; annotations are not a language
+requirement. `options.result` optionally constrains the result; otherwise reachable
+construction paths establish one result type. Pure infinite-loop path refinement
+and answer-type specialization are not implemented yet.
+
+Resource and host registration is an internal API, not Let syntax:
+
+```lua
+local A, B, L = V.AST, V.Belt, V.List
 local options = {
-    resources = { Buffer = { destroy = 'app_close' } },
-    hosts = {
-        open_buffer = { symbol = 'app_open', result = 'Buffer',
-            stages = { { constraint = 'Int' } } },
-        buffer_size = { symbol = 'app_size', result = 'Int',
-            stages = { { constraint = 'Buffer', capability = 'read' } } },
-    },
+  resources = { Box = { destroy = 'app_close' } },
+  hosts = {
+    open = {
+      symbol = 'app_open', phase = 'runtime', purity = 'ordered',
+      signature = B.Signature(
+        L{B.Parameter(B.Int, A.Read)}, L{B.Named('Box')})
+    }
+  }
 }
-local c = require('let').compile(text, 'buffers.let', options)
 ```
 
-Stage capabilities are `read` (default), `mut`, `own`, and `own mut`. Host operations
-are currently ordered, synchronous, and non-reentrant. They are never executed by
-the compiler. Registering a host word is a trusted contract: a borrowing host must
-not retain or consume the borrowed owner; an owning result must be fresh.
+Host signatures describe source stages and one Let result, including Unit for
+a void operation. The builder adds effect dependencies. A mutable Copy stage
+arrives at terminal entry as an address; loads/stores update that actual place,
+not a copied scalar with later copy-back. Hosts do not declare staged preludes
+through this registration API. Resource-returning hosts promise a fresh owner.
+Registered host/destructor contracts are trusted; no host implementation is
+executed by the compiler.
 
-Resources are opaque `int64_t` handles in this embedding ABI. `mut` stages receive
-a pointer to the caller's slot. Other stages receive values; an `own` stage takes
-ownership on entry. Host Unit results and destructors use C `void`; source Unit
-exports use `uint8_t` with the sole valid value zero. Destructors must return normally
-and must not trap, suspend, or re-enter Let. Host symbols must be unique and avoid
-the compiler's `let_`/`letbody_` prefixes.
+## Normative obligations and mechanisms
 
-A complete example can be compiled and linked as follows:
+| Spec | Obligation | Construction/check/test mechanism |
+| --- | --- | --- |
+| §§8.1–8.3 | Aggregates, projection, interior mutability | A record's shape (member names, types and declared mutability) is part of its belt type, so projection and interior assignment are structural rather than side-table facts. A member declared mut stays writable through an immutable owning binding; otherwise the binding must be mutable. |
+| §8.4 | Positional indexing | A compile-time index resolves to a static field; a constant out-of-range index is diagnosed; a runtime index reports that it needs address-taken aggregate storage. |
+| §8.5 | Aggregate ownership and destruction | An aggregate is Copy exactly when every member is Copy and none is declared mutable. Destroying one destroys its owned members in reverse initialization order, recursively, so a moved aggregate destroys its members once. |
+| §10.3, §17.3 | Projected word members | A word member is rebuilt from the projected record so its field values belong to the invoked region, which is why `arithmetic.add(40, 2)` works even when the aggregate was captured. |
+| §§15.1–15.2 | File chains, namespace, imports | A file is a chain: top-level `let` forms are its items, and its namespace is the terminal — the named record of its preludes, or a written terminal that chooses the export surface. `import` is a construction-phase dictionary entry whose one slot is a constant `Text` path; the file's preludes are constructed at the import site, its stages are supplied by the following arguments, and the result is its terminal value. Two imports are two specializations, so their state is independent (§5.2), and the namespace is destroyed with the binding the importer gave it. Cycles are diagnosed. |
+| §15.1 | Module unload destroys owned state in reverse | The initializer returns the namespace plus the state record that owns every top-level value in construction order; `let_module_unload` destroys that record. A moved prelude stays at its original position in the state, so a written terminal cannot cause a double destruction or reorder it. |
+| §9.2 | Partial moves | `move place` names a subplace as well as a binding: the moved subplace becomes uninitialized, the aggregate becomes partially initialized, and destruction releases only what still holds a value. A subplace containing the hole cannot be read or moved as a value, while a read *through* it to another subplace is allowed; assigning the hole reinitializes it. The path must be statically known. A path moved on only some branch is a run-time fact, carried and destroyed exactly like conditional ownership, so a destruction is guarded by it and reading it is impossible; assigning over it releases the old value only where one is still there. |
+| §9.4 | Assignment to a place path | A destination is any path from a binding: names and constant indices resolve to member positions, one index may be computed at run time, and each level is rebuilt from the leaf up. A run-time index in the middle resolves the steps after it against the selected member's type -- which is why those alternatives must share one type -- and each arm writes through its own selection. Two run-time indices in one path are diagnosed, as is a write into an uninitialized subplace. Interior mutability reaches through the whole path (§8.3), while positional elements take capability from the base place (§8.4). |
+| §9.2 | Moving a Copy place | A Copy value owns no state to remove, so `move place` for a Copy place is that value, copied: the place stays initialized, nothing is transferred, and the result is what reading the place would give. That is now stated in §9.2 rather than left to the implementation, and it applies to a whole binding and to a projected or constant-indexed member alike. |
+| §§5.4, 9.2 | A plain stage borrows its argument | A non-Copy argument to a stage without `own` is a read-only borrow *for the invocation*: the caller keeps ownership, so the value is still usable afterwards and the caller releases it exactly once. Only `own`/`own mut` give the callee ownership, and a `mut` stage reaches the caller's place through an address. |
+| §§6.5, 9.5 | A word body's locals are activation state | A word's own state lives in the field scopes that retain it; its body's locals get their own scope, so the return destroys them. Without that, a word with no stages ran its body in the retained construction scope and its locals were never released. |
+| §§9.3, 10.1 | Places, borrows, captures | Two type forms, and the difference is ownership. `Allocate` makes an **Address**: an owned cell, part of the owner's state, destroyed with it. `BorrowPlace` makes a **Borrow(pointee, stable)**: temporary access to some place, never owned and therefore never destroyed. A mutable stage is a pointer parameter reached through a borrow; a non-Copy capture is a borrow of the owner's storage, so a captured word and its owner share state. `stable` says whether the place outlives any activation, which is exactly what decides escape — no exemption flags, and no blanket rule. |
+| §8.4 | Runtime positional indexing | A runtime index selects among the members, which is a chain of comparisons ending in a trap; the members must share one type because the selection produces one value. A constant index, a member name and any constant path are resolved statically. Out of range traps. |
+| §9.4 | Indexed assignment | Writing through a constant or runtime index updates the selected member, reusing the destination-then-right-hand-side order and the same storage rule as a projected assignment. |
+| §9.4 | Assignment through a projected place | The aggregate lives in a place, so the updated record is stored back into that storage. Replacing the cell's value would put a record where its address belongs. |
+| §15.1 | A `do` terminal is the initialization body | Its return is the namespace, and the module's preludes are still the state the host destroys, so every return inside the body is paired with the state record rather than returned as the state. The body's own locals are activation state in their own scope, destroyed by that return; new owned state in the *namespace* would have no unload path, so it is rejected while a prelude moved into the namespace is allowed. |
+| §15.1 | A module's exported words are host entry points | An entry takes the word's own fields -- the construction it has been through, which the host reads from the namespace the initializer returned -- followed by the stages it still needs. Advancing uses the same protocol a call site uses, so the entry runs whatever preludes lie between those stages: a host supplies stages, not the values a call site would have computed. A parameter is shaped by its stage's capability -- a mutable stage is a place reached through a borrow, an owned stage arrives fresh -- because the entry *is* the contract. A stage whose type only an argument can determine (unannotated, or constrained only by `Copy`) has no entry, since there is no signature to publish, and the builder records why. Entries are roots of emission, and `statistics` reports each one's C name for the host to call. |
+| §15.1 | Module state outlives the initializer | A module-lifetime cell is file-scope storage, because a captured word holds its address beyond the initializer's frame. |
+| §§4.1–4.2 | Lexical scope, initializer-before-binding, source self name | Scope maps contain binding IDs; nested scopes may shadow; duplicate same-scope bindings fail. A source self name cannot silently fall back to an outer host word. |
+| §4.3 | Left-to-right observable evaluation | Operands and arguments construct left to right; effect references serialize ordered work. Earlier operand values are pinned across CFG construction. |
+| §§5–6.2 | Specialization is not invocation; preludes run between arguments | `program.lua` advances a word bundle one stage at a time and runs each reached prelude in the caller before the next argument is evaluated. A data terminal returns data; a `do` terminal yields a word, never implicit execution. |
+| §6.4 | Preserve return before reverse cleanup | Return values are pinned across conditional cleanup blocks; the return carries the final effect. |
+| §6.5 | Prepare tail arguments, then clean caller, then enter callee | A directly returned source call becomes `TailCall` after caller cleanup, so self recursion needs no return continuation. Host tail calls still order arguments and moves before caller destruction. |
+| §§7, 13.1 | Inline control and short-circuiting | If, while, switch, and and/or become explicit blocks; arms do not become runtime closures. A loop's condition CFG belongs to its original header, not its preheader or last condition block. |
+| §7.2 | Switch evaluates once, scopes arms, has no fallthrough | Subject pins, literal/type/duplicate checks, conditional edges, scoped arms; covering both Bool values is exhaustive. |
+| §§9.2–9.4 | Moves, borrows, mutation | Binding-ID initialization/borrow state; explicit Move; ordered external Load/Store; plain resource stages cannot be consumed; overlapping reads are allowed but mutable borrowing excludes access. |
+| §§9.5–9.6 | Reverse destruction, conditional initialization | Owned locals track initialization and alive facts; divergent alive facts become Bool block parameters; guarded Destroy consumes the effect. Replacement evaluates its RHS before destroying the old owner. |
+| §§11, 13 | Static representation and exact scalar meaning | Concrete types are checked during construction and again on belt flow; literals are range-checked with split integer arithmetic. Arithmetic stays as typed operations, not Lua-number folding. |
+| §§12.2, 14 | Purity, traps, and effects remain observable | Unused trapping arithmetic has an effect output. Test execution stops at traps without running later cleanup. Pure value-only hosts may be undemanded; memory/resource access remains ordered. |
 
-```sh
-luajit letc.lua examples/resources.let /tmp/resources.c examples/resources-host.lua
-cc -std=c99 -O2 /tmp/resources.c examples/resources-host.c -o /tmp/resources
-/tmp/resources  # 48
-```
+Ordinary mutable Copy locals use new SSA values, not memory stores. Each block
+interface initially carries all in-scope bindings and active expression pins.
+Bindings get independent parameters even if their initial values alias: assignment
+can make them diverge on different paths or iterations. Global demand later finds
+which packet fields are needed; construction does not prematurely prune or renumber.
 
-The CLI's optional third path is a trusted Lua configuration file evaluated with
-`dofile`. It returns the same options table accepted by the Lua API.
+Draft blocks and mutable scope/ownership tables exist only in construction contexts.
+ASDL instructions, references and final blocks are not patched after construction.
+Relative references are frozen after an instruction/exit's complete operand set is
+prepared—adding an alive-flag literal must not invalidate an earlier edge distance.
 
-## Ownership boundary
+`verify_flow(hosts)` checks implemented opcode/result contracts, branch conditions,
+edge types, entry/return signatures, and effect continuity independently of construction.
+It rejects a pure Binary division and a return that bypasses an ordered effect.
+It does not independently re-prove ownership for arbitrary manually constructed IR.
 
-The checker rejects borrowing conflicts, moves from borrowed stages, reads after
-moves, implicit non-copyable copies, and borrows that would outlive tail cleanup.
-Read borrows may overlap. Mutable borrows are exclusive, and invocation argument
-borrows remain active while subsequent arguments are evaluated. Moves on only one
-incoming live path make the place unusable after the join. Normal loop backedges
-must restore the initialization state of outer bindings; this is a conservative
-implementation check.
+## Staged words and program construction
 
-Cleanup is emitted at lexical exits, returns, replacement, and tail transfer.
-Alive flags permit conditional destruction without inspecting moved values.
-Fresh borrowed argument temporaries are destroyed when the invocation returns.
-A trap still skips normal cleanup. There is no reference counting, garbage
-collector, or runtime borrow checker.
+`A.Program:build(options)` returns a verified `Belt.Program` with a module initializer
+and one belt function per concrete terminal. `resolve.lua` assigns binding IDs and
+derives initial/inter-stage preparation ranges from the original AST; `binding.lua`
+decides capability and destination for both persistent specialization and transient
+invocation; `program.lua` implements the shared advancement protocol.
 
-## Implementation gaps
+Word values are `Belt.Word` SSA field bundles. Because advancement clones the bundle,
+a specialized receiver keeps its own stage count and fields, and `multiply 2` followed
+by `multiply 6 7` produces two independent words. Fields record retention: word-owned
+state is written back after invocation; invocation-local prelude state is destroyed by
+the activation. `Belt.Program:verify_flow` re-checks every generated function
+independently of construction, including `CallFunction`/`TailCall` contracts.
 
-The compiler does not yet implement every specified Let feature. These are
-implementation gaps, not a separate language or a reduced definition of Let.
-Currently unsupported forms include:
+## Work still required
 
-- returned words, local word construction, and mutable continuation stages;
-- unannotated scalar remaining stages on exported words;
-- persistent specialization retaining resources or mutable owned word state;
-- aggregates other than Unit, projection, indexing, and Text;
-- initial construction preludes and persistent specialization with preludes;
-- data-terminal templates, mutable module state, and effectful module initialization;
-- module unload and an embedding trap hook;
-- construction/constraint extension descriptors and the MillK/Sring backend.
+These are specified behaviours that the implementation does not yet provide, so each is a
+construction diagnostic rather than a language limitation.
 
-Top-level scalar data is currently compile-time-only and is not exported through
-a C namespace. Words with unsupplied continuation stages remain source templates:
-specialize their policies in Let or call them from scalar entry words. They are not
-listed as C-callable exports. The C manifest never exposes an unspecified callback ABI.
+- **The runtime benchmark**, which is milestone C's acceptance, measured against the
+  handwritten C reference the harness already links. The harness works: `bench/emit.lua ` builds the kernels, emits the C plus a shim that
+  calls each host entry the way the driver does, and `bench/run.lua ` compiles, links
+  against the driver and the reference, and compares. What the shim passes comes from
+  `statistics.entries`: each entry's C name, the fields its signature kept, and how many stages it
+  takes -- a field or stage whose fate is not `value` is not in the signature, and a generic
+  instance never has a constant parameter, so one left out is one nothing reads.
 
-Each source template currently has one inferred callback contract, including stage
-count, argument/result shapes, and capabilities. Answer-type polymorphism is not yet
-supported: use separate templates when callback result types differ. Owned resources
-may transfer into a selected continuation, but persistent resource captures and
-borrowed/mutable closure state remain unsupported. Generic declarations defer unknown
-callback capabilities until concrete word arguments determine their contracts.
+  The first run immediately found a wrong answer, which is the point of having one:
 
-A word must have one consistent scalar return shape; normal fallthrough returns Unit.
-Unreachable statements are currently diagnosed rather than accepted. Keep these
-restrictions explicit; C representability is not proof of Let ownership legality.
+      gcd(-3): Let=-3, C=-1
 
-## Tests
+  The emitted loop is
 
-`test/compiler.lua` executes generated native code at `-O0` and `-O2` with UBSan.
-It checks exact integer boundaries, wrapping, traps, control flow, specialization,
-lexical snapshots, deterministic output, and source-located rejection diagnostics.
-`test/recursion.lua` checks scalar result inference, factorial and recursive Fibonacci,
-mixed tail/non-tail paths, specialized recursive words, and parameter permutations.
-It also checks residual call counts on tail-only paths and runs a million
-tail transfers in a native `-O0` executable with a 256 KiB stack limit.
-`test/ownership.lua` checks exact native allocation/effect/destruction traces, moves,
-borrowed replacement, early returns, conditional cleanup, transient argument
-lifetimes, recursive owned preludes, and stage/prelude event order. Tail resource
-recursion also checks that only two resource activations overlap during preparation.
-All three suites run at `-O0`/`-O2` with UBSan checks (trap mode, no sanitizer runtime
-library required). Set `CC=clang` to test another compiler. Artifacts are removed.
-`test/residual.lua` additionally checks literal residual returns, exact compile-time
-arithmetic against native arithmetic, stable snapshots across mutation, retained
-host effects, and runtime constant traps at `-O0`/`-O2`/`-O3`.
-`test/partial.lua` checks the residual before GCC: static mutation and loops become
-literal returns, recursive invariant parameters disappear, memoization preserves
-prelude effects, return-state joins preserve mutation, unknown effects invalidate
-escaped cells, bottom values stop evaluation, and only dynamic ownership joins
-introduce alive flags. It also checks that the obsolete implementation files are absent.
-`test/continuations.lua` checks callback erasure before C optimization, dynamic and
-nested Copy captures, partial application of continuation parameters, mutable data
-arguments, host callbacks, exclusive outcome effects, and exact resource handoff
-traces. Native tests run at `-O0`/`-O2`/`-O3`, including a million indirect tail
-transfers under a 256 KiB stack limit. Token-preserving whitespace reflow must emit
-identical C.
-`test/control.lua` checks compact conditional chains, nested arms, switch labels,
-Boolean exhaustiveness, selection effects, arm-local scopes, ownership joins,
-destruction order, loop-carried mutation, and tail transfers at all three levels.
-Match and pattern captures remain deferred language work.
+      bool v2_2_0 = (!(p2_4 != INT64_C(0)));   /* y == 0 */
+      if (v2_2_0) { ... goto b3; }             /* b3 is the loop body */
+      else        { ... return x; }            /* exits when y != 0 */
 
-## Native code-quality probes
+  so `gcd` returns `x` at once: the condition carries a `Not` the arms do not match. The source is
+  `while y != 0`, so the negation is not in the text, and it appears only where the loop's condition
+  is checkable at entry -- `y` begins at the known constant 65537. The module-level path hid it
+  because a known input is constant-folded before the loop is ever emitted. One operator to find:
+  something negates a loop condition without swapping the arms, and only when the condition is
+  known.
+- A partial move *introduced inside* a loop whose path is still a hole at the backedge
+  (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
+  the loop entry a fact per owned subplace is not enough on its own: the entry's fact must
+  be dynamic for the backedge to carry the hole, and the body's own `move` then reads a
+  *maybe* initialized place, which stays rejected. Breaking that circle needs per-iteration
+  reasoning -- peeling the first iteration, where the entry state is static -- rather than a
+  bigger parameter list. Divergence at an ordinary join is supported, and so is
+  loop-carried reinitialization, which restores the entry's facts.
+- Construction of stored and returned word values, and higher-order words whose callable
+  shape is not visible where the word is built.
+- Remaining constraint words: `Bool`, `Int`, `Unit`, `Text`, `Copy` and `Executable` are
+  implemented, while a constraint word that takes specialization arguments waits on the
+  surface vocabulary §11.2 defers.
+- Consumer-driven known evaluation, specialization stabilization, and C scheduling.
+  Emission consumes `Function:demands()` and `let/known.lua`'s answers: unneeded pure
+  producers, known producers, their helpers, unused non-entry packet fields and
+  unreachable blocks are not written out, known values are inlined and known branches are
+  selected. Ordered effects are always kept, and a fully known call emits no callee.
+  Partial records are done: a member read through a record whose other members are run-time
+  is answered with that member, and a join keeps the members every path agrees on. Summaries
+  are shared too, with `answered` and `foldable` as separate questions: a precise summary
+  that cannot fold leaves the call in place, replaces only its uses, and is evaluated as a
+  statement. A stage an emitted body never reads is dropped from the ABI, so the signature and
+  every call site carry only what the body uses, and a call whose packet carries a constant gets
+  an instance specialized on it: the known stage is inlined in the body and dropped from that
+  instance's signature and calls. Still missing: mutual-recursion summaries, block instances for
+  effect-carrying loops, and shared-result materialization (milestones B and C). No residual AST
+  or old evaluator is introduced.
+- Package resolution policy: `let/file.lua` provides a default resolver (importer-relative
+  paths, an optional extension, configured roots), but §15.2 leaves the lookup to the
+  embedding, so a host with its own layout passes its own resolver. This is not missing
+  behaviour; the language fixes none.
+- The result type of a self-call that is the *only* return of its own word. Such a word has
+  no result type to infer -- nothing in the program determines it -- so it is diagnosed
+  rather than guessed. A word with any other return, including one that returns the call's
+  result, is typed from that return.
+- Dynamically selected words: the language permits storing, passing and invoking a word
+  value (§11.2), but a dispatch needs a representation for a value whose word identity is
+  not statically known, and §18 defers any mandatory universal aggregate or closure layout.
+  Choosing that layout is a language decision before it is an implementation one.
 
-Run `luajit bench/run.lua` to compare generated programs with handwritten C under
-GCC `-O0`, `-O2`, and `-O3`. Native timing loops exclude Lua/FFI overhead; the runner
-retains emitted C, assembly, GCC optimization reports, and loadable Lua results.
-See [`bench/README.md`](bench/README.md) for methodology and initial findings.
+## Deliberately outside the implementation
+
+These are not gaps. The specification fixes no behaviour to implement, or defers it.
+
+- Text concatenation, Unicode indexing, normalization, formatting and allocation policy:
+  §13.4 specifies a Text literal as an immutable module-lifetime byte sequence and says the
+  core specifies none of these. Dynamically allocated or host-owned strings use separately
+  declared vocabulary and an ownership contract.
+- Tail invocations that borrow an argument for the call: §6.5 makes this an ownership
+  error, and it is reported as one. The same applies to a borrow of a local that cleanup
+  would destroy.
+- Mutual recursion beyond what direct recursion needs: §18 defers the declarations. The
+  evaluator's missing piece is an optimization (a fixed point over a strongly connected
+  component), not a behaviour.
+- Shape constraints written with arguments, floating point, pattern matching, exceptions,
+  coroutines, a stable foreign-function ABI, operator overloading and a built-in cyclic
+  collector: all deferred by §18.
+
+## Tests and their limits
+
+`luajit test/all.lua` runs every suite and reports the total check count; that total is
+the number to quote, rather than one counted by hand.
+
+`test/build.lua` uses AST fixtures annotated with relevant specification sections.
+It checks scalar snapshots, control, expression pins, parallel loop transfers,
+host ordering, source-located diagnostics, mutable external places, resource moves,
+replacement, conditional cleanup and traps. `test/execute.lua` is a small test-only
+belt interpreter with exact LuaJIT integer operations and traceable mock hosts.
+It is not used during construction or demand analysis and is not the new partial
+evaluator. These are semantic/structural tests, not native C tests.
+
+`test/native.lua` is the end-to-end witness: it builds each program, emits C, compiles
+it with `cc -std=c11 -O1`, links host implementations, runs the module initializer, and
+compares process output. It covers native currying/invocation, persistent interior
+mutable state, prelude ordering, 200000-deep proper tail transfer, 64-bit wrapping and
+truncation, Text equality, and the division trap. Generated C lives in `test/out/`.
+This is real native execution, not the interpreter.
+
+The emitted C contains only what the program needs: the module initializer, live word
+entries, the trap hook, and at most one shared helper for division and one for remainder.
+Effects are erased, single results return directly, and wrapping arithmetic is a macro.
+
+`test/aggregate.lua` covers §8.1 named projection, §8.2 positional and nested indexing,
+§8.3 projection through a capture and both interior-mutability forms, §8.5 reverse and
+nested member destruction plus single destruction of a moved aggregate, §17.3 projected
+word invocation at module level and through a capture, and the four diagnostics.
+
+`test/native.lua` also covers a conditional partial move in both directions -- the moved
+subplace released by its new owner, and the one that was not moved still released by the
+aggregate -- and non-tail self recursion (`factorial`, and `fib` with two
+recursive calls), and module unload: owned top-level state is destroyed in reverse
+successful-construction order; a written terminal that moves an owned prelude into the
+namespace still destroys it exactly once at its original position; and a `do` terminal
+returns its namespace to the host while its own locals are destroyed by that return and its
+preludes are handed over as the state.
+
+`test/place.lua` covers §17.4's canonical ownership example, a plain stage borrowing a
+non-Copy argument that the caller then uses and releases, a word with no stages releasing
+its locals, the two §6.5 tail-invocation ownership errors, a mutable stage writing the
+caller's place, an address-taken Copy local, borrowed members and constant and runtime
+indices (including a nested path), indexed and projected assignment, partial moves with the
+uninitialized-subplace diagnostics they raise and the run-time facts a conditional move
+produces, the borrow diagnostics, and §10.1's shared-state capture with its escape
+rejections. Native witnesses (`mut_place`,
+`ownership_lend`, `capture`, `partial_move`) execute the same cases.
+
+`test/import.lua` covers the implicit namespace, a written terminal, a configurable file,
+word members of an imported namespace, two imports as independent instances, an owned
+resource moved into a namespace and destroyed exactly once at scope exit, a `do`-terminal
+file yielding a word, an import cycle, a non-Text path, an unresolvable path, a missing
+resolver, and a lexical binding shadowing `import`. A native witness (`modules`) compiles
+imports through to C.
+
+`test/known.lua` covers loop analysis: a loop whose trip count is decidable and whose body is
+pure is enumerated away (`no goto`, no loop arithmetic, the final value as a constant), a
+run-time bound leaves a real loop with its invariant still folded inside it, an induction
+variable and an accumulator widen and still compute the right values, nested loops settle,
+and a never-entered loop leaves its variables alone. Native witnesses (`loop_widening`,
+`loop_invariant`, `loop_stateful`) execute the same cases, so an unsound fold would print a
+wrong number rather than merely look wrong.
+
+`test/emit.lua` checks that demand actually shapes the C: dead pure producers and their
+helpers are absent, an unused pure host call is absent, both ordered host calls survive in
+order, an unused loop-packet field with its literal is dropped while the demanded loop body
+remains, pure and cross-function folding produce constants with no callee function, a
+known branch removes the branch, a known zero divisor keeps a trapping operation, and a
+runtime argument keeps the emitted call path.
+
+`test/demand.lua` checks unused pure calls across joins, dead loop-carried value
+cycles, ordered calls whose data is unused, and effects in nonreturning cycles.
+Actual known-branch specialization and C emission remain later steps.
 

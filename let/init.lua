@@ -1,14 +1,23 @@
-local Parser = require('let.parser')
-require('let.program')
-require('let.evaluate')
-require('let.codegen')
-local M = {}
-function M.parse(text, file) return Parser.new(text, file):parse() end
-function M.compile(text, file, options)
-    local residual, manifest, report = M.parse(text, file):check(options):compile()
-    local source, statistics = residual:emit()
-    statistics.partial_evaluation = report
-    return source, manifest, residual, statistics
-end
-return M
+-- Independent vocabulary entry point. This does not load any current compiler phase.
+local asdl=require('asdl')
+local context=asdl.NewContext()
+require('let.ast')(context)
+require('let.belt')(context)
+require('let.c')(context)
+local V={Source=context.Source,AST=context.AST,Belt=context.Belt,C=context.C,List=asdl.List}
+require('let.numbering')(V)
+require('let.build')(V)
+require('let.verify')(V)
+require('let.demand')(V)
+V.Lexer=require('let.lex')(V)
+V.parse=require('let.parse')(V)
+require('let.binding')(V)
+require('let.resolve')(V)
+require('let.program')(V)
+V.Known=require('let.known')(V)
+V.scalar=require('let.scalar')
+V.file_resolver=require('let.file')
+require('let.print')(V)
+require('let.emit')(V)
+return V
 

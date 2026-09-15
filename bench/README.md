@@ -126,7 +126,7 @@ because GCC leaves calls to the bit-reinterpretation helper. Tail/prelude reduct
 code still needs investigation; matching C on those examples is not yet achieved.
 
 `-O3` `.text*` for this run totals 2,662 bytes including native helpers, versus
-2,152 for the old backend and 2,765 for the handwritten reference. More readable
+2,152 for an earlier backend and 2,765 for the handwritten reference. More readable
 C and less compiler machinery do not automatically imply smaller native code.
 
 Keep using all optimization levels and inspect the raw samples. The old recommendation

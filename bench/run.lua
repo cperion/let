@@ -92,7 +92,7 @@ local function parse_options(root, cwd)
         if key == '--help' then
             print('luajit bench/run.lua [--cc gcc] [--out DIR] [--opts O0 O2 O3]')
             print('  [--samples 7] [--seconds 0.02] [--cpu N] [--native] [--cflag=-FLAG]')
-            print('  [--compiler=v1|v2]  which Let compiler emits the measured C'); return
+            print('  [--compiler]  which Let compiler emits the measured C'); return
         elseif key == '--native' then options.native = true
         elseif key == '--opts' then
             options.opts = {}
@@ -104,7 +104,6 @@ local function parse_options(root, cwd)
             elseif key == '--out' then options.out = value
             elseif key == '--samples' then options.samples = assert(tonumber(value))
             elseif key == '--seconds' then options.seconds = assert(tonumber(value))
-            elseif key == '--compiler' then options.compiler = value
             elseif key == '--cpu' then options.cpu = assert(tonumber(value))
             elseif key == '--cflag' then options.cflags[#options.cflags + 1] = value
             else error('unknown option: ' .. key) end
@@ -141,8 +140,7 @@ local function main()
     save_table(out .. '/environment.lua', { compiler = version, backend = 'partial-evaluation-c', runner = jit.version, cpu = model, pinned_cpu = cpu,
         target = run({options.cc, '-dumpmachine'}):match('%S+'), allowed_cpus = allowed, flags = common,
         samples = options.samples, minimum_batch_seconds = options.seconds, optimization_levels = options.opts, driver_and_host_optimization = 'O2' })
-    local _, _, emission = run(join({'luajit', root .. '/bench/emit.lua', out .. '/generated.c', out .. '/residual.csv'},
-        options.compiler and {'--compiler=' .. options.compiler} or {}))
+    local _, _, emission = run({'luajit', root .. '/bench/emit.lua', out .. '/generated.c', out .. '/residual.csv'})
     local generated = read(out .. '/generated.c'); local _, lines = generated:gsub('\n', '\n')
     local metrics = { emission_ms = emission * 1000, generated_c_bytes = #generated, generated_c_lines = lines, builds = {} }
     print(('%s\n%s; pinned CPU %d\nLet -> C: %.1f ms'):format(version, model, cpu, emission * 1000))
