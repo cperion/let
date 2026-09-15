@@ -154,6 +154,9 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 
 ## Tests and their limits
 
+`luajit v2/test/all.lua` runs every suite and reports the total check count; that total is
+the number to quote, rather than one counted by hand.
+
 `test/build.lua` uses v2 AST fixtures annotated with relevant specification sections.
 It checks scalar snapshots, control, expression pins, parallel loop transfers,
 host ordering, source-located diagnostics, mutable external places, resource moves,
