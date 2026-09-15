@@ -61,22 +61,44 @@ A host may also state the C prototype it calls, which is how a libc or any other
 function is reached with no shim:
 
 ```lua
-strlen = {
-  symbol = 'strlen', phase = 'runtime', purity = 'pure',
-  signature = B.Signature(L{B.Parameter(B.Text, A.Read)}, L{B.Int}),
-  c = { params = {'const char *'}, result = 'size_t' },
+puts = {
+  symbol = 'puts', phase = 'runtime', purity = 'ordered',
+  signature = B.Signature(L{B.Parameter(B.CString, A.Read)}, L{B.Int}),
+  c = { result = 'int' },
 }
 ```
 
-`signature` is the Let contract the frontend checks; `c` is the ABI the emitter spells, and
-the emitted C declares `extern size_t strlen(const char *);` and calls it directly. A `Text`
-argument passes its bytes as the declared `char*`, a `char*` result is measured back into a
-`Text` at the terminator, and an `Int` is cast to the declared integer width; `Float`, `Bool`
-and `Unit` map to `double`, `bool` and `void`. Without `c`, the Let type's default C mapping is
-used (`int64_t`, `double`, `bool`, `void`, and a `{data,size}` struct for `Text`, which a host
-must then take by value). Passing a `Text` as a C string assumes NUL-terminated bytes, so a
-`Text` built from arbitrary bytes must not cross that conversion. The ABI is an embedding
-detail (§15.3), not Let syntax: the program still calls an ordinary host word.
+`signature` is the Let contract the frontend checks; `c` states the C ABI where it differs from
+the Let type's default spelling. The Let types map to C directly -- `CString` is `const char*`,
+`Int` `int64_t`, `Float` `double`, `Bool` `bool`, `Unit` `void`, `Text` a `{data,size}` struct --
+so `c` is needed only for an integer of another width (`int`, `size_t`, `long long`), which the
+emitter casts. The emitted C declares `extern int puts(const char*);` and calls it directly.
+
+`CString` is a borrowed `const char*` and a type of its own, not `Text`: the two are not the same
+thing, and `c.string`/`c.text` are the explicit crossings. `c.string(text)` borrows the bytes of
+a `Text` and requires them to be NUL-terminated (a literal is); `c.text(cstring)` measures a C
+string at its terminator, and the result is a borrowed view, so the C storage must outlive it.
+No call converts silently.
+
+### The `c` namespace and a standalone program
+
+The command-line host registers that vocabulary as the **namespace** `c` (`c.puts`, `c.strlen`,
+`c.string`, ...), so a libc name never enters the program's own scope, and an options file may
+define `c` itself. A namespace member resolves as a dictionary entry rather than a field of a
+value, so `c.puts(x)` is an ordinary host call (`libc.lua`, `resolve.lua`).
+
+A file whose exported word is `main` with no remaining stage compiles to a complete C program:
+`letc.lua` emits a `main` that initializes the module and calls the entry, plus a default
+`let_trap` hook, so
+
+```let
+let main = do
+    c.puts(c.string("hello, world"))
+end
+```
+
+becomes an executable with `luajit dist/let.lua hello.let hello.c && cc hello.c -o hello`
+(`examples/hello.let`). The ABI stays an embedding detail (§15.3), not Let syntax.
 
 ## Normative obligations and mechanisms
 

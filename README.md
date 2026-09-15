@@ -29,6 +29,21 @@ and it is read two ways. As a library it returns the same table the modules do, 
 luajit dist/let.lua input.let output.c [options.lua]
 ```
 
+A file whose exported word is `main` compiles to a complete C program: the command-line host
+supplies the C vocabulary as the namespace `c`, emits `main`, and emits a trap hook. A pure
+Let file can therefore call libc and become an executable with no C host of its own:
+
+```let
+let main = do
+    c.puts(c.string("hello, world"))
+end
+```
+
+```sh
+luajit dist/let.lua examples/hello.let hello.c
+cc -std=c11 -O2 hello.c -o hello && ./hello
+```
+
 `test/bundle.lua` keeps it honest: the committed file must equal what the generator produces, must
 emit exactly what the module layout emits, and must compile a file when run.
 
