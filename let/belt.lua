@@ -41,5 +41,47 @@ module Belt {
     Program = (string name, Template* templates, Function* functions)
 }
     ]]
+
+    local B=context.Belt
+    -- Type semantics belong to the belt vocabulary, not to one consumer: construction,
+    -- verification, demand analysis and emission all ask these questions.
+function B.Type:same(other) return self==other end
+function B.Named:same(other) return B.Named:isclassof(other) and self.name==other.name end
+function B.Address:same(other) return B.Address:isclassof(other) and self.pointee:same(other.pointee) end
+local function fields_same(a,b)
+    if #a~=#b then return false end
+    for i,field in ipairs(a) do
+        if field.name~=b[i].name or field.mutable~=b[i].mutable or not field.type:same(b[i].type) then return false end
+    end
+    return true
+end
+-- A borrow is a view of a place: the same pointee, but not the same thing to own.
+function B.Borrow:same(other)
+    return B.Borrow:isclassof(other) and self.stable==other.stable and self.pointee:same(other.pointee)
+end
+function B.Aggregate:same(other)
+    return B.Aggregate:isclassof(other) and self.is_copy==other.is_copy and fields_same(self.fields,other.fields)
+end
+function B.Word:same(other)
+    return B.Word:isclassof(other) and self.template==other.template and self.supplied==other.supplied
+        and self.is_copy==other.is_copy and fields_same(self.fields,other.fields)
+end
+function B.Type:copyable() return false end
+function B.Int:copyable() return true end
+function B.Float:copyable() return true end
+function B.Bool:copyable() return true end
+function B.Unit:copyable() return true end
+function B.Text:copyable() return true end
+-- §8.5: an aggregate is Copy exactly when every contained value is Copy and it declares
+-- no mutable member. Both facts are recorded in the type, because member types alone
+-- cannot express a declared mutable member.
+function B.Aggregate:copyable() return self.is_copy end
+
+-- Word records and aggregates are both ordered fields; only words carry a template.
+function B.Type:record() return nil end
+function B.Aggregate:record() return self.fields end
+function B.Word:record() return self.fields end
+function B.Word:copyable() return self.is_copy end
+
 end
 

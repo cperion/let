@@ -7,43 +7,6 @@ local Context={}; Context.__index=Context
 local function copy(t) local out={}; for k,v in pairs(t) do out[k]=v end; return out end
 local function fail(span,message) error(('%s:%d:%d: %s'):format(span.file,span.line,span.column,message),0) end
 local function gap(span,message) fail(span,'construction not yet implemented: ' .. message) end
-function B.Type:same(other) return self==other end
-function B.Named:same(other) return B.Named:isclassof(other) and self.name==other.name end
-function B.Address:same(other) return B.Address:isclassof(other) and self.pointee:same(other.pointee) end
-local function fields_same(a,b)
-    if #a~=#b then return false end
-    for i,field in ipairs(a) do
-        if field.name~=b[i].name or field.mutable~=b[i].mutable or not field.type:same(b[i].type) then return false end
-    end
-    return true
-end
--- A borrow is a view of a place: the same pointee, but not the same thing to own.
-function B.Borrow:same(other)
-    return B.Borrow:isclassof(other) and self.stable==other.stable and self.pointee:same(other.pointee)
-end
-function B.Aggregate:same(other)
-    return B.Aggregate:isclassof(other) and self.is_copy==other.is_copy and fields_same(self.fields,other.fields)
-end
-function B.Word:same(other)
-    return B.Word:isclassof(other) and self.template==other.template and self.supplied==other.supplied
-        and self.is_copy==other.is_copy and fields_same(self.fields,other.fields)
-end
-function B.Type:copyable() return false end
-function B.Int:copyable() return true end
-function B.Float:copyable() return true end
-function B.Bool:copyable() return true end
-function B.Unit:copyable() return true end
-function B.Text:copyable() return true end
--- §8.5: an aggregate is Copy exactly when every contained value is Copy and it declares
--- no mutable member. Both facts are recorded in the type, because member types alone
--- cannot express a declared mutable member.
-function B.Aggregate:copyable() return self.is_copy end
-
--- Word records and aggregates are both ordered fields; only words carry a template.
-function B.Type:record() return nil end
-function B.Aggregate:record() return self.fields end
-function B.Word:record() return self.fields end
-function B.Word:copyable() return self.is_copy end
 local function expect(value,type_,span)
     if not value.type then gap(span,'word values in data positions') end
     if not value.type:same(type_) then fail(span,'expected ' .. tostring(type_) .. ', got ' .. tostring(value.type)) end
@@ -123,22 +86,14 @@ end
 function Context:path_key(type_,steps,span,allow_dynamic)
     local key,indices='',{}
     for _,step in ipairs(steps) do
-        local fields=type_.fields
-        if not fields then fail(span,'a partial move requires an aggregate path') end
-        local index
-        if step.name then index=select(1,self:record_field(type_,step.name,step.span))-1
-        elseif step.index then
-            index=step.index
-            if index<0 or index>=#fields then
-                fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
-            end
-        else
+        local index,leaf=self:member_step(type_,step,span,'a partial move requires an aggregate path')
+        if index==nil then
             if allow_dynamic then return nil end
             gap(step.span,'a partial move needs a statically known path')
         end
         key=(key=='' and tostring(index)) or (key .. '.' .. tostring(index))
         indices[#indices+1]=index
-        type_=fields[index+1].type
+        type_=leaf
     end
     return key,indices,type_
 end
@@ -321,6 +276,20 @@ end
 function Context:new_block()
     local block={parameters=L(),instructions=L(),id=#self.fn.blocks+1}
     self.fn.blocks[#self.fn.blocks+1]=block; return block
+end
+
+-- One place that establishes a construction context. The order matters: the entry block, the
+-- scope holding its parameters, and the effect parameter every ordered operation threads must
+-- exist before the first instruction, or a parameter would land next to one and collide with it.
+function Context.new_function(spec)
+    local fn={name=spec.name,span=spec.span,blocks={},bindings={},next_value=0,
+        result=spec.result,state=spec.state,
+        resources=spec.resources or {},hosts=spec.hosts or {},types=spec.types}
+    local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},
+        builder=spec.builder,resolved=spec.resolved,lifetime=spec.lifetime},Context)
+    ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
+    ctx.function_id=spec.function_id
+    return ctx
 end
 -- A cloned context is the same construction, one block later, so it must carry the
 -- builder/resolution it resolves word identities and templates against.
@@ -650,46 +619,22 @@ function A.Borrow:build(ctx)
     else
         local type_=binding.type
         for _,step in ipairs(steps) do
-            local fields=type_.fields
-            if not fields then fail(step.span,'a borrow path requires an aggregate') end
             -- Names are found by search and indices are written by the source, so both
             -- describe the member position; field access is zero-based.
-            local index
-            if step.name then index=select(1,ctx:record_field(type_,step.name,step.span))-1
-            elseif step.index then
-                index=step.index
-                if index<0 or index>=#fields then
-                    fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
-                end
-            end
+            local index,leaf=ctx:member_step(type_,step,step.span,'a borrow path requires an aggregate')
             if index then
-                type_=fields[index+1].type
+                type_=leaf
                 value=ctx:emit(B.FieldAddress(ctx:ref(value),index,stable),L{B.Borrow(type_,stable)},step.span)
             else
                 -- A runtime index in a borrowed path selects a *place*, so the selection joins
                 -- field addresses rather than values, and its members must share a type.
+                local fields=type_.fields
                 local key=step.expression:build(ctx); expect(key,B.Int,step.span)
                 local element=fields[1].type
-                for i=2,#fields do
-                    if not fields[i].type:same(element) then
-                        fail(step.span,'a runtime index needs members of one type')
-                    end
-                end
                 local borrowed=B.Borrow(element,stable)
                 ctx:pin(value); ctx:pin(key)
-                local function select(c,at)
-                    if at>=#fields then
-                        c.block.exit=B.Trap(c:ref(c.effect),'index out of range')
-                        return nil
-                    end
-                    local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},step.span)
-                    local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},step.span)
-                    return c:branch(test,
-                        function(y) return y:emit(B.FieldAddress(y:ref(value),at,stable),L{borrowed},step.span) end,
-                        function(n) return select(n,at+1) end,
-                        borrowed)
-                end
-                value=select(ctx,0)
+                value=ctx:select_member(key,fields,borrowed,step.span,
+                    function(y,at) return y:emit(B.FieldAddress(y:ref(value),at,stable),L{borrowed},step.span) end)
                 ctx:unpin(); ctx:unpin()
                 type_=element
             end
@@ -739,6 +684,54 @@ function Context:record_field(record,name,span)
     if not fields then fail(span,'this value has no members') end
     for index,field in ipairs(fields) do if field.name==name then return index,field end end
     fail(span,'no member ' .. name)
+end
+
+-- Resolve one member step against an aggregate type. A named member or a constant index
+-- becomes a position; a run-time index has none and returns nil, leaving the caller to decide
+-- what the selection means. `span` locates a non-aggregate failure (some callers blame the
+-- whole path) and `message` is theirs because each place form names itself.
+function Context:member_step(type_,step,span,message)
+    local fields=type_.fields
+    if not fields then fail(span,message) end
+    local index
+    if step.name then
+        index=select(1,self:record_field(type_,step.name,step.span))-1
+    elseif step.index then
+        index=step.index
+        if index<0 or index>=#fields then
+            fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
+        end
+    end
+    if index==nil then return nil end
+    local field=fields[index+1]
+    return index,field.type,field.mutable
+end
+
+-- A run-time index yields one value, so the alternatives must have one type.
+function Context:member_type(fields,span)
+    local element=fields[1].type
+    for i=2,#fields do
+        if not fields[i].type:same(element) then fail(span,'a runtime index needs members of one type') end
+    end
+    return element
+end
+
+-- Lower a run-time index: compare the key against each member position, branch to the first
+-- match, and trap past the end. `key` and whatever the arm reads must already be pinned.
+-- `build(c,at)` says what the selection yields for member `at` -- a loaded member, a field
+-- address, or a store chain.
+function Context:select_member(key,fields,result,span,build)
+    local element=self:member_type(fields,span)
+    local function choose(c,at)
+        if at>=#fields then
+            c.block.exit=B.Trap(c:ref(c.effect),'index out of range')
+            return nil
+        end
+        local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},span)
+        local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},span)
+        return c:branch(test,function(y) return build(y,at) end,function(n) return choose(n,at+1) end,result)
+    end
+    return choose(self,0)
 end
 
 function A.PositionalAggregate:build(ctx)
@@ -816,13 +809,10 @@ function A.Project:build(ctx)
     return value
 end
 
--- §8.4: the index must be a non-negative Int below the known length. A constant index is
--- resolved statically; a dynamic one needs address-taken aggregate storage.
--- §8.4: the index must be a non-negative Int below the length, and anything else traps.
--- A constant index is resolved statically; a runtime index selects among the members, which
--- needs them to share one type because the result of the selection is one value. An
--- aggregate is a record with as many members as the source wrote, so this costs as many
--- comparisons as there are members, and a large runtime array belongs to host vocabulary.
+-- §8.4: the index must be a non-negative Int below the length, and anything else traps. A
+-- constant index resolves statically; a runtime index selects among the members, which must
+-- share one type because the selection yields one value. An aggregate is a record with as many
+-- members as the source wrote, so this costs one comparison per member.
 function A.Index:build(ctx)
     local root,steps=place_path(self)
     local id=root and ctx:find(root)
@@ -863,25 +853,9 @@ function A.Index:build(ctx)
     end
     local key=self.index:build(ctx); expect(key,B.Int,self.index.span)
     local element=fields[1].type
-    for i=2,#fields do
-        if not fields[i].type:same(element) then
-            fail(self.span,'a runtime index needs members of one type')
-        end
-    end
     ctx:pin(base); ctx:pin(key)
-    local function select(c,at)
-        if at>=#fields then
-            c.block.exit=B.Trap(c:ref(c.effect),'index out of range')
-            return nil
-        end
-        local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},self.span)
-        local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},self.span)
-        return c:branch(test,
-            function(y) return y:emit(B.LoadField(y:ref(base),at),L{element},self.span) end,
-            function(n) return select(n,at+1) end,
-            element)
-    end
-    local value=select(ctx,0)
+    local value=ctx:select_member(key,fields,element,self.span,
+        function(y,at) return y:emit(B.LoadField(y:ref(base),at),L{element},self.span) end)
     ctx:unpin(); ctx:unpin()
     if value then value.mode=element:copyable() and 'copy' or 'borrow' end
     return value
@@ -936,13 +910,6 @@ end
 -- §8.4 positional elements have no individual qualifier, so their write capability comes
 -- from the base place. §4.3 evaluates the destination first, then the right-hand side.
 -- §9.4 Assignment establishes the destination place first, then evaluates the right-hand
--- side, then replaces whatever the place still holds. A destination is any statically known
--- path from a binding, and each level of that path is rebuilt from the leaf up.
--- §9.4 Assignment establishes the destination place first, then evaluates the right-hand
--- side, then replaces whatever the place still holds. A destination is any place path from a
--- binding: names and constant indices resolve to member positions, one index may be computed
--- at run time, and each level of the path is rebuilt from the leaf up.
--- §9.4 Assignment establishes the destination place first, then evaluates the right-hand
 -- side, then replaces whatever the place still holds. A destination is any place path from a
 -- binding: names and constant indices resolve to member positions, one index may be computed
 -- at run time, and each level of the path is rebuilt from the leaf up.
@@ -958,22 +925,12 @@ function A.Assign:assign_place(ctx)
     local records={ctx:read_place(id,root,binding,cell,self.span)}
     local path,type_,dynamic='',binding.type,0
     for i,step in ipairs(steps) do
-        local fields=type_.fields
-        if not fields then fail(step.span,'a place path requires an aggregate value') end
-        local index
-        if step.name then
-            index=select(1,ctx:record_field(type_,step.name,step.span))-1
-            if fields[index+1].mutable then interior=true end
-        elseif step.index then
-            index=step.index
-            if index<0 or index>=#fields then
-                fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
-            end
-        end
-        if not index then dynamic=i; break end
+        local index,leaf,mutable=ctx:member_step(type_,step,step.span,'a place path requires an aggregate value')
+        if index==nil then dynamic=i; break end
+        if mutable then interior=true end
         positions[i]=index
         path=(path=='' and tostring(index)) or (path .. '.' .. tostring(index))
-        type_=fields[index+1].type
+        type_=leaf
         if i<#steps then
             records[i+1]=ctx:emit(B.LoadField(ctx:ref(records[i]),index),L{type_},step.span)
         end
@@ -984,27 +941,13 @@ function A.Assign:assign_place(ctx)
     local suffix,levels,leaf={}, {},type_
     if dynamic>0 then
         local members=records[dynamic].type.fields
-        for i=2,#members do
-            if not members[i].type:same(members[1].type) then fail(self.span,'a runtime index needs members of one type') end
-        end
-        leaf=members[1].type
+        leaf=ctx:member_type(members,self.span)
         for i=dynamic+1,#steps do
             local step=steps[i]
-            local fields=leaf.fields
-            if not fields then fail(step.span,'a place path requires an aggregate value') end
-            local index
-            if step.name then
-                index=select(1,ctx:record_field(leaf,step.name,step.span))-1
-                if fields[index+1].mutable then interior=true end
-            elseif step.index then
-                index=step.index
-                if index<0 or index>=#fields then
-                    fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
-                end
-            else
-                gap(step.span,'two runtime indices in one place path')
-            end
-            suffix[#suffix+1]=index; levels[#levels+1]=leaf; leaf=fields[index+1].type
+            local index,next_leaf,mutable=ctx:member_step(leaf,step,step.span,'a place path requires an aggregate value')
+            if index==nil then gap(step.span,'two runtime indices in one place path') end
+            if mutable then interior=true end
+            suffix[#suffix+1]=index; levels[#levels+1]=leaf; leaf=next_leaf
         end
         ctx:nested_moved(id,path,self.span); ctx:check_writable(id,path,self.span)
     else
@@ -1088,13 +1031,8 @@ function A.Assign:assign_place(ctx)
     if dynamic==0 then
         updated=replace(ctx,positions[#steps],value)
     else
-        local function arm(c,at)
-            if at>=#parent.type.fields then c.block.exit=B.Trap(c:ref(c.effect),'index out of range'); return nil end
-            local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},self.span)
-            local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},self.span)
-            return c:branch(test,function(y) return replace(y,at,value) end,function(n) return arm(n,at+1) end,records[1].type)
-        end
-        updated=arm(ctx,0)
+        updated=ctx:select_member(key,parent.type.fields,records[1].type,self.span,
+            function(c,at) return replace(c,at,value) end)
     end
     if updated then
         ctx:rebind(id,binding,cell,updated,self.span)
@@ -1281,7 +1219,7 @@ function A.Invoke:tail(ctx)
     local builder=ctx.builder
     if builder then builder:invoke(ctx,self,true) else ctx:finish(ctx:call(self,true),self.span) end
 end
-function A.Stage:entry(ctx,index,options)
+function A.Stage:bind_parameter(ctx,index,options)
     local type_=ctx:constraint(self.constraint,options.parameters and options.parameters[index],self.span)
     if not type_ then gap(self.span,'stage type inference from uses; supply a concrete parameter type') end
     local address=self.capability==A.Mut
@@ -1294,23 +1232,24 @@ function A.Stage:entry(ctx,index,options)
     local external=address or (not owned and not type_:copyable())
     ctx:bind(self.name,value,self.capability==A.Mut or self.capability==A.OwnMut,owned,external,address,self.span)
 end
-function A.Prelude:entry() gap(self.binding.span,'stage preparation: preludes must run between arguments, not at terminal entry') end
+function A.Prelude:bind_parameter() gap(self.binding.span,'stage preparation: preludes must run between arguments, not at terminal entry') end
 function A.Chain:build_function(name,options)
     options=options or {}
     if not A.Body:isclassof(self.terminal) then gap(self.span,'data-terminal construction (not a runtime function)') end
-    local fn={name=name,span=self.span,blocks={},bindings={},next_value=0,result=options.result,resources=options.resources or {},hosts=options.hosts or {},types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}}
-    for resource,descriptor in pairs(fn.resources) do
+    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}
+    for resource,descriptor in pairs(options.resources or {}) do
         assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z_0-9]*$'),'resource requires a destructor symbol')
-        fn.types[resource]=B.Named(resource)
+        types[resource]=B.Named(resource)
     end
-    for _,host in pairs(fn.hosts) do
+    for _,host in pairs(options.hosts or {}) do
         assert(host.phase=='runtime' and (host.purity=='ordered' or host.purity=='pure'),'host must declare runtime phase and purity')
         assert(type(host.symbol)=='string' and host.symbol:match('^[A-Za-z_][A-Za-z_0-9]*$'),'host requires a symbol')
         assert(B.Signature:isclassof(host.signature) and #host.signature.results==1,'host requires one Let result')
     end
-    local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={}},Context)
-    ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
-    for i,item in ipairs(self.items) do item:entry(ctx,i,options) end
+    local ctx=Context.new_function{name=name,span=self.span,result=options.result,
+        resources=options.resources,hosts=options.hosts,types=types}
+    local fn=ctx.fn
+    for i,item in ipairs(self.items) do item:bind_parameter(ctx,i,options) end
     fn.self_visible=true; ctx:push()
     ctx:statements(self.terminal.statements)
     if not ctx.block.exit then ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},self.span),self.span) end
@@ -1318,6 +1257,6 @@ function A.Chain:build_function(name,options)
     for _,block in ipairs(fn.blocks) do assert(block.exit,'unfinished block'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit)) end
     return B.Function(name,B.Signature(blocks[1].parameters,L{fn.result,B.Effect}),blocks):verify_flow(fn.hosts)
 end
-V.Build={Context=Context,expect=expect,fail=fail,gap=gap,copy=copy,literal=literal}
+V.Build={Context=Context,expect=expect,fail=fail,gap=gap,copy=copy}
 end
 

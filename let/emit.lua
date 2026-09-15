@@ -681,14 +681,23 @@ end
 function Emitter:host_declarations()
     local declarations=L()
     local names={}
+    -- Symbol sources are Lua tables, so sort them: an emitted unit must not depend on
+    -- `pairs` order, or two builds of one program would differ byte for byte.
+    local destroys={}
     for _,descriptor in pairs(self.options.resources or {}) do
-        if not names[descriptor.destroy] then
-            names[descriptor.destroy]=true
-            declarations:insert(C.Function(descriptor.destroy,true,false,C.Void,L{C.Parameter(C.I64,'a0')},nil))
-        end
+        if not names[descriptor.destroy] then names[descriptor.destroy]=true; destroys[#destroys+1]=descriptor.destroy end
     end
-    for _,host in pairs(self.hosts or {}) do if not names[host.symbol] then
-        names[host.symbol]=true
+    table.sort(destroys)
+    for _,symbol in ipairs(destroys) do
+        declarations:insert(C.Function(symbol,true,false,C.Void,L{C.Parameter(C.I64,'a0')},nil))
+    end
+    local symbols={}
+    for _,host in pairs(self.hosts or {}) do
+        if not names[host.symbol] then names[host.symbol]=true; symbols[#symbols+1]=host.symbol end
+    end
+    table.sort(symbols)
+    for _,symbol in ipairs(symbols) do
+        local host=self.hosts[symbol]
         local parameters=L()
         for i,parameter in ipairs(host.signature.parameters) do
             local type_=parameter.capability==A.Mut and C.Pointer(self:ctype(parameter.type)) or self:ctype(parameter.type)
@@ -696,7 +705,7 @@ function Emitter:host_declarations()
         end
         local result=host.signature.results[1]
         declarations:insert(C.Function(host.symbol,true,false,result==B.Unit and C.Void or self:ctype(result),parameters,nil))
-    end end
+    end
     return declarations
 end
 
