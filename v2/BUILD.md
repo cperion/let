@@ -147,6 +147,24 @@ construction diagnostic rather than a language limitation.
   exported word supplies the remaining stages, and *the entry runs whatever preludes lie between
   them*. The host does not supply those, and nothing in the current text says so.
 
+  Two further attempts got the construction right and then failed on belt typing. What they
+  established, in the order the failures moved:
+
+  1. A word's fields are its **captures** followed by a prefix of its **items**, in source order.
+     The entry must bind the captures first; a walk over items alone binds a capture's value to a
+     stage's name.
+  2. `bound` counts *items*, not fields -- the parameters are captures and items together -- and
+     the remaining stages come after them, each followed by the preludes that belong to it.
+     `prepare` runs exactly those, so a host entry is `build_entry` with the supplied count known.
+  3. A mutable stage must be declared as a borrow, because that is what a mutable stage is
+     everywhere else: the callee reaches the place through a pointer, and a host can pass one.
+  4. What is left is a belt `operand type mismatch` in the entry's body once all of the above are
+     in place. The kernels are the wrong instrument for hunting it -- they exercise captures,
+     preludes, mutable stages and recursion at once; each fix moved the failure to a different
+     kernel, which is how 1-3 were found. The next attempt should build a minimal exported word per
+     feature (a capture, a prelude between stages, a mutable stage) and grow it, which is cheaper
+     than what I did.
+
 - A partial move *introduced inside* a loop whose path is still a hole at the backedge
   (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
   the loop entry a fact per owned subplace is not enough on its own: the entry's fact must
