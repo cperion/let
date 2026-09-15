@@ -308,13 +308,15 @@ function Builder:entry(template,field_types,capabilities,mutable_mask,retained_m
     local existing=self.entries[key]
     if existing then return existing end
     local id=#self.functions+1
+    -- Cached before the build: an entry that recurses must find itself, or it would be built twice
+    -- and its callers would disagree about its signature.
+    self.entries[key]=id
     local fields={}
     for i,type_ in ipairs(field_types) do
         fields[i]={type=type_,capability=capabilities[i],mutable=mutable_mask[i],retained=retained_mask[i]}
     end
-    local built=self:build_entry(template,fields,id)
-    self.entries[key]=id
-    self.functions[id]=built
+    self.functions[id]=false
+    self.functions[id]=self:build_entry(template,fields,id)
     return id
 end
 
@@ -679,6 +681,10 @@ function Builder:host_entry(name,value,span)
     if template.self then ctx.self_name=template.self.name; ctx.self_definition=template.self end
     -- The word's own fields are parameters like any other: they are the construction trace, and a
     -- mutable one is a place, so its binding is its address.
+    -- The trace is rebuilt from the host's parameters, not from the word's own field values.
+    -- `advance` re-binds the trace by name at every stage, so a trace still holding the values the
+    -- *initializer* produced would shadow these parameters with values from another context.
+    local trace={}
     for _,field in ipairs(word.fields) do
         ctx:push(); if field.retained then ctx:retain() end
         local parameter=ctx:parameter(field.type,A.Read)
@@ -686,6 +692,8 @@ function Builder:host_entry(name,value,span)
         local owned=not address and not field.type:copyable()
             and (field.capability==A.Own or field.capability==A.OwnMut)
         ctx:force_bind(field.name,parameter,field.mutable,owned,false,address,span)
+        trace[#trace+1]={name=field.name,value=parameter,type=field.type,mutable=field.mutable,
+            owned=owned,retained=field.retained,span=span,capability=field.capability}
     end
     -- Every parameter exists before the first instruction: a parameter created once emission has
     -- started takes a position after an instruction and collides with it.
@@ -702,7 +710,7 @@ function Builder:host_entry(name,value,span)
         c:statements(template.source.terminal.statements)
         if not c.block.exit then c:finish(c:emit(B.UnitLiteral,L{B.Unit},span),span) end
     end
-    local current={type=value.type,word={template=template,fields=word.fields,supplied=word.supplied}}
+    local current={type=value.type,word={template=template,fields=trace,supplied=word.supplied}}
     for i=word.supplied+1,#layout.steps do
         current=self:advance(ctx,current,parameters[i],items[i].span,B.Transient,
             i==#layout.steps and complete or nil)
