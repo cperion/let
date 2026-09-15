@@ -60,18 +60,46 @@ end
 -- The chain items: consecutive `let` forms, an unsatisfied one being a stage.
 function Parser:items()
     local items=L()
-    while self:is('let') do
-        local name,own,mutable,constraint,at=self:header()
-        if self:accept('=') then
-            if own then fail(at,'own is only valid on an unsatisfied stage') end
-            self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at)))
+    while self:is('let') or self:is('extern') do
+        if self:is('extern') then
+            items:insert(self:extern_item())
         else
-            local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
-            items:insert(A.Stage(name,cap,constraint,at))
+            local name,own,mutable,constraint,at=self:header()
+            if self:accept('=') then
+                if own then fail(at,'own is only valid on an unsatisfied stage') end
+                self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at)))
+            else
+                local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
+                items:insert(A.Stage(name,cap,constraint,at))
+            end
         end
         self:separators()
     end
     return items
+end
+-- A foreign word: the C symbol it calls, its ordered stages with the usual capability and
+-- constraint, and its result. `pure` is optional; the default is `ordered`.
+function Parser:extern_item()
+    local span=self:expect('extern').span
+    local pure=self:accept('pure')~=nil
+    local name=self:expect('name').spelling
+    local symbol=self:is('text') and self:take().value or nil
+    self:expect('(')
+    local parameters=L()
+    if not self:is(')') then
+        repeat parameters:insert(self:extern_parameter()) until not self:accept(',')
+    end
+    self:expect(')')
+    local result=self:accept(':') and self:constraint() or nil
+    return A.Extern(name,pure,symbol,parameters,result,span)
+end
+function Parser:extern_parameter()
+    local span=self:token().span; local name=self:expect('name').spelling
+    local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
+    if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
+    local constraint=self:accept(':') and self:constraint() or nil
+    local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
+    return A.Stage(name,cap,constraint,span)
 end
 
 -- A chain in an expression position always has a written terminal. A source file may omit
@@ -288,6 +316,7 @@ function A.Constraint:check_literals() visit(self.arguments) end
 function A.Binding:check_literals() if self.constraint then self.constraint:check_literals() end; self.value:check_literals() end
 function A.Stage:check_literals() if self.constraint then self.constraint:check_literals() end end
 function A.Prelude:check_literals() self.binding:check_literals() end
+function A.Extern:check_literals() visit(self.parameters); if self.result then self.result:check_literals() end end
 function A.Chain:check_literals() visit(self.items); if self.terminal then self.terminal:check_literals() end end
 function A.Data:check_literals() self.value:check_literals() end
 function A.Body:check_literals() visit(self.statements) end

@@ -17,6 +17,7 @@ module AST {
     Chain = (Item* items, Terminal? terminal, Source.Span span)
     Item = Stage(string name, Capability capability, Constraint? constraint, Source.Span span)
          | Prelude(Binding binding)
+         | Extern(string name, boolean pure, string? symbol, Stage* parameters, Constraint? result, Source.Span span)
     Terminal = Data(Expr value) | Body(Stmt* statements)
     Expr = Name(string name) | Integer(string spelling) | Float(string spelling) | Boolean(boolean value)
          | Text(string value) | Unit

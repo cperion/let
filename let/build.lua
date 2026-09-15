@@ -1271,6 +1271,8 @@ function A.Stage:bind_parameter(ctx,index,options)
     Packet.bind_parameter(ctx,Packet.stage_field(self.capability,self.name,self.span,type_),self.name,self.span)
 end
 function A.Prelude:bind_parameter() gap(self.binding.span,'stage preparation: preludes must run between arguments, not at terminal entry') end
+-- A foreign declaration has no parameter of its own; the host entry is an ordinary call site.
+function A.Extern:bind_parameter() end
 function A.Chain:build_function(name,options)
     options=options or {}
     if not A.Body:isclassof(self.terminal) then gap(self.span,'data-terminal construction (not a runtime function)') end

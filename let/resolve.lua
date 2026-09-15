@@ -140,6 +140,12 @@ function A.Stage:resolve(ctx,scope,index)
     ctx:publish(scope,ctx:definition(self.name,'stage',self,ctx.current),self.span)
 end
 function A.Prelude:resolve(ctx,scope) self.binding:resolve(ctx,scope) end
+-- A foreign declaration's constraints are type names, so resolving them catches an unknown one
+-- here, with a span, rather than in the vocabulary. The word itself is a host descriptor.
+function A.Extern:resolve(ctx,scope)
+    for _,stage in ipairs(self.parameters) do if stage.constraint then stage.constraint:resolve(ctx,scope,stage.span) end end
+    if self.result then self.result:resolve(ctx,scope,self.span) end
+end
 function A.Expr:resolve() error('missing lexical resolver for expression',0) end
 function A.Integer:resolve() end
 function A.Float:resolve() end
@@ -239,7 +245,7 @@ function A.Program:resolve(options)
     local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},constraints={},scopes={},templates={},
         imports={},import_words={},importing={},namespace_members={},import_resolver=options.resolve,file=self.file.span.file},Context)
     local builtins={}
-    for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
+    for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable','CString','CPointer'} do builtins[name]={phase='constraint'} end
     -- The core numeric conversions are runtime words (§13.3), shadowable like any binding.
     for _,name in ipairs{'float','int'} do builtins[name]={phase='runtime'} end
     local outer=dictionary(ctx,nil,builtins)

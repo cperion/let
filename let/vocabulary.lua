@@ -11,7 +11,8 @@ local Vocabulary={}; Vocabulary.__index=Vocabulary
 -- message naming the contract, rather than at whichever consumer happened to read it first.
 function Vocabulary.new(options)
     options=options or {}
-    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}
+    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer}
+    local representations={}
     local destroy={}
     for name,descriptor in pairs(options.resources or {}) do
         assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z0-9_]*$'),
@@ -22,9 +23,43 @@ function Vocabulary.new(options)
         end
         types[name]=B.Named(name)
         destroy[name]=descriptor.destroy
+        representations[name]=descriptor.representation or 'value'
     end
     local hosts={}
     local symbols={}
+    -- The C spelling a host declares must describe its Let type: an integer width for `Int` or a
+    -- value resource, an object pointer for a borrowed view or a pointer resource, and
+    -- `double`/`bool`/`void` for the rest. This is where the one declaration is checked, rather
+    -- than in the C compiler.
+    local function compact(name) return (name:gsub('%s','')) end
+    local c_integer={}
+    for _,name in ipairs{'char','signedchar','unsignedchar','short','unsignedshort','int','unsigned',
+        'long','unsignedlong','longlong','unsignedlonglong','size_t','ssize_t','ptrdiff_t','intptr_t',
+        'uintptr_t','int8_t','uint8_t','int16_t','uint16_t','int32_t','uint32_t','int64_t','uint64_t'} do
+        c_integer[name]=true
+    end
+    local function c_kind(spelling)
+        local c=compact(spelling)
+        if c_integer[c] then return 'integer' end
+        if c=='double' or c=='float' then return c end
+        if c=='bool' or c=='_Bool' then return 'bool' end
+        if c=='void' then return 'void' end
+        if c:sub(-1)=='*' then return 'pointer' end
+        return 'unknown'
+    end
+    local function compatible(let_type,kind)
+        if kind=='integer' then
+            return let_type==B.Int or (B.Named:isclassof(let_type) and representations[let_type.name]~='pointer')
+        end
+        if kind=='double' or kind=='float' then return let_type==B.Float end
+        if kind=='bool' then return let_type==B.Bool end
+        if kind=='pointer' then
+            return let_type==B.CString or let_type==B.CPointer
+                or (B.Named:isclassof(let_type) and representations[let_type.name]=='pointer')
+        end
+        if kind=='void' then return let_type==B.Unit end
+        return false
+    end
     local function add_host(name,host)
         assert(host.phase=='runtime' and (host.purity=='ordered' or host.purity=='pure'),
             'host must declare runtime phase and purity')
@@ -32,6 +67,21 @@ function Vocabulary.new(options)
             'host requires a symbol')
         assert(B.Signature:isclassof(host.signature) and #host.signature.results==1,
             'host requires one Let result')
+        if host.c then
+            for i,spelling in ipairs(host.c.params or {}) do
+                local parameter=host.signature.parameters[i]
+                assert(parameter,'the C prototype has more parameters than the Let signature')
+                -- A mutable stage is a place, so it is a pointer whatever its pointee is.
+                local ok=(parameter.capability==V.AST.Mut and c_kind(spelling)=='pointer')
+                    or (parameter.capability~=V.AST.Mut and c_kind(spelling)~='unknown' and compatible(parameter.type,c_kind(spelling)))
+                assert(ok,('C type %s does not describe Let parameter %d'):format(spelling,i))
+            end
+            if host.c.result then
+                local kind=c_kind(host.c.result)
+                assert(kind~='unknown' and compatible(host.signature.results[1],kind),
+                    ('C result %s does not describe the Let result'):format(host.c.result))
+            end
+        end
         -- The boundary declares ownership and nullability, which C's type system cannot: they
         -- only mean anything for a pointer result.
         if host.ownership~=nil then

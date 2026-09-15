@@ -634,7 +634,10 @@ let wrote = c.puts(c.string("from-libc"))
 let r = n + gn
 let shown = print_int(r)
 ]],'const char* ffi_greeting(void){ return "hello-from-c"; }\n'..
-    'int main(void){ let_module_init(); return 0; }',{dictionary={c={members=c_members}}})
+    'int main(void){ let_module_init(); return 0; }',
+    {dictionary={c={members=c_members}},
+        resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
+            CAlloc=V.libc.resources.CAlloc}})
 eq(output,'from-libc\n17\n','§15.3 native libc: `c.strlen`, `c.puts` and `c.string` over a borrowed C string')
 
 -- §12.4 C memory is an owned pointer resource: `c.malloc` returns it and Let destroys it with
@@ -674,7 +677,24 @@ int ffi_released(void){ return tracked_released; }
 int main(void){ let_module_init(); return 0; }
 ]],{dictionary={c={members=tracked_members}},
     resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
-        Tracked={destroy='ffi_release',representation='pointer'}}})
+        Tracked={destroy='ffi_release',representation='pointer'},
+        CAlloc=V.libc.resources.CAlloc}})
 eq(output,'2','§12.4 a pointer resource is released once at its scope exit')
+
+-- §12.4 A source `extern` declares a foreign word with no options file at all: the C symbol,
+-- the stages with their capabilities, and the result, all in Let.
+output=native('extern',[[
+extern pure ffi_len (text : CString) : Int
+
+let length = ffi_len(c.string("hello"))
+let shown = print_int(length)
+]],[[
+#include <string.h>
+int64_t ffi_len(const char* text){ return (int64_t)strlen(text); }
+int main(void){ let_module_init(); return 0; }
+]],{dictionary={c={members=V.libc.members}},
+    resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
+        CAlloc=V.libc.resources.CAlloc}})
+eq(output,'5\n','§12.4 a source `extern` declares a foreign word without an options file')
 
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))

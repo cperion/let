@@ -1037,6 +1037,22 @@ them to be NUL-terminated, and the other measures a `CString` into a `Text` at i
 producing a **borrowed view**, so the C storage must outlive it.
 
 
+A program may declare a foreign word in source, with no embedding registration:
+
+~~~let
+extern pure strlen (text : CString) : Int
+~~~
+
+`extern` is followed by an optional `pure` (the default is `ordered`), the word's name, an
+optional quoted C symbol when it differs from the name, the ordered stages in parentheses with
+the usual capability and `:` constraint, and the result after `:` -- which defaults to Unit. The
+C prototype is derived from the Let types: `Int` is `int64_t`, `Float` `double`, `Bool` `bool`,
+`Unit` `void`, `CString` `const char*`, `CPointer` `void*`, and a resource its declared
+representation. Where a C type differs from that default -- a C `int` or `size_t`, say -- the
+embedding's descriptor states the exact spelling (§15.3): the declaration states meaning, and the
+embedding may refine the ABI. A source name is lexical like any binding; an embedding that wants
+a namespace, such as the command-line host's `c`, registers its words that way instead.
+
 `Text` and `CString` are never interchangeable: a `Text` has a known length and no terminator
 guarantee, while a `CString` is terminated, borrowed, and mutable. Every crossing is an explicit
 word, so no call silently assumes termination or ownership. The declared ownership,

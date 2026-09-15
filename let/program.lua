@@ -30,9 +30,12 @@ function Builder:layout(template)
         if A.Stage:isclassof(item) then
             items[index]={kind='stage',name=item.name,capability=item.capability,constraint=item.constraint,span=item.span,
                 definition=self.resolved.bindings[item],inferred=contract.stages[self.resolved.bindings[item]]}
-        else
+        elseif A.Prelude:isclassof(item) then
             local binding=item.binding
             items[index]={kind='prelude',name=binding.name,mutable=binding.mutable,span=binding.span,definition=self.resolved.bindings[binding]}
+        else
+            -- A foreign declaration produces no field; its name is a host in the vocabulary.
+            items[index]={kind='extern',name=item.name,span=item.span}
         end
     end
     local captures={}
@@ -305,7 +308,7 @@ function Builder:build_entry(template,fields,id)
     local names={}
     local index=1
     for _,capture in ipairs(layout.captures) do names[index]=capture.name; index=index+1 end
-    for _,item in ipairs(layout.items) do names[index]=item.name; index=index+1 end
+    for _,item in ipairs(layout.items) do if item.kind~='extern' then names[index]=item.name; index=index+1 end end
     -- The packet's capture fields are the environment a fixing return may name, so the
     -- result type is computed here, where their types are known, not at layout time.
     local capture_types={}
@@ -526,6 +529,8 @@ function Builder:build_module()
     local order,ids,fields=L(),L(),L()
     for index,item in ipairs(file.items) do
         if A.Stage:isclassof(item) then item:bind_parameter(ctx,index,self.options)
+        elseif A.Extern:isclassof(item) then
+            -- A foreign declaration is not a module binding: its name is a host in the vocabulary.
         else
             A.Local(item.binding,item.binding.span):build(ctx)
             local id=ctx:find(item.binding.name)
@@ -770,6 +775,10 @@ function Builder:build()
 end
 
 function A.Program:build(options)
+    options=options or {}
+    -- A source `extern` becomes an ordinary host descriptor, so it reaches resolution,
+    -- construction and emission as one vocabulary.
+    V.Extern.merge(self.file,options)
     local resolved=self:resolve(options)
     local builder=Builder.new(self,resolved,options)
     local program=builder:build()
