@@ -209,10 +209,12 @@ The budget is what keeps this honest. A loop of five iterations folds to nothing
 a million falls back and is emitted as a loop, which is correct and which the C compiler
 then reduces on its own.
 
-**Still open: unrolling a loop that has effects.** A decidable loop whose body demands
-ordered work cannot be executed, so it is emitted as a loop rather than unrolled. Unrolling
-it would need block *instances* in the emitter — the same block written once per iteration
-with its own packet values and labels.
+**Decided: a loop that has effects stays a loop.** A decidable loop whose body demands ordered
+work cannot be executed, so it is emitted as a loop rather than unrolled. That is deliberate: the
+belt is the residual program the source expressed, and duplicating side-effecting work is a
+size/space choice the C compiler makes with the whole function in view. Unrolling would need
+block *instances* in the emitter -- the same block written once per iteration with its own packet
+values and labels -- and no measured case asks for it.
 
 Nontermination: the compiler must always terminate. Fuel and widening exist for that, and a
 budget exhaustion is an **implementation limit**, not a proof about the program (§2, and
@@ -330,7 +332,7 @@ rewrites the receiver binding (only interior mutable state is written back, and 
 the receiver's own bundle), and joins ignore edges from unreachable predecessors rather
 than only falsified ones.
 
-**B — partial bundles, summaries and loop unrolling.**
+**B — partial bundles and summaries.**
 Loop widening and enumeration from §8 are done, and so is the partial answer.
 
 `Known.partial` is a record with a known shape and a known value in *some* members. It is
@@ -490,15 +492,11 @@ The remaining items stop being separate features:
   in that instance and drops out of its signature by the rule that already exists.
 - **SCC fixed points for mutual recursion**: an instance whose key is in progress is simply
   not foldable, which is what the single-function case already does.
-- **Block instances**, so a loop carrying effects can be unrolled: an instance per
-  `(block, packet)` -- the same pair `enumerate` already walks one at a time.
 
 What remains for B is otherwise unchanged:
 
 - specialized ABIs per argument-knownness pattern, with the seeded analysis that implies;
 - SCC fixed points for mutually recursive summaries;
-- block instances so a loop that carries effects can be unrolled rather than left as a
-  loop.
 
 **C — scheduling and sharing. — implemented.**
 A pure producer with several consumers is materialized once and read by name; ordered results

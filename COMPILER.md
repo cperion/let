@@ -214,14 +214,11 @@ One specified behaviour is not provided:
   the body restores the entry's facts). The rest of §9.2 is implemented, including a bare
   `move place` statement.
 
-Two optimizations are knowingly absent; the compiler is correct without them:
+One optimization is knowingly absent; the compiler is correct without it:
 
 - **Mutual-recursion summaries.** Mutual recursion itself needs declarations, which §18 defers,
   so there is no call-graph cycle for the evaluator to reach a fixed point over. Direct
   recursion is summarized, and a withdrawn cycle is emitted normally.
-- **Block instances.** A decidable loop that carries ordered work is emitted as a loop rather
-  than unrolled, because unrolling would need one emitted block instance per iteration. This
-  changes the emitted C, not its behaviour.
 
 Demand-driven folding, pruning and specialized ABIs are implemented; [DEMAND.md](DEMAND.md)
 describes them and ARCHITECTURE.md's C-output section states what they deliver. The runtime
@@ -242,6 +239,12 @@ These are not gaps. The specification fixes no behaviour to implement, or defers
 - Mutual recursion beyond what direct recursion needs: §18 defers the declarations. The
   evaluator's missing piece is an optimization (a fixed point over a strongly connected
   component), not a behaviour.
+- Unrolling a decidable loop that carries ordered work. The loop is emitted as a loop: the belt is
+  the residual program the source expressed, and duplicating side-effecting work is a size/space
+  choice the C compiler makes with the whole function in view. No measured case asks for it --
+  the benchmark's effect loops (`sum_loop`, `resource_loop`, `resource_tail`) are at parity with
+  the handwritten reference -- so block instances are deliberately not built. If a workload ever
+  does ask, the bounded form is a decidable prefix peeled and the rest left as a loop.
 - Shape constraints written with arguments, pattern matching, exceptions,
   coroutines, a stable foreign-function ABI, operator overloading and a built-in cyclic
   collector: all deferred by §18.

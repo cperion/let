@@ -296,7 +296,8 @@ not assumed away by a global mutable-state cache.
    argument-determined (`Executable`) stages work. General recursive and mutual contracts remain.
 5. **Done for the covered shapes.** The binding-time evaluator (`let/known.lua`) answers
    producers, demand folds and prunes, and `let/emit.lua` prints C with a direct `TailCall`
-   becoming a `goto`. Remaining: mutual-recursion summaries and block instances for
+   becoming a `goto`. Remaining: mutual-recursion summaries. An effect-carrying loop is emitted
+   as a loop by decision, not as a gap -- see COMPILER.md, "Deliberately outside".
    effect-carrying loops, as COMPILER.md records.
 
 Each step may be unfinished while under construction. It must not introduce a competing
