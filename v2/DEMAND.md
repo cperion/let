@@ -383,9 +383,25 @@ position disappear, which is correct per the host's `pure` declaration but chang
 `demands()` is for. Revisiting that rule is the prerequisite, and it is a smaller question
 than this one was.
 
+Specialized ABIs are started from the same place. An entry packet is the function's ABI, but
+a stage the body never *reads* is not part of it: the signature drops that parameter and every
+call passes one argument fewer. The scan is local to block 1 -- anything read elsewhere is
+copied there by an edge, and that copy is itself a reference -- and it is recomputed from the
+belt rather than read from the demand pass, because a callee and its call sites must reach the
+same answer. An argument that is dropped is still *evaluated* when its own value is ordered;
+only the passing stops.
+
+Asking the demand pass instead was tried first and abandoned: it reports the module unload's
+state parameter as unneeded although a `Destroy` consumes it, and two measurements of the
+same table disagreed, so it is not yet a sound basis for an ABI. Dropping parameters whose
+value is *known* at the call site is the rest of the feature and needs the other half of the
+plan: a callee specialized -- and analysed -- per argument-knownness pattern, since the
+emitted body's substitution of a parameter by a constant requires the seeded analysis, not
+just a filter over the signature.
+
 What remains for B is otherwise unchanged:
 
-- specialized ABIs that drop known fields from the parameter list;
+- specialized ABIs per argument-knownness pattern, with the seeded analysis that implies;
 - SCC fixed points for mutually recursive summaries;
 - block instances so a loop that carries effects can be unrolled rather than left as a
   loop.

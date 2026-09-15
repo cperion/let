@@ -252,5 +252,22 @@ check(module:find('let_noisy_',1,true)~=nil,'a kept call is evaluated as a state
 check(module:find('= let_noisy_',1,true)==nil,'and is never declared as a value')
 check(noisy:find('emit(INT64_C(6))',1,true)~=nil,'its known member is inlined at the ordered call')
 
+-- Specialized ABIs ------------------------------------------------------------------
+
+-- A stage the body never reads is not part of the ABI: the signature drops it and every call
+-- passes one argument fewer. The scan is local to the first block, because anything read
+-- elsewhere is copied there by an edge, which is itself a reference.
+local specialized=emitted[[
+let noisy = let used : Int let unused : Int do
+    emit(used);
+    return used
+end
+let r = noisy(7, ordered_int(3))
+]]
+local prototype=specialized:match('static int64_t (let_noisy_%d+%([^%)]*%))')
+check(prototype~=nil,'the callee is emitted')
+check(prototype:find('p1_2',1,true)==nil,'the unread stage is not a parameter')
+check(specialized:find('ordered_int(INT64_C(3))',1,true)~=nil,'the dropped argument is still evaluated')
+
 
 print(('passed %d v2 demand and folding emission checks'):format(checks))

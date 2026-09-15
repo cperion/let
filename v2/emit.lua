@@ -283,7 +283,7 @@ function Emitter:instruction(block,block_id,index,instruction)
         local callee=self.functions[operation.target]
         -- The callee's effect parameter is not part of its C signature.
         local call=C.Call(C.Name(self:function_name(operation.target)),
-            self:arglist(block,block_id,position,operation.arguments))
+            self:call_arguments(operation.target,block,block_id,position,operation.arguments))
         local type_,count=self:return_shape(callee.signature.results)
         -- A call the evaluator answered but kept still happens, even when every result it
         -- returns is a constant: the answer replaces the *uses*, not the call. Only the
@@ -329,14 +329,61 @@ function Emitter:instruction(block,block_id,index,instruction)
     return statement_list(out)
 end
 
--- The entry packet is the function's ABI, so block 1 is never pruned. Other packets
--- drop fields whose output no consumer demands, together with their edge copies.
+-- Which entry parameters the first block actually reads. A local scan: anything used in
+-- another block is copied there by an edge, and that copy is itself a reference, so a
+-- parameter block 1 never reads is one nothing reads. It is recomputed from the belt rather
+-- than taken from the demand pass, because a callee and its call sites must reach the same
+-- answer and a shared table can drift between them.
+local entry_read={}
+local function entry_parameters_read(belt)
+    local cached=entry_read[belt]
+    if cached then return cached end
+    local block=belt.blocks[1]
+    local used={}
+    local function note(position,ref)
+        local producer=block:resolve(position,ref)
+        if producer<#block.parameters then used[producer]=true end
+    end
+    for index,instruction in ipairs(block.instructions) do
+        local at=#block.parameters+index-1
+        for _,ref in ipairs(instruction.operation:inputs()) do note(at,ref) end
+    end
+    local at=#block.parameters+#block.instructions
+    for _,ref in ipairs(block.exit:inputs()) do note(at,ref) end
+    entry_read[belt]=used
+    return used
+end
+
+-- An entry packet is the function's ABI, but only the fields the body reads belong in it: a
+-- parameter nothing reads is dropped from the signature and from every call, and one whose
+-- value is already known is dropped too, because each of its uses becomes a constant. Other
+-- packets drop fields whose output no consumer demands, together with their edge copies.
 function Emitter:needed_parameter(block_id,index)
     if self.current.blocks[block_id].parameters[index].type==B.Effect then return false end
-    if block_id==1 then return true end
     if Known.is_known(self:parameter_answer(block_id,index)) then return false end
+    if block_id==1 then return entry_parameters_read(self.current)[index-1]==true end
     local block=self.needed[block_id]
     return (block and block[index-1] and block[index-1][0]) and true or false
+end
+
+-- The same question asked of a callee, so a call passes exactly what that callee's signature
+-- declares.
+function Emitter:needed_parameter_of(target,index)
+    local belt=self.functions[target]
+    if belt.blocks[1].parameters[index].type==B.Effect then return false end
+    local analysis=self.analysis[target]
+    if Known.is_known(analysis and analysis:param(1,index)) then return false end
+    return entry_parameters_read(belt)[index-1]==true
+end
+
+-- The arguments a call passes: belt argument i lands on entry parameter i+1, the effect being
+-- carried separately.
+function Emitter:call_arguments(target,block,block_id,position,refs)
+    local out=L()
+    for i,ref in ipairs(refs) do
+        if self:needed_parameter_of(target,i+1) then out:insert(self:ref(block,block_id,position,ref)) end
+    end
+    return out
 end
 
 -- Edge packets are parallel assignments, so a temporary breaks any clobber cycle.
@@ -396,7 +443,8 @@ function Emitter:exit(target_id,block,block_id,exit)
             statements:insert(C.Goto('b1'))
             return C.Block(statements)
         end
-        return C.Return(C.Call(C.Name(self:function_name(exit.target)),arguments))
+        return C.Return(C.Call(C.Name(self:function_name(exit.target)),
+            self:call_arguments(exit.target,block,block_id,position,exit.arguments)))
     elseif B.Trap:isclassof(exit) then
         self.trap=true
         local statements=L()
@@ -451,11 +499,17 @@ end
 
 -- The C parameter list mirrors the entry block's packet, so prototypes and
 -- definitions agree on every argument type.
-function Emitter:function_parameters(belt)
+-- A folded function is emitted before `self.current` is set, so the belt to scan is passed
+-- in rather than read from the emitter's state.
+function Emitter:function_parameters_for(id,belt)
     local parameters=L()
     for i,parameter in ipairs(belt.blocks[1].parameters) do
         if parameter.type~=B.Effect then
-            parameters:insert(C.Parameter(self:ctype(parameter.type),self:param(1,i-1)))
+            local analysis=self.analysis[id]
+            local known=Known.is_known(analysis and analysis:param(1,i))
+            if known or entry_parameters_read(belt)[i-1] then
+                parameters:insert(C.Parameter(self:ctype(parameter.type),self:param(1,i-1)))
+            end
         end
     end
     return parameters
@@ -472,7 +526,8 @@ function Emitter:emit_function(id,belt)
             if result~=B.Effect then values:insert(self:constant(analysis.results[i])) end
         end
         local external=id==1
-        return C.Function(self:function_name(id),external,external,type_,self:function_parameters(belt),
+        return C.Function(self:function_name(id),external,external,type_,
+            self:function_parameters_for(id,belt),
             C.Block(L{C.Return(self:return_value(type_,values))}))
     end
     self.current=belt
@@ -484,7 +539,7 @@ function Emitter:emit_function(id,belt)
     -- Ordered operations always carry a demanded effect output and are therefore kept.
     self.needed=belt:demands()
     local result=self:return_shape(belt.signature.results)
-    local parameters=self:function_parameters(belt)
+    local parameters=self:function_parameters_for(id,belt)
     local body=L()
     -- Non-entry block parameters are assigned only by edges, so they are declared once.
     -- The entry block's packet is the function's ABI and is never pruned.
@@ -584,7 +639,8 @@ function Emitter:program(program,options)
     declarations:insertall(host_declarations)
     for id,belt in ipairs(program.functions) do
         if self.live_functions[id] then
-            declarations:insert(C.Function(self:function_name(id),id==1,id==1,self:return_shape(belt.signature.results),self:function_parameters(belt),nil))
+            declarations:insert(C.Function(self:function_name(id),id==1,id==1,
+                self:return_shape(belt.signature.results),self:function_parameters_for(id,belt),nil))
         end
     end
     declarations:insertall(functions)

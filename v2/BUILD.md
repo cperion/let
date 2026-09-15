@@ -146,9 +146,11 @@ construction diagnostic rather than a language limitation.
   is answered with that member, and a join keeps the members every path agrees on. Summaries
   are shared too, with `answered` and `foldable` as separate questions: a precise summary
   that cannot fold leaves the call in place, replaces only its uses, and is evaluated as a
-  statement. Still missing: specialized ABIs, mutual-recursion summaries, block instances for
-  effect-carrying loops, and shared-result materialization (milestones B and C). No residual
-  AST or old evaluator is introduced.
+  statement. A stage an emitted body never reads is dropped from the ABI, so the signature and
+  every call site carry only what the body uses. Still missing: ABIs specialized per
+  argument-knownness pattern, mutual-recursion summaries, block instances for effect-carrying
+  loops, and shared-result materialization (milestones B and C). No residual AST or old
+  evaluator is introduced.
 - Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
   paths, an optional extension, configured roots), but §15.2 leaves the lookup to the
   embedding, so a host with its own layout passes its own resolver. This is not missing
