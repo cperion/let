@@ -5,6 +5,7 @@ return function(V)
     local function append(out,refs) for _,ref in ipairs(refs) do out:insert(ref) end end
     function B.Op:inputs() return L() end
     function B.Unary:inputs() return L{self.operand} end
+    function B.TextOf:inputs() return L{self.pointer,self.size} end
     function B.Binary:inputs() return L{self.left,self.right} end
     function B.CheckedBinary:inputs() return L{self.effect,self.left,self.right} end
     function B.BorrowPlace:inputs() return L{self.address} end

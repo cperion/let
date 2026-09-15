@@ -43,12 +43,20 @@ function B.Unary:verify(ctx)
     elseif self.operator==A.TextSize then ctx:expect(self.operand,B.Text); ctx:results(L{B.Int})
     elseif self.operator==A.IsNull then
         local pointer=ctx:type(self.operand)
-        assert(pointer==B.CString or pointer==B.CPointer,'null test requires a pointer')
+        -- A named resource may be a pointer resource; the verifier sees no representation.
+        assert(pointer==B.CString or pointer==B.CPointer or B.Named:isclassof(pointer),'null test requires a pointer')
         ctx:results(L{B.Bool})
     else
         assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
         ctx:results(L{type_})
     end
+end
+-- A Text view over a borrowed pointer and a length: the pointer may be `CString` or `CPointer`.
+function B.TextOf:verify(ctx)
+    local pointer=ctx:type(self.pointer)
+    assert(pointer==B.CString or pointer==B.CPointer or B.Named:isclassof(pointer),'a Text view needs a pointer')
+    ctx:expect(self.size,B.Int)
+    ctx:results(L{B.Text})
 end
 function A.BinaryOp:verify(ctx,left,right)
     local type_=ctx:type(left)

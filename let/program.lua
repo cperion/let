@@ -253,7 +253,7 @@ end
 
 function Builder:specialize(ctx,expression)
     local value=expression.word:build(ctx)
-    if value.conversion then return ctx:convert(value.conversion,expression.argument,expression.span) end
+    if value.conversion then return ctx:convert(value.conversion,{expression.argument},expression.span) end
     -- `import` is a construction entry: the named file's chain is constructed here, and the
     -- arguments that follow specialize it like any other word.
     if value.construction=='import' then
@@ -369,8 +369,7 @@ function Builder:invoke(ctx,expression,tail)
     local callee=expression.word:build(ctx)
     self.construction_destination=previous
     if callee.conversion then
-        if #expression.arguments~=1 then fail(expression.span,'a conversion takes exactly one argument') end
-        local result=ctx:convert(callee.conversion,expression.arguments[1],expression.span)
+        local result=ctx:convert(callee.conversion,expression.arguments,expression.span)
         if tail then ctx:finish(result,expression.span); return nil end
         return result
     end

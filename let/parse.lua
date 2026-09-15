@@ -82,7 +82,9 @@ end
 function Parser:extern_item()
     local span=self:expect('extern').span
     local pure=self:accept('pure')~=nil
+    -- A dotted name adds a member to a namespace, so `extern c.puts ...` needs no embedding.
     local name=self:expect('name').spelling
+    while self:accept('.') do name=name .. '.' .. self:expect('name').spelling end
     local symbol=self:is('text') and self:take().value or nil
     self:expect('(')
     local parameters=L()

@@ -49,6 +49,17 @@ function Extern.merge(file,options)
         end
         return type_,spelling
     end
+    -- A dotted name adds a member to a namespace, so `extern c.puts ...` needs no embedding; a
+    -- plain name is a top-level host.
+    local dictionary=options.dictionary or {}
+    local function place(name,descriptor)
+        local namespace,member=name:match('^(.*)%.([^%.]+)$')
+        if not namespace then hosts[name]=descriptor; return end
+        local entry=dictionary[namespace] or {members={}}
+        entry.members[member]=descriptor
+        dictionary[namespace]=entry
+        options.dictionary=dictionary
+    end
     for _,item in ipairs(file.items) do
         if A.Extern:isclassof(item) then
             local parameters,cparams=L(),{}
@@ -64,10 +75,10 @@ function Extern.merge(file,options)
             end
             local result,spelling=declared(item.result,item.span,'unknown foreign type')
             result=result or B.Unit
-            hosts[item.name]={symbol=item.symbol or item.name,phase='runtime',
+            place(item.name,{symbol=item.symbol or item.name:match('[^%.]+$'),phase='runtime',
                 purity=item.pure and 'pure' or 'ordered',
                 signature=B.Signature(parameters,L{result}),
-                c={params=cparams,result=spelling or natural(result,representations) or 'void'}}
+                c={params=cparams,result=spelling or natural(result,representations) or 'void'}})
         end
     end
     options.hosts=hosts

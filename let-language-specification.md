@@ -1038,7 +1038,9 @@ producing a **borrowed view**, so the C storage must outlive it.
 
 A `Text` also states its byte length, so a C call that takes a pointer and a count needs no
 terminator, and a borrowed pointer may be tested for null. Neither is a conversion between types:
-one reads a length the `Text` already has, the other compares a pointer to the null pointer.
+one reads a length the `Text` already has, the other compares a pointer to the null pointer. A
+Text view may also be built over a borrowed pointer and a length, so a buffer the C side filled
+becomes a Text without a terminator; that conversion takes two arguments.
 
 
 A program may declare a foreign word in source, with no embedding registration:
@@ -1058,7 +1060,9 @@ spelling is checked against the Let type and the value is converted once at the 
 embedding that registers a word itself states the same fact in its descriptor (§15.3). A source
 name is lexical like any binding; an embedding that wants a namespace, such as the
 command-line host's `c`, registers its words that way instead.
-a namespace, such as the command-line host's `c`, registers its words that way instead.
+a namespace, such as the command-line host's `c`, registers its words that way instead. A dotted
+declaration name adds a member to a namespace, so `extern c.puts ...` extends `c` without a
+top-level name.
 
 `Text` and `CString` are never interchangeable: a `Text` has a known length and no terminator
 guarantee, while a `CString` is terminated, borrowed, and mutable. Every crossing is an explicit

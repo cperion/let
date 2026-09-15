@@ -939,6 +939,7 @@ module Belt {
     Ref = (number distance, number output)
     Instruction = (Op operation, Type* results, Source.Span? span)
     Op = IntegerLiteral(string spelling) | FloatLiteral(string spelling) | BooleanLiteral(boolean value) | UnitLiteral | TextLiteral(string value)
+       | TextOf(Ref pointer, Ref size)
        | Unary(AST.UnaryOp operator, Ref operand)
        | Binary(AST.BinaryOp operator, Ref left, Ref right)
        | CheckedBinary(AST.BinaryOp operator, Ref effect, Ref left, Ref right)
@@ -1813,12 +1814,14 @@ function Vocabulary.new(options)
             if member.signature then add_host(name,member) end
         end
     end
-    return setmetatable({types=types,destroy=destroy,hosts=hosts,symbols=symbols},Vocabulary)
+    return setmetatable({types=types,destroy=destroy,representations=representations,
+        hosts=hosts,symbols=symbols},Vocabulary)
 end
 
 function Vocabulary:type(name) return self.types[name] end
 function Vocabulary:host(name) return self.hosts[name] end
 function Vocabulary:destructor(name) return self.destroy[name] end
+function Vocabulary:representation(name) return self.representations[name] end
 
 return Vocabulary
 end
@@ -1868,6 +1871,8 @@ return {
         -- The byte length of a Text, and a null test for a borrowed pointer.
         byte_length={phase='runtime',conversion='byte_length'},
         null={phase='runtime',conversion='null'},
+        -- A Text view over a borrowed pointer and a length, so a read buffer becomes a Text.
+        text_of={phase='runtime',conversion='text_of'},
 
         puts=ordered('puts',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
         putchar=ordered('putchar',B.Signature(L{int},L{B.Int}),{c={params={'int'},result='int'}}),
@@ -1952,6 +1957,17 @@ function Extern.merge(file,options)
         end
         return type_,spelling
     end
+    -- A dotted name adds a member to a namespace, so `extern c.puts ...` needs no embedding; a
+    -- plain name is a top-level host.
+    local dictionary=options.dictionary or {}
+    local function place(name,descriptor)
+        local namespace,member=name:match('^(.*)%.([^%.]+)$')
+        if not namespace then hosts[name]=descriptor; return end
+        local entry=dictionary[namespace] or {members={}}
+        entry.members[member]=descriptor
+        dictionary[namespace]=entry
+        options.dictionary=dictionary
+    end
     for _,item in ipairs(file.items) do
         if A.Extern:isclassof(item) then
             local parameters,cparams=L(),{}
@@ -1967,10 +1983,10 @@ function Extern.merge(file,options)
             end
             local result,spelling=declared(item.result,item.span,'unknown foreign type')
             result=result or B.Unit
-            hosts[item.name]={symbol=item.symbol or item.name,phase='runtime',
+            place(item.name,{symbol=item.symbol or item.name:match('[^%.]+$'),phase='runtime',
                 purity=item.pure and 'pure' or 'ordered',
                 signature=B.Signature(parameters,L{result}),
-                c={params=cparams,result=spelling or natural(result,representations) or 'void'}}
+                c={params=cparams,result=spelling or natural(result,representations) or 'void'}})
         end
     end
     options.hosts=hosts
@@ -1991,6 +2007,7 @@ return function(V)
     local function append(out,refs) for _,ref in ipairs(refs) do out:insert(ref) end end
     function B.Op:inputs() return L() end
     function B.Unary:inputs() return L{self.operand} end
+    function B.TextOf:inputs() return L{self.pointer,self.size} end
     function B.Binary:inputs() return L{self.left,self.right} end
     function B.CheckedBinary:inputs() return L{self.effect,self.left,self.right} end
     function B.BorrowPlace:inputs() return L{self.address} end
@@ -3253,28 +3270,51 @@ end
 -- ownership to move. The same definition serves an invocation and a juxtaposition, so they
 -- cannot lower differently.
 local conversions={
-    float={from={B.Int},to=B.Float,operator=A.ToFloat},
-    int={from={B.Float},to=B.Int,operator=A.ToInt},
-    cstring={from={B.Text},to=B.CString,operator=A.ToCString},
-    ctext={from={B.CString},to=B.Text,operator=A.ToText},
-    byte_length={from={B.Text},to=B.Int,operator=A.TextSize},
-    null={from={B.CString,B.CPointer},to=B.Bool,operator=A.IsNull},
+    float={arity=1,from={B.Int},to=B.Float,operator=A.ToFloat},
+    int={arity=1,from={B.Float},to=B.Int,operator=A.ToInt},
+    cstring={arity=1,from={B.Text},to=B.CString,operator=A.ToCString},
+    ctext={arity=1,from={B.CString},to=B.Text,operator=A.ToText},
+    byte_length={arity=1,from={B.Text},to=B.Int,operator=A.TextSize},
+    null={arity=1,from='pointer',to=B.Bool,operator=A.IsNull},
+    -- A Text view over a pointer and a length; the only conversion that takes two arguments.
+    text_of={arity=2,from='pointer',from2={B.Int},to=B.Text},
 }
-function Context:convert(kind,argument,span)
+function Context:convert(kind,arguments,span)
     local conversion=conversions[kind]
-    local value=argument:build(self)
-    local accepted=false
-    for _,type_ in ipairs(conversion.from) do if value.type:same(type_) then accepted=true end end
-    if not accepted then fail(span,'a ' .. kind .. ' conversion is not defined for ' .. tostring(value.type)) end
-    local result=self:emit(B.Unary(conversion.operator,self:ref(value)),L{conversion.to},span)
+    if #arguments~=conversion.arity then
+        fail(span,('a %s conversion takes %d argument%s'):format(kind,conversion.arity,conversion.arity==1 and '' or 's'))
+    end
+    -- A borrowed pointer is one of the pointer types or a resource that declares a pointer
+    -- representation; the marker `'pointer'` says so without listing resource names.
+    local function is_pointer(type_)
+        if type_==B.CString or type_==B.CPointer then return true end
+        return B.Named:isclassof(type_) and self.fn.vocabulary:representation(type_.name)=='pointer'
+    end
+    local function build(index,accepted)
+        local value=arguments[index]:build(self)
+        local ok=accepted=='pointer' and is_pointer(value.type)
+        if accepted~='pointer' then
+            for _,type_ in ipairs(accepted) do if value.type:same(type_) then ok=true end end
+        end
+        if not ok then fail(span,'a ' .. kind .. ' conversion is not defined for ' .. tostring(value.type)) end
+        return value
+    end
+    local operation
+    if conversion.arity==1 then
+        operation=B.Unary(conversion.operator,self:ref(build(1,conversion.from)))
+    else
+        local pointer=build(1,conversion.from)
+        local size=build(2,conversion.from2)
+        operation=B.TextOf(self:ref(pointer),self:ref(size))
+    end
+    local result=self:emit(operation,L{conversion.to},span)
     result.mode='copy'
     return result
 end
 function Context:call(expression,tail)
     local callee=expression.word:build(self)
     if callee.conversion then
-        if #expression.arguments~=1 then fail(expression.span,'a conversion takes exactly one argument') end
-        return self:convert(callee.conversion,expression.arguments[1],expression.span)
+        return self:convert(callee.conversion,expression.arguments,expression.span)
     end
     if not callee.host then
         if callee.type and not B.Callable:isclassof(callee.type) then fail(expression.span,'invocation requires a runtime word') end
@@ -3413,12 +3453,20 @@ function B.Unary:verify(ctx)
     elseif self.operator==A.TextSize then ctx:expect(self.operand,B.Text); ctx:results(L{B.Int})
     elseif self.operator==A.IsNull then
         local pointer=ctx:type(self.operand)
-        assert(pointer==B.CString or pointer==B.CPointer,'null test requires a pointer')
+        -- A named resource may be a pointer resource; the verifier sees no representation.
+        assert(pointer==B.CString or pointer==B.CPointer or B.Named:isclassof(pointer),'null test requires a pointer')
         ctx:results(L{B.Bool})
     else
         assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
         ctx:results(L{type_})
     end
+end
+-- A Text view over a borrowed pointer and a length: the pointer may be `CString` or `CPointer`.
+function B.TextOf:verify(ctx)
+    local pointer=ctx:type(self.pointer)
+    assert(pointer==B.CString or pointer==B.CPointer or B.Named:isclassof(pointer),'a Text view needs a pointer')
+    ctx:expect(self.size,B.Int)
+    ctx:results(L{B.Text})
 end
 function A.BinaryOp:verify(ctx,left,right)
     local type_=ctx:type(left)
@@ -3867,7 +3915,9 @@ end
 function Parser:extern_item()
     local span=self:expect('extern').span
     local pure=self:accept('pure')~=nil
+    -- A dotted name adds a member to a namespace, so `extern c.puts ...` needs no embedding.
     local name=self:expect('name').spelling
+    while self:accept('.') do name=name .. '.' .. self:expect('name').spelling end
     local symbol=self:is('text') and self:take().value or nil
     self:expect('(')
     local parameters=L()
@@ -4708,7 +4758,7 @@ end
 
 function Builder:specialize(ctx,expression)
     local value=expression.word:build(ctx)
-    if value.conversion then return ctx:convert(value.conversion,expression.argument,expression.span) end
+    if value.conversion then return ctx:convert(value.conversion,{expression.argument},expression.span) end
     -- `import` is a construction entry: the named file's chain is constructed here, and the
     -- arguments that follow specialize it like any other word.
     if value.construction=='import' then
@@ -4824,8 +4874,7 @@ function Builder:invoke(ctx,expression,tail)
     local callee=expression.word:build(ctx)
     self.construction_destination=previous
     if callee.conversion then
-        if #expression.arguments~=1 then fail(expression.span,'a conversion takes exactly one argument') end
-        local result=ctx:convert(callee.conversion,expression.arguments[1],expression.span)
+        local result=ctx:convert(callee.conversion,expression.arguments,expression.span)
         if tail then ctx:finish(result,expression.span); return nil end
         return result
     end
@@ -5629,6 +5678,9 @@ function Evaluator:instruction(block,block_id,index,instruction)
         put(1,Known.runtime(B.Effect))
     elseif B.FieldAddress:isclassof(operation) then
         put(0,Known.runtime(instruction.results[1]))
+    elseif B.TextOf:isclassof(operation) then
+        -- A view over a pointer is a Text, but a pointer is not a known value.
+        put(0,Known.runtime(B.Text))
     elseif B.BorrowPlace:isclassof(operation) then
         put(0,Known.runtime(instruction.results[1]))
     elseif B.Construct:isclassof(operation) then
@@ -6352,6 +6404,13 @@ function Emitter:instruction(block,block_id,index,instruction)
         -- A field's address: the same storage, reached one level in.
         local place=self:ref(block,block_id,position,operation.place)
         declare(0,instruction.results[1],C.Unary('&',C.Field(C.Unary('*',place),'f' .. operation.field)))
+    elseif B.TextOf:isclassof(operation) then
+        -- A Text view over a borrowed pointer and a length, built like a literal's struct.
+        self.text=true
+        local pointer=self:ref(block,block_id,position,operation.pointer)
+        local size=self:ref(block,block_id,position,operation.size)
+        declare(0,B.Text,C.Compound(self:ctype(B.Text),
+            L{C.Cast(C.Pointer(C.Named('char')),pointer),C.Cast(C.U64,size)}))
     elseif B.BorrowPlace:isclassof(operation) then
         -- A borrow is the same storage, so nothing is emitted for the operation itself; only
         -- the type changed, and that is a frontend matter.

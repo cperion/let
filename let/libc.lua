@@ -39,6 +39,8 @@ return {
         -- The byte length of a Text, and a null test for a borrowed pointer.
         byte_length={phase='runtime',conversion='byte_length'},
         null={phase='runtime',conversion='null'},
+        -- A Text view over a borrowed pointer and a length, so a read buffer becomes a Text.
+        text_of={phase='runtime',conversion='text_of'},
 
         puts=ordered('puts',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
         putchar=ordered('putchar',B.Signature(L{int},L{B.Int}),{c={params={'int'},result='int'}}),

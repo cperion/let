@@ -726,4 +726,34 @@ let shown = show()
             CAlloc=V.libc.resources.CAlloc}})
 eq(output,'hi\n1','§12.4 `c.byte_length`, `c.write` and `c.null` over a borrowed view')
 
+-- §12.4 `c.text_of` builds a Text view over a pointer and a length, so a buffer C filled can
+-- be read as a Text without a terminator.
+output=native('ctextof',[[
+let buffer = c.malloc(4)
+let copied = c.memcpy(buffer, c.string("abc"), 4)
+let text = c.text_of(buffer, 3)
+let wrote = c.write(1, c.string(text), c.byte_length(text))
+let same = c.strcmp(c.string(text), c.string("abc"))
+let shown = c.putchar(48 + same)
+]],'int main(void){ let_module_init(); return 0; }',
+    {dictionary={c={members=V.libc.members}},
+        resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
+            CAlloc=V.libc.resources.CAlloc}})
+eq(output,'abc0','§12.4 `c.text_of` builds a Text view over a pointer and a length')
+
+-- §12.4 A namespaced `extern` adds a member to a namespace instead of a top-level name.
+output=native('nsextern',[[
+extern c.ffi_len (text : CString) : Int "size_t"
+
+let n = c.ffi_len(c.string("hello"))
+let shown = print_int(n)
+]],[[
+#include <string.h>
+size_t ffi_len(const char* text){ return strlen(text); }
+int main(void){ let_module_init(); return 0; }
+]],{dictionary={c={members=V.libc.members}},
+    resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
+        CAlloc=V.libc.resources.CAlloc}})
+eq(output,'5\n','§12.4 a namespaced `extern` adds a member to the `c` namespace')
+
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))

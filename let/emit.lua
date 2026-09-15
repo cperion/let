@@ -274,6 +274,13 @@ function Emitter:instruction(block,block_id,index,instruction)
         -- A field's address: the same storage, reached one level in.
         local place=self:ref(block,block_id,position,operation.place)
         declare(0,instruction.results[1],C.Unary('&',C.Field(C.Unary('*',place),'f' .. operation.field)))
+    elseif B.TextOf:isclassof(operation) then
+        -- A Text view over a borrowed pointer and a length, built like a literal's struct.
+        self.text=true
+        local pointer=self:ref(block,block_id,position,operation.pointer)
+        local size=self:ref(block,block_id,position,operation.size)
+        declare(0,B.Text,C.Compound(self:ctype(B.Text),
+            L{C.Cast(C.Pointer(C.Named('char')),pointer),C.Cast(C.U64,size)}))
     elseif B.BorrowPlace:isclassof(operation) then
         -- A borrow is the same storage, so nothing is emitted for the operation itself; only
         -- the type changed, and that is a frontend matter.

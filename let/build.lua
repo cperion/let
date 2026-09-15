@@ -1182,28 +1182,51 @@ end
 -- ownership to move. The same definition serves an invocation and a juxtaposition, so they
 -- cannot lower differently.
 local conversions={
-    float={from={B.Int},to=B.Float,operator=A.ToFloat},
-    int={from={B.Float},to=B.Int,operator=A.ToInt},
-    cstring={from={B.Text},to=B.CString,operator=A.ToCString},
-    ctext={from={B.CString},to=B.Text,operator=A.ToText},
-    byte_length={from={B.Text},to=B.Int,operator=A.TextSize},
-    null={from={B.CString,B.CPointer},to=B.Bool,operator=A.IsNull},
+    float={arity=1,from={B.Int},to=B.Float,operator=A.ToFloat},
+    int={arity=1,from={B.Float},to=B.Int,operator=A.ToInt},
+    cstring={arity=1,from={B.Text},to=B.CString,operator=A.ToCString},
+    ctext={arity=1,from={B.CString},to=B.Text,operator=A.ToText},
+    byte_length={arity=1,from={B.Text},to=B.Int,operator=A.TextSize},
+    null={arity=1,from='pointer',to=B.Bool,operator=A.IsNull},
+    -- A Text view over a pointer and a length; the only conversion that takes two arguments.
+    text_of={arity=2,from='pointer',from2={B.Int},to=B.Text},
 }
-function Context:convert(kind,argument,span)
+function Context:convert(kind,arguments,span)
     local conversion=conversions[kind]
-    local value=argument:build(self)
-    local accepted=false
-    for _,type_ in ipairs(conversion.from) do if value.type:same(type_) then accepted=true end end
-    if not accepted then fail(span,'a ' .. kind .. ' conversion is not defined for ' .. tostring(value.type)) end
-    local result=self:emit(B.Unary(conversion.operator,self:ref(value)),L{conversion.to},span)
+    if #arguments~=conversion.arity then
+        fail(span,('a %s conversion takes %d argument%s'):format(kind,conversion.arity,conversion.arity==1 and '' or 's'))
+    end
+    -- A borrowed pointer is one of the pointer types or a resource that declares a pointer
+    -- representation; the marker `'pointer'` says so without listing resource names.
+    local function is_pointer(type_)
+        if type_==B.CString or type_==B.CPointer then return true end
+        return B.Named:isclassof(type_) and self.fn.vocabulary:representation(type_.name)=='pointer'
+    end
+    local function build(index,accepted)
+        local value=arguments[index]:build(self)
+        local ok=accepted=='pointer' and is_pointer(value.type)
+        if accepted~='pointer' then
+            for _,type_ in ipairs(accepted) do if value.type:same(type_) then ok=true end end
+        end
+        if not ok then fail(span,'a ' .. kind .. ' conversion is not defined for ' .. tostring(value.type)) end
+        return value
+    end
+    local operation
+    if conversion.arity==1 then
+        operation=B.Unary(conversion.operator,self:ref(build(1,conversion.from)))
+    else
+        local pointer=build(1,conversion.from)
+        local size=build(2,conversion.from2)
+        operation=B.TextOf(self:ref(pointer),self:ref(size))
+    end
+    local result=self:emit(operation,L{conversion.to},span)
     result.mode='copy'
     return result
 end
 function Context:call(expression,tail)
     local callee=expression.word:build(self)
     if callee.conversion then
-        if #expression.arguments~=1 then fail(expression.span,'a conversion takes exactly one argument') end
-        return self:convert(callee.conversion,expression.arguments[1],expression.span)
+        return self:convert(callee.conversion,expression.arguments,expression.span)
     end
     if not callee.host then
         if callee.type and not B.Callable:isclassof(callee.type) then fail(expression.span,'invocation requires a runtime word') end

@@ -337,6 +337,9 @@ function Evaluator:instruction(block,block_id,index,instruction)
         put(1,Known.runtime(B.Effect))
     elseif B.FieldAddress:isclassof(operation) then
         put(0,Known.runtime(instruction.results[1]))
+    elseif B.TextOf:isclassof(operation) then
+        -- A view over a pointer is a Text, but a pointer is not a known value.
+        put(0,Known.runtime(B.Text))
     elseif B.BorrowPlace:isclassof(operation) then
         put(0,Known.runtime(instruction.results[1]))
     elseif B.Construct:isclassof(operation) then

@@ -126,12 +126,14 @@ function Vocabulary.new(options)
             if member.signature then add_host(name,member) end
         end
     end
-    return setmetatable({types=types,destroy=destroy,hosts=hosts,symbols=symbols},Vocabulary)
+    return setmetatable({types=types,destroy=destroy,representations=representations,
+        hosts=hosts,symbols=symbols},Vocabulary)
 end
 
 function Vocabulary:type(name) return self.types[name] end
 function Vocabulary:host(name) return self.hosts[name] end
 function Vocabulary:destructor(name) return self.destroy[name] end
+function Vocabulary:representation(name) return self.representations[name] end
 
 return Vocabulary
 end

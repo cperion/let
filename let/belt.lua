@@ -16,6 +16,7 @@ module Belt {
     Ref = (number distance, number output)
     Instruction = (Op operation, Type* results, Source.Span? span)
     Op = IntegerLiteral(string spelling) | FloatLiteral(string spelling) | BooleanLiteral(boolean value) | UnitLiteral | TextLiteral(string value)
+       | TextOf(Ref pointer, Ref size)
        | Unary(AST.UnaryOp operator, Ref operand)
        | Binary(AST.BinaryOp operator, Ref left, Ref right)
        | CheckedBinary(AST.BinaryOp operator, Ref effect, Ref left, Ref right)
