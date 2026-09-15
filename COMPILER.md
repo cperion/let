@@ -117,7 +117,8 @@ derives initial/inter-stage preparation ranges from the original AST; `binding.l
 decides capability and destination for both persistent specialization and transient
 invocation; `contract.lua` computes each template's stage types and result type before its
 body is built; `packet.lua` owns the word field bundle (place-ness, ownership, write-back and
-the entry key); `program.lua` implements the shared advancement protocol.
+the entry key); `vocabulary.lua` owns the scalar types, resources and hosts, validated once;
+`program.lua` implements the shared advancement protocol.
 
 Word values are `Belt.Word` SSA field bundles. Because advancement clones the bundle,
 a specialized receiver keeps its own stage count and fields, and `multiply 2` followed
@@ -168,10 +169,11 @@ construction diagnostic rather than a language limitation.
   vocabulary §11.2 defers. `Executable` is argument-determined: the word an argument supplies
   is the stage's type, so a word that receives one (`examples/continuations.let`) builds and
   runs, but offers no host entry -- an entry with no argument has no type to publish. An
-  unannotated stage is typed from its uses when the terminal forces exactly one type (an
-  operand literal, a host parameter, a conversion, or an immutable alias of one), so such a
-  word does publish an entry. General inference through word-valued callees, aggregates and
-  argument-determined stages remains the open piece.
+  unannotated stage is typed from its uses when the source forces exactly one type (an operand
+  literal, a host parameter, a conversion, an alias, a word-valued callee's stage, or a record
+  member the surrounding type describes), so such a word does publish an entry. Still open: an
+  argument-determined (`Executable`) stage, and a word-typed value with no call to read its
+  stages from.
 - Consumer-driven known evaluation, specialization stabilization, and C scheduling.
   Emission consumes `Function:demands()` and `let/known.lua`'s answers: unneeded pure
   producers, known producers, their helpers, unused non-entry packet fields and

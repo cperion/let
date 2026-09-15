@@ -141,6 +141,21 @@ no longer lives in several places, not the raw line count.
    Verified: 468 checks green, bundle current, all 36 native witnesses emit identical C, and
    `grep` finds no `scalar.add`/`scalar.divide`/`scalar.less` outside `let/op.lua`.
 
+Two follow-ons, taken after the six steps and kept out of them because they add capability
+rather than move ownership:
+
+7. **[done]** Single vocabulary owner. `let/vocabulary.lua` validates and owns the base scalar
+   types, the registered resources and their destructors, and the runtime hosts. `Context`
+   takes one vocabulary instead of `resources`/`hosts`/`types`; `Builder:types` and
+   `build_function`'s inline table and assertions are deleted. Verified: 468 checks green,
+   bundle current, all 36 native witnesses emit identical C.
+8. **[done]** Contract inference through word callees and aggregates. A named callee's stage
+   types now type its arguments, a record result or host parameter types the members a stage
+   supplies, and `Project`/`Index` read a known record. Cycles yield no interface rather than
+   recursing. Verified: 473 checks green, bundle current, all 36 native witnesses emit
+   identical C; `test/host_entry.lua` and `test/program.lua` carry the witnesses. Still open:
+   an argument-determined (`Executable`) stage and a word-typed value with no call.
+
 ## Not in this design
 
 - A universal tagged value, closure layout, or dynamic dispatch for word values. §18 defers the

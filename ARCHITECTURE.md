@@ -110,7 +110,10 @@ Construction has one owner per decision:
 
 - `resolve.lua` assigns lexical identities, capture sets and preparation ranges;
   `contract.lua` computes each template's interface — stage types and result type — before its
-  body is built, so a self-call or a host entry does not depend on construction order.
+  body is built, reading the uses (including a word-valued callee's stages and a record's
+  members), so a self-call or a host entry does not depend on construction order.
+- `vocabulary.lua` owns the base scalar types, the registered resources and their destructors,
+  and the runtime hosts, validated once so no phase rebuilds or re-checks them.
 - `packet.lua` owns the word field bundle: whether a field is a place, who owns it, what an
   invocation writes back, and the key that interns an entry.
 - `build.lua` is the construction context: lexical scopes, SSA values, ownership facts, pins and
