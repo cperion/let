@@ -137,7 +137,10 @@ construction diagnostic rather than a language limitation.
     from the function that built it.
   - the tail-recursive kernels (`sum_tail`, `prelude_tail`, `resource_tail`, `fib_recursive` and
     their `_impl` words) overflow the stack while their entries are being built, so the construction
-    recurses where a call site would not.
+    recurses where a call site would not. With the trace fix above, that class is gone and the next
+    failure is a belt `Destroy` carrying the resource destructor for a *word* value: the word and
+    the owned value it stands for are confused somewhere in the resource kernels' entries. That is
+    the next measurement, and it is one command away.
 
   Neither is a fault in the kernels: both are compiler gaps that the benchmark found by being the
   first program to want a *second* way into the module.
