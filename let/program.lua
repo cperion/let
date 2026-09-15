@@ -739,14 +739,25 @@ function Builder:host_entry(name,value,span)
     for i=word.supplied+1,#layout.steps do
         parameters[i]=self:host_parameter(ctx,items[i].capability,stages[i],items[i].span)
     end
-    -- What a saturated word means for a host: its terminal body runs here, while the stages the
-    -- host supplied are still bound, because `advance` discards its bindings when it returns.
-    local function complete(c)
+    -- What a saturated word means for a host: the fields the entry was handed, plus the ones its
+    -- stages produced, are exactly the parameters of the word's own entry. Running that entry is
+    -- what a call site does, so the host entry is a wrapper and one template emits one body.
+    local function complete(c,saturated)
         local data=self:terminal_value(c,template)
         if data then return c:finish(data,span) end
-        c:push()
-        c:statements(template.source.terminal.statements)
-        if not c.block.exit then c:finish(c:emit(B.UnitLiteral,L{B.Unit},span),span) end
+        local field_types,capabilities,mutable_mask,retained_mask,field_values=L(),L(),{},{},L()
+        for i,field in ipairs(saturated.fields) do
+            field_types:insert(field.type)
+            capabilities:insert(field.capability or (field.mutable and A.Mut or A.Read))
+            mutable_mask[i]=field.mutable; retained_mask[i]=field.retained; field_values:insert(field.value)
+        end
+        local target=self:entry(saturated.template,field_types,capabilities,mutable_mask,retained_mask)
+        local callee=assert(self.functions[target],'a host entry calls an entry this build just made')
+        local types=L()
+        for i=1,#callee.signature.results do types:insert(callee.signature.results[i]) end
+        local results={c:emit(B.CallFunction(target,c:ref(c.effect),c:refs(field_values)),types,span)}
+        c.effect=results[#results]
+        return c:finish(results[1],span)
     end
     local current={type=value.type,word={template=template,fields=trace,supplied=word.supplied}}
     for i=word.supplied+1,#layout.steps do
@@ -755,7 +766,7 @@ function Builder:host_entry(name,value,span)
     end
     -- A word that is already saturated has no stages left to advance, so its terminal has not run
     -- yet: the fields bound above are the whole of its state.
-    if word.supplied>=#layout.steps then complete(ctx) end
+    if word.supplied>=#layout.steps then complete(ctx,{template=template,fields=trace,supplied=word.supplied}) end
     local blocks=L()
     for _,block in ipairs(fn.blocks) do
         assert(block.exit,'unfinished host entry'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit))

@@ -50,6 +50,14 @@ end
 eq(host.entries.between.bundle,0,'a word with a prelude between stages has no fields yet')
 eq(host.entries.between.stages,2,'and still takes both stages')
 eq(host.call('between',5,10),14,'and the prelude runs in the entry')
+-- §15.1 The entry runs the word's own entry instead of emitting its body a second time: a word
+-- with no captures has one body, and the host entry is a wrapper that calls it.
+local wrapper=assert(host.program.functions[host.entries.between.id],'the entry has a belt function')
+local calls=0
+for _,instruction in ipairs(wrapper.blocks[1].instructions) do
+    if B.CallFunction:isclassof(instruction.operation) then calls=calls+1 end
+end
+eq(calls,1,'the host entry calls the word entry rather than copying its body')
 
 -- §10.1 A captured word's capture is its first field, and the host reads it from the namespace
 -- the initializer returned rather than conjuring it: that value is what the entry expects first.

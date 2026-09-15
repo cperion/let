@@ -394,7 +394,11 @@ end
 -- one nothing reads. It is recomputed per belt rather than cached beside the demand table,
 -- because a callee and its call sites must reach the same answer.
 local requirements={}
-local function entry_parameters_read(belt)
+-- The parameters block 1 reads. A call argument counts as a use only when the callee's parameter
+-- is live: a dead parameter is dropped from the callee's signature and from the call, so treating
+-- the argument as a use would keep the caller's parameter alive for a value never passed. One
+-- rule reaches both. On a cycle the callee is still being computed, so its parameters are live.
+function Emitter:entry_parameters_read(belt)
     local block=belt.blocks[1]
     local used={}
     local function note(position,ref)
@@ -403,7 +407,15 @@ local function entry_parameters_read(belt)
     end
     for index,instruction in ipairs(block.instructions) do
         local at=#block.parameters+index-1
-        for _,ref in ipairs(instruction.operation:inputs()) do note(at,ref) end
+        local operation=instruction.operation
+        local callee=B.CallFunction:isclassof(operation) and self.functions[operation.target]
+        if callee and requirements[callee]~='pending' then
+            for i,ref in ipairs(operation.arguments) do
+                if self:parameter_live(nil,callee,1,i+1) then note(at,ref) end
+            end
+        else
+            for _,ref in ipairs(operation:inputs()) do note(at,ref) end
+        end
     end
     local at=#block.parameters+#block.instructions
     for _,ref in ipairs(block.exit:inputs()) do note(at,ref) end
@@ -413,11 +425,21 @@ end
 function Emitter:requirements(belt)
     local cached=requirements[belt]
     if cached then return cached end
+    requirements[belt]='pending'
     local needed=belt:demands()
-    for position in pairs(entry_parameters_read(belt)) do
-        needed[1]=needed[1] or {}
+    local read=self:entry_parameters_read(belt)
+    needed[1]=needed[1] or {}
+    for position in pairs(read) do
         needed[1][position]=needed[1][position] or {}
         needed[1][position][0]=true
+    end
+    -- Block 1's read set is the whole story for its parameters, so a parameter no instruction
+    -- reads is not needed, even though the demand pass marked it as a call argument.
+    for position=0,#belt.blocks[1].parameters-1 do
+        if not read[position] then
+            local entry=needed[1][position]
+            if entry then entry[0]=nil end
+        end
     end
     requirements[belt]=needed
     return needed
