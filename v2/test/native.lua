@@ -347,6 +347,25 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'60\n','§8.4/§9.4 a runtime index and indexed assignment')
 
+-- §9.3 A runtime index inside a borrowed path selects a place, so the callee writes the
+-- member the index names.
+output=native('dynamic_borrow',[[
+let bump = let p mut : Int let by : Int do p = p + by; return p end
+let run = do
+    let a mut = { 1, 2, 3 };
+    let i mut = 0;
+    while i < 3 do
+        bump(mut a[i], 1);
+        i = i + 1
+    end
+    return a[0] + a[1] + a[2]
+end
+let answer = run()
+let show = do print_int(answer) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'9\n','§9.3 a mutable borrow through a runtime index')
+
 -- §6.2 Prelude effects reached between stages precede the following argument.
 output=native('preludes',[[
 let staged =

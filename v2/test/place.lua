@@ -177,6 +177,32 @@ let f = do let v = { 1, "a" }; let i mut = 0; return v[i] end
 let r = f()
 ]],'needs members of one type','§8.4 a runtime index over mixed members is rejected')
 
+-- §9.3 A runtime index in a borrowed path selects a place rather than a value, so the
+-- selection joins field addresses and the members must share one type.
+eq(run[[
+let bump = let p mut : Int let by : Int do p = p + by; return p end
+let f = do
+    let a mut = { 1, 2, 3 };
+    let i mut = 0;
+    while i < 3 do
+        bump(mut a[i], 1);
+        i = i + 1
+    end
+    return a[0] + a[1] + a[2]
+end
+let r = f()
+]],9,'§9.3 a mutable borrow through a runtime index')
+rejects([[
+let bump = let p mut : Int let by : Int do p = p + by; return p end
+let f = do
+    let a mut = { 1, true };
+    let i mut = 0;
+    let r = bump(mut a[i], 1);
+    return r
+end
+let r = f()
+]],'needs members of one type','§9.3 a borrowed runtime index over mixed members is rejected')
+
 -- §6.5 A tail transfer retires the activation, so a borrow of one of its places cannot be
 -- passed: the callee would outlive the storage.
 rejects([[ 

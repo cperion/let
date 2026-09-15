@@ -123,9 +123,8 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
   host with its own layout should pass its own resolver.
 - Partial moves out of a projected or indexed aggregate path (`move a.b`): a subplace can
   be borrowed, but not yet moved out of.
-- A runtime index inside a *borrowed* path (`mut a[i]`), which needs the selection to
-  produce a place rather than a value. A runtime index elsewhere, a constant index, a member
-  name and any constant path all work.
+- Partial moves out of a projected or indexed path (`move a.b`): a subplace can be borrowed
+  and assigned, but not yet moved out of.
 - Dynamic positional indexing: a runtime index needs address-taken aggregate storage, so
   only a compile-time index is resolved today.
 - Projection and assignment through a nested path (`a.b.c = ...`), and invoking a
@@ -191,9 +190,9 @@ successful-construction order, and a written terminal that moves an owned prelud
 namespace still destroys it exactly once at its original position.
 
 `test/place.lua` covers §17.4's canonical ownership example, a mutable stage writing the
-caller's place, an address-taken Copy local, borrowed members and constant indices (including
-a nested path), assignment through a projected member of a place, the borrow diagnostics, and
-§10.1's shared-state capture with its escape rejections. Native witnesses (`mut_place`,
+caller's place, an address-taken Copy local, borrowed members and constant and runtime
+indices (including a nested path), indexed and projected assignment, the borrow diagnostics,
+and §10.1's shared-state capture with its escape rejections. Native witnesses (`mut_place`,
 `ownership_lend`, `capture`) execute the same cases.
 
 `test/import.lua` covers the implicit namespace, a written terminal, a configurable file,

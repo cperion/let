@@ -426,8 +426,9 @@ local function place_path(node)
             table.insert(steps,1,{name=current.name,span=current.span}); current=current.base
         elseif A.Index:isclassof(current) then
             local index=constant_index(current.index)
-            if not index then return nil,nil,'a runtime index in a borrowed path' end
-            table.insert(steps,1,{index=index,span=current.span}); current=current.base
+            table.insert(steps,1,index and {index=index,span=current.span}
+                or {expression=current.index,span=current.span})
+            current=current.base
         elseif A.Name:isclassof(current) then
             return current.name,steps
         else
@@ -455,18 +456,47 @@ function A.Borrow:build(ctx)
         for _,step in ipairs(steps) do
             local fields=type_.fields
             if not fields then fail(step.span,'a borrow path requires an aggregate') end
-            local index
             -- Names are found by search and indices are written by the source, so both
             -- describe the member position; field access is zero-based.
+            local index
             if step.name then index=select(1,ctx:record_field(type_,step.name,step.span))-1
-            else
+            elseif step.index then
                 index=step.index
                 if index<0 or index>=#fields then
                     fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
                 end
             end
-            type_=fields[index+1].type
-            value=ctx:emit(B.FieldAddress(ctx:ref(value),index,stable),L{B.Borrow(type_,stable)},step.span)
+            if index then
+                type_=fields[index+1].type
+                value=ctx:emit(B.FieldAddress(ctx:ref(value),index,stable),L{B.Borrow(type_,stable)},step.span)
+            else
+                -- A runtime index in a borrowed path selects a *place*, so the selection joins
+                -- field addresses rather than values, and its members must share a type.
+                local key=step.expression:build(ctx); expect(key,B.Int,step.span)
+                local element=fields[1].type
+                for i=2,#fields do
+                    if not fields[i].type:same(element) then
+                        fail(step.span,'a runtime index needs members of one type')
+                    end
+                end
+                local borrowed=B.Borrow(element,stable)
+                ctx:pin(value); ctx:pin(key)
+                local function select(c,at)
+                    if at>=#fields then
+                        c.block.exit=B.Trap(c:ref(c.effect),'index out of range')
+                        return nil
+                    end
+                    local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},step.span)
+                    local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},step.span)
+                    return c:branch(test,
+                        function(y) return y:emit(B.FieldAddress(y:ref(value),at,stable),L{borrowed},step.span) end,
+                        function(n) return select(n,at+1) end,
+                        borrowed)
+                end
+                value=select(ctx,0)
+                ctx:unpin(); ctx:unpin()
+                type_=element
+            end
         end
     end
     value.mode='mut'; value.origin=id
