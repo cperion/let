@@ -49,14 +49,17 @@ eq(entries.between.bundle,0,'a word with a prelude between stages has no fields 
 eq(entries.between.stages,2,'and still takes both stages')
 eq(call('between',5,10),14,'and the prelude runs in the entry')
 
--- §10.1 A captured word's capture is its first field, so the host passes it from the namespace.
+-- §10.1 A captured word's capture is its first field, and the host reads it from the namespace
+-- the initializer returned rather than conjuring it: that value is what the entry expects first.
 builder,entries,call=build[[
 let factor = 6;
 let scale = let x : Int do return x * factor end
 ]]
 eq(entries.scale.bundle,1,'a capture is a field the host passes')
 eq(entries.scale.stages,1,'and the open stage follows it')
-eq(call('scale',7,0),42,'the capture arrives as the first argument')
+local namespace=call('__namespace')
+eq(namespace~=nil,'the initializer gives the host the namespace')
+eq(call('scale',7,6),42,'the capture arrives as the first argument')
 
 -- §8.4 A mutable stage is a place, so the host passes an address of its own storage.
 local holder={value=0}

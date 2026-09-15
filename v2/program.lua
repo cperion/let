@@ -155,7 +155,10 @@ function Builder:instantiate(ctx,definition)
                 mutable=binding.mutable,owned=false,retained=true,span=capture.span,borrows=borrows}
         end
         for _,field in ipairs(word.fields) do
-            ctx:force_bind(field.name,field.value,field.mutable,field.owned,false,false,field.span)
+            -- Every field the word already has, including a mutable one, which is a place for the
+            -- same reason a stage is: its binding is its address.
+            local address=(B.Address:isclassof(field.value.type) or B.Borrow:isclassof(field.value.type)) and field.value or false
+            ctx:force_bind(field.name,field.value,field.mutable,field.owned,false,address,field.span)
         end
     end
     local ok,result=pcall(function()
@@ -187,18 +190,20 @@ function Builder:self_value(ctx,definition)
     return result
 end
 
-function Builder:supply(ctx,value,argument,destination)
+-- Advancing a word by one stage, whatever the value came from: an argument a call site built,
+-- or a parameter a host entry was handed. There is one implementation of this, because two
+-- would disagree about which stage is next and which preludes belong to it.
+function Builder:advance(ctx,value,supplied,span,destination,complete)
     local word=clone_word(assert(value.word,'specialization requires a word value'))
     local layout=self:layout(word.template)
     local step=layout.steps[word.supplied+1]
-    if not step then fail(argument.span,'oversaturated specialization: the terminal already has every stage') end
+    if not step then fail(span,'oversaturated specialization: the terminal already has every stage') end
     local item=step.item
-    local supplied=argument:build(ctx)
     if supplied.word and not supplied.type:copyable() then
-        gap(argument.span,'word-valued stages')
+        gap(span,'word-valued stages')
     end
-    local _,temporary=item.capability:bind_argument(supplied,destination,function(message) fail(argument.span,message) end)
-    if temporary then gap(argument.span,'transient read borrow of owned state') end
+    local _,temporary=item.capability:bind_argument(supplied,destination,function(message) fail(span,message) end)
+    if temporary then gap(span,'transient read borrow of owned state') end
     -- A mutable stage is a place, so its argument is the declared type's address and the
     -- constraint describes what that place contains.
     local mut=item.capability==A.Mut
@@ -207,13 +212,13 @@ function Builder:supply(ctx,value,argument,destination)
     end
     -- A mutable stage is a place, so what its constraint describes is the place's contents,
     -- not the borrow that reaches them.
-    local type_=ctx:constraint(item.constraint,mut and supplied.type.pointee or supplied.type,argument.span)
+    local type_=ctx:constraint(item.constraint,mut and supplied.type.pointee or supplied.type,span)
     if type_ then
-        if mut then expect({type=supplied.type.pointee,origin=supplied.origin},type_,argument.span)
-        else expect(supplied,type_,argument.span) end
+        if mut then expect({type=supplied.type.pointee,origin=supplied.origin},type_,span)
+        else expect(supplied,type_,span) end
     end
     if (item.capability==A.Own or item.capability==A.OwnMut) and ctx:borrows(supplied.type) then
-        gap(argument.span,'passing a word that borrows enclosing state to an ownership-taking stage')
+        gap(span,'passing a word that borrows enclosing state to an ownership-taking stage')
     end
     local owned=not supplied.type:copyable() and (item.capability==A.Own or item.capability==A.OwnMut)
     -- Advancement happens in a scope holding every field the word already has. Earlier steps
@@ -222,14 +227,24 @@ function Builder:supply(ctx,value,argument,destination)
     ctx:push()
     local ok,result=pcall(function()
         for _,field in ipairs(word.fields) do
-            ctx:force_bind(field.name,field.value,field.mutable,field.owned,false,false,field.span)
+            -- Every field the word already has, including a mutable one, which is a place for the
+            -- same reason a stage is: its binding is its address, not a copy of the borrow.
+            local address=(B.Address:isclassof(field.value.type) or B.Borrow:isclassof(field.value.type)) and field.value or false
+            ctx:force_bind(field.name,field.value,field.mutable,field.owned,false,address,field.span)
         end
-        ctx:force_bind(item.name,supplied,owned or item.capability==A.Mut or item.capability==A.OwnMut,owned,false,false,item.span)
+        -- A mutable stage is a place, exactly as it is in an entry: `build_entry` binds it as its
+        -- address, so the preludes here and a host entry's terminal must see the same thing.
+        local address=(B.Address:isclassof(supplied.type) or B.Borrow:isclassof(supplied.type)) and supplied or false
+        ctx:force_bind(item.name,supplied,owned or item.capability==A.Mut or item.capability==A.OwnMut,owned,false,address,item.span)
         word.fields[#word.fields+1]={name=item.name,value=supplied,type=supplied.type,mutable=item.capability==A.Mut or item.capability==A.OwnMut,
             owned=owned,retained=destination==B.Persistent,span=item.span,capability=item.capability}
         word.supplied=word.supplied+1
         self:prepare(ctx,word,layout,step.prepare,destination)
         if word.supplied==#layout.steps then
+            -- Everything the word needs is bound right here and nowhere else: the bindings made
+            -- above are discarded when this call returns, so a caller that wants to run the
+            -- terminal does it now, through `complete`.
+            if complete then return complete(ctx,word) end
             local data=self:terminal_value(ctx,word.template)
             if data then return data end
         end
@@ -280,8 +295,13 @@ function Builder:specialize(ctx,expression)
     return self:supply(ctx,value,expression.argument,self:destination())
 end
 
-function Builder:entry(template,field_types,capabilities,mutable_mask,retained_mask,supplied_stages,bound_items)
-    local parts={tostring(template.id),'s' .. tostring(supplied_stages or #field_types)}
+-- The call-site spelling of advancement: build the argument, then hand it to `advance`.
+function Builder:supply(ctx,value,argument,destination)
+    return self:advance(ctx,value,argument:build(ctx),argument.span,destination)
+end
+
+function Builder:entry(template,field_types,capabilities,mutable_mask,retained_mask)
+    local parts={tostring(template.id)}
     for _,type_ in ipairs(field_types) do parts[#parts+1]=typekey(type_) end
     for i=1,#field_types do parts[#parts+1]=retained_mask[i] and '1' or '0' end
     local key=table.concat(parts,'|')
@@ -294,7 +314,7 @@ function Builder:entry(template,field_types,capabilities,mutable_mask,retained_m
         fields[i]={type=type_,capability=capabilities[i],mutable=mutable_mask[i],retained=retained_mask[i]}
     end
     self.functions[id]=false
-    self.functions[id]=self:build_entry(template,fields,id,supplied_stages,bound_items)
+    self.functions[id]=self:build_entry(template,fields,id)
     return id
 end
 
@@ -303,55 +323,28 @@ end
 -- are the word's fields. For a host entry the word is part way through: the parameters are its
 -- captures and the items it already has, then the stages it has left, and the preludes belonging
 -- to those stages run here because nobody else can run them.
-function Builder:build_entry(template,fields,id,supplied,bound)
+function Builder:build_entry(template,fields,id)
     local layout=self:layout(template)
-    supplied=supplied or #layout.steps
-    bound=bound or #layout.items
+    local names={}
+    local index=1
+    for _,capture in ipairs(layout.captures) do names[index]=capture.name; index=index+1 end
+    for _,item in ipairs(layout.items) do names[index]=item.name; index=index+1 end
     local fn={name=(template.name or 'word') .. '_' .. id,span=template.source.span,blocks={},bindings={},next_value=0,
         result=nil,resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
     local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
     ctx.entry_id=id
-    local records,at={},0
-    local function bind(name,field,span)
-        at=at+1
+    local records={}
+    for i,field in ipairs(fields) do
         ctx:push(); if field.retained then ctx:retain() end
         local value=ctx:parameter(field.type,A.Read)
         -- A mutable stage arrives as an address, so the field is that place, not a copy.
         local address=(B.Address:isclassof(field.type) or B.Borrow:isclassof(field.type)) and value or false
         local owned=not address and not field.type:copyable()
             and (field.capability==A.Own or field.capability==A.OwnMut)
-        local binding=ctx:force_bind(name,value,field.mutable,owned,false,address,span or template.source.span)
-        records[#records+1]={field=field,id=binding,value=value}
+        local binding=ctx:force_bind(names[i],value,field.mutable,owned,false,address,template.source.span)
+        records[i]={field=field,id=binding,value=value}
     end
-    local function take()
-        local field=fields[at+1]
-        if not field then fail(template.source.span,'entry parameter count does not match its stages') end
-        return field
-    end
-    -- A word's fields are its captures followed by a prefix of its items, in source order.
-    for _,capture in ipairs(layout.captures) do bind(capture.name,take(),capture.span) end
-    for index,item in ipairs(layout.items) do
-        if index<=bound then bind(item.name,take(),item.span) end
-    end
-    -- The stages left are parameters, and the preludes belonging to each of them run here.
-    -- `layout.steps` is not in source order -- the resolver orders it -- so the walk is over the
-    -- items, and each stage's own step supplies the prelude range that follows it.
-    local step_of={}
-    for _,step in ipairs(layout.steps) do step_of[step.index]=step end
-    local scratch={template=template,fields={},supplied=supplied}
-    local stage=0
-    for index,item in ipairs(layout.items) do
-        if item.kind=='stage' then
-            stage=stage+1
-            if stage>supplied then
-                bind(item.name,take(),item.span)
-                local step=assert(step_of[index],'a stage without a step')
-                self:prepare(ctx,scratch,layout,step.prepare,B.Transient)
-            end
-        end
-    end
-    if at~=#fields then fail(template.source.span,'entry parameter count does not match its stages') end
     if template.self then ctx.self_name=template.self.name; ctx.self_definition=template.self end
     ctx.finish=function(self_,value,span)
         -- §10.1: the storage this word borrowed belongs to this activation, so the word
@@ -638,32 +631,72 @@ function Builder:build_unload(state_type)
     return B.Function(fn.name,B.Signature(blocks[1].parameters,L{fn.result,B.Effect}),blocks)
 end
 
--- The host's way into an exported word: its entry takes the word's own fields -- which the host
--- reads from the namespace the initializer returned -- followed by the stages it still needs.
+-- The host's way into an exported word: its first arguments are the word's own fields -- the
+-- construction trace so far, which the host reads from the namespace -- and the stages it still
+-- needs follow. Advancing uses the same protocol a call site uses, so nothing here decides which
+-- stage is next or which preludes belong to it: `advance` already knows, because it does it for
+-- call sites every day.
 function Builder:host_entry(name,value,span)
     local word=value.word
     if not word then return nil end
-    local layout=self:layout(word.template)
-    local types,capabilities,mutable_mask,retained_mask=L(),L(),{}, {}
-    for _,field in ipairs(word.fields) do
-        types:insert(field.type); capabilities:insert(field.capability or A.Read)
-        mutable_mask[#types]=field.mutable; retained_mask[#types]=field.retained
+    local template=word.template
+    local layout=self:layout(template)
+    local id=#self.functions+1
+    local fn={name=name .. '_' .. id,span=span,blocks={},bindings={},next_value=0,result=nil,
+        resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
+    local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
+    ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
+    ctx.entry_id=id
+    self.functions[id]=false
+    -- §4.2 the defining word is visible in its own terminal body.
+    if word.template.self then
+        ctx.self_name=word.template.self.name; ctx.self_definition=word.template.self
     end
-    local bundle=#types
+    for _,field in ipairs(word.fields) do
+        ctx:push(); if field.retained then ctx:retain() end
+        local parameter=ctx:parameter(field.type,A.Read)
+        local address=(B.Address:isclassof(field.type) or B.Borrow:isclassof(field.type)) and parameter or false
+        local owned=not address and not field.type:copyable()
+            and (field.capability==A.Own or field.capability==A.OwnMut)
+        ctx:force_bind(field.name,parameter,field.mutable,owned,false,address,span)
+    end
     local context=setmetatable({fn={types=self:types(),hosts=self.options.hosts or {}},scopes={},cells={}},Context)
+    -- What a saturated word means for a host: its terminal body runs here, while the stages the
+    -- host supplied are still bound.
+    local function complete(c)
+        local data=self:terminal_value(c,template)
+        if data then return c:finish(data,span) end
+        c:push()
+        c:statements(template.source.terminal.statements)
+        if not c.block.exit then c:finish(c:emit(B.UnitLiteral,L{B.Unit},span),span) end
+    end
+    -- The parameters are the packet, so every one of them exists before the first instruction:
+    -- a parameter created once emission has started takes a position *after* an instruction and
+    -- collides with it. Advancing then only binds names and runs preludes.
+    local stages={}
     for i=word.supplied+1,#layout.steps do
         local item=layout.steps[i].item
         local type_=context:constraint(item.constraint,nil,item.span)
-        local mutable=item.capability==A.Mut or item.capability==A.OwnMut
-        -- A mutable stage is a place, and the belt already says so: the callee reaches it
-        -- through a borrow, so a host passes a pointer to its own storage.
-        if mutable then type_=B.Borrow(type_,false) end
-        types:insert(type_); capabilities:insert(item.capability)
-        mutable_mask[#types]=mutable; retained_mask[#types]=false
+        -- A mutable stage is a place, and a call site reaches one through a borrow: the host
+        -- passes a pointer to its own storage, and the parameter presents as that place.
+        stages[i]=ctx:parameter(type_)
+        if item.capability==A.Mut or item.capability==A.OwnMut then
+            stages[i].type=B.Borrow(type_,false); stages[i].mode='mut'
+        end
     end
-    local id=self:entry(word.template,types,capabilities,mutable_mask,retained_mask,word.supplied,
-        #word.fields-#layout.captures)
-    return {name=name,id=id,bundle=bundle,stages=#types-bundle}
+    -- A value, not a bare bundle: `advance` takes the same shape `pack` returns.
+    local current={type=value.type,word={template=template,fields=word.fields,supplied=word.supplied}}
+    for i=word.supplied+1,#layout.steps do
+        current=self:advance(ctx,current,stages[i],layout.steps[i].item.span,B.Transient,
+            i==#layout.steps and complete or nil)
+    end
+    -- A word that is already saturated has no stages left to advance, so its terminal has not run
+    -- yet: the fields bound above are the whole of its state.
+    if word.supplied>=#layout.steps then complete(ctx) end
+    local blocks=L()
+    for _,block in ipairs(fn.blocks) do assert(block.exit,'unfinished block'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit)) end
+    self.functions[id]=B.Function(fn.name,B.Signature(blocks[1].parameters,L{fn.result,B.Effect}),blocks)
+    return {name=name,id=id,bundle=#word.fields,stages=#layout.steps-word.supplied}
 end
 
 function Builder:build()
@@ -672,9 +705,13 @@ function Builder:build()
     self.functions[2]=self:build_unload(module.signature.results[2])
     -- After the module interface, so ids 1 and 2 stay what the host already expects.
     self.host_entries={}
-    for _,export in ipairs(self.exports or {}) do
-        local entry=self:host_entry(export.name,export.value,export.span)
-        if entry then self.host_entries[#self.host_entries+1]=entry end
+    -- Host entries are not built yet: the construction is known (see BUILD.md) but the entry's
+    -- packet and its terminal still disagree on one path, so nothing claims an ABI it cannot honour.
+    if self.options.host_entries then
+        for _,export in ipairs(self.exports or {}) do
+            local entry=self:host_entry(export.name,export.value,export.span)
+            if entry then self.host_entries[#self.host_entries+1]=entry end
+        end
     end
     local functions=L()
     for _,fn in ipairs(self.functions) do functions:insert(fn) end
