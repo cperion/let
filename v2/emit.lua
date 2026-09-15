@@ -190,10 +190,19 @@ function Emitter:instruction(block,block_id,index,instruction)
         local _,type_=block:resolve(position,operation.left)
         if known(0) then return statement_list(out) end
         if operation.operator==A.Equal or operation.operator==A.NotEqual then
-            local call
-            if type_==B.Text then self.helpers.text_eq=true; call=C.Call(C.Name('LET_TEXT_EQ'),L{arguments[1],arguments[2]})
-            else call=C.Binary(symbolic[operation.operator],arguments[1],arguments[2]) end
-            declare(0,B.Bool,operation.operator==A.Equal and call or C.Unary('!',call))
+            -- `symbolic` already spells the operator: `==` or `!=` for a scalar, and the one Text
+            -- macro *is* equality, so only that case has anything left to negate. Negating the
+            -- scalar case too made `!=` compare equal and vice versa.
+            local call,negated
+            if type_==B.Text then
+                self.helpers.text_eq=true
+                call=C.Call(C.Name('LET_TEXT_EQ'),L{arguments[1],arguments[2]})
+                negated=operation.operator==A.NotEqual
+            else
+                call=C.Binary(symbolic[operation.operator],arguments[1],arguments[2])
+                negated=false
+            end
+            declare(0,B.Bool,negated and C.Unary('!',call) or call)
         elseif arithmetic[operation.operator] then
             local helper=arithmetic[operation.operator]
             self.helpers[helper[1]]=true
