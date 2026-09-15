@@ -143,10 +143,12 @@ construction diagnostic rather than a language limitation.
   unreachable blocks are not written out, known values are inlined and known branches are
   selected. Ordered effects are always kept, and a fully known call emits no callee.
   Partial records are done: a member read through a record whose other members are run-time
-  is answered with that member, and a join keeps the members every path agrees on. Still
-  missing: sharing a summary whose argument packet is only partly answered (DEMAND.md §14
-  records the prerequisite), specialized ABIs, mutual-recursion summaries, and shared-result
-  materialization (milestones B and C). No residual AST or old evaluator is introduced.
+  is answered with that member, and a join keeps the members every path agrees on. Summaries
+  are shared too, with `answered` and `foldable` as separate questions: a precise summary
+  that cannot fold leaves the call in place, replaces only its uses, and is evaluated as a
+  statement. Still missing: specialized ABIs, mutual-recursion summaries, block instances for
+  effect-carrying loops, and shared-result materialization (milestones B and C). No residual
+  AST or old evaluator is introduced.
 - Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
   paths, an optional extension, configured roots), but §15.2 leaves the lookup to the
   embedding, so a host with its own layout passes its own resolver. This is not missing

@@ -359,14 +359,32 @@ Two latent defects surfaced while extending this, both fixed here:
   `C.Evaluate(call)` when its value is a constant. Unreachable today, because a usable
   summary still has all-constant results; it becomes reachable the moment one does not.
 
-What remains for B is unchanged in kind, with one constraint now known:
+Summaries are shared now, and the constraint that blocked it turned out to be the thing
+worth fixing rather than working around.
 
-- sharing a summary whose argument packet is only partly answered. The plumbing is there
-  (`all_answered` seeding), but a summary that is precise without being foldable needs its
-  answers to survive to emission, and they do not: an answer table is rebuilt per analysis
-  pass while a fold mark recorded in an earlier pass outlives the answers it depends on.
-  Making the two agree -- or recording the fold with the pass that produced it -- is the
-  prerequisite, and it is why the safe subset landed first.
+- Every argument has an answer, a run-time one included, so asking for a summary is
+  unconditional. What bounds the work is the budget and the in-progress mark, not a guess
+  about which calls can fold.
+- A summary answers and a summary *folds* are different questions. `answered` means every
+  value result has an answer; `foldable` means every one is a constant and the callee
+  demanded no ordered work. A precise but unfolded summary leaves the call in place and
+  replaces only the uses.
+- The fold mark rides on the answers array itself, written by the same call that fills it.
+  A side table outlived them -- an answer table is rebuilt every pass -- and emission then
+  removed a call whose result another expression still referred to by name.
+- Consequently emission must evaluate a call it kept, even when every result it returns is
+  a constant: the answer replaces the uses, never the call.
+
+The limit that remains here is narrow and measured: an *ordered* call whose result no
+consumer demands (a `PureHostCall` in a folded argument position, say) is emitted rather than
+folded, because the analysis records answers only for the positions demand reaches. Evaluating
+every instruction would fix it, and was tried: it also makes a pure producer in a folded
+position disappear, which is correct per the host's `pure` declaration but changes what
+`demands()` is for. Revisiting that rule is the prerequisite, and it is a smaller question
+than this one was.
+
+What remains for B is otherwise unchanged:
+
 - specialized ABIs that drop known fields from the parameter list;
 - SCC fixed points for mutually recursive summaries;
 - block instances so a loop that carries effects can be unrolled rather than left as a

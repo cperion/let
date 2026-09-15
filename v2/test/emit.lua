@@ -6,6 +6,9 @@ local read=B.Parameter(B.Int,A.Read)
 local hosts={
     emit={symbol='emit',phase='runtime',purity='ordered',signature=B.Signature(L{read},L{B.Unit})},
     pure_calc={symbol='pure_calc',phase='runtime',purity='pure',signature=B.Signature(L{read},L{B.Int})},
+    -- Ordered, so its result is run-time *and* the call is emitted: a pure producer in a
+    -- folded position can legitimately disappear, which would hide what these cases test.
+    ordered_int={symbol='ordered_int',phase='runtime',purity='ordered',signature=B.Signature(L{read},L{B.Int})},
 }
 local function emitted(source)
     local program=V.parse(source,'emit.let'):build{hosts=hosts}
@@ -180,8 +183,9 @@ check(#definitions(effect_text)>=1,'a callee that demands ordered work keeps its
 -- Partial records ------------------------------------------------------------------
 
 -- A record with a run-time member is answered member by member. Reading only the known
--- member therefore needs no record and no projection: the member's value is inlined and the
--- construction becomes undemanded. One run-time member used to make every member opaque.
+-- member therefore needs no record and no projection: the member's value is inlined, the
+-- construction becomes undemanded, and the call folds, because that member is all it reads.
+-- One run-time member used to make every member opaque.
 -- The definition, not the prototype: the prototype line has no brace on it.
 local function body(text,name)
     local from=text:find(name..'%([^\n]-{')
@@ -195,11 +199,11 @@ let f = let n : Int do
     let bag = { let factor = 6 let runtime = n };
     return bag.factor
 end
-let r = f(pure_calc(2))
+let r = f(ordered_int(2))
 ]]
-local f_body=body(partial,'let_f_3')
-check(f_body:find('INT64_C%(6%)')~=nil,'a known member of a partial record is inlined')
-check(f_body:find('%.f%d')==nil,'that read needs no projection')
+check(#definitions(partial)==0,'reading only a known member folds the whole call')
+check(partial:find('INT64_C(6)',1,true)~=nil,'the known member is inlined as a constant')
+check(partial:find('%.f%d')==nil,'and no projection is emitted')
 
 -- Reading the run-time member still is a projection, and the record is still what carries
 -- the two members, so the construction stays.
@@ -208,7 +212,7 @@ let f = let n : Int do
     let bag = { let factor = 6 let runtime = n };
     return bag.runtime
 end
-let r = f(pure_calc(2))
+let r = f(ordered_int(2))
 ]]
 check(body(through,'let_f_3'):find('%.f%d')~=nil,'a run-time member is still projected')
 
@@ -219,8 +223,34 @@ let f = let n : Int do
     let bag = { let known = 1 let runtime = n };
     return bag
 end
-let r = f(pure_calc(2))
+let r = f(ordered_int(2))
 ]])==1,'returning a partial record keeps its callee')
+
+-- A call is summarised whatever its arguments are, because a run-time argument is an answer
+-- like any other. A member the callee never reads therefore cannot hold the call back: this
+-- folds even though its second stage is run-time.
+check(#definitions(emitted[[
+let ignore = let used : Int let unused : Int do return used end
+let n = ordered_int(3)
+let r = ignore(7, n)
+]])==0,'an unread run-time argument does not stop a call folding')
+
+-- A summary that is precise but *not* foldable leaves the call in place. Its known results
+-- still replace the uses, so the call is evaluated as a statement -- never declared and never
+-- dropped, which is what "folded" and "known" have to be told apart for.
+local noisy=emitted[[
+let noisy = let n : Int do
+    let bag = { let factor = 6 let runtime = n };
+    emit(bag.factor);
+    return bag.factor
+end
+let r = noisy(ordered_int(2))
+]]
+check(#definitions(noisy)==1,'a callee with ordered work stays')
+local module=body(noisy,'let_module_init')
+check(module:find('let_noisy_',1,true)~=nil,'a kept call is evaluated as a statement')
+check(module:find('= let_noisy_',1,true)==nil,'and is never declared as a value')
+check(noisy:find('emit(INT64_C(6))',1,true)~=nil,'its known member is inlined at the ordered call')
 
 
 print(('passed %d v2 demand and folding emission checks'):format(checks))

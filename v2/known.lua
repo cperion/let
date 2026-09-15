@@ -96,14 +96,20 @@ function Run:summary(target,seeded)
     local evaluator=Evaluator.new(self,self.program.functions[target],{parameters=seeded})
     evaluator:analyze()
     -- The final effect result is Runtime by construction and is not a value obligation.
-    local foldable=not evaluator.residual
-    if foldable then
-        for i,answer in ipairs(evaluator.results) do
-            local type_=self.program.functions[target].signature.results[i]
-            if type_~=B.Effect and not Known.is_known(answer) then foldable=false end
+    -- A summary is `answered` when every value result has an answer, and `foldable` when
+    -- every one of them is a *constant* and the callee demanded no ordered work. The two are
+    -- different questions: answers replace the uses of a call that still happens, while
+    -- foldability removes the call. An evaluator that produced no results at all has
+    -- answered nothing, and the loop below must not read that as success.
+    local signature=self.program.functions[target].signature
+    local answered,foldable=#evaluator.results==#signature.results,not evaluator.residual
+    for i,answer in ipairs(evaluator.results) do
+        if signature.results[i]~=B.Effect then
+            if not Known.answered(answer) then answered=false end
+            if not Known.is_known(answer) then foldable=false end
         end
     end
-    local summary=foldable and {results=evaluator.results} or nil
+    local summary=answered and {results=evaluator.results,foldable=foldable} or nil
     self.summaries[key]=summary or false
     return summary
 end
@@ -223,6 +229,15 @@ end
 
 function Evaluator:param(block_id,index) return self:parameter(block_id,index) end
 
+-- Whether a CallFunction was removed is recorded on its own answers, so it lives and dies
+-- with them. A side table would outlive them -- an answer table is rebuilt every pass -- and
+-- emission would then remove a call whose result another expression still refers to.
+function Evaluator:call_was_folded(block_id,position)
+    local recorded=self.answers[block_id]
+    local slot=recorded and recorded[position]
+    return slot~=nil and slot.folded==true
+end
+
 function Evaluator:answer(block_id,position,output)
     local block=self.answers[block_id]
     local answers=block and block[position]
@@ -339,14 +354,19 @@ function Evaluator:instruction(block,block_id,index,instruction)
             else put(0,Known.bundle(instruction.results[1],fields)) end
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.CallFunction:isclassof(operation) then
+        -- Every argument has an answer, a run-time one included, and that is exactly the
+        -- packet the callee's evaluator would seed anyway. Asking for the summary is
+        -- therefore unconditional; what bounds the work is the budget and the in-progress
+        -- mark, not a guess about which calls can fold.
         local arguments=inputs(operation.arguments)
-        local summary
-        if all_known(arguments) then
-            local seeded={Known.runtime(B.Effect)}
-            for i,answer in ipairs(arguments) do seeded[i+1]=answer end
-            summary=self.run:summary(operation.target,seeded)
-        end
-        if summary then for i,answer in ipairs(summary.results) do put(i-1,answer) end
+        local seeded={Known.runtime(B.Effect)}
+        for i,answer in ipairs(arguments) do seeded[i+1]=answer end
+        local summary=self.run:summary(operation.target,seeded)
+        if summary then
+            for i,answer in ipairs(summary.results) do put(i-1,answer) end
+            -- A precise summary whose results are not all constants still leaves the call in
+            -- place, and its order with it. The mark goes on these answers, not beside them.
+            if summary.foldable then results.folded=true else self:schedule(operation) end
         else runtime_all(); self:schedule(operation) end
     elseif B.HostCall:isclassof(operation) or B.PureHostCall:isclassof(operation) then
         runtime_all()

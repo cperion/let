@@ -141,17 +141,11 @@ function Emitter:constant(answer)
     self:error('no C constant for ' .. tostring(type_))
 end
 
--- A call whose every value result is Known was folded away by the evaluator, which only
--- happens when the callee demanded no ordered work.
-function Emitter:folded_call(function_id,block_id,position,instruction)
+-- The evaluator marks the calls it removed on their own answers, so the mark and the
+-- answers it depends on cannot disagree.
+function Emitter:folded_call(function_id,block_id,position)
     local analysis=self.analysis[function_id]
-    local answers=analysis and analysis:answer(block_id,position,0)
-    local recorded=analysis and analysis.answers[block_id] and analysis.answers[block_id][position]
-    if not recorded then return false end
-    for i,type_ in ipairs(instruction.results) do
-        if type_~=B.Effect and not Known.is_known(recorded[i]) then return false end
-    end
-    return true
+    return analysis~=nil and analysis:call_was_folded(block_id,position)
 end
 
 -- Resolve a belt reference to the C expression holding that output.
@@ -285,22 +279,26 @@ function Emitter:instruction(block,block_id,index,instruction)
             self:ref(block,block_id,position,operation.value))
         declare(0,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
     elseif B.CallFunction:isclassof(operation) then
-        if self:folded_call(self.current_id,block_id,position,instruction) then return statement_list(out) end
+        if self:folded_call(self.current_id,block_id,position) then return statement_list(out) end
         local callee=self.functions[operation.target]
         -- The callee's effect parameter is not part of its C signature.
-        local arguments=self:arglist(block,block_id,position,operation.arguments)
+        local call=C.Call(C.Name(self:function_name(operation.target)),
+            self:arglist(block,block_id,position,operation.arguments))
         local type_,count=self:return_shape(callee.signature.results)
+        -- A call the evaluator answered but kept still happens, even when every result it
+        -- returns is a constant: the answer replaces the *uses*, not the call. Only the
+        -- declaration is dropped, never the evaluation.
         if count==0 then
-            out[#out+1]=C.Evaluate(C.Call(C.Name(self:function_name(operation.target)),arguments))
+            out[#out+1]=C.Evaluate(call)
         elseif count==1 then
-            declare(0,instruction.results[1],C.Call(C.Name(self:function_name(operation.target)),arguments))
+            if known(0) then out[#out+1]=C.Evaluate(call) else declare(0,instruction.results[1],call) end
         else
             local temporary=self:value(block_id,index,'t')
-            out[#out+1]=C.Declare(type_,temporary,C.Call(C.Name(self:function_name(operation.target)),arguments))
+            out[#out+1]=C.Declare(type_,temporary,call)
             local output=0
             for _,result in ipairs(instruction.results) do
                 if result~=B.Effect then
-                    declare(output,result,C.Field(C.Name(temporary),'r' .. output))
+                    if not known(output) then declare(output,result,C.Field(C.Name(temporary),'r' .. output)) end
                     output=output+1
                 end
             end
