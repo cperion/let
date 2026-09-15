@@ -24,19 +24,22 @@ module Syntax {
          | Return(Expr? value) | Discard(Expr value)
          | If(Expr condition, Stmt* yes, Stmt* no)
          | While(Expr condition, Stmt* body)
+         | Switch(Stmt* body)
          attributes (Source.Span span)
 }
 module Semantic {
     Capability = Read | Mut | Own | OwnMut
-    Shape = Int | Bool | Unit | Resource(string name, string destructor) unique
+    Shape = Int | Bool | Unit | Unknown | Resource(string name, string destructor) unique
+          | Executable(Signature? signature, Capability* capabilities) unique
     Value = Scalar(Shape shape, Evaluation.Atom atom) | Word(number id, Value* bound) | Host(number id)
     Binding = (Value value, boolean mutable, Capability? capability)
     Signature = (Shape* parameters, Shape result) unique
     ActivationField = DataField(Shape shape) | WordField(number word, number supplied) | HostField(number host)
+                    | ContinuationField(Shape shape)
         attributes (string name, Capability capability, Source.Span span)
 }
 module Analysis {
-    Value = Scalar(number type) | Word(number id, number supplied) | Host(number id)
+    Value = Scalar(number type) | Word(number id, number supplied) | Host(number id) | Partial(number type, number supplied)
 }
 module Evaluation {
     Atom = Bits(number hi, number lo) | Truth(boolean value) | Nothing unique
@@ -45,6 +48,7 @@ module Evaluation {
           | Place(Semantic.Shape shape, number id)
           | Resource(Semantic.Shape shape, Residual.Expr expression, number? owner, boolean fresh)
           | Word(number id, Value* bound) | Host(number id)
+          | Identity(number id, number supplied, boolean host)
     Flow = Continue | Returned(Value value) | Stopped
 }
 module Residual {

@@ -15,6 +15,6 @@ let sum_to =
         return sum_to(n - 1, acc + n)
     end
 
-let sum_from_zero = sum_to with 1_000_000
+let sum_from_zero = sum_to 1_000_000
 let answer = do return factorial(5) + sum_from_zero(0) end
 

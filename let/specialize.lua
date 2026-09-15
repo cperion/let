@@ -4,9 +4,36 @@ local A,E,S,C,L=V.Syntax,V.Evaluation,V.Semantic,V.Residual,V.List
 local D=require('let.domain')
 local Program=require('let.program')
 local M={}
+local fail=require('let.lexer').fail
+function E.Value:static_packet() return false end
+function E.Known:static_packet() return true end
+function E.Identity:static_packet() return true end
+function E.Identity:abi() return nil end
+function E.Identity:key() return (self.host and 'host:' or 'word:') .. self.id .. ':' .. self.supplied end
+function E.Identity:same(other) return E.Identity:isclassof(other) and self.id==other.id and self.supplied==other.supplied and self.host==other.host end
+function E.Value:pack_continuation(values) values:insert(self) end
+function E.Word:pack_continuation(values,depth)
+    depth=depth or 0
+    if depth>=16 then error('continuation capture depth exceeds the static closure profile',0) end
+    values:insert(E.Identity(self.id,#self.bound,false))
+    for _,value in ipairs(self.bound) do value:pack_continuation(values,depth+1) end
+end
+function E.Host:pack_continuation(values) values:insert(E.Identity(self.id,0,true)) end
+function E.Value:unpack_continuation() return self end
+function E.Identity:unpack_continuation(next_value)
+    if self.host then return E.Host(self.id) end
+    local bound=L()
+    for _=1,self.supplied do bound:insert(next_value():unpack_continuation(next_value)) end
+    return E.Word(self.id,bound)
+end
+local function layout(p)
+    local parts={tostring(#p)}
+    for i,slot in ipairs(p) do if slot.known and E.Identity:isclassof(slot.known) then parts[#parts+1]=i .. '=' .. slot.known:key() end end
+    return table.concat(parts,'|')
+end
 local function pattern(values)
     local p={}
-    for i,value in ipairs(values) do p[i]={known=E.Known:isclassof(value) and value or false,shape=value.shape,pointer=E.Place:isclassof(value),type=value:abi()} end
+    for i,value in ipairs(values) do p[i]={known=value:static_packet() and value or false,shape=value.shape,pointer=E.Place:isclassof(value),type=value:abi()} end
     return p
 end
 local function key(word,p) local parts={tostring(word)}; for _,slot in ipairs(p) do parts[#parts+1]=slot.known and slot.known:key() or '?' end; return table.concat(parts,'|') end
@@ -21,10 +48,10 @@ local function widen(p,ancestors)
 end
 function Program:helper(word,p)
     local k=key(word,p); if self.helpers[k] then return self.helpers[k] end
-    local variants={}; for _,item in ipairs(self.queue) do if item.word==word then variants[#variants+1]=item end end
+    local variants={}; for _,item in ipairs(self.queue) do if item.word==word and layout(item.pattern)==layout(p) then variants[#variants+1]=item end end
     if #variants>=self.specialization_limit then p=widen(p,variants); k=key(word,p); if self.helpers[k] then return self.helpers[k] end end
     self.next_function=self.next_function+1
-    local item={word=word,pattern=p,id=self.next_function,key=k,name='letbody_' .. word .. '_' .. (#variants+1)}
+    local item={word=word,pattern=p,id=self.next_function,key=k,name='letbody_' .. word .. '_' .. (#self.queue+1)}
     self.helpers[k]=item; self.queue:insert(item); return item
 end
 function E.Value:evaluate() return self end
@@ -37,7 +64,9 @@ function S.DataField:pack(ctx,value,values)
         values:insert(ctx:freeze(ctx.state.owners[assert(value.owner)])); ctx:take(value)
     end
 end
-function S.WordField:pack(_,value,values) for _,bound in ipairs(value.bound) do values:insert(bound) end end
+function S.WordField:pack(_,value,values) for _,bound in ipairs(value.bound) do bound:pack_continuation(values) end end
+function S.ContinuationField:pack(_,value,values) value:pack_continuation(values) end
+function S.ContinuationField:unpack(_,next_value) return next_value():unpack_continuation(next_value) end
 function S.HostField:pack() end
 function S.DataField:unpack(ctx,next_value)
     local value=next_value()
@@ -49,7 +78,10 @@ function S.DataField:unpack(ctx,next_value)
     if self.capability==S.OwnMut then return ctx:cell(self.shape,value) end
     return value
 end
-function S.WordField:unpack(_,next_value) local bound=L(); for _=1,self.supplied do bound:insert(next_value()) end; return E.Word(self.word,bound) end
+function S.WordField:unpack(_,next_value)
+    local bound=L(); for _=1,self.supplied do bound:insert(next_value():unpack_continuation(next_value)) end
+    return E.Word(self.word,bound)
+end
 function S.HostField:unpack() return E.Host(self.host) end
 local function globals(def)
     local env={}; for name,binding in pairs(def.env) do env[name]=binding.value:evaluation() end
@@ -57,6 +89,15 @@ local function globals(def)
 end
 local function scope() return {owners={}} end
 function M.install(Context)
+    function E.Value:bind_stage(callee,args,cap)
+        if cap==S.Mut then return self end
+        if cap:is_owned() and not self.shape:is_copy() then local value=args:take(self); return callee:adopt(value.shape,value:code()) end
+        if cap==S.OwnMut then return callee:cell(self.shape,self) end
+        if E.Resource:isclassof(self) then return E.Resource(self.shape,self.expression,nil,false) end
+        return self
+    end
+    function E.Word:bind_stage() return self end
+    function E.Host:bind_stage() return self end
     local function decoded(ctx,slot,expression)
         if slot.pointer then
             local place=C.Deref(slot.shape:ctype(),expression)
@@ -81,11 +122,7 @@ function M.install(Context)
         for _,item in ipairs(def.chain.items) do item:prepare(callee,function(stage)
             ordinal=ordinal+1; local value=self.bound[ordinal] or arguments[ordinal-#self.bound]:evaluate(args)
             if args.terminated then return nil end
-            if stage.capability==S.Mut then return value end
-            if stage.capability:is_owned() and not value.shape:is_copy() then value=args:take(value); return callee:adopt(value.shape,value:code()) end
-            if stage.capability==S.OwnMut then return callee:cell(value.shape,value) end
-            if E.Resource:isclassof(value) then return E.Resource(value.shape,value.expression,nil,false) end
-            return value
+            return value:bind_stage(callee,args,stage.capability)
         end)
             if args.terminated or callee.terminated then caller.terminated=true; return nil,args end
         end
@@ -99,7 +136,12 @@ function M.install(Context)
         local p=pattern(values); local k=key(self.id,p); local ancestors,candidate={},nil
         local cached=caller.program.constants[k]
         if cached then caller.program.cache_hits=(caller.program.cache_hits or 0)+1; return cached end
-        for _,entry in ipairs(caller.fn.active) do if entry.word==self.id then ancestors[#ancestors+1]=entry; if entry.key==k then candidate=entry end end end
+        local contexts=0
+        for _,entry in ipairs(caller.fn.active) do if entry.word==self.id then
+            contexts=contexts+1
+            if layout(entry.pattern)==layout(p) then ancestors[#ancestors+1]=entry; if entry.key==k then candidate=entry end end
+        end end
+        if not candidate and contexts>=32 then fail(def.chain.span,'recursive continuation capture structure exceeds the static closure profile') end
         if not candidate and #ancestors>0 and (#ancestors>=caller.program.specialization_limit or caller.program.fuel==0) then
             p=widen(p,ancestors); k=key(self.id,p)
             for _,entry in ipairs(ancestors) do if entry.key==k then candidate=entry end end

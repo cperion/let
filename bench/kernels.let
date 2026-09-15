@@ -1,12 +1,12 @@
 // Small code-quality probes. All timed entries take one Int and return Int.
 let multiply = let a : Int; let b : Int; do return a * b end
-let pending = multiply with 6 with 7
+let pending = multiply 6 7
 let constant = let ignored : Int; do return pending() end
 
 let affine_template = let scale : Int; let bias : Int; let value : Int; do
     return scale * value + bias
 end
-let affine = affine_template with 3 with 7
+let affine = affine_template 3 7
 
 let sum_loop = let n : Int; do
     let i mut = 0

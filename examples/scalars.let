@@ -19,6 +19,6 @@ let multiply =
     let y : Int
     do return x * y end
 
-let double = multiply with 2
+let double = multiply 2
 let answer = do return double(21) end
 

@@ -3,7 +3,7 @@ local S, List = V.Source, V.List
 local Lexer = {}
 Lexer.__index = Lexer
 local keywords = {}
-for word in ('let with do end own mut move return if else while and or not true false'):gmatch('%S+') do
+for word in ('let do end own mut move return if else while switch case and or not true false'):gmatch('%S+') do
     keywords[word] = true
 end
 function Lexer.new(text, file)
@@ -25,7 +25,7 @@ end
 function Lexer:next()
     while true do
         local c = self.text:sub(self.pos, self.pos)
-        if c == ' ' or c == '\t' or c == '\r' then self:take(1)
+        if c:match('%s') then self:take(1)
         elseif self.text:sub(self.pos, self.pos + 1) == '//' then
             while self.pos <= #self.text and self.text:sub(self.pos, self.pos) ~= '\n' do self:take(1) end
         else break end
@@ -33,7 +33,6 @@ function Lexer:next()
     local span, rest = self:span(), self.text:sub(self.pos)
     if rest == '' then return S.Token('eof', '', span) end
     local c = rest:sub(1, 1)
-    if c == '\n' then return S.Token('newline', self:take(1), span) end
     local name = rest:match('^[A-Za-z_][A-Za-z_0-9]*')
     if name then return S.Token(keywords[name] and name or 'name', self:take(#name), span) end
     if c:match('[0-9]') then
@@ -48,7 +47,7 @@ function Lexer:next()
     local two = rest:sub(1, 2)
     if two == '<=' or two == '>=' or two == '==' or two == '!=' then return S.Token(two, self:take(2), span) end
     if c:match('[=;(),{}:+*/%%<>%-]') then return S.Token(c, self:take(1), span) end
-    if c == '"' then Lexer.fail(span, 'Text is not supported by the scalar bootstrap yet') end
+    if c == '"' then Lexer.fail(span, 'Text is not supported by the compiler yet') end
     Lexer.fail(span, 'unexpected character ' .. string.format('%q', c))
 end
 function Lexer:scan()

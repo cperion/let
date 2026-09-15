@@ -8,11 +8,11 @@ let choose = let flag : Bool; let x : Int; do
     if flag do return x * 6 end
     return x * 7
 end
-let pending = choose with true
+let pending = choose true
 let folded = do return pending(7) end
 let affine = let x : Int; do return 3 * x + 7 end
 let effect = let x : Int; do let ignored = tick(x); return x + 1 end
-let delayed = effect with 41
+let delayed = effect 41
 let bump = let x mut : Int; do x = x + 1; return x end
 let alter = let x own mut : Int; do x = x + 1; return x end
 let owned_copy = do return alter(41) end

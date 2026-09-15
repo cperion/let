@@ -23,8 +23,8 @@ let divide = let a : Int; let b : Int; do return a / b end
 let modulo = let a : Int; let b : Int; do return a % b end
 let negate = let a : Int; do return -a end
 let less = let a : Int; let b : Int; do return a < b end
-let double = multiply with 2
-let pending = multiply with 6 with 7
+let double = multiply 2
+let pending = multiply 6 7
 let answer = do return pending() end
 let minimum = do return -9_223_372_036_854_775_808 end
 let maximum = do return 0x7fff_ffff_ffff_ffff end
@@ -46,7 +46,7 @@ end
 let snapshot = do
     let x mut = 2
     let copied = x
-    let scaled = multiply with x
+    let scaled = multiply x
     x = 100
     return copied + scaled(20)
 end
@@ -63,7 +63,7 @@ let local_after = do
     return x + y
 end
 let choose = let x : Bool; do
-    if x do return 42 end else do return 7 end
+    if x do return 42 else return 7 end
 end
 let sum = let n : Int; do
     let i mut = 0
@@ -195,15 +195,15 @@ rejects('let x = do return x() end', 'cannot resolve recursive return shape')
 rejects('let x = do return y() end\nlet y = do return 42 end', 'unknown name')
 rejects('let f = let a : Int; do return a end\nlet x = do return f() end', 'exactly saturate')
 rejects('let f = let a : Int; do return a end\nlet x = do return f(1,2) end', 'exactly saturate')
-rejects('let f = do return 1 end\nlet x = f with 1', 'oversaturated')
+rejects('let f = do return 1 end\nlet x = f 1', 'oversaturated')
 rejects('let x = do let a = 1; return a() end', 'invocation requires')
-rejects('let x = do let a = 1; return a with 2 end', 'specialization requires')
-rejects('let f = let a : Int; let b : Int; do return a end\nlet x = f 1 with 2', 'mixed specialization')
+rejects('let x = do let a = 1; return a 2 end', 'specialization requires')
+rejects('let f = let a : Int; let b : Int; do return a end\nlet x = f with 2', 'unknown name with')
 rejects('let x = do if true do return 1 end end', 'inconsistent return shapes')
 rejects('let x = do return 1; return 2 end', 'unreachable statement')
 rejects('let x = let a; do return a end', 'require Int, Bool, or Unit annotations')
 rejects('let x = let a = 1; do return a end', 'initial construction preludes')
 rejects('let x = do let f = do return 1 end; return f() end', 'local word construction')
-rejects('let x = let a : Int; let p = a + 1; do return p end\nlet y = x with 1', 'persistent specialization with preludes')
+rejects('let x = let a : Int; let p = a + 1; do return p end\nlet y = x 1', 'persistent specialization with preludes')
 print(('passed %d compiler checks (native -O0/-O2 + UBSan + diagnostics)'):format(cases))
 

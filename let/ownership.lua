@@ -10,7 +10,7 @@ O:Extern('Span', function(x) return V.Source.Span:isclassof(x) end)
 O:Define [[
     Mode = Copy | Fresh | ReadBorrow | MutBorrow | Transfer
     Value = Data(Shape shape, Mode mode, number? origin)
-          | Word(number id, number supplied) | Host(number id)
+          | Word(number id, number supplied) | Host(number id) | Callback(Shape shape, number supplied)
     Binding = (number id, string name, Value value, Capability capability, boolean external, Span span)
 ]]
 local Checker = {}
@@ -51,6 +51,12 @@ function O.Data:read(ctx, binding, span)
 end
 function O.Word:read() return self end
 function O.Host:read() return self end
+function O.Callback:read() return self end
+function O.Value:executable() return self end
+function O.Data:executable(span) fail(span,'expected Executable word') end
+function O.Callback:data(span) fail(span,'expected data, got continuation word') end
+function S.Shape:ownership_parameter() return O.Data(self,self:is_copy() and O.Copy or O.ReadBorrow) end
+function S.Executable:ownership_parameter() return O.Callback(self,0) end
 function O.Data:data() return self end
 function O.Word:data(span) fail(span, 'expected data, got word') end
 function O.Host:data(span) fail(span, 'expected data, got host word') end
@@ -69,7 +75,7 @@ end
 function Context:statements(statements)
     local live = true
     for _, statement in ipairs(statements) do
-        if not live then fail(statement.span, 'unreachable statement is not supported in this slice') end
+        if not live then fail(statement.span, 'unreachable statement is not yet accepted by the compiler') end
         live = statement:own(self)
     end
     return live
@@ -120,7 +126,9 @@ function O.Word:specialize(ctx, argument, span)
     local stage = definition.stages[self.supplied + 1]
     if not stage then fail(span, 'oversaturated specialization') end
     if stage.capability == S.Mut then fail(span, 'persistent mutable borrow is forbidden') end
-    local value = argument:data(span)
+    local shape=definition.signature.parameters[self.supplied+1]
+    local value
+    if S.Executable:isclassof(shape) then argument:executable(span); value=O.Data(shape,O.Copy) else value=argument:data(span) end
     if not value.shape:is_copy() or stage.capability == S.OwnMut then fail(span, 'persistent owned resource or mutable word state is not supported yet') end
     return O.Word(self.id, self.supplied + 1)
 end
@@ -128,13 +136,16 @@ function A.Specialize:own(ctx)
     local word = self.word:own(ctx)
     return word:specialize(ctx, self.argument:own(ctx), self.span)
 end
-function Context:call(stages, supplied, result, arguments, span, tail)
+function Context:call(stages, supplied, result, arguments, span, tail, shapes)
     if #arguments + supplied ~= #stages then fail(span, 'invocation must exactly saturate remaining stages') end
     local acquired = {}
     for i, argument in ipairs(arguments) do
         local stage = stages[supplied + i]
         local cap = stage.capability
-        local value = argument:own(self):data(span)
+        local meaning=argument:own(self)
+        local shape=stage.shape or (shapes and shapes[supplied+i])
+        local value
+        if shape and S.Executable:isclassof(shape) then meaning:executable(span); value=O.Data(shape,O.Copy) else value=meaning:data(span) end
         if cap == S.Mut then
             if value.mode ~= O.MutBorrow then fail(argument.span, 'mut stage requires explicit mut argument') end
         elseif value.mode == O.MutBorrow then fail(argument.span, 'mut argument requires a mut stage') end
@@ -162,10 +173,31 @@ function Context:call(stages, supplied, result, arguments, span, tail)
     end
     return O.Data(result, result:is_copy() and O.Copy or O.Fresh)
 end
+function O.Callback:specialize(ctx,argument,span)
+    local sig=self.shape.signature; local index=self.supplied+1
+    if not sig or index>#sig.parameters then fail(span,'oversaturated continuation specialization') end
+    local cap=self.shape.capabilities[index]
+    if cap==S.Mut then fail(span,'persistent mutable borrow is forbidden') end
+    local shape=sig.parameters[index]
+    if S.Executable:isclassof(shape) then argument:executable(span)
+    elseif not argument:data(span).shape:is_copy() or cap==S.OwnMut then fail(span,'persistent owned resource or mutable word state is not supported yet') end
+    return O.Callback(self.shape,index)
+end
+function O.Callback:invoke(ctx,arguments,span,tail)
+    local sig=assert(self.shape.signature,'unresolved invoked continuation')
+    if #self.shape.capabilities~=#sig.parameters then
+        -- Generic declarations defer capability matching until a concrete word is supplied.
+        for _,arg in ipairs(arguments) do arg:own(ctx) end
+        return O.Data(sig.result,sig.result:is_copy() and O.Copy or O.Fresh)
+    end
+    local stages={}
+    for i,shape in ipairs(sig.parameters) do stages[i]={shape=shape,capability=self.shape.capabilities[i]} end
+    return ctx:call(stages,self.supplied,sig.result,arguments,span,tail)
+end
 function O.Data:invoke(_, _, span) fail(span, 'invocation requires a runtime word') end
 function O.Word:invoke(ctx, arguments, span, tail)
     local definition = ctx.checker.program.words[self.id]
-    return ctx:call(definition.stages, self.supplied, definition.signature.result, arguments, span, tail)
+    return ctx:call(definition.stages, self.supplied, definition.signature.result, arguments, span, tail, definition.signature.parameters)
 end
 function O.Host:invoke(ctx, arguments, span, tail)
     local host = ctx.checker.program.hosts[self.id]
@@ -203,6 +235,10 @@ function A.If:own(ctx)
     ctx:merge(yes, yl, no, nl)
     return yl or nl
 end
+function A.Switch:own(ctx)
+    local region=ctx:child(true); local live=region:statements(self.body)
+    ctx:merge(region,live,region,live); return live
+end
 function A.While:own(ctx)
     local before = copy(ctx.initialized)
     self.condition:own(ctx)
@@ -219,7 +255,7 @@ end
 function A.Stage:own_item(ctx, definition, ordinal)
     local shape = definition.signature.parameters[ordinal + 1]
     local borrowed = self.capability == S.Mut or (self.capability == S.Read and not shape:is_copy())
-    ctx:bind(self.name, O.Data(shape, shape:is_copy() and O.Copy or O.ReadBorrow), self.capability, borrowed, self.span)
+    ctx:bind(self.name, shape:ownership_parameter(), self.capability, borrowed, self.span)
     return ordinal + 1
 end
 function A.Prelude:own_item(ctx, _, ordinal) self.binding:own_binding(ctx); return ordinal end

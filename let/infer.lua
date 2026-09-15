@@ -7,7 +7,7 @@ local A, S, I, L = V.Syntax, V.Semantic, V.Analysis, V.List
 local Solver = {}
 Solver.__index = Solver
 function Solver.new(program)
-    return setmetatable({ program = program, cells = {}, results = {}, parameters = {} }, Solver)
+    return setmetatable({ program = program, cells = {}, results = {}, parameters = {}, links = {}, calls = {} }, Solver)
 end
 function Solver:fresh(shape)
     local id = #self.cells + 1
@@ -26,11 +26,16 @@ function Solver:unify(expected, actual, span, message)
     if x.shape and y.shape and x.shape ~= y.shape then
         fail(span, message or ('expected ' .. x.shape.kind .. ', got ' .. y.shape.kind))
     end
+    if (x.shape and y.executable) or (y.shape and x.executable) or (x.data_only and y.executable) or (y.data_only and x.executable) then
+        fail(span, 'expected scalar data, got Executable (continuation constraint mismatch)')
+    end
     y.parent = a; x.shape = x.shape or y.shape
+    x.executable=x.executable or y.executable; x.data_only=x.data_only or y.data_only
+    self:merge_functions(x,y,span)
 end
 function Solver:resolved(id, span)
-    local shape = self.cells[self:root(id)].shape
-    if not shape then fail(span, 'cannot resolve recursive return shape from its uses') end
+    local shape = self:shape(id,span)
+    if not shape:resolved() then fail(span, 'cannot resolve recursive return shape from its uses') end
     return shape
 end
 local Context = {}
@@ -59,6 +64,7 @@ function Context:require(value, shape, span)
 end
 function Context:annotation(value, annotation, span)
     if not annotation then return end
+    if annotation=='Executable' then self.solver:callable(value:argument_type(self.solver,span),span); return end
     local shape = self.solver.program.shapes[annotation]
     if not shape then fail(span, 'unsupported constraint ' .. annotation) end
     self:require(value, shape, span)
@@ -69,13 +75,17 @@ end
 function Context:statements(statements)
     local live = true
     for _, statement in ipairs(statements) do
-        if not live then fail(statement.span, 'unreachable statement is not supported in this slice') end
+        if not live then fail(statement.span, 'unreachable statement is not yet accepted by the compiler') end
         live = statement:infer(self)
     end
     return live
 end
 function S.Scalar:abstract(solver) return I.Scalar(solver:fresh(self.shape)) end
-function S.Word:abstract() return I.Word(self.id, #self.bound) end
+function S.Word:abstract(solver)
+    local span=solver.program.words[self.id].chain.span
+    for i,value in ipairs(self.bound) do solver:unify(solver.parameters[self.id][i],value:abstract(solver):argument_type(solver,span),span) end
+    return I.Word(self.id,#self.bound)
+end
 function A.Integer:infer(ctx) self:parts(false); return ctx:scalar(S.Int) end
 function A.Boolean:infer(ctx) return ctx:scalar(S.Bool) end
 function A.Unit:infer(ctx) return ctx:scalar(S.Unit) end
@@ -103,24 +113,22 @@ function A.Binary:infer(ctx)
     local comparison = op == '<' or op == '<=' or op == '>' or op == '>='
     return ctx:scalar((logical or comparison) and S.Bool or S.Int)
 end
-function I.Scalar:specialize(_, _, span) fail(span, 'specialization requires a word') end
 function I.Word:specialize(ctx, argument, span)
     local parameters = ctx.solver.parameters[self.id]
     if self.supplied == #parameters then fail(span, 'oversaturated specialization') end
-    ctx.solver:unify(parameters[self.supplied + 1], argument:scalar(span), span)
+    ctx.solver:unify(parameters[self.supplied + 1], argument:argument_type(ctx.solver,span), span)
     return I.Word(self.id, self.supplied + 1)
 end
 function A.Specialize:infer(ctx)
     local word = self.word:infer(ctx)
     return word:specialize(ctx, self.argument:infer(ctx), self.span)
 end
-function I.Scalar:invoke(_, _, span) fail(span, 'invocation requires a runtime word') end
 function I.Word:invoke(ctx, arguments, span)
-    if ctx.word == self.id then ctx.solver.program.words[self.id].recursive = true end
+    ctx.solver.calls[#ctx.solver.calls+1]={caller=ctx.word,word=self.id}
     local parameters = ctx.solver.parameters[self.id]
     if self.supplied + #arguments ~= #parameters then fail(span, 'invocation must exactly saturate remaining stages') end
     for i, argument in ipairs(arguments) do
-        ctx.solver:unify(parameters[self.supplied + i], argument:infer(ctx):scalar(span), span)
+        ctx.solver:unify(parameters[self.supplied + i], argument:infer(ctx):argument_type(ctx.solver,span), span)
     end
     return I.Scalar(ctx.solver.results[self.id])
 end
@@ -134,7 +142,11 @@ function A.Body:infer_value(_, span) fail(span, 'local word construction is not 
 function A.Binding:infer_binding(ctx)
     local value = self.value:infer_value(ctx)
     ctx:annotation(value, self.annotation, self.span)
-    if self.mutable then value:scalar(self.span) end
+    if self.mutable then
+        local cell=ctx.solver.cells[ctx.solver:root(value:scalar(self.span))]
+        if cell.executable then fail(self.span,'mutable continuation bindings are not supported') end
+        cell.data_only=true
+    end
     ctx:bind(self.name, value, self.span)
     if ctx.frame then ctx.frame:insert({ name = self.name, value = value, capability = self.mutable and S.OwnMut or S.Own, span = self.span }) end
 end
@@ -155,6 +167,7 @@ function A.If:infer(ctx)
     local yes, no = ctx:child():statements(self.yes), ctx:child():statements(self.no)
     return yes or no
 end
+function A.Switch:infer(ctx) return ctx:child():statements(self.body) end
 function A.While:infer(ctx)
     ctx:require(self.condition:infer(ctx), S.Bool, self.span)
     ctx:child():statements(self.body)
@@ -179,11 +192,14 @@ function Solver:run()
         local parameters = L()
         for _, stage in ipairs(definition.stages) do
             local shape = self.program.shapes[stage.annotation or '']
-            if not shape then fail(stage.span, 'exported remaining stages require Int, Bool, or Unit annotations') end
-            parameters:insert(self:fresh(shape))
+            if stage.annotation and stage.annotation~='Executable' and not shape then fail(stage.span,'unsupported constraint ' .. stage.annotation) end
+            local parameter=self:fresh(shape)
+            if stage.annotation=='Executable' then self:callable(parameter,stage.span) end
+            parameters:insert(parameter)
         end
         self.parameters[id] = parameters
     end
+    for _,export in ipairs(self.program.exports) do export.word:abstract(self) end
     for id, definition in ipairs(self.program.words) do
         local outer = {}
         for name, binding in pairs(definition.env) do outer[name] = binding.value:abstract(self) end
@@ -197,15 +213,41 @@ function Solver:run()
         outer[definition.self_name] = I.Word(id, 0)
         if definition.chain.terminal:infer_body(ctx) then ctx:return_value(ctx:scalar(S.Unit), definition.chain.span) end
     end
+    self:link_suffixes()
     for id, definition in ipairs(self.program.words) do
-        local parameters = L()
-        for _, parameter in ipairs(self.parameters[id]) do parameters:insert(self:resolved(parameter, definition.chain.span)) end
-        definition.signature = S.Signature(parameters, self:resolved(self.results[id], definition.chain.span))
-        definition.frame = definition.frame:map(function(field) return field.value:resolve_field(self, field) end)
+        local parameters=L(); local generic=false
+        for i,parameter in ipairs(self.parameters[id]) do
+            local shape=self:shape(parameter,definition.chain.span)
+            if S.Executable:isclassof(shape) then
+                generic=true
+                if definition.stages[i].capability:is_mutable() then fail(definition.stages[i].span,'mutable continuation stages are not supported') end
+            elseif not definition.stages[i].annotation then fail(definition.stages[i].span,'exported remaining stages require Int, Bool, or Unit annotations') end
+            parameters:insert(shape)
+        end
+        local result=generic and self:shape(self.results[id],definition.chain.span) or self:resolved(self.results[id],definition.chain.span)
+        if S.Executable:isclassof(result) then fail(definition.chain.span,'returned words are not supported yet') end
+        definition.signature=S.Signature(parameters,result)
+        definition.frame=definition.frame:map(function(field) return field.value:resolve_field(self,field) end)
     end
+    self:recursion()
+    local exports=L(); self.program.templates=L()
+    for _,export in ipairs(self.program.exports) do
+        local def=self.program.words[export.word.id]; local native=true
+        for i=#export.word.bound+1,#def.stages do if S.Executable:isclassof(def.signature.parameters[i]) then native=false end end
+        if native then
+            if not def.signature.result:resolved() then fail(export.span,'cannot resolve recursive return shape from its uses') end
+            exports:insert(export)
+        else self.program.templates:insert(export) end
+    end
+    self.program.exports=exports
 end
-function I.Scalar:resolve_field(solver, field) return S.DataField(solver:resolved(self.type, field.span), field.name, field.capability, field.span) end
+function I.Scalar:resolve_field(solver,field)
+    local shape=solver:shape(self.type,field.span)
+    local ctor=S.Executable:isclassof(shape) and S.ContinuationField or S.DataField
+    return ctor(shape,field.name,field.capability,field.span)
+end
 function I.Word:resolve_field(_, field) return S.WordField(self.id, self.supplied, field.name, field.capability, field.span) end
 function I.Host:resolve_field(_, field) return S.HostField(self.id, field.name, field.capability, field.span) end
+require('let.callable').install(Solver)
 return Solver
 

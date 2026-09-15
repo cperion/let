@@ -35,10 +35,10 @@ let swap = let n : Int; let a : Int; let b : Int; do
 end
 let power = let base : Int; let n : Int; let acc : Int; do
     if n == 0 do return acc end
-    let next = power with base
+    let next = power base
     return next(n - 1, acc * base)
 end
-let two_power = power with 2
+let two_power = power 2
 let countdown = let n : Int; do
     if n > 0 do return countdown(n - 1) end
 end
@@ -56,7 +56,7 @@ let mixed = let n : Int; do
     return mixed(n - 1) + 1
 end
 let wrapper = do return factorial(factorial(3)) end
-let partial_fact = factorial with 6
+let partial_fact = factorial 6
 let wrapped_partial = do return partial_fact() end
 let previous = let n : Int; do return factorial(n) end
 let shadow = let shadow : Int; do return shadow end

@@ -12,6 +12,10 @@ function Program.new(options)
 end
 function Program:annotation(value,annotation,span)
     if not annotation then return end
+    if annotation=='Executable' then
+        if not S.Word:isclassof(value) and not S.Host:isclassof(value) then fail(span,'expected Executable word') end
+        return
+    end
     local shape=self.shapes[annotation]; if not shape then fail(span,'unsupported constraint ' .. annotation) end
     if value.shape~=shape then fail(span,'expected ' .. shape.kind .. ', got ' .. (value.shape and value.shape.kind or 'word')) end
 end
@@ -32,10 +36,9 @@ function S.Word:specialize(p,value,span)
     local def=p.words[self.id]
     if def.has_preludes then fail(span,'persistent specialization with preludes is not supported yet') end
     local stage=def.stages[#self.bound+1]; if not stage then fail(span,'oversaturated specialization') end
-    if not value.shape then fail(span,'expected scalar value, got word') end
     p:annotation(value,stage.annotation,span)
     if stage.capability==S.Mut then fail(span,'persistent mutable borrow is forbidden') end
-    if not value.shape:is_copy() or stage.capability==S.OwnMut then fail(span,'persistent owned resource or mutable word state is not supported yet') end
+    if (value.shape and not value.shape:is_copy()) or stage.capability==S.OwnMut then fail(span,'persistent owned resource or mutable word state is not supported yet') end
     local bound=L(); bound:insertall(self.bound); bound:insert(value); return S.Word(self.id,bound)
 end
 function A.Specialize:construct(p) return self.word:construct(p):specialize(p,self.argument:construct(p),self.span) end

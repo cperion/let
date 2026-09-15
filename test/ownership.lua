@@ -44,7 +44,7 @@ let conditional = let flag : Bool; do
     if flag do consume(move a) end
 end
 let reinitialize = do
-    let a mut = new_buffer(1)
+    let a mut = new_buffer(1);
     consume(move a)
     a = new_buffer(2)
 end
@@ -53,11 +53,11 @@ let self_move = do
     a = move a
 end
 let discard = do
-    new_buffer(1)
+    new_buffer(1);
     mark(9)
 end
 let borrow_temporary = do
-    let value = inspect(new_buffer(1))
+    let value = inspect(new_buffer(1));
     mark(9)
     return value
 end
@@ -120,7 +120,7 @@ let prelude_recursive = let n : Int; let p = mark(n); do
     return p + prelude_recursive(n - 1)
 end
 let add = let a : Int; let b : Int; do return a + b end
-let prelude_alias = let n : Int; let add_n = add with n; do
+let prelude_alias = let n : Int; let add_n = add n; do
     if n == 0 do return add_n(0) end
     return add_n(1) + prelude_alias(n - 1)
 end
@@ -130,14 +130,14 @@ let borrow_walk = let n : Int; let value mut : Int; let p = mark(n); do
     return borrow_walk(n - 1, mut value)
 end
 let borrow_caller = do
-    let value mut = 0
-    borrow_walk(3, mut value)
+    let value mut = 0;
+    borrow_walk(3, mut value);
     bump(mut value)
     return value
 end
 let replace_borrowed = let value mut : Buffer; do value = new_buffer(2) end
 let borrowed_owner = do
-    let value mut = new_buffer(1)
+    let value mut = new_buffer(1);
     replace_borrowed(mut value)
     let result = inspect(value)
     return result
@@ -160,19 +160,19 @@ let borrowed_tail = let n : Int; let a mut : Buffer; let p = mark(n); do
     return borrowed_tail(n - 1, mut a)
 end
 let borrowed_tail_caller = do
-    let a mut = new_buffer(0)
+    let a mut = new_buffer(0);
     borrowed_tail(3, mut a)
 end
 let reader = let a : Buffer; do let value = inspect(a); return value end
 let source_borrow_temporary = do
-    let value = reader(new_buffer(1))
+    let value = reader(new_buffer(1));
     mark(9)
     return value
 end
 let return_branch = let condition : Bool; do
     let a = new_buffer(1)
     if condition do
-        let b = new_buffer(2)
+        let b = new_buffer(2);
         consume(move a)
         return 42
     end
@@ -312,7 +312,7 @@ rejects('let f = let a : Buffer; let b own : Buffer; do return 1 end\nlet g = do
 rejects('let f = let flag : Bool; do let a = new_buffer(1); if flag do consume(move a) end; inspect(a) end', 'use after move')
 rejects('let f = do let a = new_buffer(1); while true do consume(move a) end end', 'loop backedge')
 rejects('let f = do let a = new_buffer(1); return a == a end', 'resource equality')
-rejects('let f = let a own : Buffer; do return 1 end\nlet g = do let a = new_buffer(1); let bound = f with move a end', 'persistent owned resource')
-rejects('let f = let a mut : Int; do return a end\nlet g = f with 1', 'persistent mutable borrow')
+rejects('let f = let a own : Buffer; do return 1 end\nlet g = do let a = new_buffer(1); let bound = f move a end', 'persistent owned resource')
+rejects('let f = let a mut : Int; do return a end\nlet g = f 1', 'persistent mutable borrow')
 print(('passed %d ownership/prelude checks (-O0/-O2 + UBSan + exact resource traces)'):format(checks))
 

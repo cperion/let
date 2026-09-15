@@ -9,7 +9,7 @@ let power = let base : Int; let n : Int; do
     if n == 0 do return 1 end
     return base * power(base,n-1)
 end
-let power3 = power with 3
+let power3 = power 3
 let folded_recursive = do return power3(6) end
 let memoized = do return power3(6) + power3(6) end
 let static_store = do
@@ -31,7 +31,7 @@ let same_return = let b : Bool; do if b do return 7 end; return 7 end
 let divide3 = let n : Int; do return n/3 end
 let same_join = let b : Bool; do
     let x mut=0
-    if b do x=7 end else do x=7 end
+    if b do x=7 else x=7 end
     return x
 end
 let change = let x mut : Int; let b : Bool; do
@@ -52,7 +52,7 @@ let grow = let step : Int; let n : Int; do
     if n <= 0 do return step end
     return grow(step+1,n-1)+step
 end
-let grow1 = grow with 1
+let grow1 = grow 1
 let large_loop = do
     let i mut=0
     let sum mut=0
@@ -83,7 +83,7 @@ let conditional_cleanup = let b : Bool; do
 end
 let both_cleanup = let b : Bool; do
     let value=open_box(5)
-    if b do let yes=move value end else do let no=move value end
+    if b do let yes=move value else let no=move value end
 end
 ]]
 local options={resources={Box={destroy='probe_close'}},hosts={

@@ -109,6 +109,12 @@ function A.Discard:evaluate(ctx)
     local value=self.value:evaluate(ctx); if E.Resource:isclassof(value) and value.fresh then ctx:drop(value) end
     return E.Continue
 end
+function A.Switch:evaluate(ctx)
+    local region=ctx:child(true,false); local flow=region:sequence(self.body)
+    ctx.terminated=region.terminated
+    if flow==E.Continue then region:cleanup_scope(region.scope) end
+    ctx.output:insertall(region.output); return flow
+end
 function A.If:evaluate(ctx)
     local condition=self.condition:evaluate(ctx); if ctx.terminated then return E.Stopped end
     local known=condition:known()
@@ -153,6 +159,7 @@ local function scan(statements,ctx,set,shadow)
     for _, statement in ipairs(statements) do statement:footprint(ctx,set,nested) end
 end
 function A.If:footprint(ctx,set,shadow) self.condition:footprint(ctx,set,shadow); scan(self.yes,ctx,set,shadow); scan(self.no,ctx,set,shadow) end
+function A.Switch:footprint(ctx,set,shadow) scan(self.body,ctx,set,shadow) end
 function A.While:footprint(ctx,set,shadow) self.condition:footprint(ctx,set,shadow); scan(self.body,ctx,set,shadow) end
 function A.While:evaluate(ctx)
     -- Bounded static execution. Effects are appended as residual statements, never run.

@@ -1,15 +1,27 @@
 # Let
 
-Let language specification and LuaJIT bootstrap compiler.
+Let language specification and LuaJIT compiler.
 
 The compiler uses constructor-owned ASDL analysis, ownership checking, bounded
-partial evaluation, and direct residual C emission. It implements a supported
-subset, not the complete language specification.
+partial evaluation, and direct residual C emission. Let is defined by its language
+specification; the compiler is an implementation in progress, with outstanding
+features documented in [COMPILER.md](COMPILER.md).
 
 - [Language specification](let-language-specification.md)
 - [Compiler architecture, usage, and limitations](COMPILER.md)
 - [Native benchmarks](bench/README.md)
 - [Third-party notices](THIRD_PARTY.md)
+
+## Surface
+
+Juxtaposition supplies stages; parentheses invoke words. There is no `with` operator.
+Whitespace is insignificant. `let`, `do`, `end`, `if`, `else`, and `return` provide
+structural boundaries; use `;` where adjacent expressions would otherwise run
+together (`f(x); g(y)`, not `f(x) g(y)`). Assignment remains `name = value`.
+
+Structured control keeps its familiar spelling. Continuation words handle alternative
+outcomes without forcing callback plumbing into every statement. See
+[`examples/continuations.let`](examples/continuations.let).
 
 ## Run
 
@@ -24,6 +36,8 @@ luajit test/recursion.lua
 luajit test/ownership.lua
 luajit test/residual.lua
 luajit test/partial.lua
+luajit test/continuations.lua
+luajit test/control.lua
 ```
 
 Set `CC=clang` to run the tests with Clang. Benchmarks use LuaJIT orchestration

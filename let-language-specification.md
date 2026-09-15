@@ -1,11 +1,11 @@
 # Let Core Language Specification
 
-**Version:** 0.6 — editorial separation of language semantics from implementation; language rules unchanged from 0.5
+**Version:** 0.7 — whitespace-independent syntax, juxtaposition specialization, and compact structured control
 
 **Scope:** source syntax, source semantics, ownership, constraints, construction vocabulary, and embedding behavior
 
 **Companion:** [Let-to-Sring implementation contract](let-sring-implementation-contract.md), specified separately and not part of the language semantics
-**Status:** complete bootstrap language profile for review; not yet declared final
+**Status:** Let language specification under active development
 
 ---
 
@@ -23,17 +23,17 @@ The documents have separate jobs:
 
 The companion documents must preserve the language rules here. Their implementation mechanisms do not add source-language rules.
 
-The words **must**, **must not**, **should**, and **may** have their usual specification force. A section labelled **bootstrap profile** fixes the first implementation without claiming that every later profile must use the same library or representation.
+The words **must**, **must not**, **should**, and **may** have their usual specification force. This document defines Let, independently of the current compiler's implementation coverage. Missing compiler features are implementation gaps, not a smaller language; they are tracked in `COMPILER.md`. Deferred language designs are identified explicitly.
 
 Let is a small embeddable, word-oriented language built around five laws:
 
 1. `let` introduces every program binding.
 2. Unsatisfied `let` bindings form a curried word.
-3. `with`—or compact juxtaposition—specializes a word; it does not invoke it.
+3. Juxtaposition specializes a word; it does not invoke it.
 4. Postfix `()` invokes runtime behavior explicitly.
 5. Owned state has one owner; borrowing and movement are visible at binding and use sites.
 
-`with` supplies stable arguments and constructs a new specialized word. The original word remains unchanged. This source-level operation is defined independently of how an implementation represents or executes the result.
+Juxtaposition supplies stable arguments and constructs a new specialized word. An existing receiver remains unchanged. A fresh owned receiver may transfer its state into the result because no earlier receiver owner remains observable. This source-level operation is defined independently of how an implementation represents or executes the result.
 
 ---
 
@@ -45,14 +45,14 @@ Let distinguishes value specialization, runtime invocation, and executable-code 
 
 | Operation | Surface form | Meaning |
 | --- | --- | --- |
-| Specialization | `encoder with JPEG with 90` | Bind stable stages and produce a more specific value or word |
+| Specialization | `encoder JPEG 90` | Bind stable stages and produce a more specific value or word |
 | Invocation | `jpeg(frame)` | Supply transient stages and enter the terminal runtime `do` |
 | Construction control | `if ready do ... end` | Shape the enclosing word's control behavior during construction |
 
 ~~~mermaid
 flowchart TD
     Template["Binding-chain template"]
-    Stable["with / juxtaposition · stable bindings"]
+    Stable["juxtaposition · stable bindings"]
     Word["Residual word or data"]
     Call["Postfix invocation"]
     Runtime["Runtime do body"]
@@ -102,7 +102,7 @@ An expression may read a place to obtain a copyable value or temporary read acce
 
 ### 2.1 Source text
 
-The bootstrap source encoding is UTF-8. Identifiers use ASCII letters, decimal digits, and `_`:
+The source encoding is UTF-8. Identifiers use ASCII letters, decimal digits, and `_`:
 
 ~~~text
 NAME        := [A-Za-z_][A-Za-z0-9_]*
@@ -119,11 +119,11 @@ Names and keywords are case-sensitive. `Int`, `int`, and `INT` are distinct name
 
 `//` begins a line comment outside a string. A comment ends at newline.
 
-Spaces, horizontal tabs, and carriage returns are ignored between tokens. The scanner retains newlines. A newline or `;` is a `SEP` where declarations or statements are expected. Inside `()`, `[]`, or a positional comma list, newlines are normally whitespace; an embedded binding chain, `do` body, or named aggregate still consumes its own newlines as `SEP`. Indentation is presentation only and has no semantic force. An underscore in an integer must occur between two digits; leading, trailing, and repeated underscores are invalid.
+All ASCII whitespace, including newlines, is ignored between tokens. Indentation and line breaks have no grammatical force. A line comment still ends at newline; whitespace inside a literal remains part of that literal's lexical rules. `;` is an explicit separator, needed only where adjacent forms would otherwise be parsed as a single expression. An underscore in an integer must occur between two digits; leading, trailing, and repeated underscores are invalid.
 
 ### 2.2 Literals
 
-The bootstrap grammar recognizes:
+The grammar recognizes:
 
 ~~~text
 true false                    Boolean
@@ -133,17 +133,17 @@ true false                    Boolean
 {}                            empty aggregate / Unit
 ~~~
 
-Underscores may occur between digits and are ignored. `-7` is the unary `-` token applied to the literal `7`; the scanner never folds the sign into the integer token. String escapes are `\\`, `\"`, `\n`, `\r`, `\t`, and `\u{HEX}`. A Unicode escape contains one to six hexadecimal digits and must name a Unicode scalar value. An unescaped newline cannot occur inside a bootstrap string.
+Underscores may occur between digits and are ignored. `-7` is the unary `-` token applied to the literal `7`; the scanner never folds the sign into the integer token. String escapes are `\\`, `\"`, `\n`, `\r`, `\t`, and `\u{HEX}`. A Unicode escape contains one to six hexadecimal digits and must name a Unicode scalar value. An unescaped newline cannot occur inside a string.
 
 ### 2.3 Reserved spellings
 
 The structural spellings are:
 
 ~~~text
-let with do end own mut move return if else while and or not true false
+let do end own mut move return if else while switch case and or not true false
 ~~~
 
-These spellings cannot be used as binding names. `if`, `else`, and `while` are prebound construction-word names in the bootstrap dictionary. They are parsed through their construction descriptors rather than invoked as runtime words. `and`, `or`, and `not` are reserved operator spellings.
+These spellings cannot be used as binding names. `if`, `else`, `while`, `switch`, and `case` are structured control spellings in the language dictionary. They describe inline control regions rather than invoking runtime branch closures. `and`, `or`, and `not` are reserved operator spellings.
 
 The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
 
@@ -151,18 +151,18 @@ The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before t
 
 ## 3. Grammar
 
-This grammar uses `{x}` for repetition, `[x]` for an optional form, and `|` for alternatives. `SEP` is one or more newlines or semicolons where separators are permitted.
+This grammar uses `{x}` for repetition, `[x]` for an optional form, and `|` for alternatives. `SEP` is one or more semicolons. Newlines are never separators. Expressions consume the longest continuation permitted by their expression grammar; optional separators do not authorize an alternative split inside juxtaposition.
 
 ### 3.1 Program and binding chains
 
 ~~~text
 program             := { SEP }
-                       [ top_binding { SEP top_binding } { SEP } ] EOF
+                       { top_binding { SEP } } EOF
 
 top_binding         := "let" NAME completed_qualifiers annotation
                        binding_operator { SEP } binding_value
 
-binding_value       := { chain_item SEP } terminal
+binding_value       := { chain_item { SEP } } terminal
 chain_item          := binding_stage | prelude_binding
 
 binding_stage       := "let" NAME stage_qualifiers annotation
@@ -186,13 +186,13 @@ Qualifier order is canonical: `own mut`. `mut own` is invalid. An initialized bi
 
 A chain item without `=` is an unsatisfied stage. A completed binding inside a chain is a prelude binding. There is no `let ... end` construct.
 
-The right-hand side ends when its terminal form ends. `do ... end` and `{ ... }` are explicitly delimited; a simple terminal expression ends at the surrounding comma, closing delimiter, or declaration separator.
+The right-hand side ends when its terminal form ends. `do ... end` and `{ ... }` are explicitly delimited. A simple terminal expression ends at a comma, closing delimiter, semicolon, or a structural keyword that cannot continue that expression. A following assignment place and `=` also establish a statement boundary. No separator is required between ordinary binding stages or before `do`. If a constraint application and a data terminal would run together, use `;` to delimit them.
 
 ### 3.2 Runtime bodies
 
 ~~~text
 do_block            := "do" { SEP }
-                       [ statement { SEP statement } { SEP } ]
+                       { statement { SEP } }
                        "end"
 
 statement           := local_binding
@@ -200,6 +200,7 @@ statement           := local_binding
                      | return_statement
                      | if_form
                      | while_form
+                     | switch_form
                      | expression
 
 local_binding       := "let" NAME completed_qualifiers annotation
@@ -208,14 +209,24 @@ local_binding       := "let" NAME completed_qualifiers annotation
 assignment          := place "=" { SEP } binding_value
 return_statement    := "return" [ binding_value ]
 
-if_form             := "if" expression do_block
-                       [ { SEP } "else" do_block ]
+region              := { SEP } { statement { SEP } }
+if_form             := "if" expression "do" region
+                       { "else" "if" expression "do" region }
+                       [ "else" region ] "end"
 while_form          := "while" expression do_block
+switch_form         := "switch" expression "do" { SEP }
+                       case_arm { case_arm } [ "else" region ] "end"
+case_arm            := "case" case_label { "," case_label } region
+case_label          := BOOL | [ "-" ] INT
 ~~~
 
 Inside a runtime body, an uninitialized `let name` is invalid. Unsatisfied stages occur only while constructing a binding-chain value.
 
-`else` associates with the nearest unmatched `if` and may begin on the same line as the preceding `end` or after separators. `if` and `while` bodies introduce lexical scopes but not runtime invocation boundaries.
+One `end` closes an entire `if`/`else if`/`else` chain. Each `else if` has a condition followed by `do`; plain `else` starts its arm directly. Nested `if` forms have their own `end`. Line placement is irrelevant. Control arms introduce lexical scopes but not runtime invocation boundaries: `return` exits the enclosing invocation.
+
+Structured control keeps its familiar spelling; it need not be expressed as runtime application of branch closures. Continuation words are the ordinary interface for alternative outcomes, not mandatory plumbing for every statement.
+
+Juxtaposition takes precedence over splitting adjacent expressions. Write `f(x); g(y)` for two expression statements: `f(x) g(y)` is one specialization expression, even across a newline. Likewise, `let x = make(); observe(x)` needs `;`, whereas `let x = make() return x` does not. Assignment lookahead recognizes `place =` as the start of a new statement, not a specialization argument. Bare `return` must end at `;`, `end`, `else`, or `case`; write `return {}` when an explicit Unit result makes the boundary clearer.
 
 ### 3.3 Aggregates
 
@@ -227,7 +238,7 @@ aggregate_literal   := named_aggregate
 empty_aggregate     := "{" { SEP } "}"
 
 named_aggregate     := "{" { SEP }
-                       named_member { SEP named_member } { SEP }
+                       named_member { { SEP } named_member } { SEP }
                        "}"
 named_member        := "let" NAME completed_qualifiers annotation
                        binding_operator { SEP } binding_value
@@ -245,7 +256,7 @@ Precedence from highest to lowest is:
 | Level | Form | Associativity |
 | ---: | --- | --- |
 | 1 | postfix `value.name`, `value[index]`, `word(args...)` | left |
-| 2 | specialization by repeated `with` or juxtaposition | left |
+| 2 | specialization by juxtaposition | left |
 | 3 | prefix `not`, unary `-` | right |
 | 4 | `* / %` | left |
 | 5 | `+ -` | left |
@@ -275,10 +286,6 @@ multiplicative_expression
 prefix_expression    := ("not" | "-") prefix_expression
                      | specialization
 specialization       := postfix_expression
-                        [ with_specialization | bare_specialization ]
-with_specialization  := "with" specialization_argument
-                        { "with" specialization_argument }
-bare_specialization  := specialization_argument
                         { specialization_argument }
 postfix_expression   := primary { postfix_suffix }
 primary              := literal
@@ -309,7 +316,7 @@ An arbitrary compound expression cannot be a juxtaposed argument. Bind it first:
 
 ~~~let
 let next_quality = quality + 1
-let configured = encoder with JPEG with next_quality
+let configured = encoder JPEG next_quality
 ~~~
 
 For the same unambiguous rule, `f -7` is subtraction, not specialization by a negative literal. Bind the negative value first when it is meant to become stable state.
@@ -327,15 +334,15 @@ Canonical parses are:
 | `-f x` | `-(f x)` |
 | `f - 7` | `f - 7` |
 
-Assignment is a statement, not an expression. Chained comparisons and chained assignment are invalid in the bootstrap grammar.
+Assignment is a statement, not an expression. Chained comparisons and chained assignment are invalid.
 
 ### 3.5 Binding, specialization, and invocation surface
 
-`=` completes a binding. `with` specializes a word. Postfix `()` invokes runtime behavior:
+`=` completes a binding. Juxtaposition specializes a word. Postfix `()` invokes runtime behavior:
 
 ~~~let
-let jpeg = encoder with JPEG with 90
-let client = http with base_url with auth
+let jpeg = encoder JPEG 90
+let client = http base_url auth
 
 let encoded = jpeg(frame)
 ~~~
@@ -345,14 +352,14 @@ The forms have these exact meanings:
 | Surface | Meaning |
 | --- | --- |
 | `let x = value` | Completed binding |
-| `word with a with b` | Supply two stable stages |
+| `word a b` | Supply two stable stages |
 | `word(args)` | Transiently saturate and invoke |
 
-Each `with` supplies exactly one specialization argument and uses the same atom/move restrictions already specified above. Assignment remains `place = value`; its statement form is distinct from a `let` binding.
+Each juxtaposed argument supplies one stage and obeys the atom/move restrictions above. Assignment remains `place = value`; its statement form is distinct from a `let` binding.
 
-A specialization chain uses either repeated `with` or bare juxtaposition, not both. Thus `encoder with JPEG with 90` and `encoder JPEG 90` are valid equivalents; `encoder JPEG with 90` is rejected as mixed spelling.
+There is one specialization spelling: juxtaposition. `with` is not a keyword or operator.
 
-The explanatory surface is therefore: `=` says what a binding **is**; `with` says which stable stages are supplied; `()` is what makes a word **do**. Neither specialization spelling changes evaluation order, persistence, ownership, saturation, or invocation: `()` remains the only runtime call boundary.
+The explanatory surface is therefore: `=` says what a binding **is**; juxtaposition supplies stable stages; `()` makes a word **do**. Specialization never implicitly enters a runtime terminal, even when all stages have been supplied.
 
 ---
 
@@ -383,7 +390,7 @@ let factorial =
     end
 ~~~
 
-The self name must not be read by its own initializer or specialization prelude before construction completes. Mutual recursion requires later vocabulary and is outside the bootstrap profile.
+The self name must not be read by its own initializer or specialization prelude before construction completes. Forward declarations for directly named mutual recursion are deferred; continuation arguments may establish indirect recursive cycles.
 
 ### 4.3 Evaluation order
 
@@ -432,9 +439,9 @@ Supplying a stage advances through consecutive completed bindings until the next
 
 An initial prelude before the first stage runs when the outer binding is constructed. A prelude between two stages runs after all stages before it have been supplied.
 
-### 5.2 `with` and juxtaposition
+### 5.2 Juxtaposition
 
-Repeated `with` and compact juxtaposition supply stable bindings without entering a terminal `do`:
+Juxtaposition supplies stable bindings without entering a terminal `do`:
 
 ~~~let
 let add =
@@ -444,13 +451,23 @@ let add =
         return x + y
     end
 
-let add10 = add with 10
-let computation = add with 10 with 20
+let add10 = add 10
+let computation = add 10 20
 ~~~
 
 `add10` still awaits `y`. `computation` is a saturated zero-input runtime word. Neither has executed the body.
 
 Each specialization constructs a new semantic result. In particular, mutable prelude state is never shared between two specialization results unless the program explicitly supplied a shared handle. An implementation may deduplicate a pure stateless representation only when no Let observation, ownership action, or destruction can distinguish it.
+
+The receiver follows these ownership rules:
+
+| Receiver | Specialization |
+| --- | --- |
+| Copy word | Copy its stable values into the new result; leave the original unchanged |
+| Fresh non-copyable word | Transfer its state into the new result |
+| Existing non-copyable word | Requires explicit vocabulary producing an independent copy first |
+
+Specialization must not implicitly consume an existing receiver, share its private mutable state, clone opaque owned resources, or replay already reached preludes. For example, `clone_word(existing) argument` is valid when the declared vocabulary explicitly constructs a fresh independent word. No general clone operation is implied.
 
 If a chain reaches a data terminal, specialization returns that data immediately:
 
@@ -460,7 +477,7 @@ let pair =
     let right
     { left, right }
 
-let p = pair with 10 with 20
+let p = pair 10 20
 ~~~
 
 If another specialization argument remains after a data terminal is produced, normal specialization lookup applies to the produced value. It is an error unless that value is itself a word with a remaining stage.
@@ -472,7 +489,7 @@ If a runtime `do` terminal is reached while specialization arguments remain, spe
 | Next stage | Legal persistent argument |
 | --- | --- |
 | `let x` | A copyable stable value |
-| `let x mut` | None in the bootstrap profile |
+| `let x mut` | None |
 | `let x own` | `move place` or a fresh owned value |
 | `let x own mut` | `move place` or a fresh owned value; the residual binding is writable |
 
@@ -489,8 +506,8 @@ let counter =
         return value
     end
 
-let errors = counter with 0
-let requests = counter with 100
+let errors = counter 0
+let requests = counter 100
 ~~~
 
 Binding `start` reaches and runs `let value mut = start`. `errors` and `requests` therefore own distinct `value` places. Their terminal bodies remain uninvoked.
@@ -498,7 +515,7 @@ Binding `start` reaches and runs `let value mut = start`. `errors` and `requests
 A prelude binding inherits the lifetime of the binding operation that reached it:
 
 - reached by top-level or local construction, it belongs to that constructed word;
-- reached by `with` or juxtaposition, it belongs to the residual specialized word;
+- reached by juxtaposition, it belongs to the residual specialized word;
 - reached while transiently saturating an invocation, it is an invocation local and is destroyed when that invocation exits.
 
 A prelude initializer may contain an explicit invocation, allocation, mutation of already-owned construction state, or host effect. Such effects occur when that prelude is reached. The compiler must not perform them early merely because surrounding values are known. An unrecoverable trap follows §14.2; a recoverable alternative must be represented explicitly with values or continuations.
@@ -520,7 +537,7 @@ A prelude initializer constructs one value and must complete locally. It contain
 - Saturated data terminal: non-executable invocation error.
 - Saturated runtime word: enter its `do` body.
 
-Use `with` or compact juxtaposition when a persistent partial result is intended.
+Use juxtaposition when a persistent partial result is intended.
 
 ### 6.2 Argument and prelude order
 
@@ -570,7 +587,7 @@ return move result
 
 A copyable result is copied. A fresh result is transferred directly. Bare `return` and falling through the end of a runtime body both return Unit.
 
-A `return` inside an inline `if` or `while` region exits the enclosing runtime invocation, not merely that textual region.
+A `return` inside an inline `if`, `while`, or `switch` region exits the enclosing runtime invocation, not merely that textual region.
 
 ### 6.5 Proper tail invocation
 
@@ -623,14 +640,16 @@ map(values,
 
 This constructs and passes an ordinary executable word. It is different from a construction word: `map` receives a runtime value and decides when to invoke it.
 
-### 7.2 Bootstrap construction words
+### 7.2 Structured control
 
-The bootstrap dictionary supplies these construction descriptors:
+The language dictionary supplies these control forms:
 
 ~~~text
-if      one runtime Bool expression + one do region + optional else region
-else    attaches one alternative region to the nearest open if
+if      ordered Bool conditions, one selected arm, optional else
+else    starts an alternative arm in if or switch
 while   one runtime Bool expression + one do region
+switch  one evaluated subject + case arms + optional else
+case    one or more literal labels + one inline arm
 ~~~
 
 The compiler executes the construction word while building the enclosing runtime body. The condition and controlled operations remain runtime code.
@@ -638,7 +657,7 @@ The compiler executes the construction word while building the enclosing runtime
 ~~~let
 if condition do
     yes()
-end else do
+else
     no()
 end
 ~~~
@@ -651,13 +670,28 @@ end
 
 `while` places condition evaluation at the loop head, so it executes before every iteration. No predicate closure is created.
 
+`switch` evaluates its subject exactly once, then executes the arm with an equal label. Labels are Int or Bool literals, including signed integer literals; all labels and the subject must have the same type. Duplicate labels are errors, including numerically equal spellings such as `1` and `0x1`. Case labels are not effectful expressions or patterns.
+
+~~~let
+switch code do
+case 0
+    success()
+case 1, 2
+    retry()
+else
+    failure(code)
+end
+~~~
+
+There is no fallthrough: normal arm completion continues after the switch. With no matching label and no `else`, execution continues after the switch without entering an arm. Covering both Bool values is exhaustive. Each arm has its own lexical scope and follows the ordinary move, borrow, destruction, and enclosing-return rules. Match and pattern captures are deferred, not approximated by case labels.
+
 User-defined source syntax for construction words is deferred. Hosts may register additional construction words with the syntax and construction behavior described in §12. They shape the enclosing word's control behavior without introducing an AST macro language.
 
 ### 7.3 Expression statements
 
 An expression may appear as a statement. Its value is discarded after evaluation. Pure discarded expressions may be diagnosed or eliminated; their effects, traps, moves, and required destruction remain observable.
 
-`break`, `continue`, pattern matching, and exception syntax are not part of the bootstrap profile.
+The designs of `break`, `continue`, matching, and pattern captures are deferred. Let has no exception channel (§14).
 
 ---
 
@@ -682,7 +716,7 @@ A named aggregate exposes exactly its direct named members through static projec
 let rgb = { 255, 128, 32 }
 ~~~
 
-Positional elements initialize left to right and use zero-based indexing. `{}` is the unique empty aggregate and the bootstrap Unit value.
+Positional elements initialize left to right and use zero-based indexing. `{}` is the unique empty aggregate and the Unit value.
 
 ### 8.3 Static projection
 
@@ -701,7 +735,7 @@ A named member declared `mut` is an explicit interior mutable place and may rema
 
 ### 8.4 Positional indexing
 
-`base[index]` evaluates `base`, then `index`. The index must be a non-negative Int less than the known runtime length. An out-of-range index traps in the bootstrap profile. Libraries may provide continuation-based checked lookup.
+`base[index]` evaluates `base`, then `index`. The index must be a non-negative Int less than the known runtime length. An out-of-range index traps. Libraries may provide continuation-based checked lookup.
 
 Indexing a mutable positional place yields a mutable element place. Indexing a read-only value yields a value or read-only view.
 
@@ -725,7 +759,7 @@ Named and positional aggregates have no mandatory header, hash table, metatable,
 
 Every non-copyable value has exactly one owner. The ownership checker is a frontend rule; it does not require reference counts, tracing, hidden retain/release traffic, or runtime borrow objects.
 
-A value's vocabulary declares whether it is **Copy**. `Bool`, `Int`, Unit, and immutable text literals are Copy in the bootstrap profile. A value containing owned state is non-copyable unless its vocabulary explicitly defines a real copy operation.
+A value's vocabulary declares whether it is **Copy**. `Bool`, `Int`, Unit, and immutable text literals are Copy. A value containing owned state is non-copyable unless its vocabulary explicitly defines a real copy operation.
 
 ### 9.2 Bindings and capabilities
 
@@ -753,7 +787,7 @@ For a completed binding `let y = rhs`:
 
 Here **fresh** means a newly produced non-copyable result with no pre-existing source place and exactly one consuming destination in the expression. Freshness is established by the ownership checker, not by a runtime flag.
 
-Reading, moving, or destroying an uninitialized place is a compile-time error. Although the grammar admits `move place`, the bootstrap ownership checker accepts only a whole owning binding as that place. Partial moves out of projected or indexed aggregate storage are deferred.
+Reading, moving, or destroying an uninitialized place is a compile-time error. Although the grammar admits `move place`, the current compiler accepts only a whole owning binding as that place. Support for partial moves out of projected or indexed aggregate storage remains to be implemented.
 
 ### 9.3 Call-site operations
 
@@ -797,7 +831,7 @@ Owned values are destroyed deterministically in reverse successful-initializatio
 
 A moved value is no longer destroyed at its old place. A returned or otherwise transferred value is preserved while the remaining locals are destroyed.
 
-Bootstrap destructors must complete: they cannot trap, suspend, or re-enter Let control. Their concrete work is vocabulary-defined. Pure scalars have no destructor.
+Destructors must complete: they cannot trap, suspend, or re-enter Let control. Their concrete work is vocabulary-defined. Pure scalars have no destructor.
 
 
 ### 9.6 Control-flow ownership state
@@ -844,7 +878,7 @@ let counter =
         return value
     end
 
-let requests = counter with 0
+let requests = counter 0
 ~~~
 
 `value` is initialized once when `start` is supplied, then belongs to `requests`. No closure-conversion syntax, environment object, retain operation, or receiver parameter is visible in the language.
@@ -890,12 +924,12 @@ They are evaluated by the frontend, never invoked as runtime code merely because
 
 A constraint may inspect the frontend-known semantic shape of a value and either accept it or issue a construction diagnostic. It may constrain representation, available vocabulary, Copy status, aggregate members, or executable stages. It does not by itself create a runtime tag, object header, vtable, or dynamic test.
 
-The bootstrap dictionary includes these constraints:
+The language dictionary includes these constraints:
 
 | Constraint | Accepted meaning |
 | --- | --- |
-| `Bool` | Bootstrap Boolean |
-| `Int` | Signed bootstrap integer |
+| `Bool` | Boolean |
+| `Int` | Signed 64-bit integer |
 | `Unit` | Empty aggregate `{}` |
 | `Text` | Immutable UTF-8 text value |
 | `Copy` | A value that may be duplicated with its defined value semantics |
@@ -923,7 +957,7 @@ An explicit tagged runtime representation may be supplied by vocabulary. It is n
 
 ### 12.1 One dictionary, phased entries
 
-Names ultimately resolve to lexical bindings or dictionary entries. A bootstrap dictionary entry declares:
+Names ultimately resolve to lexical bindings or dictionary entries. A dictionary entry declares:
 
 - its name;
 - its phase: runtime, construction, or constraint;
@@ -937,7 +971,7 @@ The phase is part of the entry. A construction or constraint word cannot acciden
 
 ### 12.2 Purity is deliberately small
 
-The bootstrap uses one operational distinction:
+Let uses one operational distinction:
 
 | Purity | Promise |
 | --- | --- |
@@ -959,18 +993,19 @@ A construction word declares which expressions and `do` regions its source form 
 | Region slots | The inline `do` regions accepted by the form |
 | Construction behavior | How those expressions and regions shape the enclosing word |
 
-The bootstrap forms have these meanings:
+The control forms have these meanings:
 
 - `if` evaluates its Bool condition and executes the corresponding region. A false condition with no `else` executes neither region. Normal completion continues after the form.
 - `while` evaluates its Bool condition before every iteration. A true condition executes the body and repeats; a false condition continues after the form.
+- `switch` evaluates its subject once and selects one case arm or its default; no arm falls through into another.
 
 Construction does not execute the conditions or controlled runtime effects. The regions remain inline in the enclosing invocation, with the scope, return, and ownership rules already specified.
 
-Hosts may register another descriptor. Source syntax for defining a construction word in Let itself is deferred; this prevents a hidden macro language from being smuggled into the bootstrap.
+Hosts may register another descriptor. Source syntax for defining a construction word in Let itself is deferred; construction must not become a hidden textual macro language.
 
 ---
 
-## 13. Bootstrap scalar profile
+## 13. Scalar semantics
 
 ### 13.1 Unit and Bool
 
@@ -998,7 +1033,7 @@ Arithmetic is defined exactly:
 
 Division or remainder by zero traps. `INT_MIN / -1` wraps to `INT_MIN`; `INT_MIN % -1` is zero. Signed comparisons implement `<`, `<=`, `>`, and `>=`.
 
-There are no implicit numeric conversions or promotion rules in the bootstrap profile. Later numeric vocabularies use distinct constraints and explicit conversion words.
+There are no implicit numeric conversions or promotion rules. Additional numeric vocabularies use distinct constraints and explicit conversion words.
 
 ### 13.3 Equality
 
@@ -1008,11 +1043,11 @@ Aggregate, word, handle, and owned-resource equality is not implicit. A vocabula
 
 ### 13.4 Text
 
-A bootstrap Text denotes an immutable, module-lifetime UTF-8 byte sequence with a known byte length. It is Copy; this does not require copying its bytes on every binding. Dynamically allocated or host-owned strings use a separately declared vocabulary and ownership contract. The core specifies no concatenation, Unicode indexing, normalization, formatting, or allocation policy.
+A Text literal denotes an immutable, module-lifetime UTF-8 byte sequence with a known byte length. It is Copy; this does not require copying its bytes on every binding. Dynamically allocated or host-owned strings use a separately declared vocabulary and ownership contract. The core specifies no concatenation, Unicode indexing, normalization, formatting, or allocation policy.
 
 ### 13.5 Primitive spelling
 
-The operator spellings in §3.4 resolve to bootstrap dictionary entries. They are not user-overloadable in this profile. Host I/O, allocation, buffers, arenas, and opaque handles are ordinary named vocabulary with explicit constraints, ownership behavior, and purity metadata.
+The operator spellings in §3.4 resolve to language dictionary entries. They are not user-overloadable. Host I/O, allocation, buffers, arenas, and opaque handles are ordinary named vocabulary with explicit constraints, ownership behavior, and purity metadata.
 
 ---
 
@@ -1035,14 +1070,14 @@ let checked_divide =
         return ok(numerator / denominator)
     end
 
-let divide_for_cli = checked_divide with print_value with print_error
+let divide_for_cli = checked_divide print_value print_error
 ~~~
 
 `ok` and `fail` are stable policy in `divide_for_cli`; its two numeric stages remain transient invocation inputs. They are ordinary values, invocation remains explicit, and proper tail transfer prevents a growing call stack. A library may instead return a named aggregate or tagged value; neither representation is privileged by the language.
 
 ### 14.2 Traps
 
-A trap is reserved for an operation whose contract was violated and for which the program did not request a recoverable form. Bootstrap traps include:
+A trap is reserved for an operation whose contract was violated and for which the program did not request a recoverable form. Traps include:
 
 - division or remainder by zero;
 - positional indexing outside the valid range;
@@ -1061,7 +1096,7 @@ Compile-time syntax, name, constraint, phase, ownership, and saturation failures
 
 A source file constructs one module namespace. Its top-level bindings are evaluated in source order during module initialization. Their runtime effects occur at initialization, not during compilation. The file does not run an implicit `main`; an embedding host selects and invokes an exported top-level word after initialization completes.
 
-All top-level names are visible through the module namespace in the bootstrap profile. A later module system may add explicit export control without changing binding semantics.
+All top-level names are visible through the module namespace. A later module system may add explicit export control without changing binding semantics.
 
 Top-level data and specialized words live until module unload. Their owned state is destroyed in reverse successful-construction order when the host unloads the module.
 
@@ -1083,7 +1118,7 @@ This specification fixes source behavior, not an in-memory object model or calli
 
 ### 16.1 Compile-time diagnostics
 
-A conforming bootstrap implementation rejects at least:
+A conforming implementation rejects at least:
 
 | Condition | Phase |
 | --- | --- |
@@ -1109,7 +1144,7 @@ An implementation should attach the diagnostic to the narrowest source span and 
 
 ### 16.2 Runtime checks
 
-Only genuinely runtime information needs a runtime check in the bootstrap core: positional bounds, zero divisor, and contracts of ordered host primitives. A check may be omitted when its failure is proved impossible. A possible and observable failure must not be removed, and checks must preserve the evaluation and effect order specified by the language.
+Only genuinely runtime information needs a runtime check: positional bounds, zero divisor, and contracts of ordered host primitives. A check may be omitted when its failure is proved impossible. A possible and observable failure must not be removed, and checks must preserve the evaluation and effect order specified by the language.
 
 ---
 
@@ -1125,15 +1160,15 @@ let multiply =
         return x * y
     end
 
-let double = multiply with 2
-let pending = multiply with 6 with 7
+let double = multiply 2
+let pending = multiply 6 7
 
 let a = double(21)       // 42
 let b = pending()        // 42
 let c = multiply(6, 7)   // 42
 ~~~
 
-`multiply with 6 with 7` creates a saturated zero-input word. Only `pending()` runs it. The compact spelling `multiply 6 7` has exactly the same meaning.
+`multiply 6 7` creates a saturated zero-input word. Only `pending()` runs it.
 
 ### 17.2 Specialization prelude
 
@@ -1146,7 +1181,7 @@ let affine =
         return scale + twice_bias
     end
 
-let configured = affine with 10 with 16
+let configured = affine 10 16
 let result = configured()       // 42
 ~~~
 
@@ -1177,8 +1212,8 @@ The following assumes host vocabulary `open_buffer`, `write_byte`, and `consume_
 
 ~~~let
 let example = do
-    let buffer mut = open_buffer(1024)
-    write_byte(mut buffer, 0, 42)
+    let buffer mut = open_buffer(1024);
+    write_byte(mut buffer, 0, 42);
     consume_buffer(move buffer)
     // buffer is now uninitialized
 end
@@ -1190,7 +1225,7 @@ No retain, reference count, or implicit copy is inserted.
 
 ## 18. Deliberately deferred features
 
-The bootstrap profile is complete without silently deciding these later extensions:
+These language extensions remain explicitly deferred:
 
 - source-defined construction-word syntax;
 - imports, private exports, and package resolution;
@@ -1211,18 +1246,18 @@ An extension must state its source semantics explicitly. The features above are 
 
 ---
 
-## 19. Bootstrap conformance checklist
+## 19. Conformance checklist
 
-An implementation conforms to this profile only when all of the following hold:
+An implementation conforms to Let only when all of the following hold:
 
 1. Every program binding is introduced by `let`.
 2. `=` completes a binding; a chain `let` without `=` creates a stage.
-3. Repeated `with` (or compact juxtaposition) binds stable stages and never enters `do`.
+3. Juxtaposition binds stable stages and never enters `do`.
 4. Postfix `()` alone invokes runtime behavior.
 5. Prelude bindings fire exactly when the preceding stages become satisfied.
 6. Argument evaluation and prelude firing obey §6.2.
 7. `do` is either a word terminal or an inline construction region.
-8. `if` and `while` are inline control constructions, not runtime predicate closures.
+8. `if`, `while`, and `switch` are inline control constructions, not runtime branch closures.
 9. Projection never invokes and supplies no implicit receiver.
 10. Evaluation order is left to right, with Boolean short-circuiting.
 11. Non-copyable values have one owner and transfer only through a visible move or fresh result.
@@ -1242,7 +1277,7 @@ These tests are normative even if a test harness uses different spelling for the
 
 | Test | Required observation |
 | --- | --- |
-| `let w = multiply with 6 with 7` | Constructs a zero-input word; no terminal-body effect occurs at the binding |
+| `let w = multiply 6 7` | Constructs a zero-input word; no terminal-body effect occurs at the binding |
 | `w()` | Runs the terminal body once and returns `42` |
 | `false and trapping_word()` | Returns `false`; the right operand is not invoked |
 | `true or trapping_word()` | Returns `true`; the right operand is not invoked |
@@ -1276,9 +1311,9 @@ The prelude is reached after the first stage and therefore runs before the secon
 
 ---
 
-## 21. Profile closure and representation independence
+## 21. Semantic closure and representation independence
 
-The bootstrap profile leaves no open semantic choice about token boundaries, expression precedence, stage advancement, invocation, control scope, evaluation order, ownership transfer, borrow lifetime, normal destruction, or primitive integer behavior.
+The specified semantics govern token boundaries, expression precedence, stage advancement, invocation, control scope, evaluation order, ownership transfer, borrow lifetime, normal destruction, and primitive integer behavior. Compiler implementation gaps do not redefine those semantics.
 
 Object layouts, internal compiler data structures, source-map compression, diagnostic presentation, and execution techniques are not language semantics. The host's action after an unrecoverable trap is governed by §14.2.
 
@@ -1293,7 +1328,7 @@ Such choices may change size, speed, and embedding policy. They must not change 
 | Binding stage | An uninitialized `let` in a binding chain, awaiting one supplied meaning |
 | Prelude | A completed `let` between stages; it runs when execution reaches it |
 | Word | A value containing remaining stages, stable state, and a terminal meaning |
-| Specialization | Persistent stage binding by repeated `with` or compact juxtaposition; never terminal-body invocation |
+| Specialization | Persistent stage binding by juxtaposition; never terminal-body invocation |
 | Invocation | Transient saturation followed by entry into runtime `do` |
 | Construction word | Construction-phase word that shapes the enclosing word's control behavior from source expressions and regions |
 | Place | Writable or readable storage named by a binding, projection, or index |

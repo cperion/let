@@ -1,4 +1,4 @@
-# Let-to-C bootstrap: scalars and owned resources
+# Let compiler
 
 Run with LuaJIT and a C compiler. Neither Terra nor CBlock is required.
 
@@ -33,8 +33,13 @@ source -> lexer -> parser -> Let Syntax ASDL
 - `let/vocab.lua`: source, semantic, analysis, and residual ASDL constructors.
 - `let/integer.lua`: shared exact literal validation, including dead source branches.
 - `let/lexer.lua`: tokens with source spans.
-- `let/parser.lua`: recursive descent, precedence, retained separators.
+- `let/parser.lua`: whitespace-independent recursive descent and precedence.
+  Structured control uses one closing `end`; switch sugar creates a hygienic
+  subject binding and conditional arms inside a scoped ASDL `Switch` constructor.
+  Existing inference, ownership joins, partial evaluation, and C branches apply;
+  there are no branch closures or runtime control macros.
 - `let/infer.lua`: signature constraints, recursive result inference, scoped analysis.
+- `let/callable.lua`: structural continuation contracts, saturation, and indirect call edges.
 - `let/ownership.lua`: ASDL ownership meanings and flow-sensitive legality checks.
 - `let/host.lua`: explicit host vocabulary and resource ABI declarations.
 - `let/program.lua`: module construction, checking, and specialization context.
@@ -87,7 +92,7 @@ specialization masks. This is bounded partial evaluation, not maximal optimizati
 dynamic control can still require C slots/labels, and large known computations can
 be residualized when the budget is exhausted.
 
-## Supported
+## Implemented features
 
 - Top-level words with `Int`, `Bool`, `Unit`, or registered resource annotations.
 - `own`, `own mut`, and `mut` stages; visible `move` and mutable-borrow arguments.
@@ -95,18 +100,20 @@ be residualized when the budget is exhausted.
 - Exact signed 64-bit literals, wrapping arithmetic, comparisons, and Booleans.
 - Division/remainder checks and the `INT_MIN / -1` exceptional result.
 - `let`, scalar `mut` locals, assignment, lexical shadowing, `return`.
-- `if`/`else`, `while`, and short-circuit `and`/`or`.
-- Exact invocation saturation and scalar first-order calls.
+- One-`end` `if`/`else if`/`else`, `while`, and short-circuit `and`/`or`.
+- `switch`/`case` over Int and Bool literals: evaluate once, no fallthrough, optional default.
+- Exact invocation saturation, scalar calls, and statically supplied continuation words.
 - Direct recursion, including non-tail calls, and inferred scalar result shapes.
-- Proper self-tail transfers with parallel stage rebinding and bounded native stack.
-- Scalar specialization with `with` or juxtaposition, including saturated words.
+- Proper tail transfers, including continuation-mediated cycles, with parallel rebinding.
+- Juxtaposition specialization, including saturated words and immutable Copy captures.
+- `Executable` stages (also inferred from word uses), forwarding, and host continuations.
 - Top-level literals/aliases and scalar local word aliases/specializations.
 - Transient preludes in stage/argument order, including recursive words.
 - Scalar, resource, borrowed-place, and Copy-word-alias prelude bindings.
 
-Ordinary calls are expanded inline with explicit return continuations. Direct-return
-self calls become block backedges with ordered argument snapshots and simultaneous
-parameter rebinding; no compiler tail-call optimization or `musttail` ABI is required.
+Ordinary calls are expanded inline with explicit return continuations. Tail cycles
+become block backedges with ordered argument snapshots and simultaneous parameter
+rebinding; no compiler tail-call optimization or `musttail` ABI is required.
 Non-tail recursive calls use lazily emitted native helpers and retain the native
 return stack required by those source calls. Preparation evaluates arguments and
 reached preludes in order, then packs all terminal inputs (including prelude state).
@@ -117,13 +124,17 @@ move between stages and preludes cannot introduce a second destructor.
 On a tail transfer, the new packet is prepared first, moved ownership is preserved,
 the old activation is cleaned up, and only then is the new terminal entered.
 On a non-tail call, caller resources remain alive until that caller exits.
-Specialization still supports Copy scalar state on words without preludes.
+Specialization supports Copy scalar and statically identified word state on words
+without preludes. Continuation identities and nested capture layouts are static;
+only dynamic scalar captures enter residual helper ABIs. Widening compares contexts
+with the same closure layout, never turns a word identity into a C function pointer,
+and diagnoses excessive capture depth (16) or active same-word contexts (32).
 
 Result inference establishes scalar signatures before code emission, including when
 a recursive use appears before a base-case return. It does not invent a result shape
 for an unconstrained recursive cycle: `let spin = do return spin() end` is diagnosed
-unless surrounding uses determine the shape. Mutual recursion remains outside the
-language bootstrap profile; later top-level names are still invisible earlier.
+unless surrounding uses determine the shape. Continuation arguments can close
+indirect recursive cycles; later top-level names are still invisible earlier.
 
 Large non-recursive call trees can still produce large C output. Non-tail recursion
 can exhaust the native stack; only tail transfers promise bounded stack usage.
@@ -182,7 +193,7 @@ Read borrows may overlap. Mutable borrows are exclusive, and invocation argument
 borrows remain active while subsequent arguments are evaluated. Moves on only one
 incoming live path make the place unusable after the join. Normal loop backedges
 must restore the initialization state of outer bindings; this is a conservative
-bootstrap check.
+implementation check.
 
 Cleanup is emitted at lexical exits, returns, replacement, and tail transfer.
 Alive flags permit conditional destruction without inspecting moved values.
@@ -190,13 +201,14 @@ Fresh borrowed argument temporaries are destroyed when the invocation returns.
 A trap still skips normal cleanup. There is no reference counting, garbage
 collector, or runtime borrow checker.
 
-## Deliberate limits
+## Implementation gaps
 
-This is **not yet a conforming implementation of the complete Let profile**.
-Unsupported forms produce diagnostics, including:
+The compiler does not yet implement every specified Let feature. These are
+implementation gaps, not a separate language or a reduced definition of Let.
+Currently unsupported forms include:
 
-- higher-order stage arguments, returned words, local word construction;
-- unannotated remaining stages on exported words;
+- returned words, local word construction, and mutable continuation stages;
+- unannotated scalar remaining stages on exported words;
 - persistent specialization retaining resources or mutable owned word state;
 - aggregates other than Unit, projection, indexing, and Text;
 - initial construction preludes and persistent specialization with preludes;
@@ -205,10 +217,20 @@ Unsupported forms produce diagnostics, including:
 - construction/constraint extension descriptors and the MillK/Sring backend.
 
 Top-level scalar data is currently compile-time-only and is not exported through
-a C namespace. The manifest lists callable exports. A word must have one consistent
-scalar return shape; normal fallthrough returns Unit. Unreachable statements are
-currently diagnosed rather than accepted. Keep these restrictions explicit as the
-compiler grows; C representability is not proof of Let ownership legality.
+a C namespace. Words with unsupplied continuation stages remain source templates:
+specialize their policies in Let or call them from scalar entry words. They are not
+listed as C-callable exports. The C manifest never exposes an unspecified callback ABI.
+
+Each source template currently has one inferred callback contract, including stage
+count, argument/result shapes, and capabilities. Answer-type polymorphism is not yet
+supported: use separate templates when callback result types differ. Owned resources
+may transfer into a selected continuation, but persistent resource captures and
+borrowed/mutable closure state remain unsupported. Generic declarations defer unknown
+callback capabilities until concrete word arguments determine their contracts.
+
+A word must have one consistent scalar return shape; normal fallthrough returns Unit.
+Unreachable statements are currently diagnosed rather than accepted. Keep these
+restrictions explicit; C representability is not proof of Let ownership legality.
 
 ## Tests
 
@@ -233,6 +255,16 @@ literal returns, recursive invariant parameters disappear, memoization preserves
 prelude effects, return-state joins preserve mutation, unknown effects invalidate
 escaped cells, bottom values stop evaluation, and only dynamic ownership joins
 introduce alive flags. It also checks that the obsolete implementation files are absent.
+`test/continuations.lua` checks callback erasure before C optimization, dynamic and
+nested Copy captures, partial application of continuation parameters, mutable data
+arguments, host callbacks, exclusive outcome effects, and exact resource handoff
+traces. Native tests run at `-O0`/`-O2`/`-O3`, including a million indirect tail
+transfers under a 256 KiB stack limit. Token-preserving whitespace reflow must emit
+identical C.
+`test/control.lua` checks compact conditional chains, nested arms, switch labels,
+Boolean exhaustiveness, selection effects, arm-local scopes, ownership joins,
+destruction order, loop-carried mutation, and tail transfers at all three levels.
+Match and pattern captures remain deferred language work.
 
 ## Native code-quality probes
 
