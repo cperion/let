@@ -293,12 +293,13 @@ not assumed away by a global mutable-state cache.
    specialization and transient invocation; interior mutable state is returned and
    written back; prelude state carries an explicit retention flag.
 4. **Done for the covered shapes.** Terminal entry, return, bounded self tail retirement and
-   argument-determined (`Executable`) stages work. General recursive and mutual contracts remain.
+   argument-determined (`Executable`) stages work. General recursive contracts remain; directly
+   named mutual recursion is outside the design, so there is no mutual contract to state.
 5. **Done for the covered shapes.** The binding-time evaluator (`let/known.lua`) answers
    producers, demand folds and prunes, and `let/emit.lua` prints C with a direct `TailCall`
-   becoming a `goto`. Remaining: mutual-recursion summaries. An effect-carrying loop is emitted
-   as a loop by decision, not as a gap -- see COMPILER.md, "Deliberately outside".
-   effect-carrying loops, as COMPILER.md records.
+   becoming a `goto`. Nothing is outstanding here: an effect-carrying loop is emitted as a loop,
+   and directly named mutual recursion is outside the design, both by decision -- see COMPILER.md,
+   "Deliberately outside".
 
 Each step may be unfinished while under construction. It must not introduce a competing
 meaning of words or a temporary special-case call path. Reuse the existing scalar/control

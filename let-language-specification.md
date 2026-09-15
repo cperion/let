@@ -389,6 +389,20 @@ let factorial =
 
 The self name must not be read by its own initializer or specialization prelude before construction completes. Forward declarations for directly named mutual recursion are deferred; continuation arguments may establish indirect recursive cycles.
 
+A mutual recursion is therefore written as one self-recursive word that carries which case it is in, or by passing the next word as an argument (a continuation). Both are direct recursion:
+
+~~~let
+let step =
+    let n : Int
+    let parity : Bool
+    do
+        if n == 0 do return parity end
+        return step(n - 1, not parity)
+    end
+let even = let n : Int do return step(n, true) end
+let odd = let n : Int do return step(n, false) end
+~~~
+
 ### 4.3 Evaluation order
 
 Let evaluates observable source operations left to right.

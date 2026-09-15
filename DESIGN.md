@@ -40,8 +40,8 @@ type comes from an annotation, from the argument, or from inference over the bod
 what an untyped stage means.
 
 Subsumes `peek_type`/`peek_result_type`, `options.parameters` special-casing, the self-call result
-workaround, and `typing.lua`. It is where mutual-recursion declarations and full stage inference
-belong.
+workaround, and `typing.lua`. Full stage inference belongs here. A mutual-recursion declaration
+would too, but §18 keeps it deferred and COMPILER.md records why it stays there.
 
 ### Packet
 

@@ -215,12 +215,6 @@ One specified behaviour is not provided:
   the body restores the entry's facts). The rest of §9.2 is implemented, including a bare
   `move place` statement.
 
-One optimization is knowingly absent; the compiler is correct without it:
-
-- **Mutual-recursion summaries.** Mutual recursion itself needs declarations, which §18 defers,
-  so there is no call-graph cycle for the evaluator to reach a fixed point over. Direct
-  recursion is summarized, and a withdrawn cycle is emitted normally.
-
 Demand-driven folding, pruning and specialized ABIs are implemented; [DEMAND.md](DEMAND.md)
 describes them and ARCHITECTURE.md's C-output section states what they deliver. The runtime
 benchmark carries the resource-pressure workload and links; a fresh measurement is
@@ -237,9 +231,14 @@ These are not gaps. The specification fixes no behaviour to implement, or defers
 - Tail invocations that borrow an argument for the call: §6.5 makes this an ownership
   error, and it is reported as one. The same applies to a borrow of a local that cleanup
   would destroy.
-- Mutual recursion beyond what direct recursion needs: §18 defers the declarations. The
-  evaluator's missing piece is an optimization (a fixed point over a strongly connected
-  component), not a behaviour.
+- Directly named mutual recursion. A word value is a closed bundle: a reference to another word
+  copies that word's bundle into the referring word's own. A mutually recursive pair would then
+  need a bundle containing itself, and there is no finite value for it. Sharing or indirecting
+  the environment would give every word an allocation and the borrow rules that follow, which is
+  the cost this design set out to avoid. The computations remain expressible -- a mutual recursion
+  is a state machine, and §4.2's continuation arguments establish indirect cycles, so `even`/`odd`
+  is one self-recursive `step(n, parity)`. The demand evaluator's only missing piece was a fixed
+  point over a call-graph cycle, and with no named cycle there is nothing to reach one over.
 - Unrolling a decidable loop that carries ordered work. The loop is emitted as a loop: the belt is
   the residual program the source expressed, and duplicating side-effecting work is a size/space
   choice the C compiler makes with the whole function in view. No measured case asks for it --

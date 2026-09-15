@@ -494,13 +494,10 @@ The remaining items stop being separate features:
 - **ABIs specialized per argument-knownness pattern**: emit one instance per key instead of
   one function per belt id. A parameter whose seeded answer is a constant is then `constant`
   in that instance and drops out of its signature by the rule that already exists.
-- **SCC fixed points for mutual recursion**: an instance whose key is in progress is simply
-  not foldable, which is what the single-function case already does.
 
 What remains for B is otherwise unchanged:
 
 - specialized ABIs per argument-knownness pattern, with the seeded analysis that implies;
-- SCC fixed points for mutually recursive summaries;
 
 **C — scheduling and sharing. — implemented.**
 A pure producer with several consumers is materialized once and read by name; ordered results
