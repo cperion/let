@@ -80,6 +80,13 @@ a `Text` and requires them to be NUL-terminated (a literal is); `c.text(cstring)
 string at its terminator, and the result is a borrowed view, so the C storage must outlive it.
 No call converts silently.
 
+`CPointer` is an opaque `void*` with no Let operation -- it cannot be dereferenced, indexed,
+compared, or turned into an integer -- so it is passed back to C and released explicitly. A
+foreign word may also declare `ownership = 'owned' | 'borrowed'` and `nullable`, which C's type
+system cannot express; `Vocabulary` validates that both describe a pointer result. The declared
+set is `c.strlen`, `c.strcmp`, `c.atoi`, `c.llabs`, `c.getenv`, `c.puts`, `c.putchar` and
+`c.malloc`/`c.free`/`c.memcpy`/`c.memset`/`c.memcmp` (`libc.lua`).
+
 ### The `c` namespace and a standalone program
 
 The command-line host registers that vocabulary as the **namespace** `c` (`c.puts`, `c.strlen`,
