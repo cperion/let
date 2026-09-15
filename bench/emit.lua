@@ -46,7 +46,10 @@ if compiler == 'v2' then
         for _, field in ipairs(entry.fields) do
             arguments[#arguments + 1] = ('m.r0.f%d.f%d'):format(index, field)
         end
-        arguments[#arguments + 1] = 'n'
+        -- The probe supplies one Int; an entry only takes it when its signature kept that stage,
+        -- since a stage the body never reads is not part of the ABI.
+        if entry.stages > 1 then missing[#missing + 1] = name .. ' (wants ' .. entry.stages .. ' stages)' end
+        for _ = 1, math.min(entry.stages, 1) do arguments[#arguments + 1] = 'n' end
         shim[#shim + 1] = ('int64_t let_%s(int64_t n){ static int started=0; static struct let_ret_1 m;'
             .. ' if(!started){ m=let_module_init(); started=1; } return %s(%s); }')
             :format(name, entry.c_name, table.concat(arguments, ', '))

@@ -708,7 +708,12 @@ function Emitter:report(statistics)
             for i=1,entry.bundle do
                 if self:parameter_live(instance.analysis,belt,1,i+1) then fields[#fields+1]=i-1 end
             end
-            stages=#belt.blocks[1].parameters-1-entry.bundle
+            -- The same rule for the stages: one the body never reads is not in the signature, so
+            -- the host does not supply it. A generic instance never has a *constant* parameter, so
+            -- a stage left out here is one nothing reads.
+            for i=entry.bundle+1,#belt.blocks[1].parameters-1 do
+                if self:parameter_live(instance.analysis,belt,1,i+1) then stages=stages+1 end
+            end
         end
         statistics.entries[#statistics.entries+1]={name=entry.name,id=entry.id,
             c_name=instance and instance.name or nil,fields=fields,stages=stages}

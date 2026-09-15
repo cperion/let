@@ -149,8 +149,17 @@ construction diagnostic rather than a language limitation.
     that looks like a word may be an `Int` on the wire. `let_constant_host` therefore expects a
     struct for a field that holds one.
 
-  So the next step is to report each kept field's belt type alongside its index, which the emitter
-  already knows from the instance's signature, and let the shim pass exactly that.
+  That is done: `statistics.entries` reports each entry's C name, the fields its signature kept and
+  how many stages it takes, and the shim passes exactly those. The benchmark now *runs* -- the
+  kernels compile, link against the driver and the reference, and are compared -- and it immediately
+  found a real bug, which is what it is for:
+
+      gcd(-3): Let=-3, C=-1
+
+  `gcd` returns its input unchanged, because a `mut` stage in a host entry is emitted as a plain
+  `int64_t` (`let_gcd_impl_host(int64_t, int64_t)`) where a place is needed, so the writes the loop
+  makes stay local. A mutable stage's parameter must be a borrow, which is what `host_parameter`
+  asks for and what the entry's *belt* type says; the C signature is where that is being lost.
 
   Neither is a fault in the kernels: both are compiler gaps that the benchmark found by being the
   first program to want a *second* way into the module.
