@@ -96,6 +96,41 @@ local p=field(builder.module_order,'p',ns)
 eq(p.fields[1],10,'positional data terminal, first element')
 eq(p.fields[2],20,'positional data terminal, second element')
 
+-- §15.1 A do terminal is the initialization body: its return is the namespace, and the
+-- preludes stay the module's own state rather than becoming the namespace.
+program,builder=build[[
+let first = mark("a")
+do
+    return { let answer = 42 }
+end
+]]
+ns=module_namespace(program,{mark=function(text) return text end})
+eq(ns.fields[builder.module_exports.answer+1],42,'§15.1 a do terminal returns its namespace')
+
+-- §15.1 New owned state in the namespace would have no unload path, because the host only
+-- destroys the state the initializer returns as the module's own state.
+local box_host={open={symbol='open',phase='runtime',purity='ordered',
+    signature=B.Signature(L{B.Parameter(B.Int,A.Read)},L{B.Named('Box')})}}
+local ok,err=pcall(function()
+    build([[
+let first = open(1)
+do
+    return { let fresh = open(9) }
+end
+]],{hosts=box_host,resources={Box={destroy='close'}}})
+end)
+check(not ok and tostring(err):find('may not construct new owned state'),
+    '§15.1 a do terminal may not construct new owned state')
+ok,err=pcall(function()
+    build([[
+let first = open(1)
+do
+    return { let shown = move first }
+end
+]],{hosts=box_host,resources={Box={destroy='close'}}})
+end)
+check(ok,'§15.1 a do terminal may move an owned prelude into its namespace')
+
 -- §10.2 Private mutable prelude state: two specializations do not share a counter.
 program,builder=build[[
 let counter =

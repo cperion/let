@@ -432,6 +432,9 @@ function Context:finish(value,span)
     if self:borrows(value.type) then
         fail(span,'a word that borrows activation state cannot be returned from the invocation that owns it')
     end
+    -- A module initializer written as a do body returns its namespace from wherever the
+    -- body returns, and every such return must also hand the host the state (§15.1).
+    if self.fn.module_pending then return self.fn.module_pending(self,value,span) end
     self:accept_owned(value,span)
     if self.fn.result then expect(value,self.fn.result,span) else self.fn.result=value.type end
     self:pin(value); self:cleanup(); self.block.exit=B.Return(L{self:ref(value),self:ref(self.effect)}); self:unpin()

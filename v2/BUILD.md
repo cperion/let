@@ -71,6 +71,7 @@ executed by the compiler.
 | §8.4 | Runtime positional indexing | A runtime index selects among the members, which is a chain of comparisons ending in a trap; the members must share one type because the selection produces one value. A constant index, a member name and any constant path are resolved statically. Out of range traps. |
 | §9.4 | Indexed assignment | Writing through a constant or runtime index updates the selected member, reusing the destination-then-right-hand-side order and the same storage rule as a projected assignment. |
 | §9.4 | Assignment through a projected place | The aggregate lives in a place, so the updated record is stored back into that storage. Replacing the cell's value would put a record where its address belongs. |
+| §15.1 | A `do` terminal is the initialization body | Its return is the namespace, and the module's preludes are still the state the host destroys, so every return inside the body is paired with the state record rather than returned as the state. The body's own locals are activation state in their own scope, destroyed by that return; new owned state in the *namespace* would have no unload path, so it is rejected while a prelude moved into the namespace is allowed. |
 | §15.1 | Module state outlives the initializer | A module-lifetime cell is file-scope storage, because a captured word holds its address beyond the initializer's frame. |
 | §§4.1–4.2 | Lexical scope, initializer-before-binding, source self name | Scope maps contain binding IDs; nested scopes may shadow; duplicate same-scope bindings fail. A source self name cannot silently fall back to an outer host word. |
 | §4.3 | Left-to-right observable evaluation | Operands and arguments construct left to right; effect references serialize ordered work. Earlier operand values are pinned across CFG construction. |
@@ -117,9 +118,6 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 
 ## Work still required
 
-- Destruction of word-owned state reached through a `do`-terminal initializer body: the
-  unload function destroys the top-level prelude state, and a body that constructs owned
-  state of its own is not yet covered.
 - Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
   paths, an optional extension, configured roots), but the language fixes none of it, so a
   host with its own layout should pass its own resolver.
@@ -183,8 +181,10 @@ word invocation at module level and through a capture, and the four diagnostics.
 
 `test/native.lua` also covers non-tail self recursion (`factorial`, and `fib` with two
 recursive calls), and module unload: owned top-level state is destroyed in reverse
-successful-construction order, and a written terminal that moves an owned prelude into the
-namespace still destroys it exactly once at its original position.
+successful-construction order; a written terminal that moves an owned prelude into the
+namespace still destroys it exactly once at its original position; and a `do` terminal
+returns its namespace to the host while its own locals are destroyed by that return and its
+preludes are handed over as the state.
 
 `test/place.lua` covers §17.4's canonical ownership example, a mutable stage writing the
 caller's place, an address-taken Copy local, borrowed members and constant and runtime

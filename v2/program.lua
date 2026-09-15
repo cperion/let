@@ -526,9 +526,31 @@ function Builder:build_module()
         ctx:finish_pair(namespace,state,fn.span)
     else
         -- A written do terminal is the initialization body; its return is the namespace.
+        -- The module's preludes are still the module's own state, so the body's return is
+        -- paired with the state record rather than being returned as the state, and the
+        -- same pairing is installed for every return inside the body.
+        ctx.module_preludes={}
+        for _,item in ipairs(file.items) do
+            if A.Prelude:isclassof(item) then ctx.module_preludes[ctx:find(item.binding.name)]=true end
+        end
+        fn.module_pending=function(target,namespace,span)
+            -- The restriction applies to the namespace the body produced; the state record
+            -- is where untouched preludes belong, exactly as for a written terminal.
+            target.module_preludes=nil
+            local state=target:construct_record(values,fields,span)
+            target:finish_pair(namespace,state,span)
+        end
+        -- The body's own locals are activation state, not module state: they live in their
+        -- own scope so that the return destroys them, while the preludes stay retained.
+        ctx:push()
         ctx:statements(file.terminal.statements)
-        if not ctx.block.exit then ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},fn.span),fn.span) end
-        ctx.fn.state=ctx.fn.result
+        if not ctx.block.exit then
+            fn.module_pending(ctx,ctx:emit(B.UnitLiteral,L{B.Unit},fn.span),fn.span)
+        end
+        fn.module_pending=nil
+        ctx.module_preludes=nil
+        if not ctx.block.exit then ctx:pop() end
+        self.module_exports=self:export_map(ctx.fn.result)
     end
     return self:module_function(fn,'__module_init')
 end

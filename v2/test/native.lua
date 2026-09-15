@@ -247,6 +247,28 @@ let r = run()
 eq(output,'open:1\nopen:2\nopen:3\nopen:4\nclose:4\nclose:3\nclose:2\nclose:1\n',
     '§15.1 unload destroys module state in reverse construction order')
 
+-- §15.1 A do terminal is the initialization body: its return is the namespace, while the
+-- module's preludes remain the state the host destroys at unload.
+output=native('unload_do',[[
+let first = open(1)
+let second = open(2)
+do
+    let invisible = open(3);
+    return { let answer = 42 }
+end
+]],[[int main(void){ struct let_ret_1 m = let_module_init(); print_int(m.r0.f0); let_module_unload(m.r1); return 0; }]])
+eq(output,'open:1\nopen:2\nopen:3\nclose:3\n42\nclose:2\nclose:1\n',
+    '§15.1 a do terminal returns its namespace and unloads its prelude state')
+
+output=native('unload_do_view',[[
+let first = open(1)
+let second = open(2)
+do
+    return { let shown = move first }
+end
+]],[[int main(void){ struct let_ret_1 m = let_module_init(); let_module_unload(m.r1); return 0; }]])
+eq(output,'open:1\nopen:2\nclose:2\nclose:1\n','§15.1 a do terminal that moves a prelude still owns it once')
+
 -- A written terminal is a view over the preludes, so a moved owned prelude is still
 -- destroyed once, at its original construction position.
 output=native('unload_view',[[
