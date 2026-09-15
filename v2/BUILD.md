@@ -65,6 +65,7 @@ executed by the compiler.
 | §10.3, §17.3 | Projected word members | A word member is rebuilt from the projected record so its field values belong to the invoked region, which is why `arithmetic.add(40, 2)` works even when the aggregate was captured. |
 | §§15.1–15.2 | File chains, namespace, imports | A file is a chain: top-level `let` forms are its items, and its namespace is the terminal — the named record of its preludes, or a written terminal that chooses the export surface. `import` is a construction-phase dictionary entry whose one slot is a constant `Text` path; the file's preludes are constructed at the import site, its stages are supplied by the following arguments, and the result is its terminal value. Two imports are two specializations, so their state is independent (§5.2), and the namespace is destroyed with the binding the importer gave it. Cycles are diagnosed. |
 | §15.1 | Module unload destroys owned state in reverse | The initializer returns the namespace plus the state record that owns every top-level value in construction order; `let_module_unload` destroys that record. A moved prelude stays at its original position in the state, so a written terminal cannot cause a double destruction or reorder it. |
+| §9.2 | Partial moves | `move place` names a subplace as well as a binding: the moved subplace becomes uninitialized, the aggregate becomes partially initialized, and destruction releases only what still holds a value. A subplace containing the hole cannot be read or moved as a value, while a read *through* it to another subplace is allowed; assigning the hole reinitializes it. The path must be statically known. |
 | §§9.3, 10.1 | Places, borrows, captures | Two type forms, and the difference is ownership. `Allocate` makes an **Address**: an owned cell, part of the owner's state, destroyed with it. `BorrowPlace` makes a **Borrow(pointee, stable)**: temporary access to some place, never owned and therefore never destroyed. A mutable stage is a pointer parameter reached through a borrow; a non-Copy capture is a borrow of the owner's storage, so a captured word and its owner share state. `stable` says whether the place outlives any activation, which is exactly what decides escape — no exemption flags, and no blanket rule. |
 | §8.4 | Runtime positional indexing | A runtime index selects among the members, which is a chain of comparisons ending in a trap; the members must share one type because the selection produces one value. A constant index, a member name and any constant path are resolved statically. Out of range traps. |
 | §9.4 | Indexed assignment | Writing through a constant or runtime index updates the selected member, reusing the destination-then-right-hand-side order and the same storage rule as a projected assignment. |
@@ -123,8 +124,10 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
   host with its own layout should pass its own resolver.
 - Partial moves out of a projected or indexed aggregate path (`move a.b`): a subplace can
   be borrowed, but not yet moved out of.
-- Partial moves out of a projected or indexed path (`move a.b`): a subplace can be borrowed
-  and assigned, but not yet moved out of.
+- Partial moves whose initialization state *diverges* across a control boundary need
+  initialization fixed-point analysis; a uniform state is supported and a divergent one is
+  diagnosed rather than guessed. A run-time path is not a place that can be partially moved
+  (§9.2), so it is rejected by the language rather than by omission.
 - Dynamic positional indexing: a runtime index needs address-taken aggregate storage, so
   only a compile-time index is resolved today.
 - Projection and assignment through a nested path (`a.b.c = ...`), and invoking a
@@ -191,9 +194,10 @@ namespace still destroys it exactly once at its original position.
 
 `test/place.lua` covers §17.4's canonical ownership example, a mutable stage writing the
 caller's place, an address-taken Copy local, borrowed members and constant and runtime
-indices (including a nested path), indexed and projected assignment, the borrow diagnostics,
-and §10.1's shared-state capture with its escape rejections. Native witnesses (`mut_place`,
-`ownership_lend`, `capture`) execute the same cases.
+indices (including a nested path), indexed and projected assignment, partial moves and the
+uninitialized-subplace diagnostics they raise, the borrow diagnostics, and §10.1's
+shared-state capture with its escape rejections. Native witnesses (`mut_place`,
+`ownership_lend`, `capture`, `partial_move`) execute the same cases.
 
 `test/import.lua` covers the implicit namespace, a written terminal, a configurable file,
 word members of an imported namespace, two imports as independent instances, an owned

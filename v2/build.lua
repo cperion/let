@@ -95,11 +95,109 @@ end
 function Context:read(name,span)
     local id,binding,cell=self:binding(name,span)
     if not cell.initialized then fail(span,'use after move or uninitialized binding ' .. name) end
+    -- §9.2: a whole-place read crosses every subplace, so any moved subplace forbids it.
+    if next(cell.moved) then fail(span,'use of a partially initialized aggregate ' .. name) end
+    return self:read_place(id,name,binding,cell,span)
+end
+
+-- Reads a place's contents without deciding whether reading the whole place is legal,
+-- because a projection decides that from the path it names.
+function Context:read_place(id,name,binding,cell,span)
+    if not cell.initialized then fail(span,'use after move or uninitialized binding ' .. name) end
     self:access(id,false,span)
     local value=cell.value
     if binding.address then value=self:ordered(B.Load(self:ref(self.effect),self:ref(value)),binding.type,span) end
     local meaning=copy(value); meaning.origin=id; meaning.mode=binding.type:copyable() and 'copy' or 'borrow'
     return meaning
+end
+
+-- Names are found by search and indices are written by the source, so both describe the
+-- member position: a path key is the sequence of those positions.
+function Context:path_key(type_,steps,span,allow_dynamic)
+    local key,indices='',{}
+    for _,step in ipairs(steps) do
+        local fields=type_.fields
+        if not fields then fail(span,'a partial move requires an aggregate path') end
+        local index
+        if step.name then index=select(1,self:record_field(type_,step.name,step.span))-1
+        elseif step.index then
+            index=step.index
+            if index<0 or index>=#fields then
+                fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
+            end
+        else
+            if allow_dynamic then return nil end
+            gap(step.span,'a partial move needs a statically known path')
+        end
+        key=(key=='' and tostring(index)) or (key .. '.' .. tostring(index))
+        indices[#indices+1]=index
+        type_=fields[index+1].type
+    end
+    return key,indices,type_
+end
+
+-- Two paths conflict when either contains the other: a moved subplace makes every place
+-- that contains it, and every place inside it, unusable until a value is assigned.
+local function contains(outer,inner)
+    if outer==inner or outer=='' then return true end
+    return inner:sub(1,#outer+1)==outer..'.'
+end
+function Context:check_moved(id,key,span)
+    for was in pairs(self.cells[id].moved) do
+        if contains(was,key) or contains(key,was) then
+            fail(span,'use of an uninitialized subplace of ' .. self.fn.bindings[id].name)
+        end
+    end
+end
+function Context:check_readable(id,key,span,intermediate)
+    for was in pairs(self.cells[id].moved) do
+        if was==key or contains(was,key) then
+            fail(span,'use of an uninitialized subplace of ' .. self.fn.bindings[id].name)
+        end
+        if not intermediate and contains(key,was) then
+            fail(span,'use of a partially initialized subplace of ' .. self.fn.bindings[id].name)
+        end
+    end
+end
+-- Assigning a place replaces it whole, so a hole *inside* it is destroyed with it, while a
+-- hole that contains it has no value to write into.
+function Context:check_writable(id,key,span)
+    for was in pairs(self.cells[id].moved) do
+        if was~=key and contains(was,key) then
+            fail(span,'assignment inside an uninitialized subplace of ' .. self.fn.bindings[id].name)
+        end
+    end
+end
+
+function Context:nested_moved(id,key,span)
+    for was in pairs(self.cells[id].moved) do
+        if contains(key,was) then fail(span,'a runtime index over a partially initialized aggregate') end
+    end
+end
+
+-- §9.2: moving out of a subplace leaves it uninitialized and the aggregate partially
+-- initialized, so only that path becomes unusable.
+function Context:take_member(name,steps,span)
+    local id,binding,cell=self:binding(name,span)
+    if not cell.initialized then fail(span,'use after move or uninitialized binding ' .. name) end
+    local key,indices,type_=self:path_key(binding.type,steps,span)
+    self:check_moved(id,key,span)
+    if type_:copyable() then gap(span,'move of Copy members') end
+    if not binding.owned then fail(span,'cannot move from a borrowed stage') end
+    self:access(id,true,span)
+    local value=cell.value
+    if binding.address then
+        value=self:ordered(B.Load(self:ref(self.effect),self:ref(value)),binding.type,span)
+    end
+    local at=binding.type
+    for _,index in ipairs(indices) do
+        at=at.fields[index+1].type
+        value=self:emit(B.LoadField(self:ref(value),index),L{at},span)
+    end
+    local taken=self:ordered(B.Move(self:ref(self.effect),self:ref(value)),type_,span)
+    taken.mode='fresh'; taken.origin=id
+    self.cells[id].moved[key]=true
+    return taken
 end
 function Context:resource(type_,span)
     local r=B.Named:isclassof(type_) and self.fn.resources[type_.name]
@@ -136,7 +234,7 @@ function Context:bind(name,value,mutable,owned,external,address,span)
     self.fn.bindings[id]={name=name,type=type_,mutable=mutable,owned=owned,external=external,
         address=address,span=span,lifetime=self.lifetime or 'activation'}
     scope.names[name]=id; scope.ids[#scope.ids+1]=id
-    self.cells[id]={value=value,initialized=true,alive=owned}; return id
+    self.cells[id]={value=value,initialized=true,alive=owned,moved={}}; return id
 end
 -- Field/parameter scopes mirror lexical shadowing: a later field of the same name
 -- replaces the earlier one in the current region instead of being a duplicate.
@@ -148,7 +246,7 @@ function Context:force_bind(name,value,mutable,owned,external,address,span)
     local type_=address and value.type.pointee or value.type
     self.fn.bindings[id]={name=name,type=type_,mutable=mutable,owned=owned,external=external,address=address,span=span}
     scope.names[name]=id; scope.ids[#scope.ids+1]=id
-    self.cells[id]={value=value,initialized=true,alive=owned}; return id
+    self.cells[id]={value=value,initialized=true,alive=owned,moved={}}; return id
 end
 -- §10.1: a value borrows when its type holds an address, because an address is how a
 -- borrow is represented. Such a value may not leave the activation that owns the storage,
@@ -164,6 +262,7 @@ end
 function Context:take(name,span)
     local id,binding,cell=self:binding(name,span)
     if not cell.initialized then fail(span,'use after move or uninitialized binding ' .. name) end
+    if next(cell.moved) then fail(span,'use of a partially initialized aggregate ' .. name) end
     self:access(id,true,span)
     if binding.type:copyable() then gap(span,'move of Copy bindings') end
     if not binding.owned then fail(span,'cannot move from a borrowed stage') end
@@ -173,7 +272,7 @@ function Context:take(name,span)
         source=self:ordered(B.Load(self:ref(self.effect),self:ref(source)),binding.type,span)
     end
     local value=self:ordered(B.Move(self:ref(self.effect),self:ref(source)),binding.type,span)
-    self.cells[id]={value=cell.value,initialized=false,alive=false}
+    self.cells[id]={value=cell.value,initialized=false,alive=false,moved={}}
     value.mode='fresh'; value.origin=id; return value
 end
 function Context:accept_owned(value,span)
@@ -206,6 +305,13 @@ function Context:interface(endpoints,extras,loop_head)
     for id=1,#self.fn.bindings do if self.cells[id] then
         local base=self.cells[id]; local initialized=true
         for _,e in ipairs(endpoints) do initialized=initialized and e.cells[id].initialized end
+        -- A subplace moved out before the boundary is uninitialized after it.
+        local moved=base.moved
+        for _,e in ipairs(endpoints) do
+            local other=e.cells[id].moved
+            for key in pairs(other) do if not moved[key] then gap(self.fn.bindings[id].span,'a partial move that diverges across a control boundary') end end
+            for key in pairs(moved) do if not other[key] then gap(self.fn.bindings[id].span,'a partial move that diverges across a control boundary') end end
+        end
         local value=parameter(base.value.type,function(e) return e.cells[id].value end)
         local alive=false
         if self.fn.bindings[id].owned then
@@ -216,7 +322,8 @@ function Context:interface(endpoints,extras,loop_head)
                 alive=parameter(B.Bool,function(e) local a=e.cells[id].alive; return type(a)=='boolean' and e:boolean(a,self.fn.bindings[id].span) or a end)
             end
         end
-        target.cells[id]={value=value,initialized=initialized,alive=alive}
+        target.cells[id]={value=value,initialized=initialized,alive=alive,moved={}}
+        for key in pairs(moved) do target.cells[id].moved[key]=true end
     end end
     for i,pin in ipairs(self.pins) do
         local value=parameter(pin.type,function(e) return e.pins[i] end)
@@ -257,19 +364,20 @@ function Context:owns(type_)
     return false
 end
 
-function Context:destroy(value,span)
+function Context:destroy(value,span,moved,prefix)
     local type_=value.type
     if B.Address:isclassof(type_) then
         -- Destroying a place destroys what it contains. A module's owned state lives in
         -- places so that a captured word can borrow it (§10.1).
-        self:destroy(self:ordered(B.Load(self:ref(self.effect),self:ref(value)),type_.pointee,span),span)
+        self:destroy(self:ordered(B.Load(self:ref(self.effect),self:ref(value)),type_.pointee,span),span,moved,prefix)
     elseif B.Named:isclassof(type_) then
         self:ordered(B.Destroy(self:ref(self.effect),self:ref(value),self:resource(type_,span).destroy),nil,span)
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         for index=#type_.fields,1,-1 do
             local field=type_.fields[index]
-            if self:owns(field.type) then
-                self:destroy(self:emit(B.LoadField(self:ref(value),index-1),L{field.type},span),span)
+            local key=(prefix and prefix~='') and (prefix .. '.' .. (index-1)) or tostring(index-1)
+            if not (moved and moved[key]) and self:owns(field.type) then
+                self:destroy(self:emit(B.LoadField(self:ref(value),index-1),L{field.type},span),span,moved,key)
             end
         end
     else
@@ -280,14 +388,14 @@ function Context:release(id)
     local binding,cell=self.fn.bindings[id],self.cells[id]
     if not binding.owned or cell.alive==false then return end
     self:access(id,true,binding.span)
-    self.cells[id]={value=cell.value,initialized=false,alive=false}
+    self.cells[id]={value=cell.value,initialized=false,alive=false,moved={}}
     if cell.alive==true then
         -- For a place, the owned value is the cell's contents, not the address.
         local contents=cell.value
         if binding.address then
             contents=self:ordered(B.Load(self:ref(self.effect),self:ref(contents)),binding.type,binding.span)
         end
-        self:destroy(contents,binding.span)
+        self:destroy(contents,binding.span,cell.moved,'')
     elseif binding.address then
         gap(binding.span,'conditional destruction of an address-taken binding')
     else
@@ -401,9 +509,14 @@ function A.Specialize:build(ctx)
     if not builder then gap(self.span,'word specialization requires a program builder') end
     return builder:specialize(ctx,self)
 end
+local place_path
 function A.Move:build(ctx)
-    if not A.Name:isclassof(self.place) then gap(self.span,'partial moves') end
-    return ctx:take(self.place.name,self.span)
+    if A.Name:isclassof(self.place) then return ctx:take(self.place.name,self.span) end
+    -- §9.2: `move place` may name a subplace. The path must be statically known.
+    local root,steps,reason=place_path(self.place)
+    if not root then gap(self.span,reason or 'this move place') end
+    if not ctx:find(root) then gap(self.span,'moving out of ' .. tostring(root)) end
+    return ctx:take_member(root,steps,self.span)
 end
 -- A compile-time index, or nil when the index is only known at run time. `-7` is a
 -- unary negation of a literal, so both spellings are recognized (§2.2).
@@ -418,7 +531,7 @@ end
 -- A place expression is a root binding plus the path of members that reaches it. Borrowing
 -- `a.b` makes `a` address-taken, which resolution already recorded, so the root is a cell and
 -- the path is walked as field addresses.
-local function place_path(node)
+function place_path(node)
     local steps={}
     local current=node
     while true do
@@ -601,7 +714,16 @@ end
 
 -- §8.3: projection selects a statically known named member and never invokes it.
 function A.Project:build(ctx)
-    local base=self.base:build(ctx)
+    local root,steps=place_path(self)
+    local id=root and ctx:find(root)
+    local key=id and ctx:path_key(ctx.fn.bindings[id].type,steps,self.span,true)
+    if id and key then ctx:check_readable(id,key,self.span,ctx.intermediate) end
+    local base
+    if id and A.Name:isclassof(self.base) then
+        base=ctx:read_place(id,root,ctx.fn.bindings[id],ctx.cells[id],self.span)
+    else
+        ctx.intermediate=true; base=self.base:build(ctx); ctx.intermediate=nil
+    end
     if base.host then gap(self.span,'projection requires a value') end
     local index,field=ctx:record_field(base.type,self.name,self.span)
     local value=ctx:emit(B.LoadField(ctx:ref(base),index-1),L{field.type},self.span)
@@ -619,11 +741,35 @@ end
 -- aggregate is a record with as many members as the source wrote, so this costs as many
 -- comparisons as there are members, and a large runtime array belongs to host vocabulary.
 function A.Index:build(ctx)
-    local base=self.base:build(ctx)
+    local root,steps=place_path(self)
+    local id=root and ctx:find(root)
+    local static=constant_index(self.index)
+    local key
+    if id then
+        if static then
+            key=ctx:path_key(ctx.fn.bindings[id].type,steps,self.span,true)
+            if key then ctx:check_readable(id,key,self.span,ctx.intermediate) end
+        else
+            -- A runtime index reads whichever subplace it names, so the base must be whole.
+            local prefix={}
+            for _,step in ipairs(steps) do
+                if not (step.name or step.index) then break end
+                prefix[#prefix+1]=step
+            end
+            key=ctx:path_key(ctx.fn.bindings[id].type,prefix,self.span,true) or ''
+            ctx:nested_moved(id,key,self.span); ctx:check_readable(id,key,self.span,true)
+        end
+    end
+    local base
+    if id and static and A.Name:isclassof(self.base) then
+        base=ctx:read_place(id,root,ctx.fn.bindings[id],ctx.cells[id],self.span)
+    else
+        ctx.intermediate=true; base=self.base:build(ctx); ctx.intermediate=nil
+    end
     if base.host then gap(self.span,'indexing requires a value') end
     local fields=base.type.fields
     if not fields then fail(self.span,'indexing requires an aggregate value') end
-    local index=constant_index(self.index)
+    local index=static
     if index then
         if index<0 or index>=#fields then
             fail(self.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
@@ -697,9 +843,10 @@ function A.Local:build(ctx) self.binding:build(ctx) end
 -- value would put a record where the cell's address belongs.
 function Context:rebind(id,binding,cell,updated,span)
     if binding.address then
-        self:ordered(B.Store(self:ref(self.effect),self:ref(cell.value),self:ref(updated)),nil,span)
+        self:ordered(B.Store(self:ref(self.effect),self:ref(self.cells[id].value),self:ref(updated)),nil,span)
     else
-        self.cells[id]={value=updated,initialized=true,alive=binding.owned}
+        local current=self.cells[id]
+        current.value=updated; current.initialized=true; current.alive=binding.owned
     end
 end
 
@@ -711,10 +858,12 @@ function A.Assign:assign_index(ctx)
     local id,binding,cell=ctx:binding(place.base.name,self.span)
     if not cell.initialized then fail(self.span,'assignment to uninitialized binding ' .. binding.name) end
     ctx:access(id,true,self.span)
-    local base=ctx:read(place.base.name,self.span)
+    local base=ctx:read_place(id,place.base.name,binding,cell,self.span)
     local fields=base.type.fields
     if not fields then fail(place.span,'indexing requires an aggregate value') end
     local constant=constant_index(place.index)
+    if constant then ctx:check_writable(id,tostring(constant),self.span)
+    else ctx:nested_moved(id,'',self.span) end
     local key
     if constant then
         if constant<0 or constant>=#fields then
@@ -739,8 +888,8 @@ function A.Assign:assign_index(ctx)
     expect(value,element,self.span); ctx:accept_owned(value,self.span)
     ctx:pin(value)
     local function replace(c,at,target)
-        if ctx:owns(element) then
-            c:destroy(c:emit(B.LoadField(c:ref(base),at),L{element},self.span),self.span)
+        if ctx:owns(element) and not (cell.moved[tostring(at)]) then
+            c:destroy(c:emit(B.LoadField(c:ref(base),at),L{element},self.span),self.span,cell.moved,constant and tostring(at) or nil)
         end
         return c:emit(B.StoreField(c:ref(base),at,c:ref(target)),L{base.type},self.span)
     end
@@ -756,7 +905,15 @@ function A.Assign:assign_index(ctx)
         end
         updated=arm(ctx,0)
     end
-    if updated then ctx:rebind(id,binding,cell,updated,self.span) end
+    if updated then
+        ctx:rebind(id,binding,cell,updated,self.span)
+        if constant then
+            local path=tostring(constant)
+            for was in pairs(ctx.cells[id].moved) do
+                if contains(path,was) then ctx.cells[id].moved[was]=nil end
+            end
+        end
+    end
     ctx:unpin(); if key then ctx:unpin() end; ctx:unpin()
 end
 
@@ -766,8 +923,10 @@ function A.Assign:assign_member(ctx)
     local id,binding,cell=ctx:binding(place.base.name,self.span)
     if not cell.initialized then fail(self.span,'assignment to uninitialized binding ' .. binding.name) end
     ctx:access(id,true,self.span)
-    local base=ctx:read(place.base.name,self.span)
+    local base=ctx:read_place(id,place.base.name,binding,cell,self.span)
     local index,field=ctx:record_field(base.type,place.name,self.span)
+    local key=tostring(index-1)
+    ctx:check_writable(id,key,self.span)
     -- §8.3: a member declared mut is an interior mutable place and stays writable through
     -- an immutable owning binding; otherwise the binding itself must be mutable.
     if not (binding.mutable or field.mutable) then
@@ -777,12 +936,15 @@ function A.Assign:assign_member(ctx)
     expect(value,field.type,self.span); ctx:accept_owned(value,self.span)
     ctx:pin(base); ctx:pin(value)
     -- §9.4: the old value is destroyed only once the right-hand side has completed.
-    if ctx:owns(field.type) then
-        ctx:destroy(ctx:emit(B.LoadField(ctx:ref(base),index-1),L{field.type},self.span),self.span)
+    if ctx:owns(field.type) and not cell.moved[key] then
+        ctx:destroy(ctx:emit(B.LoadField(ctx:ref(base),index-1),L{field.type},self.span),self.span,cell.moved,key)
     end
     local updated=ctx:emit(B.StoreField(ctx:ref(base),index-1,ctx:ref(value)),L{base.type},self.span)
     updated.mode='fresh'
     ctx:rebind(id,binding,cell,updated,self.span)
+    for was in pairs(ctx.cells[id].moved) do
+        if contains(key,was) then ctx.cells[id].moved[was]=nil end
+    end
     ctx:unpin(); ctx:unpin()
 end
 
@@ -794,8 +956,12 @@ function A.Assign:build(ctx)
     if not binding.mutable then fail(self.span,'assignment to immutable binding ' .. binding.name) end
     local value=self.value:build(ctx); expect(value,binding.type,self.span); ctx:accept_owned(value,self.span); ctx:access(id,true,self.span)
     ctx:pin(value)
-    if binding.address then ctx:ordered(B.Store(ctx:ref(ctx.effect),ctx:ref(ctx.cells[id].value),ctx:ref(value)),nil,self.span)
-    else ctx:release(id); ctx.cells[id]={value=value,initialized=true,alive=binding.owned} end
+    if binding.address then
+        ctx:ordered(B.Store(ctx:ref(ctx.effect),ctx:ref(ctx.cells[id].value),ctx:ref(value)),nil,self.span)
+        ctx.cells[id].moved={}
+    else
+        ctx:release(id); ctx.cells[id]={value=value,initialized=true,alive=binding.owned,moved={}}
+    end
     ctx:unpin()
 end
 
@@ -823,6 +989,8 @@ function A.While:build(ctx)
         body:pop(); local values={body.effect}
         for id=1,#ctx.fn.bindings do if ctx.cells[id] then
             if body.cells[id].initialized~=ctx.cells[id].initialized then gap(self.span,'loop ownership states that require initialization fixed-point analysis') end
+            for key in pairs(body.cells[id].moved) do if not ctx.cells[id].moved[key] then gap(self.span,'a partial move in a loop requires initialization fixed-point analysis') end end
+            for key in pairs(ctx.cells[id].moved) do if not body.cells[id].moved[key] then gap(self.span,'a partial move in a loop requires initialization fixed-point analysis') end end
             values[#values+1]=body.cells[id].value
             if ctx.fn.bindings[id].owned then local alive=body.cells[id].alive; values[#values+1]=type(alive)=='boolean' and body:boolean(alive,self.span) or alive end
         end end

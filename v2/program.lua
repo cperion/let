@@ -465,7 +465,7 @@ function Builder:invoke(ctx,expression,tail)
                 -- is what lets a captured word share its state with the capture's owner.
                 ctx:ordered(B.Store(ctx:ref(ctx.effect),ctx:ref(ctx.cells[origin].value),ctx:ref(packed)),nil,expression.span)
             else
-                ctx.cells[origin]={value=packed,initialized=true,alive=binding.owned}
+                ctx.cells[origin]={value=packed,initialized=true,alive=binding.owned,moved={}}
             end
         end
         local result=results[1]; result.mode=result.type:copyable() and 'copy' or 'fresh'; result.origin=origin

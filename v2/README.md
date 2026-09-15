@@ -169,7 +169,9 @@ trapping operation rather than becoming a compile-time diagnostic.
   index is a place too: `mut a.b` and `mut a[0]` are reached through a field address, so the
   callee writes the owner's field. A constant index is resolved statically, and a runtime
   index selects among the members with a trap for anything out of range — and in a borrowed
-  path it selects a *place*, so the selection joins field addresses.
+  path it selects a *place*, so the selection joins field addresses. A subplace can also be
+  moved out on its own: the aggregate becomes partially initialized, so the hole cannot be
+  read through and destruction releases only what still holds a value.
 - **Module unload is a generated function.** The initializer returns the namespace and the
   state that owns it; `let_module_unload(state)` destroys that state in reverse successful-
   construction order (§15.1). One owner means a written terminal that moves an owned prelude

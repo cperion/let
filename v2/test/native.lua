@@ -347,6 +347,18 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'60\n','§8.4/§9.4 a runtime index and indexed assignment')
 
+-- §9.2 Moving one subplace out of an aggregate hands that resource to the new binding: one
+-- release per buffer, by whichever binding owns it, and the other members are untouched.
+output=native('partial_move',[[
+let run = do
+    let pair = { let first = open(1) let second = open(2) };
+    let moved = move pair.first;
+    return 0
+end
+let ran = run()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'open:1\nopen:2\nclose:1\nclose:2\n','§9.2 native partial move releases each resource once')
+
 -- §9.3 A runtime index inside a borrowed path selects a place, so the callee writes the
 -- member the index names.
 output=native('dynamic_borrow',[[

@@ -20,10 +20,10 @@ local options={hosts={
 },resources={Buffer={destroy='close_buffer'}}}
 local events={}
 local host_functions={
-    open_buffer=function(n) events[#events+1]='open:'..tonumber(n); return 7 end,
+    open_buffer=function(n) events[#events+1]='open:'..tonumber(n); return tonumber(n) end,
     write_byte=function(a,i,v) events[#events+1]=('write:%d:%d'):format(tonumber(i),tonumber(v)) end,
     consume_buffer=function(b) events[#events+1]='consume:'..tonumber(b) end,
-    close_buffer=function() events[#events+1]='close' end,
+    close_buffer=function(b) events[#events+1]='close:'..tonumber(b) end,
 }
 local function run(source)
     local program=V.parse(source,'place.let'):build(options)
@@ -53,7 +53,7 @@ let example = do
 end
 let r = example()
 ]]
-eq(table.concat(events,','),'open:1024,write:0:42,consume:7','§17.4 a mutable stage receives the caller place')
+eq(table.concat(events,','),'open:1024,write:0:42,consume:1024','§17.4 a mutable stage receives the caller place')
 
 -- §6.3 A mutable stage writes the caller's place, so the change is visible afterwards.
 eq(run[[
@@ -202,6 +202,101 @@ let f = do
 end
 let r = f()
 ]],'needs members of one type','§9.3 a borrowed runtime index over mixed members is rejected')
+
+-- §9.2 Moving out of a subplace leaves that subplace uninitialized and the aggregate
+-- partially initialized: the sibling is unaffected, and each buffer is released once, by
+-- whichever binding owns it when it goes out of scope.
+events={}
+eq(run[[
+let f = do
+    let a = { let b = open_buffer(1) let c = open_buffer(2) };
+    let moved = move a.b;
+    return 0
+end
+let r = f()
+]],0,'§9.2 moving a subplace out of an aggregate')
+eq(table.concat(events,','),'open:1,open:2,close:1,close:2','§9.2 a moved subplace is released exactly once, by its new owner')
+eq(run[[
+let f = do
+    let a = { let b = open_buffer(1) let c = 5 };
+    let moved = move a.b;
+    return a.c
+end
+let r = f()
+]],5,'§9.2 a partially moved aggregate keeps its other subplaces')
+
+rejects([[
+let f = do
+    let a = { let b = open_buffer(1) let c = open_buffer(2) };
+    let moved = move a.b;
+    return a.b
+end
+let r = f()
+]],'uninitialized subplace','§9.2 reading a moved subplace is rejected')
+
+-- Moving or handing out the aggregate as a value would consume a subplace that has no value.
+rejects([[
+let f = do
+    let a = { let b = open_buffer(1) let c = open_buffer(2) };
+    let moved = move a.b;
+    let whole = move a;
+    return 0
+end
+let r = f()
+]],'partially initialized aggregate','§9.2 moving a partially initialized aggregate is rejected')
+rejects([[
+let f = do
+    let a = { let p = { let b = open_buffer(1) let c = 5 } };
+    let moved = move a.p.b;
+    return a.p
+end
+let r = f()
+]],'partially initialized subplace','§9.2 handing out a partially initialized subplace is rejected')
+
+-- A deep read only names the subplace it reads, so a sibling inside the same record is fine.
+eq(run[[
+let f = do
+    let a = { let p = { let b = open_buffer(1) let c = 5 } };
+    let moved = move a.p.b;
+    return a.p.c
+end
+let r = f()
+]],5,'§9.2 a deep read passes through a partially initialized record')
+
+-- Reassigning a subplace reinitializes that path, so a later read is legal and the hole is
+-- released with the value that replaces it.
+events={}
+eq(run[[
+let f = do
+    let a mut = { let b = open_buffer(1) let c = open_buffer(2) };
+    let moved = move a.b;
+    a.b = open_buffer(9);
+    return 0
+end
+let r = f()
+]],0,'§9.2 assignment reinitializes a moved subplace')
+eq(table.concat(events,','),'open:1,open:2,open:9,close:1,close:2,close:9','§9.2 a replaced hole is not released twice')
+
+-- A positional element moves the same way, but the path must be statically known.
+events={}
+eq(run[[
+let f = do
+    let a = { open_buffer(1), open_buffer(2) };
+    let moved = move a[0];
+    return 0
+end
+let r = f()
+]],0,'§9.2 a constant index moves one element')
+eq(table.concat(events,','),'open:1,open:2,close:1,close:2','§9.2 an element moved by index is released once')
+rejects([[
+let f = do
+    let a = { open_buffer(1), open_buffer(2) };
+    let i = 0;
+    let moved = move a[i];
+    return 0
+end
+let r = f()
+]],'statically known path','§9.2 a runtime path cannot be partially moved')
 
 -- §6.5 A tail transfer retires the activation, so a borrow of one of its places cannot be
 -- passed: the callee would outlive the storage.

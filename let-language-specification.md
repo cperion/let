@@ -787,7 +787,13 @@ For a completed binding `let y = rhs`:
 
 Here **fresh** means a newly produced non-copyable result with no pre-existing source place and exactly one consuming destination in the expression. Freshness is established by the ownership checker, not by a runtime flag.
 
-Reading, moving, or destroying an uninitialized place is a compile-time error. Although the grammar admits `move place`, the current compiler accepts only a whole owning binding as that place. Support for partial moves out of projected or indexed aggregate storage remains to be implemented.
+Reading, moving, or destroying an uninitialized place is a compile-time error.
+
+`move place` may name a subplace as well as a whole binding. Moving out of a projected member or a constant positional index leaves that subplace uninitialized and makes the containing aggregate **partially initialized**. The value that was moved is owned by whatever receives it, exactly as for a whole move (§6.3), and the subplace must be assigned a new value before it is read, moved, or destroyed again.
+
+A partially initialized aggregate is not a value. It may not be moved, and no subplace that contains the hole may be read or moved as a value, because either would carry a subplace that has no value. Reading *through* such a subplace to a different one is allowed, since that never touches the hole. Assigning the hole a new value, or assigning the whole aggregate, makes the place whole again. Destroying a partially initialized aggregate releases only the subplaces that are still initialized, in reverse initialization order.
+
+The path must be statically known. An index computed at run time does not name a place that can be partially moved, because which subplace became uninitialized would not be known; a partially moved aggregate is otherwise still a statically resolved value (§11.3).
 
 ### 9.3 Call-site operations
 
@@ -1262,13 +1268,12 @@ No retain, reference count, or implicit copy is inserted.
 
 ## 18. Deliberately deferred features
 
-These language extensions remain explicitly deferred:
+These language extensions remain explicitly deferred. Note that partial moves *are* part of the language; only their interaction with run-time-computed paths is excluded above.
 
 - source-defined construction-word syntax;
 - private exports and package resolution (file chains and imports are specified in §15.2);
 - mutual-recursion declarations;
 - non-escaping partial specialization that retains a `mut` borrow;
-- partial moves from aggregates;
 - floating-point and mixed numeric promotion;
 - dynamic constraint tests and reflection;
 - pattern matching, `break`, and `continue`;
