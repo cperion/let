@@ -1,10 +1,14 @@
--- Independent vocabulary entry point. This does not load any current compiler phase.
+-- Module entry point: assembles the one ASDL context, loads the vocabulary and the compiler
+-- phases, and returns the table `require('let')` hands to a caller.
 local asdl=require('asdl')
 local context=asdl.NewContext()
 require('let.ast')(context)
 require('let.belt')(context)
 require('let.c')(context)
 local V={Source=context.Source,AST=context.AST,Belt=context.Belt,C=context.C,List=asdl.List}
+-- Vocabulary a construction phase needs, loaded before the phase that reads it.
+V.Contract=require('let.contract')(V)
+V.Packet=require('let.packet')(V)
 require('let.numbering')(V)
 require('let.build')(V)
 require('let.verify')(V)
@@ -14,6 +18,7 @@ V.parse=require('let.parse')(V)
 require('let.binding')(V)
 require('let.resolve')(V)
 require('let.program')(V)
+V.Op=require('let.op')(V)
 V.Known=require('let.known')(V)
 V.scalar=require('let.scalar')
 V.file_resolver=require('let.file')

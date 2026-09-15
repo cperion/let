@@ -83,5 +83,62 @@ function B.Aggregate:record() return self.fields end
 function B.Word:record() return self.fields end
 function B.Word:copyable() return self.is_copy end
 
+-- A canonical structural key, for interning and naming only. Two types with one key have the
+-- same shape; it is not `same`, which also compares declared mutability. One owner for the
+-- question, so entry interning and C struct naming cannot drift apart.
+local function fields_key(fields)
+    local parts={}
+    for _,field in ipairs(fields) do parts[#parts+1]=(field.name or '')..':'..field.type:key() end
+    return table.concat(parts,',')
+end
+function B.Type:key() return tostring(self) end
+function B.Int:key() return 'int' end
+function B.Float:key() return 'float' end
+function B.Bool:key() return 'bool' end
+function B.Unit:key() return 'unit' end
+function B.Text:key() return 'text' end
+function B.Effect:key() return 'effect' end
+function B.Named:key() return 'named('..self.name..')' end
+function B.Address:key() return '&'..self.pointee:key() end
+function B.Borrow:key() return (self.stable and '&~' or '~')..self.pointee:key() end
+function B.Aggregate:key() return (self.is_copy and 'A' or 'a')..'('..fields_key(self.fields)..')' end
+function B.Word:key()
+    return 'W'..self.template..'/'..self.supplied..(self.is_copy and '+' or '-')..'('..fields_key(self.fields)..')'
+end
+function B.Field:key() return (self.name or '')..':'..self.type:key()..(self.mutable and '*' or '') end
+
+-- §8.5, §10.1: ownership is a property of the type, not of one consumer. An address owns what
+-- it points at, a borrow never owns, and a record owns when any member does. These are facts
+-- about a small immutable type graph, so the answers are remembered.
+local owns_cache=setmetatable({},{__mode='k'})
+local borrows_cache=setmetatable({},{__mode='k'})
+local function owns(type_)
+    local cached=owns_cache[type_]
+    if cached~=nil then return cached end
+    local result
+    if B.Address:isclassof(type_) then result=owns(type_.pointee)
+    elseif B.Named:isclassof(type_) then result=true
+    elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
+        result=false
+        for _,field in ipairs(type_.fields) do if owns(field.type) then result=true; break end end
+    else result=false end
+    owns_cache[type_]=result
+    return result
+end
+local function borrows(type_)
+    local cached=borrows_cache[type_]
+    if cached~=nil then return cached end
+    local result
+    if B.Borrow:isclassof(type_) then result=not type_.stable
+    elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
+        result=false
+        for _,field in ipairs(type_.fields) do if borrows(field.type) then result=true; break end end
+    else result=false end
+    borrows_cache[type_]=result
+    return result
+end
+function B.Type:owns() return owns(self) end
+function B.Type:borrows() return borrows(self) end
+
 end
 

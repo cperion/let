@@ -2,6 +2,7 @@
 -- facts are construction-context state, never annotations on source or belt nodes.
 return function(V)
 local A,B,L=V.AST,V.Belt,V.List
+local Packet=V.Packet
 local literal=require('let.literal')
 local Context={}; Context.__index=Context
 local function copy(t) local out={}; for k,v in pairs(t) do out[k]=v end; return out end
@@ -189,6 +190,14 @@ function Context:validate_ownership(type_,span)
         for _,field in ipairs(type_.fields) do self:validate_ownership(field.type,span) end
     end
 end
+-- The concrete belt type a constraint names, or nil when the constraint describes a shape
+-- (`Copy`, `Executable`) rather than one type. A caller that only needs the type -- a host
+-- entry, an inferred stage -- asks here instead of going through `constraint`, which
+-- reports a shape it cannot bind to a type.
+function Context:constraint_type(annotation)
+    if not annotation then return nil end
+    return self.fn.types[annotation.name]
+end
 function Context:constraint(annotation,type_,span)
     if not annotation then return type_ end
     if #annotation.arguments>0 then gap(span,'specialized constraint words') end
@@ -210,7 +219,7 @@ function Context:constraint(annotation,type_,span)
         end
         return type_
     end
-    local declared=self.fn.types[annotation.name]
+    local declared=self:constraint_type(annotation)
     if not declared then gap(span,'constraint ' .. annotation.name) end
     if type_ then expect({type=type_},declared,span) end; return declared
 end
@@ -240,16 +249,6 @@ function Context:force_bind(name,value,mutable,owned,external,address,span)
     self.fn.bindings[id]={name=name,type=type_,mutable=mutable,owned=owned,external=external,address=address,span=span}
     scope.names[name]=id; scope.ids[#scope.ids+1]=id
     self.cells[id]={value=value,initialized=true,alive=owned,moved={}}; return id
-end
--- §10.1: a value borrows when its type holds an address, because an address is how a
--- borrow is represented. Such a value may not leave the activation that owns the storage,
--- so escape points can be decided from the type alone, with no value-level tracking.
-function Context:borrows(type_)
-    if B.Borrow:isclassof(type_) then return not type_.stable end
-    if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
-        for _,field in ipairs(type_.fields) do if self:borrows(field.type) then return true end end
-    end
-    return false
 end
 
 function Context:take(name,span)
@@ -291,28 +290,35 @@ function Context.new_function(spec)
     ctx.function_id=spec.function_id
     return ctx
 end
--- A cloned context is the same construction one block later, so it carries everything that
--- describes the construction rather than the current block: the builder and resolution, the
--- word being defined (`self_name`/`self_definition`), the function under construction, and
--- any mode the enclosing region set. Only the per-region fields are fresh. Naming the ambient
--- fields by hand is how a self reference came to be lost inside every control block.
+-- The fields that describe the construction rather than the current block. A child carries
+-- them unchanged; the state fields -- block, locations, cells, scopes, pins, effect -- are the
+-- ones a child creates for itself. Listing the ambient fields is deliberate: a new one must be
+-- added here, so forgetting it is a nil error rather than a fact silently shared by every
+-- block, which is what the old exclusion list allowed.
+local function ambient(frame)
+    return {
+        fn=frame.fn, locks=frame.locks, builder=frame.builder, resolved=frame.resolved,
+        lifetime=frame.lifetime, function_id=frame.function_id,
+        self_name=frame.self_name, self_definition=frame.self_definition,
+        module_pending=frame.module_pending, module_preludes=frame.module_preludes,
+        mutable_state=frame.mutable_state, intermediate=frame.intermediate, finish=frame.finish,
+    }
+end
 function Context:clone()
-    local child=setmetatable({fn=self.fn,block=self:new_block(),locations={},cells={},pins={},locks=self.locks,scopes={}},Context)
-    for key,value in pairs(self) do
-        if key~='block' and key~='locations' and key~='cells' and key~='pins' and key~='scopes' then
-            child[key]=value
-        end
-    end
+    local child=setmetatable(ambient(self),Context)
+    child.block=self:new_block(); child.locations={}; child.cells={}; child.pins={}; child.scopes={}
+    child.effect=self.effect
     for i,scope in ipairs(self.scopes) do child.scopes[i]={names=copy(scope.names),ids=copy(scope.ids),retained=scope.retained} end
     return child
 end
 -- A target interface carries each source binding independently: two aliases can
 -- diverge after assignment. Expression pins carry earlier operands across CFG splits.
 function Context:interface(endpoints,extras,loop_head)
-    local target=self:clone(); local args={}; for i in ipairs(endpoints) do args[i]={} end
+    local target=self:clone(); local args={}; for i in ipairs(endpoints) do args[i]={} end; local slots={}
     local function parameter(type_,get)
         local value=target:parameter(type_)
         for i,endpoint in ipairs(endpoints) do args[i][#args[i]+1]=get(endpoint) end
+        slots[#slots+1]=get
         return value
     end
     target.effect=parameter(B.Effect,function(e) return e.effect end)
@@ -356,7 +362,17 @@ function Context:interface(endpoints,extras,loop_head)
     end
     local outputs={}
     for i,type_ in ipairs(extras or {}) do outputs[i]=parameter(type_,function(e) return e.extra[i] end) end
+    target.packet_slots=slots
     return target,args,outputs
+end
+
+-- The values a block hands to an interface it already declared: the same slots `interface`
+-- recorded, asked of this endpoint. A branch and a loop backedge therefore use one order, and
+-- cannot disagree about which fact is which parameter.
+function Context:pack(endpoint)
+    local values=L()
+    for _,slot in ipairs(self.packet_slots) do values:insert(slot(endpoint)) end
+    return values
 end
 function Context:edge(target,values) return B.Edge(target.block.id,self:refs(values)) end
 function Context:adopt(other)
@@ -375,19 +391,6 @@ function Context:branch(condition,yes_fn,no_fn,result_type)
     for i,e in ipairs(live) do e.block.exit=B.Jump(e:edge(join,args[i])) end
     self:adopt(join); return values[1]
 end
--- A non-Copy value carries ownership: a resource by its declared destructor, a record by
--- destroying its owned fields in reverse initialization order (§8.5, §9.5).
-function Context:owns(type_)
-    if B.Address:isclassof(type_) then return self:owns(type_.pointee) end
-    if B.Borrow:isclassof(type_) then return false end
-    if type_:copyable() then return false end
-    if B.Named:isclassof(type_) then return true end
-    if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
-        for _,field in ipairs(type_.fields) do if self:owns(field.type) then return true end end
-        return false
-    end
-    return false
-end
 
 function Context:destroy(value,span,moved,prefix)
     local type_=value.type
@@ -402,7 +405,7 @@ function Context:destroy(value,span,moved,prefix)
             local field=type_.fields[index]
             local key=(prefix and prefix~='') and (prefix .. '.' .. (index-1)) or tostring(index-1)
             local state=moved and moved[key]
-            if self:owns(field.type) and state~=true then
+            if field.type:owns() and state~=true then
                 local function release(target)
                     target:destroy(target:emit(B.LoadField(target:ref(value),index-1),L{field.type},span),span,moved,key)
                 end
@@ -465,7 +468,7 @@ function Context:finish_pair(namespace,state,span)
 end
 
 function Context:finish(value,span)
-    if self:borrows(value.type) then
+    if value.type:borrows() then
         fail(span,'a word that borrows activation state cannot be returned from the invocation that owns it')
     end
     -- A module initializer written as a do body returns its namespace from wherever the
@@ -480,6 +483,31 @@ function Context:statements(statements)
         if self.block.exit then gap(statement.span,'unreachable statements') end
         statement:build(self)
     end
+end
+
+-- The immutable blocks of the function under construction. One place turns a construction
+-- context into the belt, so no driver can collect blocks in a different order or skip an exit.
+function Context:blocks(message)
+    local blocks=L()
+    for _,block in ipairs(self.fn.blocks) do
+        assert(block.exit,message or 'unfinished block')
+        blocks:insert(B.Block(block.parameters,block.instructions,block.exit))
+    end
+    return blocks
+end
+
+-- Run a terminal body and build its function. `extra` are result types after the returned
+-- value and before the final effect; a program entry passes the mutable fields it hands
+-- back. Every engine that builds a terminal body goes through here.
+function Context:finish_function(body,extra)
+    self:push()
+    self:statements(body)
+    if not self.block.exit then self:finish(self:emit(B.UnitLiteral,L{B.Unit},self.fn.span),self.fn.span) end
+    local results=L{self.fn.result}
+    for _,type_ in ipairs(extra or {}) do results:insert(type_) end
+    results:insert(B.Effect)
+    local blocks=self:blocks()
+    return B.Function(self.fn.name,B.Signature(blocks[1].parameters,results),blocks)
 end
 function A.Expr:build() gap(self.span,'this expression form') end
 function A.Expr:tail(ctx) ctx:finish(self:build(ctx),self.span) end
@@ -675,7 +703,7 @@ function Context:construct_record(values,fields,span)
     -- record, so the unload function could never destroy it (§15.1).
     if self.module_preludes then
         for i,value in ipairs(values) do
-            local owns=self:owns(fields[i].type)
+            local owns=fields[i].type:owns()
             if owns and not (value.origin and self.module_preludes[value.origin]) then
                 fail(span,'a module terminal may not construct new owned state; move an owned prelude into it')
             end
@@ -1017,7 +1045,7 @@ function A.Assign:assign_place(ctx)
             end
             return joined
         end
-        if not (c:owns(leaf) and hole~=true) then return store() end
+        if not (leaf:owns() and hole~=true) then return store() end
         local function release(t)
             t:destroy(old,self.span,dynamic==0 and ctx.cells[id].moved or nil,dynamic==0 and path or nil)
         end
@@ -1081,68 +1109,6 @@ end
 function A.Return:build(ctx)
     if self.value then self.value:tail(ctx) else ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},self.span),self.span) end
 end
--- A word's result type is the type its returns state, but construction is source-ordered: a
--- self call inside an early control block can be built before the return that fixes the type.
--- `peek_type`/`peek_result_type` ask the returns the question a return would ask, and return
--- nil rather than guess. They break that ordering; they are not a second type system, because
--- the return still validates the answer through `finish`, so a wrong answer is an error.
-function Context:peek_type(expression)
-    if A.Unit:isclassof(expression) then return B.Unit end
-    if A.Integer:isclassof(expression) then return B.Int end
-    if A.Float:isclassof(expression) then return B.Float end
-    if A.Boolean:isclassof(expression) then return B.Bool end
-    if A.Text:isclassof(expression) then return B.Text end
-    if A.Name:isclassof(expression) then
-        local id=self:find(expression.name)
-        local binding=id and self.fn.bindings[id]
-        return binding and binding.type
-    end
-    if A.Unary:isclassof(expression) then
-        if expression.operator==A.Not then return B.Bool end
-        if expression.operator==A.ToFloat then return B.Float end
-        if expression.operator==A.ToInt then return B.Int end
-        return self:peek_type(expression.operand)
-    end
-    if A.Binary:isclassof(expression) then
-        local operator=expression.operator
-        if operator==A.And or operator==A.Or or operator==A.Equal or operator==A.NotEqual
-            or operator==A.Less or operator==A.LessEqual or operator==A.Greater or operator==A.GreaterEqual then
-            return B.Bool
-        end
-        return self:peek_type(expression.left) or self:peek_type(expression.right)
-    end
-    if A.Move:isclassof(expression) then return self:peek_type(expression.place) end
-    return nil
-end
-function Context:peek_result_type()
-    local template=self.fn.template
-    local terminal=template and template.source.terminal
-    if not terminal or not A.Body:isclassof(terminal) then return nil end
-    local stated,returns,conflict=nil,0,false
-    local function visit(statements)
-        for _,statement in ipairs(statements) do
-            if A.Return:isclassof(statement) then
-                returns=returns+1
-                local type_
-                if statement.value then type_=self:peek_type(statement.value) else type_=B.Unit end
-                if type_ then
-                    if stated==nil then stated=type_
-                    elseif not stated:same(type_) then conflict=true end
-                end
-            elseif A.If:isclassof(statement) then visit(statement.yes); visit(statement.no)
-            elseif A.While:isclassof(statement) then visit(statement.body)
-            elseif A.Switch:isclassof(statement) then
-                for _,arm in ipairs(statement.cases) do visit(arm.body) end
-                visit(statement.otherwise)
-            end
-        end
-    end
-    visit(terminal.statements)
-    if conflict then return nil end
-    -- No return at all: the body falls through to the implicit Unit result.
-    if returns==0 then return B.Unit end
-    return stated
-end
 function A.If:build(ctx)
     local condition=self.condition:build(ctx); expect(condition,B.Bool,self.span)
     ctx:branch(condition,function(c) c:statements(self.yes) end,function(c) c:statements(self.no) end)
@@ -1156,14 +1122,9 @@ function A.While:build(ctx)
     head.block.exit=B.Branch(head:ref(condition),head:edge(body,ba[1]),head:edge(exit,ea[1]))
     body:push(); body:statements(self.body)
     if not body.block.exit then
-        body:pop(); local values={body.effect}
+        body:pop()
         for id=1,#ctx.fn.bindings do if ctx.cells[id] then
             if body.cells[id].initialized~=ctx.cells[id].initialized then gap(self.span,'loop ownership states that require initialization fixed-point analysis') end
-            for key in pairs(ctx.cells[id].moved) do
-                local state=body.cells[id].moved[key]
-                values[#values+1]=state==true and body:boolean(true,self.span)
-                    or (state or body:boolean(false,self.span))
-            end
             for key in pairs(body.cells[id].moved) do
                 if not ctx.cells[id].moved[key] then
                     -- The header's fact must be dynamic for a backedge to carry a hole,
@@ -1173,11 +1134,8 @@ function A.While:build(ctx)
                     gap(self.span,'a partial move inside a loop needs path-sensitive initialization analysis')
                 end
             end
-            values[#values+1]=body.cells[id].value
-            if ctx.fn.bindings[id].owned then local alive=body.cells[id].alive; values[#values+1]=type(alive)=='boolean' and body:boolean(alive,self.span) or alive end
         end end
-        for _,pin in ipairs(body.pins) do values[#values+1]=pin end
-        body.block.exit=B.Jump(B.Edge(header.id,body:refs(values)))
+        body.block.exit=B.Jump(B.Edge(header.id,body:refs(head:pack(body))))
     end
     ctx:adopt(exit)
 end
@@ -1288,18 +1246,15 @@ function A.Invoke:tail(ctx)
     local builder=ctx.builder
     if builder then builder:invoke(ctx,self,true) else ctx:finish(ctx:call(self,true),self.span) end
 end
+-- A stage binds through the one capability rule in `Packet`, so the generic builder and a host
+-- entry deliver the same shape and ownership for `mut` and `own mut`.
+-- and a host entry deliver the same shape and ownership for `mut` and `own mut`.
 function A.Stage:bind_parameter(ctx,index,options)
     local type_=ctx:constraint(self.constraint,options.parameters and options.parameters[index],self.span)
     if not type_ then gap(self.span,'stage type inference from uses; supply a concrete parameter type') end
-    local address=self.capability==A.Mut
-    if address and not type_:copyable() then gap(self.span,'mutable borrowed resource stages') end
+    if self.capability==A.Mut and not type_:copyable() then gap(self.span,'mutable borrowed resource stages') end
     ctx:validate_ownership(type_,self.span)
-    -- A mutable stage arrives as a borrow of the caller's place (§6.3). Its stability is a
-    -- property of the call site, so the generic entry path here is the conservative one.
-    local value=ctx:parameter(address and B.Borrow(type_,false) or type_,self.capability)
-    local owned=not type_:copyable() and (self.capability==A.Own or self.capability==A.OwnMut)
-    local external=address or (not owned and not type_:copyable())
-    ctx:bind(self.name,value,self.capability==A.Mut or self.capability==A.OwnMut,owned,external,address,self.span)
+    Packet.bind_parameter(ctx,Packet.stage_field(self.capability,self.name,self.span,type_),self.name,self.span)
 end
 function A.Prelude:bind_parameter() gap(self.binding.span,'stage preparation: preludes must run between arguments, not at terminal entry') end
 function A.Chain:build_function(name,options)
@@ -1319,12 +1274,8 @@ function A.Chain:build_function(name,options)
         resources=options.resources,hosts=options.hosts,types=types}
     local fn=ctx.fn
     for i,item in ipairs(self.items) do item:bind_parameter(ctx,i,options) end
-    fn.self_visible=true; ctx:push()
-    ctx:statements(self.terminal.statements)
-    if not ctx.block.exit then ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},self.span),self.span) end
-    local blocks=L()
-    for _,block in ipairs(fn.blocks) do assert(block.exit,'unfinished block'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit)) end
-    return B.Function(name,B.Signature(blocks[1].parameters,L{fn.result,B.Effect}),blocks):verify_flow(fn.hosts)
+    fn.self_visible=true
+    return ctx:finish_function(self.terminal.statements):verify_flow(fn.hosts)
 end
 V.Build={Context=Context,expect=expect,fail=fail,gap=gap,copy=copy}
 end

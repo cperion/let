@@ -491,6 +491,21 @@ end
 let r = f()
 ]],'may be uninitialized','§9.2 reading a subplace that may be uninitialized is rejected')
 
+-- §7.3 an expression may be a statement, and §9.2 admits `move place` as an expression. A
+-- bare `move a.b` therefore transfers ownership of the subplace; the discarded value is
+-- destroyed at the discard, and the aggregate is left with a hole it no longer releases.
+events={}
+eq(run[[
+let f = do
+    let a = { let b = open_buffer(1) let c = open_buffer(2) };
+    move a.b
+    return 0
+end
+let r = f()
+]],0,'§9.2 a bare `move place` statement transfers ownership')
+eq(table.concat(events,','),'open:1,open:2,close:1,close:2',
+    '§9.2 the discarded move releases its value, and the aggregate releases only the rest')
+
 -- §9.2 A hole introduced inside a loop is diagnosed: the loop entry's fact would have to be
 -- dynamic for a backedge to carry the hole, and the body's own move then reads a place that
 -- is only *maybe* initialized. That is an analysis limit, not an illegal program.

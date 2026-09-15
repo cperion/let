@@ -98,6 +98,35 @@ let generic = let anything do return anything end
 check(host.entries.generic==nil,'a stage without a type has no host entry')
 check(host.builder.host_entry_skips.generic~=nil,'and the builder records why')
 
+-- §6.3 Annotations are not required. A stage whose uses force exactly one type still has an
+-- interface: when the host supplies no argument, the terminal body is where the type comes
+-- from. The inference only fills in what construction would already enforce.
+host=build[[
+let forced = let x do return x + 1 end
+]]
+eq(host.entries.forced.stages,1,'a stage forced by its operand still has an entry')
+eq(host.call('forced',41),42,'and the entry computes with the inferred type')
+
+host=build[[
+let copy = let x : Copy do return x < 5 end
+]]
+check(host.entries.copy~=nil,'a Copy stage whose body forces Int still has an entry')
+eq(host.call('copy',1),true,'and compares as the inferred Int')
+
+-- Ambiguity is not guessed at: two stages constrained only against each other have no type
+-- the source forces, so the word keeps its no-entry behaviour.
+host=build[[
+let mixed = let x let y do return x + y end
+]]
+check(host.entries.mixed==nil,'two stages with no other constraint still have no entry')
+
+-- A host stage declares the type it requires, so an argument to it is typed even when the
+-- callee's own body never names a literal.
+host=build([[
+let consumes = let x do mark(x); return 0 end
+]],{hosts={mark={symbol='mark',phase='runtime',purity='ordered',
+    signature=B.Signature(L{B.Parameter(B.Int,A.Read)},L{B.Unit})}}})
+check(host.entries.consumes~=nil,'a stage typed by a host parameter still has an entry')
 
 
 -- The host can only call an entry that was written out, so an entry is a root of emission: it

@@ -179,6 +179,34 @@ let answer = countdown(20000)
 ns=module_namespace(program)
 eq(field(builder.module_order,'answer',ns),0,'tail self recursion is bounded')
 
+-- A self-call built before the return that fixes the result type still gets its type: the
+-- contract computes the result from the returns, including a mutable local and a capture.
+program,builder=build[[
+let from_local = let depth : Int do
+    let acc mut = 0
+    if depth > 0 do
+        let jumped = from_local(depth - 1)
+    end
+    return acc
+end
+let a = from_local(2)
+]]
+ns=module_namespace(program)
+eq(field(builder.module_order,'a',ns),0,'a mutable local fixes a self-call result type')
+
+program,builder=build[[
+let base = 7
+let from_capture = let n : Int do
+    if n > 0 do
+        let jumped = from_capture(n - 1)
+    end
+    return base
+end
+let b = from_capture(2)
+]]
+ns=module_namespace(program)
+eq(field(builder.module_order,'b',ns),7,'a capture fixes a self-call result type')
+
 -- §11.2 `Executable` is a shape, not a type: the word an argument supplies is the stage's
 -- type. The continuation idiom passes two words and invokes the selected one.
 program,builder=build[[

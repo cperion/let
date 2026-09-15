@@ -154,6 +154,14 @@ function Parser:statement()
     if self:accept('if') then return self:conditional(token.span) end
     if self:accept('switch') then return self:selection(token.span) end
     if self:accept('while') then local condition=self:expression(); return A.While(condition,self:body(),token.span) end
+    -- §7.3 makes any expression a statement, and §9.2 admits `move place` as an
+    -- expression. A leading `move` is otherwise recognized only where a transfer
+    -- value is expected, so `move a.x` as a statement would be read as a
+    -- continuation of the previous value instead of a move.
+    if self:is('move') then
+        local moved=self:take()
+        return A.Discard(A.Move(self:place(),moved.span),token.span)
+    end
     if self:assignment_ahead() then
         local place=self:place(); self:expect('='); self:separators(); return A.Assign(place,self:value(),token.span)
     end

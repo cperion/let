@@ -17,31 +17,15 @@ function B.FloatLiteral:execute() return scalar.float(self.spelling,error) end
 function B.BooleanLiteral:execute() return self.value end
 function B.TextLiteral:execute() return self.value end
 function B.UnitLiteral:execute() return unit end
-function A.Add:execute(a,b) return scalar.add(a,b) end
-function A.Subtract:execute(a,b) return scalar.subtract(a,b) end
-function A.Multiply:execute(a,b) return scalar.multiply(a,b) end
--- `scalar` is the exact-arithmetic authority. Division and remainder do not trap here: an Int
--- operation is a CheckedBinary, which raises the trap, while a Float one is IEEE.
-function A.Divide:execute(a,b) return a/b end
-function A.Remainder:execute(a,b) return a%b end
-function A.Equal:execute(a,b) return scalar.equal(a,b) end
-function A.NotEqual:execute(a,b) return scalar.not_equal(a,b) end
-function A.Less:execute(a,b) return scalar.less(a,b) end
-function A.LessEqual:execute(a,b) return scalar.less_equal(a,b) end
-function A.Greater:execute(a,b) return scalar.greater(a,b) end
-function A.GreaterEqual:execute(a,b) return scalar.greater_equal(a,b) end
-function A.And:execute(a,b) return a and b end
-function A.Or:execute(a,b) return a or b end
-function A.Negate:execute(a) return scalar.negate(a) end
-function A.ToFloat:execute(a) return scalar.to_float(a) end
-function A.ToInt:execute(a) return scalar.to_int(a) end
-function A.Not:execute(a) return not a end
-function B.Unary:execute(ctx) return self.operator:execute(ctx:get(self.operand)) end
-function B.Binary:execute(ctx) return self.operator:execute(ctx:get(self.left),ctx:get(self.right)) end
+-- The pure operators come from the one shared table, so the concrete oracle and the abstract
+-- evaluator cannot disagree about what an operation means (DEMAND.md §3). `Divide` there is
+-- the non-trapping Float one; an Int division is a CheckedBinary and uses `V.Op.checked`.
+function B.Unary:execute(ctx) return V.Op.unary[self.operator](ctx:get(self.operand)) end
+function B.Binary:execute(ctx) return V.Op.binary[self.operator](ctx:get(self.left),ctx:get(self.right)) end
 function B.CheckedBinary:execute(ctx)
     local a,b=ctx:get(self.left),ctx:get(self.right)
     if b==0 then error('trap: '..(self.operator==A.Divide and 'division' or 'remainder')..' by zero',0) end
-    return self.operator:execute(a,b),ctx:get(self.effect)+1
+    return V.Op.checked[self.operator](a,b),ctx:get(self.effect)+1
 end
 function B.PureHostCall:execute(ctx)
     local result=assert(ctx.hosts[self.symbol])(unpack(ctx:arguments(self.arguments)))

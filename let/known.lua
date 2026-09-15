@@ -9,6 +9,7 @@
 return function(V)
 local A,B,L=V.AST,V.Belt,V.List
 local scalar=require('let.scalar')
+local Op=V.Op   -- one shared definition of each pure operation, with the concrete oracle
 
 local Known={}
 
@@ -272,9 +273,6 @@ function Evaluator:resolve(block,block_id,position,ref)
     return Known.runtime(result)
 end
 
-local arithmetic={[A.Add]=scalar.add,[A.Subtract]=scalar.subtract,[A.Multiply]=scalar.multiply}
-local relations={[A.Less]=scalar.less,[A.LessEqual]=scalar.less_equal,[A.Greater]=scalar.greater,[A.GreaterEqual]=scalar.greater_equal}
-local equalities={[A.Equal]=scalar.equal,[A.NotEqual]=scalar.not_equal}
 
 -- Ordered work was demanded and could not be folded, so no caller may fold this away.
 function Evaluator:schedule(operation)
@@ -313,29 +311,13 @@ function Evaluator:instruction(block,block_id,index,instruction)
     elseif B.Unary:isclassof(operation) then
         local operand=inputs{operation.operand}[1]
         if Known.is_known(operand) then
-            local value
-            if operation.operator==A.Not then value=not operand.value
-            elseif operation.operator==A.ToFloat then value=scalar.to_float(operand.value)
-            elseif operation.operator==A.ToInt then value=scalar.to_int(operand.value)
-            else value=scalar.negate(operand.value) end
+            local value=Op.unary[operation.operator](operand.value)
             put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.Binary:isclassof(operation) then
         local arguments=inputs{operation.left,operation.right}
         if all_known(arguments) then
-            local left,right=arguments[1].value,arguments[2].value
-            local value
-            if arguments[1].type==B.Text then value=equalities[operation.operator](left,right)
-            elseif arguments[1].type==B.Float then
-                if arithmetic[operation.operator] then value=arithmetic[operation.operator](left,right)
-                elseif operation.operator==A.Divide then value=scalar.fdivide(left,right)
-                elseif relations[operation.operator] then value=relations[operation.operator](left,right)
-                elseif equalities[operation.operator] then value=equalities[operation.operator](left,right) end
-            elseif arithmetic[operation.operator] then value=arithmetic[operation.operator](left,right)
-            elseif relations[operation.operator] then value=relations[operation.operator](left,right)
-            elseif equalities[operation.operator] then value=equalities[operation.operator](left,right)
-            elseif operation.operator==A.And then value=left and right
-            elseif operation.operator==A.Or then value=left or right end
+            local value=Op.binary[operation.operator](arguments[1].value,arguments[2].value)
             put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.CheckedBinary:isclassof(operation) then
@@ -343,7 +325,7 @@ function Evaluator:instruction(block,block_id,index,instruction)
         -- §16.2: omit a check only when failure is proved impossible. A known non-zero
         -- divisor proves it; anything else keeps the residual checked operation.
         if all_known(arguments) and arguments[2].value~=0 then
-            local rule=operation.operator==A.Divide and scalar.divide or scalar.remainder
+            local rule=Op.checked[operation.operator]
             put(0,Known.value(B.Int,rule(arguments[1].value,arguments[2].value)))
         else
             put(0,Known.runtime(B.Int)); self:schedule(operation)

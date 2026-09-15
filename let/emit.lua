@@ -9,18 +9,6 @@ local scalar=V.scalar
 
 local Emitter={}; Emitter.__index=Emitter
 
-local function typekey(type_)
-    if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
-        local parts={}
-        for _,field in ipairs(type_.fields) do parts[#parts+1]=(field.name or '') .. ':' .. typekey(field.type) end
-        local tag=B.Word:isclassof(type_) and ('w' .. type_.template .. '/' .. type_.supplied) or 'a'
-        return tag .. '(' .. tostring(type_.is_copy) .. ';' .. table.concat(parts,',') .. ')'
-    end
-    if B.Address:isclassof(type_) then return '*' .. typekey(type_.pointee) end
-    if B.Borrow:isclassof(type_) then return '*b' .. tostring(type_.stable) .. typekey(type_.pointee) end
-    if B.Named:isclassof(type_) then return 'n(' .. type_.name .. ')' end
-    return tostring(type_)
-end
 
 function Emitter.new(options)
     return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
@@ -32,7 +20,7 @@ function Emitter:error(message) error('C emission: ' .. message,0) end
 
 function Emitter:register_struct(fields)
     local key='s'
-    for _,field in ipairs(fields) do key=key .. '|' .. typekey(field) end
+    for _,field in ipairs(fields) do key=key .. '|' .. field:key() end
     local existing=self.struct_names[key]
     if existing then return "struct " .. existing end
     -- Nested aggregate fields must be declared first, so the name is chosen only
@@ -79,7 +67,7 @@ function Emitter:return_shape(types)
     if #values==0 then return C.Void,0 end
     if #values==1 then return self:ctype(values[1]),1 end
     local key='r'
-    for _,type_ in ipairs(values) do key=key .. '|' .. typekey(type_) end
+    for _,type_ in ipairs(values) do key=key .. '|' .. type_:key() end
     local existing=self.result_names[key]
     if existing then return C.Named('struct ' .. existing),#values end
     local name='let_ret_' .. (#self.results+1)
@@ -149,10 +137,6 @@ local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Divide]='/',[A.
     [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||'}
 local arithmetic={[A.Add]={'add','LET_ADD'}, [A.Subtract]={'sub','LET_SUB'}, [A.Multiply]={'mul','LET_MUL'}}
 
-function Emitter:effect_step(effect)
-    self.helpers.add=false
-    return C.Binary('+',effect,C.Integer(0,1))
-end
 
 local function statement_list(list)
     local declarations=L(); for _,entry in ipairs(list) do declarations:insert(entry) end; return declarations
