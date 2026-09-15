@@ -87,7 +87,9 @@ compared, or turned into an integer -- so it is passed back to C. Owned C memory
 pointer result declares `ownership = 'borrowed'` and `nullable`; `Vocabulary` checks that those
 describe a pointer result and that a representation is `value` or `pointer`. The declared set is
 `c.strlen`, `c.strcmp`, `c.atoi`, `c.llabs`, `c.getenv`, `c.puts`, `c.putchar`, `c.malloc`,
-`c.memcpy`, `c.memset` and `c.memcmp` (`libc.lua`).
+`c.memcpy`, `c.memset`, `c.memcmp`, `c.write` and `c.read`. `c.string`/`c.text` cross between
+`Text` and `CString`; `c.byte_length` states a `Text`'s byte length and `c.null` tests a borrowed
+pointer, so a pointer-and-count call needs no terminator (`libc.lua`).
 
 ### The `c` namespace and a standalone program
 
