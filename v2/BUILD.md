@@ -124,6 +124,15 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 These are specified behaviours that the implementation does not yet provide, so each is a
 construction diagnostic rather than a language limitation.
 
+- **A module's exported words are not host entry points.** The initializer's job is to build the
+  namespace, so it folds to a constant and nothing calls the words the namespace holds: emitting
+  `bench/kernels.let` produces one function (the initializer) where the old compiler produces
+  eighteen, and a host that wants to invoke `sum_loop` has no function to call. The semantics are
+  already implied by §5 -- a word with unsatisfied stages is invoked by supplying exactly those
+  stages -- so the entry is the saturated invocation of the exported word, and what is missing is
+  that the builder creates it and the emitter roots it. This is the largest gap to embedding, and
+  it is why the runtime benchmark comparison against the old compiler cannot run yet.
+
 - A partial move *introduced inside* a loop whose path is still a hole at the backedge
   (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
   the loop entry a fact per owned subplace is not enough on its own: the entry's fact must

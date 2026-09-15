@@ -669,6 +669,39 @@ function Emitter:helper_declarations()
     return declarations
 end
 
+-- What was emitted, for a caller that wants to know rather than guess: one entry per
+-- instance, with the ABI it ended up with, and how stable the analysis that produced it was.
+-- `widened` counts packet fields the fixed point had to forget, which is the honest measure of
+-- how much precision a loop cost.
+function Emitter:report(statistics)
+    statistics.instances={}
+    local specialized,folded,widened=0,0,0
+    for _,instance in ipairs(self.pending) do
+        local analysis=instance.analysis
+        local parameters={}
+        for i,parameter in ipairs(instance.belt.blocks[1].parameters) do
+            if self:parameter_live(analysis,instance.belt,1,i) then
+                parameters[#parameters+1]=tostring(parameter.type)
+            end
+        end
+        local blocks=0
+        for _ in pairs(analysis.live_blocks or {}) do blocks=blocks+1 end
+        local forgotten=0
+        for _ in pairs(analysis.widened or {}) do forgotten=forgotten+1 end
+        widened=widened+forgotten
+        if not instance.generic then specialized=specialized+1 end
+        if analysis.folded then folded=folded+1 end
+        statistics.instances[#statistics.instances+1]={name=instance.name,id=instance.id,
+            generic=instance.generic,folded=analysis.folded==true,parameters=parameters,
+            blocks=blocks,widened=forgotten}
+    end
+    statistics.specialized=specialized
+    statistics.folded=folded
+    statistics.widened=widened
+    statistics.functions=#self.pending
+    return statistics
+end
+
 function Emitter:program(program,options)
     self.statics=L()
     self.program=program
@@ -688,6 +721,7 @@ function Emitter:program(program,options)
         functions:insert(self:emit_instance(self.pending[at]))
         at=at+1
     end
+    if options.statistics then self:report(options.statistics) end
     local host_declarations=self:host_declarations()
     local helpers=self:helper_declarations()
     local includes=L{'stdint.h','stdbool.h'}
