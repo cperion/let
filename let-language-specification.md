@@ -133,10 +133,10 @@ Underscores may occur between digits and are ignored. A Float literal has a digi
 The structural spellings are:
 
 ~~~text
-let do end own mut move return if else while switch case and or not true false
+let do end own mut move return if else while switch case and or not true false break continue
 ~~~
 
-These spellings cannot be used as binding names. `if`, `else`, `while`, `switch`, and `case` are structured control spellings in the language dictionary. They describe inline control regions rather than invoking runtime branch closures. `and`, `or`, and `not` are reserved operator spellings.
+These spellings cannot be used as binding names. `if`, `else`, `while`, `switch`, `case`, `break`, and `continue` are structured control spellings in the language dictionary. They describe inline control regions rather than invoking runtime branch closures. `and`, `or`, and `not` are reserved operator spellings.
 
 The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
 
@@ -192,6 +192,8 @@ statement           := local_binding
                      | assignment
                      | return_statement
                      | if_form
+                     | break_statement
+                     | continue_statement
                      | while_form
                      | switch_form
                      | expression
@@ -207,6 +209,8 @@ if_form             := "if" expression "do" region
                        { "else" "if" expression "do" region }
                        [ "else" region ] "end"
 while_form          := "while" expression do_block
+break_statement     := "break"
+continue_statement  := "continue"
 switch_form         := "switch" expression "do" { SEP }
                        case_arm { case_arm } [ "else" region ] "end"
 case_arm            := "case" case_label { "," case_label } region
@@ -643,6 +647,8 @@ else    starts an alternative arm in if or switch
 while   one runtime Bool expression + one do region
 switch  one evaluated subject + case arms + optional else
 case    one or more literal labels + one inline arm
+break   leaves the nearest enclosing while
+continue  starts the next iteration of the nearest enclosing while
 ~~~
 
 The compiler executes the construction word while building the enclosing runtime body. The condition and controlled operations remain runtime code.
@@ -678,13 +684,17 @@ end
 
 There is no fallthrough: normal arm completion continues after the switch. With no matching label and no `else`, execution continues after the switch without entering an arm. Covering both Bool values is exhaustive. Each arm has its own lexical scope and follows the ordinary move, borrow, destruction, and enclosing-return rules. Match and pattern captures are deferred, not approximated by case labels.
 
+`break` leaves the nearest enclosing `while` and execution continues after it. `continue` ends the current iteration and re-evaluates the loop condition. Both are statements with no operand, and both are errors outside a loop. A `switch` is not a loop: a `break` inside an arm belongs to the enclosing `while`.
+
+Leaving an iteration -- by `continue`, by `break`, or by reaching the end of the body -- destroys the owned locals that the iteration created. Mutable locals outside the loop keep the values the completed iteration established. The loop-carried facts and the effect thread cross either edge exactly as they cross the loop backedge, so a `break` or `continue` inside a nested `if` or `switch` exits that region and then the iteration or the loop.
+
 User-defined source syntax for construction words is deferred. Hosts may register additional construction words with the syntax and construction behavior described in §12. They shape the enclosing word's control behavior without introducing an AST macro language.
 
 ### 7.3 Expression statements
 
 An expression may appear as a statement. Its value is discarded after evaluation. Pure discarded expressions may be diagnosed or eliminated; their effects, traps, moves, and required destruction remain observable.
 
-The designs of `break`, `continue`, matching, and pattern captures are deferred. Let has no exception channel (§14).
+The designs of matching and pattern captures are deferred. Let has no exception channel (§14).
 
 ---
 
@@ -839,7 +849,7 @@ Destructors must complete: they cannot trap, suspend, or re-enter Let control. T
 
 At a join, a source place is usable only if it is initialized and owned by that place on every incoming path. If one path moved it and another did not, later use is rejected unless the moved path explicitly reinitializes it before the join.
 
-Owned locals created only inside a branch or loop iteration are destroyed on every normal exit from that lexical scope. Current values of outer mutable locals are the values established by the selected path or completed loop iteration.
+Owned locals created only inside a branch or loop iteration are destroyed on every normal exit from that lexical scope, including a `break` or `continue`. Current values of outer mutable locals are the values established by the selected path or completed loop iteration.
 
 ### 9.7 Cycles
 
@@ -999,6 +1009,7 @@ The control forms have these meanings:
 - `if` evaluates its Bool condition and executes the corresponding region. A false condition with no `else` executes neither region. Normal completion continues after the form.
 - `while` evaluates its Bool condition before every iteration. A true condition executes the body and repeats; a false condition continues after the form.
 - `switch` evaluates its subject once and selects one case arm or its default; no arm falls through into another.
+- `break` leaves the nearest enclosing `while`; `continue` starts its next iteration. Neither is a construction word, and neither takes a region.
 
 Construction does not execute the conditions or controlled runtime effects. The regions remain inline in the enclosing invocation, with the scope, return, and ownership rules already specified.
 
@@ -1361,7 +1372,7 @@ These language extensions remain explicitly deferred. Note that partial moves *a
   a program that tries it is rejected while parsing rather than by the ownership rules;
 - mixed numeric promotion and implicit numeric conversion;
 - dynamic constraint tests and reflection;
-- pattern matching, `break`, and `continue`;
+- pattern matching and pattern captures;
 - catchable exceptions;
 - coroutines, async suspension, and generators;
 - dereferencing, pointer arithmetic, foreign struct layout, and variadic calls;

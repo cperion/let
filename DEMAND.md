@@ -209,6 +209,10 @@ The budget is what keeps this honest. A loop of five iterations folds to nothing
 a million falls back and is emitted as a loop, which is correct and which the C compiler
 then reduces on its own.
 
+**`break` and `continue` are ordinary edges.** A `break` leaves the loop's strongly connected
+component and a `continue` returns to its header, so the same join, reachability and packet
+verification rules apply, and `enumerate` follows either concretely as it follows a backedge.
+
 **Decided: a loop that has effects stays a loop.** A decidable loop whose body demands ordered
 work cannot be executed, so it is emitted as a loop rather than unrolled. That is deliberate: the
 belt is the residual program the source expressed, and duplicating side-effecting work is a

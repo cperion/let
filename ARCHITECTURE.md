@@ -11,7 +11,7 @@ specification cross-check, API, implemented paths, and outstanding work.
 ## Three vocabularies
 
 - `ast.lua`: Let syntax, including words, stages, preludes, aggregates, places, and
-  structured control. Switch retains its subject and arms. No checked-AST clone.
+  structured control, including `break` and `continue`. Switch retains its subject and arms. No checked-AST clone.
   Match/pattern captures are intentionally not invented here.
 - `belt.lua`: one semantic producer IR. Blocks have parameters, immutable producers,
   and an explicit exit. Values, effects, storage, ownership operations, and word
