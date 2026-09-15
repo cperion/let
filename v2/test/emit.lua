@@ -177,4 +177,50 @@ local effect_text=V.print(effectful:emit{hosts={print_mark={symbol='print_mark',
 check(effect_text:find('print_mark',1,true)~=nil,'an ordered call inside a known packet is still emitted')
 check(#definitions(effect_text)>=1,'a callee that demands ordered work keeps its entry')
 
+-- Partial records ------------------------------------------------------------------
+
+-- A record with a run-time member is answered member by member. Reading only the known
+-- member therefore needs no record and no projection: the member's value is inlined and the
+-- construction becomes undemanded. One run-time member used to make every member opaque.
+-- The definition, not the prototype: the prototype line has no brace on it.
+local function body(text,name)
+    local from=text:find(name..'%([^\n]-{')
+    if not from then return '' end
+    local to=text:find('\n}',from) or #text
+    return text:sub(from,to)
+end
+
+local partial=emitted[[
+let f = let n : Int do
+    let bag = { let factor = 6 let runtime = n };
+    return bag.factor
+end
+let r = f(pure_calc(2))
+]]
+local f_body=body(partial,'let_f_3')
+check(f_body:find('INT64_C%(6%)')~=nil,'a known member of a partial record is inlined')
+check(f_body:find('%.f%d')==nil,'that read needs no projection')
+
+-- Reading the run-time member still is a projection, and the record is still what carries
+-- the two members, so the construction stays.
+local through=emitted[[
+let f = let n : Int do
+    let bag = { let factor = 6 let runtime = n };
+    return bag.runtime
+end
+let r = f(pure_calc(2))
+]]
+check(body(through,'let_f_3'):find('%.f%d')~=nil,'a run-time member is still projected')
+
+-- Returning the whole record keeps it a value: the caller observes every member, so nothing
+-- about it may be substituted in place of the record.
+check(#definitions(emitted[[
+let f = let n : Int do
+    let bag = { let known = 1 let runtime = n };
+    return bag
+end
+let r = f(pure_calc(2))
+]])==1,'returning a partial record keeps its callee')
+
+
 print(('passed %d v2 demand and folding emission checks'):format(checks))

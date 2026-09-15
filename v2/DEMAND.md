@@ -332,11 +332,45 @@ the receiver's own bundle), and joins ignore edges from unreachable predecessors
 than only falsified ones.
 
 **B — partial bundles, summaries and loop unrolling.**
-Loop widening and enumeration from §8 are done. What remains for B: `Partial{template,
-fields}` so a word with a known template but runtime state stays precise, specialized ABIs
-that drop known fields from the parameter list, SCC fixed points for mutually recursive
-summaries, and block instances so a loop that carries effects can be unrolled rather than
-left as a loop.
+Loop widening and enumeration from §8 are done, and so is the partial answer.
+
+`Known.partial` is a record with a known shape and a known value in *some* members. It is
+not one constant, so it is never substituted or pruned; `is_known` still means "one
+constant" and that is what substitution, pruning and arithmetic ask for, while `answered`
+also admits a partial record. Delivered behaviour, covered by `test/emit.lua`:
+
+- a member read through a partial record is answered with that member, so reading a known
+  member emits no record and no projection -- the member's value is inlined and the
+  construction becomes undemanded, where one run-time member used to make every member
+  opaque;
+- a member read through a run-time member is still a projection, and the record still has a
+  C representation;
+- the join of two records that are not one constant is taken member by member, so a member
+  every path agrees on stays known.
+
+Two latent defects surfaced while extending this, both fixed here:
+
+- `analysis.folded` could claim a function's body *is* the constant it computes while a
+  value it returns was still run-time. Decided control flow is not enough: every value
+  result must be one constant, or the body has to be emitted.
+- `Emitter:declare` skips an instruction whose result is already known, which silently
+  dropped a *kept* call whose result happened to be known. A call that runs must be
+  evaluated even when none of its outputs are read, so a kept call now emits
+  `C.Evaluate(call)` when its value is a constant. Unreachable today, because a usable
+  summary still has all-constant results; it becomes reachable the moment one does not.
+
+What remains for B is unchanged in kind, with one constraint now known:
+
+- sharing a summary whose argument packet is only partly answered. The plumbing is there
+  (`all_answered` seeding), but a summary that is precise without being foldable needs its
+  answers to survive to emission, and they do not: an answer table is rebuilt per analysis
+  pass while a fold mark recorded in an earlier pass outlives the answers it depends on.
+  Making the two agree -- or recording the fold with the pass that produced it -- is the
+  prerequisite, and it is why the safe subset landed first.
+- specialized ABIs that drop known fields from the parameter list;
+- SCC fixed points for mutually recursive summaries;
+- block instances so a loop that carries effects can be unrolled rather than left as a
+  loop.
 
 **C — scheduling and sharing.**
 Deliverable: shared-result materialization (one C temporary for a producer with several

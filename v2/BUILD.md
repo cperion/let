@@ -142,9 +142,11 @@ construction diagnostic rather than a language limitation.
   producers, known producers, their helpers, unused non-entry packet fields and
   unreachable blocks are not written out, known values are inlined and known branches are
   selected. Ordered effects are always kept, and a fully known call emits no callee.
-  Still missing: partial bundles, specialized ABIs, mutual-recursion summaries, loop
-  widening, and shared-result materialization (DEMAND.md milestones B and C). No residual
-  AST or old evaluator is introduced.
+  Partial records are done: a member read through a record whose other members are run-time
+  is answered with that member, and a join keeps the members every path agrees on. Still
+  missing: sharing a summary whose argument packet is only partly answered (DEMAND.md §14
+  records the prerequisite), specialized ABIs, mutual-recursion summaries, and shared-result
+  materialization (milestones B and C). No residual AST or old evaluator is introduced.
 - Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
   paths, an optional extension, configured roots), but §15.2 leaves the lookup to the
   embedding, so a host with its own layout passes its own resolver. This is not missing

@@ -16,9 +16,16 @@ local Known={}
 
 function Known.runtime(type_) return {runtime=true,type=type_} end
 function Known.value(type_,value) return {type=type_,value=value} end
-function Known.is_known(answer) return answer~=nil and answer.runtime~=true end
-function Known.is_runtime(answer) return answer==nil or answer.runtime==true end
 function Known.bundle(type_,fields) return Known.value(type_,{fields=fields}) end
+-- A record with a known shape and a known value in *some* members. It is not one constant,
+-- so it is never substituted or pruned, but reading a known member of it is, and a member
+-- both branches agree on stays known through a join.
+function Known.partial(type_,fields) return {type=type_,value={fields=fields},partial=true} end
+-- `is_known` means "one constant": what substitution, pruning and arithmetic require.
+function Known.is_known(answer) return answer~=nil and answer.runtime~=true and answer.partial~=true end
+function Known.is_runtime(answer) return answer==nil or answer.runtime==true end
+-- `answered` also admits a partial record: there is an answer, just not one value.
+function Known.answered(answer) return answer~=nil and answer.runtime~=true end
 
 local function is_bundle(type_) return B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) end
 
@@ -40,6 +47,17 @@ function Known.join(a,b)
     if a==nil then return b end
     if b==nil then return a end
     if Known.same(a,b) then return a end
+    -- Two records that are not one constant may still agree member by member, which is what
+    -- a join is for: a member every path agrees on stays known.
+    if Known.answered(a) and Known.answered(b) and is_bundle(a.type) and a.type:same(b.type) then
+        local fields,partial={},false
+        for i=1,#a.type.fields do
+            local field=Known.join(a.value.fields[i],b.value.fields[i])
+            fields[i]=field
+            if not Known.is_known(field) then partial=true end
+        end
+        return partial and Known.partial(a.type,fields) or Known.bundle(a.type,fields)
+    end
     return Known.runtime(a.type)
 end
 
@@ -290,22 +308,35 @@ function Evaluator:instruction(block,block_id,index,instruction)
     elseif B.BorrowPlace:isclassof(operation) then
         put(0,Known.runtime(instruction.results[1]))
     elseif B.Construct:isclassof(operation) then
+        -- Every member has an answer, because a run-time input answers `runtime`. The record
+        -- is one constant only when no member is run-time; otherwise it is a partial record,
+        -- which is what lets its known members still be read.
         local arguments=inputs(operation.fields)
-        if all_known(arguments) then
-            local fields={} for i,answer in ipairs(arguments) do fields[i]=answer end
-            put(0,Known.bundle(instruction.results[1],fields))
-        else put(0,Known.runtime(instruction.results[1])) end
+        local fields,partial={},false
+        for i,answer in ipairs(arguments) do
+            fields[i]=answer
+            if not Known.is_known(answer) then partial=true end
+        end
+        put(0,partial and Known.partial(instruction.results[1],fields) or Known.bundle(instruction.results[1],fields))
     elseif B.LoadField:isclassof(operation) then
+        -- Reading a member answers with that member's own answer, constant or not.
         local answer=inputs{operation.record}[1]
-        if Known.is_known(answer) and answer.value.fields[operation.field+1] then put(0,answer.value.fields[operation.field+1])
+        if Known.answered(answer) and answer.value.fields[operation.field+1] then
+            put(0,answer.value.fields[operation.field+1])
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.StoreField:isclassof(operation) then
         local answer=inputs{operation.record}[1]
-        if Known.is_known(answer) then
-            local fields={} for i,field in ipairs(answer.value.fields) do fields[i]=field end
-            fields[operation.field+1]=inputs{operation.value}[1]
-            if all_known(fields) then put(0,Known.bundle(instruction.results[1],fields))
-            else put(0,Known.runtime(instruction.results[1])) end
+        if Known.answered(answer) then
+            local fields,partial={},false
+            for i,field in ipairs(answer.value.fields) do
+                fields[i]=field
+                if not Known.is_known(field) then partial=true end
+            end
+            local stored=inputs{operation.value}[1]
+            fields[operation.field+1]=stored
+            if not Known.is_known(stored) then partial=true end
+            if partial then put(0,Known.partial(instruction.results[1],fields))
+            else put(0,Known.bundle(instruction.results[1],fields)) end
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.CallFunction:isclassof(operation) then
         local arguments=inputs(operation.arguments)
@@ -484,10 +515,18 @@ function Evaluator:analyze()
     local belt=self.belt
     self.needed=self.options.demands or belt:demands()
     if self:enumerate() then
-        -- Everything the function does is decided and nothing observable remains.
-        self.folded=true
-        self.live_blocks={}
-        return self
+        -- Everything the function does is decided and nothing observable remains. That makes
+        -- the body a constant only if every value it returns *is* one: a decided body can
+        -- still return a run-time parameter, and then it has to be emitted.
+        local constant=true
+        for i,answer in ipairs(self.results or {}) do
+            if self.belt.signature.results[i]~=B.Effect and not Known.is_known(answer) then constant=false end
+        end
+        if constant then
+            self.folded=true
+            self.live_blocks={}
+            return self
+        end
     end
     self:reset()
     local limit=self.options.iteration_limit or 16
