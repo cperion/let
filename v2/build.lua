@@ -152,7 +152,8 @@ function Context:take(name,span)
     if binding.type:copyable() then gap(span,'move of Copy bindings') end
     if not binding.owned then fail(span,'cannot move from a borrowed stage') end
     local value=self:ordered(B.Move(self:ref(self.effect),self:ref(cell.value)),binding.type,span)
-    self.cells[id]={value=cell.value,initialized=false,alive=false}; value.mode='fresh'; return value
+    self.cells[id]={value=cell.value,initialized=false,alive=false}
+    value.mode='fresh'; value.origin=id; return value
 end
 function Context:accept_owned(value,span)
     if not value.type then gap(span,'stored or returned words') end
@@ -277,6 +278,13 @@ function Context:cleanup()
         end
     end
 end
+-- A module initializer returns the namespace plus the state that owns it (§15.1).
+function Context:finish_pair(namespace,state,span)
+    self.fn.result=namespace.type; self.fn.state=state.type
+    self:pin(namespace); self:pin(state); self:cleanup()
+    self.block.exit=B.Return(L{self:ref(namespace),self:ref(state),self:ref(self.effect)}); self:unpin(); self:unpin()
+end
+
 function Context:finish(value,span)
     self:accept_owned(value,span)
     if self.fn.result then expect(value,self.fn.result,span) else self.fn.result=value.type end
@@ -295,6 +303,7 @@ function A.Name:build(ctx)
     if ctx:find(self.name) then return ctx:word_value(ctx:read(self.name,self.span),self.span,true) end
     -- The defining runtime word is visible only inside its own terminal body (§4.2).
     if ctx.self_name==self.name and ctx.builder then return ctx.builder:self_value(ctx,ctx.self_definition) end
+    if ctx.resolved and ctx.resolved.import_words[self] then return {construction='import'} end
     if self.name==ctx.fn.name then gap(self.span,'source-word invocation and recursion') end
     local host=ctx.fn.hosts[self.name]; if host then return {host=host} end
     if ctx.fn.types[self.name] or self.name=='Copy' or self.name=='Executable' then fail(self.span,'constraint word is not a runtime value') end
@@ -385,6 +394,17 @@ function Context:construct_record(values,fields,span)
     for i,field in ipairs(fields) do
         declared:insert(B.Field(field.name,field.type,field.mutable))
         if not field.type:copyable() or field.mutable then copy=false end
+    end
+    -- While a module terminal is being built, owned state may only be *moved in* from a
+    -- top-level prelude. New owned state would have no place in the module's own state
+    -- record, so the unload function could never destroy it (§15.1).
+    if self.module_preludes then
+        for i,value in ipairs(values) do
+            local owns=self:owns(fields[i].type)
+            if owns and not (value.origin and self.module_preludes[value.origin]) then
+                fail(span,'a module terminal may not construct new owned state; move an owned prelude into it')
+            end
+        end
     end
     local result=self:emit(B.Construct(self:refs(values),copy),L{B.Aggregate(declared,copy)},span)
     result.mode='fresh'

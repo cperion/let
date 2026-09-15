@@ -26,12 +26,12 @@ check(#callback.captures==3 and callback.captures[1]==plan.scope.names.value)
 local writes=false
 for _,use in ipairs(callback.capture_uses) do if use.access=='write' and use.definition==plan.scope.names.value then writes=true end end
 check(writes)
-local self_name=program.bindings[3].value.terminal.statements[3].value.word
+local self_name=program.file.items[3].binding.value.terminal.statements[3].value.word
 check(resolved.references[self_name][1].definition==factory and plan.self==factory)
 local shadow=V.parse('let f=let x:Int do let x=x+1 return x end','shadow.let')
 local names=shadow:resolve(); local f=names.module.names.f.template
 check(f.scope.names.x~=f.body_scope.names.x)
-check(require('v2.test.execute')(shadow.bindings[1].value:build_function('f'),{41},{})==42)
+check(require('v2.test.execute')(shadow.file.items[1].binding.value:build_function('f'),{41},{})==42)
 local scalar={type=B.Int,mode='copy'}; local owned={type=B.Named('StatefulWord'),mode='fresh'}
 check(A.Read:bind_argument(scalar,B.Persistent,error)==B.CopyAccess)
 local access,temporary=A.Read:bind_argument(owned,B.Transient,error)

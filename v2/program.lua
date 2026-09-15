@@ -25,7 +25,7 @@ end
 
 function Builder.new(ast,resolved,options)
     return setmetatable({ast=ast,resolved=resolved,options=options or {},
-        layouts={},functions={false},entries={},templates={}},Builder)
+        layouts={},functions={false,false},entries={},templates={}},Builder)
 end
 
 function Builder:types()
@@ -94,19 +94,6 @@ function Builder:pack(ctx,word)
     return value
 end
 
-function Builder:with_fields(ctx,word,fn)
-    ctx:push(); ctx:retain()
-    for _,field in ipairs(word.fields) do
-        ctx:force_bind(field.name,field.value,field.mutable,field.owned,false,false,field.span)
-        ctx:pin(field.value)
-    end
-    local ok,result=pcall(fn)
-    for _=1,#word.fields do ctx:unpin() end
-    ctx:pop()
-    if not ok then error(result,0) end
-    return result
-end
-
 -- Build one prelude binding: its initializer runs exactly once per instance, in the
 -- caller's region, when advancement reaches it.
 -- §5.4: a prelude reached by construction belongs to the constructed word, but one reached
@@ -159,8 +146,9 @@ function Builder:instantiate(ctx,definition)
     local ok,result=pcall(function()
         captures()
         self:prepare(ctx,word,layout,layout.initial,self:destination())
-        if #layout.steps==0 and A.Data:isclassof(template.source.terminal) then
-            return template.source.terminal.value:build(ctx)
+        if #layout.steps==0 then
+            local data=self:terminal_value(ctx,template)
+            if data then return data end
         end
         return self:pack(ctx,word)
     end)
@@ -199,19 +187,61 @@ function Builder:supply(ctx,value,argument,destination)
     local type_=ctx:constraint(item.constraint,supplied.type,argument.span)
     if type_ then expect(supplied,type_,argument.span) end
     local owned=not supplied.type:copyable() and (item.capability==A.Own or item.capability==A.OwnMut)
-    ctx:force_bind(item.name,supplied,owned or item.capability==A.Mut or item.capability==A.OwnMut,owned,false,false,item.span)
-    word.fields[#word.fields+1]={name=item.name,value=supplied,type=supplied.type,mutable=item.capability==A.Mut or item.capability==A.OwnMut,
-        owned=owned,retained=destination==B.Persistent,span=item.span}
-    word.supplied=word.supplied+1
-    self:prepare(ctx,word,layout,step.prepare,destination)
-    if word.supplied==#layout.steps and A.Data:isclassof(word.template.source.terminal) then
-        return self:with_fields(ctx,word,function() return word.template.source.terminal.value:build(ctx) end)
+    -- Advancement happens in a scope holding every field the word already has. Earlier steps
+    -- closed their own scopes, so without this a prelude reached at this stage could not see
+    -- a prelude reached at an earlier one.
+    ctx:push()
+    local ok,result=pcall(function()
+        for _,field in ipairs(word.fields) do
+            ctx:force_bind(field.name,field.value,field.mutable,field.owned,false,false,field.span)
+        end
+        ctx:force_bind(item.name,supplied,owned or item.capability==A.Mut or item.capability==A.OwnMut,owned,false,false,item.span)
+        word.fields[#word.fields+1]={name=item.name,value=supplied,type=supplied.type,mutable=item.capability==A.Mut or item.capability==A.OwnMut,
+            owned=owned,retained=destination==B.Persistent,span=item.span}
+        word.supplied=word.supplied+1
+        self:prepare(ctx,word,layout,step.prepare,destination)
+        if word.supplied==#layout.steps then
+            local data=self:terminal_value(ctx,word.template)
+            if data then return data end
+        end
+        return self:pack(ctx,word)
+    end)
+    ctx:pop()
+    if not ok then error(result,0) end
+    return result
+end
+
+-- The value of a data terminal. A file chain with no written terminal is data too: its
+-- value is the named record of its own prelude bindings, which is the module namespace.
+function Builder:terminal_value(ctx,template)
+    local terminal=template.source.terminal
+    if terminal==nil then return self:namespace_record(ctx,template) end
+    if A.Data:isclassof(terminal) then return terminal.value:build(ctx) end
+    return nil
+end
+
+function Builder:namespace_record(ctx,template)
+    local values,fields=L(),{}
+    for _,item in ipairs(template.source.items) do
+        if A.Prelude:isclassof(item) then
+            local id=ctx:find(item.binding.name)
+            local value=ctx.cells[id].value
+            values:insert(value)
+            fields[#fields+1]={name=item.binding.name,type=value.type,mutable=item.binding.mutable}
+        end
     end
-    return self:pack(ctx,word)
+    return ctx:construct_record(values,fields,template.source.span)
 end
 
 function Builder:specialize(ctx,expression)
     local value=expression.word:build(ctx)
+    -- `import` is a construction entry: the named file's chain is constructed here, and the
+    -- arguments that follow specialize it like any other word.
+    if value.construction=='import' then
+        local file=ctx.resolved.imports[expression]
+        if not file then fail(expression.span,'unresolved import') end
+        return self:instantiate(ctx,{template=ctx.resolved.chains[file]})
+    end
     if not value.word then fail(expression.span,'specialization requires a word value') end
     -- The receiver is unchanged. A Copy receiver is copied; a fresh receiver transfers
     -- its state; an existing non-Copy receiver needs explicit independent-copy vocabulary.
@@ -370,35 +400,99 @@ function Builder:invoke(ctx,expression,tail)
     return result
 end
 
+-- §15.1: the module initializer constructs the namespace, and the module's owned state
+-- lives until unload. Both are returned: the namespace is what the host projects, and the
+-- state is the owner, destroyed once by the unload function in reverse successful-
+-- construction order. One owner avoids the namespace and the state each destroying the same
+-- value; a written terminal that moves an owned prelude into the namespace only changes what
+-- the host can *see*, not who destroys it.
 function Builder:build_module()
-    local fn={name='__module_init',span=self.ast.bindings[1] and self.ast.bindings[1].span or V.Source.Span('<module>',1,1),
+    local file=self.ast.file
+    local fn={name='__module_init',span=file.span,
+        blocks={},bindings={},next_value=0,result=nil,state=nil,resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
+    local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
+    ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
+    local order,values,fields=L(),L(),L()
+    for index,item in ipairs(file.items) do
+        if A.Stage:isclassof(item) then item:entry(ctx,index,self.options)
+        else
+            A.Local(item.binding,item.binding.span):build(ctx)
+            local id=ctx:find(item.binding.name)
+            -- The value is recorded even when the terminal later moves it out: the state
+            -- keeps its original construction position, which is what destruction order
+            -- needs, and only the state is destroyed.
+            values:insert(ctx.cells[id].value)
+            order:insert(item.binding.name)
+            fields:insert({name=item.binding.name,type=ctx.cells[id].value.type,mutable=item.binding.mutable})
+        end
+    end
+    -- Module bindings live until module unload, not until initialization returns.
+    ctx.scopes[1].retained=true
+    self.module_order=order
+    local namespace
+    if file.terminal==nil then
+        -- The common case: the namespace is exactly the prelude record, so it is its own
+        -- state and there is nothing to duplicate.
+        local state=ctx:construct_record(values,fields,fn.span)
+        self.module_exports=self:export_map(fields)
+        ctx:finish_pair(state,state,fn.span)
+    elseif A.Data:isclassof(file.terminal) then
+        ctx.module_preludes={}
+        for _,item in ipairs(file.items) do
+            if A.Prelude:isclassof(item) then ctx.module_preludes[ctx:find(item.binding.name)]=true end
+        end
+        namespace=file.terminal.value:build(ctx)
+        ctx.module_preludes=nil
+        local state=ctx:construct_record(values,fields,fn.span)
+        self.module_exports=self:export_map(namespace.type)
+        ctx:finish_pair(namespace,state,fn.span)
+    else
+        -- A written do terminal is the initialization body; its return is the namespace.
+        ctx:statements(file.terminal.statements)
+        if not ctx.block.exit then ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},fn.span),fn.span) end
+        ctx.fn.state=ctx.fn.result
+    end
+    return self:module_function(fn,'__module_init')
+end
+
+-- A host projects exports by index, so record the mapping instead of making it guess.
+function Builder:export_map(source)
+    local exports={}
+    if B.Aggregate:isclassof(source) then
+        for i,field in ipairs(source.fields) do if field.name then exports[field.name]=i-1 end end
+    elseif type(source)=='table' then
+        for i,field in ipairs(source) do if field.name then exports[field.name]=i-1 end end
+    end
+    return exports
+end
+
+function Builder:module_function(fn,label)
+    local blocks=L()
+    for _,block in ipairs(fn.blocks) do assert(block.exit,'unfinished block'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit)) end
+    local results=L{fn.result,fn.state}
+    results:insert(B.Effect)
+    return B.Function(label,B.Signature(blocks[1].parameters,results),blocks)
+end
+
+-- §15.1: destroy the module's owned state in reverse successful-construction order. The
+-- state record's members are already in construction order, so destroying it is the whole
+-- function; a record destroys its own contents in reverse (§8.5).
+function Builder:build_unload(state_type)
+    local fn={name='__module_unload',span=self.ast.file.span,
         blocks={},bindings={},next_value=0,result=nil,resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
     local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
-    local order,values={},L()
-    for _,binding in ipairs(self.ast.bindings) do
-        A.Local(binding,binding.span):build(ctx)
-        local id=ctx:find(binding.name)
-        order[#order+1]=binding.name; values:insert(ctx.cells[id].value)
-    end
-    local types=L(); for _,value in ipairs(values) do types:insert(value.type) end
-    local declared=L()
-    for i,type_ in ipairs(types) do declared:insert(B.Field(nil,type_,false)) end
-    local copy=copyable_types(types)
-    local namespace=ctx:emit(B.Construct(ctx:refs(values),copy),L{B.Aggregate(declared,copy)},fn.span)
-    namespace.mode='fresh'
-    -- Module bindings live until module unload, not until initialization returns.
-    ctx.scopes[1].retained=true
-    ctx:finish(namespace,fn.span)
+    ctx:destroy(ctx:parameter(state_type),fn.span)
+    ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},fn.span),fn.span)
     local blocks=L()
     for _,block in ipairs(fn.blocks) do assert(block.exit,'unfinished block'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit)) end
-    self.module_order=order; self.module_types=types
     return B.Function(fn.name,B.Signature(blocks[1].parameters,L{fn.result,B.Effect}),blocks)
 end
 
 function Builder:build()
     local module=self:build_module()
     self.functions[1]=module
+    self.functions[2]=self:build_unload(module.signature.results[2])
     local functions=L()
     for _,fn in ipairs(self.functions) do functions:insert(fn) end
     local templates=L()

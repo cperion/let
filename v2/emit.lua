@@ -389,11 +389,12 @@ end
 function Emitter:function_name(id)
     local name=self.program.functions[id] and self.program.functions[id].name
     if name=='__module_init' then return 'let_module_init' end
+    if name=='__module_unload' then return 'let_module_unload' end
     return 'let_' .. sanitize(name or ('fn_' .. id))
 end
 
 function Emitter:live_functions()
-    local live,work={[1]=true},{1}
+    local live,work={[1]=true,[2]=true},{1,2}
     while #work>0 do
         local id=table.remove(work)
         local belt=self.program.functions[id]
@@ -432,6 +433,18 @@ end
 
 function Emitter:emit_function(id,belt)
     local analysis=self.analysis[id]
+    -- A fully folded function has no residual work at all, so its body is the constant it
+    -- computes. Nothing inside it is walked: no blocks, no labels, no gotos.
+    if analysis.folded then
+        local type_=self:return_shape(belt.signature.results)
+        local values=L()
+        for i,result in ipairs(belt.signature.results) do
+            if result~=B.Effect then values:insert(self:constant(analysis.results[i])) end
+        end
+        local external=id==1
+        return C.Function(self:function_name(id),external,external,type_,self:function_parameters(belt),
+            C.Block(L{C.Return(self:return_value(type_,values))}))
+    end
     self.current=belt
     self.current_id=id
     self.live=analysis.live_blocks

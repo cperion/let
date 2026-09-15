@@ -1,0 +1,31 @@
+-- A default import resolver for hosts that do not supply their own.
+--
+-- §15.2 fixes only the *semantics* of an import: the named file's chain is constructed at
+-- the import site. Where a path is looked up, which extension is assumed, and whether
+-- anything is cached are embedding decisions, so they live here beside the compiler rather
+-- than in the language. A host with its own layout should pass its own resolver instead.
+return function(options)
+    options=options or {}
+    local suffix=options.suffix==nil and '.let' or options.suffix
+    local roots=options.roots or {}
+    return function(path,from)
+        local directory=from and from:match('^(.*)/') or '.'
+        local candidates={path}
+        if suffix~='' and path:sub(-#suffix)~=suffix then candidates[#candidates+1]=path..suffix end
+        -- Relative to the importing file first, then the configured roots, then as given.
+        local bases={directory}
+        for _,root in ipairs(roots) do bases[#bases+1]=root end
+        bases[#bases+1]=''
+        for _,base in ipairs(bases) do
+            for _,candidate in ipairs(candidates) do
+                local full=(base=='' and candidate) or (base .. '/' .. candidate)
+                local file=io.open(full,'r')
+                if file then
+                    local text=file:read('*a'); file:close()
+                    return {text=text,file=full}
+                end
+            end
+        end
+        return nil
+    end
+end

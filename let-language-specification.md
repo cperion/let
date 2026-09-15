@@ -1,6 +1,6 @@
 # Let Core Language Specification
 
-**Version:** 0.7 — whitespace-independent syntax, juxtaposition specialization, and compact structured control
+**Version:** 0.8 — whitespace-independent syntax, juxtaposition specialization, compact structured control, and file chains with imports
 
 **Scope:** source syntax, source semantics, ownership, constraints, construction vocabulary, and embedding behavior
 
@@ -1100,7 +1100,44 @@ All top-level names are visible through the module namespace. A later module sys
 
 Top-level data and specialized words live until module unload. Their owned state is destroyed in reverse successful-construction order when the host unloads the module.
 
-### 15.2 Host vocabulary contract
+### 15.2 File chains and imports
+
+A source file **is** a binding chain. Its top-level `let` forms are that chain's items and its namespace is that chain's terminal:
+
+| Chain part | File meaning |
+| --- | --- |
+| unsatisfied stage (`let x`, `let x mut`, `let x own`) | an input the file's namespace is constructed from |
+| completed prelude (`let x = …`) | initialization, evaluated in source order |
+| terminal | the module namespace |
+
+A file with no written terminal exposes the named aggregate of its own prelude bindings, in source order; that is the namespace of §15.1. A written terminal replaces it, which is how a file chooses its export surface:
+
+~~~let
+let internal = load_key()
+{ let open = open_with(internal)
+  let close = close_with(internal) }
+~~~
+
+Because juxtaposition takes precedence over splitting adjacent expressions (§3.2), a written terminal that follows a prelude needs `;` after that prelude's value.
+
+`import` is a dictionary entry in the **construction** phase (§12.1), not a reserved spelling, so a lexical binding of that name still wins. Its one expression slot is the file path, which must be a constant `Text`; where that path is looked up is an embedding decision, not a language rule. Importing constructs the named file's chain **at the import site**:
+
+- The file's stages are supplied by the specialization arguments that follow, so a configurable file is an ordinary word: `import "codec.let" JPEG 90`.
+- The file's preludes are evaluated there, in source order, which is when their runtime effects occur (§15.1).
+- The result is the file's terminal: its namespace aggregate for a data terminal, or an executable word for a `do` terminal, which the importer invokes explicitly with `()`.
+
+Each `import` is its own specialization, so §5.2 applies unchanged: **two imports of the same file are two independent instances**, with independent state, and importing a file twice evaluates its initialization twice. Sharing is explicit — bind the namespace once and pass that binding.
+
+The namespace is an ordinary value:
+
+- it is projected and invoked like any other aggregate (§8.3, §6);
+- a member declared `mut` is writable through the owning binding (§8.3);
+- exposing an owned resource requires moving it into the namespace, because a read of a non-copyable binding is a borrow (`{ let handle = move buffer }`);
+- its lifetime is the lifetime of the binding the importer gave it, so an import inside a runtime body is destroyed when that body's scope exits, while top-level imports live until module unload.
+
+A file that imports itself, directly or transitively, is a construction cycle and is a compile-time diagnostic (§4.2 defers mutual recursion).
+
+### 15.3 Host vocabulary contract
 
 A host-provided word must declare its name, phase, ordered stages and their qualifiers and constraints, result constraint, and purity. Its supplied behavior must satisfy those declarations.
 
@@ -1108,7 +1145,7 @@ How the host registers or implements that behavior is outside the language speci
 
 An ownership-taking host stage becomes owner on successful entry. A borrowing stage may not retain its argument. A host word marked pure must satisfy the full promise in §12.2.
 
-### 15.3 No prescribed object ABI
+### 15.4 No prescribed object ABI
 
 This specification fixes source behavior, not an in-memory object model or calling convention. Any representation must satisfy the static requirements of §11.3 and preserve the same constraints, evaluation order, and ownership transfers.
 
@@ -1228,7 +1265,7 @@ No retain, reference count, or implicit copy is inserted.
 These language extensions remain explicitly deferred:
 
 - source-defined construction-word syntax;
-- imports, private exports, and package resolution;
+- private exports and package resolution (file chains and imports are specified in §15.2);
 - mutual-recursion declarations;
 - non-escaping partial specialization that retains a `mut` borrow;
 - partial moves from aggregates;

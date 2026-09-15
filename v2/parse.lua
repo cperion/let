@@ -57,8 +57,9 @@ function Parser:binding()
     self:expect('='); self:separators()
     return A.Binding(name,mutable,constraint,self:chain(),span)
 end
-function Parser:chain()
-    local span=self:token().span; local items=L()
+-- The chain items: consecutive `let` forms, an unsatisfied one being a stage.
+function Parser:items()
+    local items=L()
     while self:is('let') do
         local name,own,mutable,constraint,at=self:header()
         if self:accept('=') then
@@ -70,8 +71,18 @@ function Parser:chain()
         end
         self:separators()
     end
+    return items
+end
+
+-- A chain in an expression position always has a written terminal. A source file may omit
+-- it, in which case the terminal is the namespace of the file's own prelude bindings.
+function Parser:chain(optional_terminal)
+    local span=self:token().span
+    local items=self:items()
     local terminal
-    if self:is('do') then terminal=A.Body(self:body()) else terminal=A.Data(self:transfer()) end
+    if self:is('do') then terminal=A.Body(self:body())
+    elseif optional_terminal and self:is('eof') then terminal=nil
+    else terminal=A.Data(self:transfer()) end
     return A.Chain(items,terminal,span)
 end
 function Parser:value()
@@ -268,7 +279,7 @@ function A.Constraint:check_literals() visit(self.arguments) end
 function A.Binding:check_literals() if self.constraint then self.constraint:check_literals() end; self.value:check_literals() end
 function A.Stage:check_literals() if self.constraint then self.constraint:check_literals() end end
 function A.Prelude:check_literals() self.binding:check_literals() end
-function A.Chain:check_literals() visit(self.items); self.terminal:check_literals() end
+function A.Chain:check_literals() visit(self.items); if self.terminal then self.terminal:check_literals() end end
 function A.Data:check_literals() self.value:check_literals() end
 function A.Body:check_literals() visit(self.statements) end
 function A.Local:check_literals() self.binding:check_literals() end
@@ -281,9 +292,10 @@ function A.Switch:check_literals() self.subject:check_literals(); visit(self.cas
 function A.Case:check_literals() visit(self.labels); visit(self.body) end
 return function(text,file)
     local parser=setmetatable({tokens=Lexer.new(text,file):scan(),pos=1,aggregates={}},Parser)
-    local bindings=L(); parser:separators()
-    while not parser:is('eof') do bindings:insert(parser:binding()); parser:separators() end
-    visit(bindings); return A.Program(bindings)
+    parser:separators()
+    local file=parser:chain(true)
+    visit(file.items); if file.terminal then file.terminal:check_literals() end
+    return A.Program(file)
 end
 end
 

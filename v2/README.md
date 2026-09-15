@@ -159,6 +159,21 @@ trapping operation rather than becoming a compile-time diagnostic.
   though the loop runs many times, so work on it folds; a value that varies is widened to a
   runtime value. Widening only ever moves toward `Runtime`, and it is verified against what
   the edges actually supply, so a varying value cannot be mistaken for a constant.
+- **Module unload is a generated function.** The initializer returns the namespace and the
+  state that owns it; `let_module_unload(state)` destroys that state in reverse successful-
+  construction order (§15.1). One owner means a written terminal that moves an owned prelude
+  into the namespace changes what the host can *see*, not who destroys it.
+- **A file is a binding chain.** Its top-level `let` forms are the chain's items and its
+  namespace is the terminal, so an import is just specialization at the import site:
+  `import "codec.let" JPEG 90` yields the file's namespace aggregate (or a word, for a
+  `do` terminal, which the importer invokes). Two imports are two instances, and an
+  imported namespace is an ordinary value — projected, moved, and destroyed like any
+  aggregate.
+- **A decidable pure loop is enumerated and disappears.** `enumerate` follows one iteration
+  at a time while every decision stays decidable, so `while i < 5 do ... end` over known
+  state folds to its result and the function becomes a constant. It gives up on an
+  undecidable branch, demanded ordered work, a repeated instance, or the step budget, and
+  widening takes over — so a million-iteration loop is still emitted as a loop.
 - An **ordered** operation always carries a demanded effect output, so it is kept even
   when its result is unused — this is how §12.2 purity stays observable.
 - Block packets other than the entry block drop fields no consumer demands, together
@@ -197,9 +212,12 @@ luajit v2/test/program.lua
 luajit v2/test/emit.lua
 luajit v2/test/aggregate.lua
 luajit v2/test/known.lua
+luajit v2/test/import.lua
 luajit v2/test/native.lua
 ```
 
-`test/native.lua` builds each witness, emits C, compiles it with `cc`, links the
+`v2/file.lua` is a default import resolver — reading files, assuming an extension, and
+searching paths are host policy (§15.2), so they live beside the compiler rather than inside
+the language. `test/native.lua` builds each witness, emits C, compiles it with `cc`, links the
 host implementations, runs the module initializer, and compares the process output.
 Generated C and executables go to `test/out/`.

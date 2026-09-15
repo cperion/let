@@ -16,6 +16,7 @@ require('v2.resolve')(V)
 require('v2.program')(V)
 V.Known=require('v2.known')(V)
 V.scalar=require('v2.scalar')
+V.file_resolver=require('v2.file')
 require('v2.print')(V)
 require('v2.emit')(V)
 return V

@@ -19,7 +19,7 @@ Whitespace has no grammatical force; `;` separates otherwise adjacent expression
 package.path = './?.lua;./?/init.lua;' .. package.path
 local V = require('v2')
 local program = V.parse('let example = let n : Int do return n + 1 end', 'example.let')
-local chain = program.bindings[1].value
+local chain = program.file.items[1].binding.value
 local fn = chain:build_function('example', options)
 local needed, reachable = fn:demands()
 ```
@@ -63,6 +63,8 @@ executed by the compiler.
 | §8.4 | Positional indexing | A compile-time index resolves to a static field; a constant out-of-range index is diagnosed; a runtime index reports that it needs address-taken aggregate storage. |
 | §8.5 | Aggregate ownership and destruction | An aggregate is Copy exactly when every member is Copy and none is declared mutable. Destroying one destroys its owned members in reverse initialization order, recursively, so a moved aggregate destroys its members once. |
 | §10.3, §17.3 | Projected word members | A word member is rebuilt from the projected record so its field values belong to the invoked region, which is why `arithmetic.add(40, 2)` works even when the aggregate was captured. |
+| §§15.1–15.2 | File chains, namespace, imports | A file is a chain: top-level `let` forms are its items, and its namespace is the terminal — the named record of its preludes, or a written terminal that chooses the export surface. `import` is a construction-phase dictionary entry whose one slot is a constant `Text` path; the file's preludes are constructed at the import site, its stages are supplied by the following arguments, and the result is its terminal value. Two imports are two specializations, so their state is independent (§5.2), and the namespace is destroyed with the binding the importer gave it. Cycles are diagnosed. |
+| §15.1 | Module unload destroys owned state in reverse | The initializer returns the namespace plus the state record that owns every top-level value in construction order; `let_module_unload` destroys that record. A moved prelude stays at its original position in the state, so a written terminal cannot cause a double destruction or reorder it. |
 | §§4.1–4.2 | Lexical scope, initializer-before-binding, source self name | Scope maps contain binding IDs; nested scopes may shadow; duplicate same-scope bindings fail. A source self name cannot silently fall back to an outer host word. |
 | §4.3 | Left-to-right observable evaluation | Operands and arguments construct left to right; effect references serialize ordered work. Earlier operand values are pinned across CFG construction. |
 | §§5–6.2 | Specialization is not invocation; preludes run between arguments | `program.lua` advances a word bundle one stage at a time and runs each reached prelude in the caller before the next argument is evaluated. A data terminal returns data; a `do` terminal yields a word, never implicit execution. |
@@ -108,7 +110,12 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 
 ## Work still required
 
-- Module unload/destruction of word-owned module state (initialization exists).
+- Destruction of word-owned state reached through a `do`-terminal initializer body: the
+  unload function destroys the top-level prelude state, and a body that constructs owned
+  state of its own is not yet covered.
+- Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
+  paths, an optional extension, configured roots), but the language fixes none of it, so a
+  host with its own layout should pass its own resolver.
 - Non-Copy lexical captures: capturing an owned or borrowed binding requires the
   escape analysis of §10.1 and is currently diagnosed, not silently copied.
 - Mutable borrowed stage storage for `mut place` invocation arguments, which needs
@@ -169,11 +176,24 @@ Effects are erased, single results return directly, and wrapping arithmetic is a
 nested member destruction plus single destruction of a moved aggregate, §17.3 projected
 word invocation at module level and through a capture, and the four diagnostics.
 
-`test/known.lua` covers fixed-point loop analysis: a loop-invariant multiplication folds
-while the loop is still emitted, an induction variable and an accumulator widen and still
-compute the right values, nested loops settle, and a never-entered loop leaves its variables
-alone. Two native witnesses (`loop_widening`, `loop_invariant`) execute the same cases, so an
-unsound fold would print a wrong number rather than merely look wrong.
+`test/native.lua` also covers module unload: owned top-level state is destroyed in reverse
+successful-construction order, and a written terminal that moves an owned prelude into the
+namespace still destroys it exactly once at its original position.
+
+`test/import.lua` covers the implicit namespace, a written terminal, a configurable file,
+word members of an imported namespace, two imports as independent instances, an owned
+resource moved into a namespace and destroyed exactly once at scope exit, a `do`-terminal
+file yielding a word, an import cycle, a non-Text path, an unresolvable path, a missing
+resolver, and a lexical binding shadowing `import`. A native witness (`modules`) compiles
+imports through to C.
+
+`test/known.lua` covers loop analysis: a loop whose trip count is decidable and whose body is
+pure is enumerated away (`no goto`, no loop arithmetic, the final value as a constant), a
+run-time bound leaves a real loop with its invariant still folded inside it, an induction
+variable and an accumulator widen and still compute the right values, nested loops settle,
+and a never-entered loop leaves its variables alone. Native witnesses (`loop_widening`,
+`loop_invariant`, `loop_stateful`) execute the same cases, so an unsound fold would print a
+wrong number rather than merely look wrong.
 
 `test/emit.lua` checks that demand actually shapes the C: dead pure producers and their
 helpers are absent, an unused pure host call is absent, both ordered host calls survive in

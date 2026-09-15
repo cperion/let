@@ -47,19 +47,40 @@ function Context:region(statements,parent)
     local scope=self:scope(parent); self:statements(statements,scope); return scope
 end
 local function prepare_range(first,last) return {first=first,last=last} end
-function Context:chain(chain,outer,self_definition)
+function Context:chain(chain,outer,self_definition,name)
     -- The source name makes the emitted C self-describing; anonymous chains get a stable
     -- generated name rather than an opaque index.
     local template={id=#self.templates+1,source=chain,parent=self.current,steps={},captures={},capture_set={},capture_uses={},
-        name=self_definition and self_definition.name or ('lambda' .. (#self.templates+1))}
+        name=name or (self_definition and self_definition.name) or ('lambda' .. (#self.templates+1))}
     self.templates[#self.templates+1]=template; self.chains[chain]=template
     local previous=self.current; self.current=template
     local scope=self:scope(outer); template.scope=scope
     template.initial=prepare_range(1,0); template.preparation=template.initial
     for index,item in ipairs(chain.items) do item:resolve(self,scope,index) end
     template.preparation.last=#chain.items; template.preparation=nil
-    chain.terminal:resolve_terminal(self,scope,outer,self_definition)
+    -- A file chain may have no written terminal: its value is then the named record of its
+    -- own prelude bindings, which is exactly the module namespace of §15.1.
+    if chain.terminal then chain.terminal:resolve_terminal(self,scope,outer,self_definition)
+    else template.namespace=true end
     self.current=previous; return template
+end
+
+-- §18 defers imports and package resolution, so the language fixes only the *semantics* of
+-- an import: the named file's chain is constructed here, in a nested scope, and its
+-- namespace is the result. Where a path is looked up is the embedding's business.
+function Context:import_file(node,scope)
+    local path=node.argument.value
+    if not self.import_resolver then fail(node.span,'no import resolver is configured') end
+    local loaded=self.import_resolver(path,self.file)
+    if not loaded or not loaded.text or not loaded.file then
+        fail(node.argument.span,'cannot resolve import ' .. path)
+    end
+    if self.importing[loaded.file] then fail(node.span,'import cycle through ' .. loaded.file) end
+    self.importing[loaded.file]=true
+    local file=V.parse(loaded.text,loaded.file).file
+    self:chain(file,scope,nil,loaded.file)
+    self.imports[node]=file
+    self.importing[loaded.file]=nil
 end
 function A.Body:resolve_terminal(ctx,scope,outer,self_definition)
     local template=ctx.current; template.self=self_definition
@@ -102,7 +123,22 @@ function A.Unit:resolve() end
 function A.Name:resolve(ctx,scope) ctx:use(scope,self.name,self,'read',self) end
 function A.Unary:resolve(ctx,scope) self.operand:resolve(ctx,scope) end
 function A.Binary:resolve(ctx,scope) self.left:resolve(ctx,scope); self.right:resolve(ctx,scope) end
-function A.Specialize:resolve(ctx,scope) self.word:resolve(ctx,scope); self.argument:resolve(ctx,scope) end
+function A.Specialize:resolve(ctx,scope)
+    -- `import` is a dictionary entry, so a lexical binding of that name still wins.
+    if A.Name:isclassof(self.word) and self.word.name=='import' then
+        local definition=ctx:lookup(scope,'import',self.word.span)
+        local entry=definition and definition.kind=='dictionary' and definition.node
+        if entry and entry.phase=='construction' then
+            if not A.Text:isclassof(self.argument) then
+                fail(self.argument.span,'an import path must be a constant Text')
+            end
+            ctx.import_words[self.word]=true
+            ctx:import_file(self,scope)
+            return
+        end
+    end
+    self.word:resolve(ctx,scope); self.argument:resolve(ctx,scope)
+end
 function A.Invoke:resolve(ctx,scope)
     self.word:resolve(ctx,scope); for _,argument in ipairs(self.arguments) do argument:resolve(ctx,scope) end
 end
@@ -158,7 +194,8 @@ local function dictionary(ctx,parent,entries)
 end
 function A.Program:resolve(options)
     options=options or {}
-    local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},constraints={},scopes={},templates={}},Context)
+    local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},constraints={},scopes={},templates={},
+        imports={},import_words={},importing={},import_resolver=options.resolve,file=self.file.span.file},Context)
     local builtins={}
     for _,name in ipairs{'Bool','Int','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
     local outer=dictionary(ctx,nil,builtins)
@@ -167,8 +204,14 @@ function A.Program:resolve(options)
     for name,descriptor in pairs(options.resources or {}) do resources[name]={phase='constraint',resource=descriptor} end
     outer=dictionary(ctx,outer,resources)
     outer=dictionary(ctx,outer,options.hosts or {})
+    -- Construction-phase entries are dictionary names, not reserved words.
+    outer=dictionary(ctx,outer,{['import']={phase='construction'}})
     ctx.module=ctx:scope(outer)
-    for _,binding in ipairs(self.bindings) do binding:resolve(ctx,ctx.module) end
+    ctx.importing[ctx.file]=true
+    -- The file chain's own scope holds the module's top-level names, so it *is* the module
+    -- namespace: the terminal and every nested chain resolve through it.
+    ctx.module=ctx:chain(self.file,ctx.module,nil,'<module>').scope
+    ctx.importing[ctx.file]=nil
     return ctx
 end
 end

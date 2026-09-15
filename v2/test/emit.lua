@@ -21,16 +21,19 @@ local function calls(text,name)
     end
     return found
 end
--- Function definition lines, so a test can assert how many functions were emitted at all.
+-- Callee definitions, so a test can assert how many words were emitted at all. The module
+-- initializer and its unload function are the host interface, not callees.
 local function definitions(text)
     local found={}
     for line in text:gmatch('[^\n]+') do
         local name=line:match('(let_[%w_]+)%s*%(')
-        if name and line:find('%)%s*{%s*$') then found[#found+1]=name end
+        if name and line:find('%)%s*{%s*$') and name~='let_module_init' and name~='let_module_unload' then
+            found[#found+1]=name
+        end
     end
     return found
 end
-local function foldable(source) return #definitions(emitted(source))==1 end
+local function foldable(source) return #definitions(emitted(source))==0 end
 
 -- Demand ---------------------------------------------------------------------------
 
@@ -56,11 +59,12 @@ check(ordered[2]:find('INT64_C(3)',1,true)~=nil,'second ordered call keeps its a
 
 -- A binding that no path reads must not survive as a loop packet field, because the
 -- header/body/exit interfaces carry in-scope bindings across every backedge.
+-- A run-time bound keeps a real loop, so the loop packet still exists to be pruned.
 text=emitted[[
 let g = do
     let unused = 99;
     let counter mut = 0;
-    while counter < 3 do
+    while counter < pure_calc(3) do
         counter = counter + 1
     end
     return counter
@@ -69,6 +73,21 @@ let s = g()
 ]]
 check(not text:find('INT64_C(99)',1,true),'unused loop packet field and its literal are dropped')
 check(text:find('LET_ADD',1,true)~=nil,'the demanded loop body is still emitted')
+check(text:find('goto',1,true)~=nil,'a run-time bound keeps the loop')
+
+-- A decidable loop with a pure body and no demanded result leaves nothing behind at all.
+local folded=emitted[[
+let g = do
+    let counter mut = 0;
+    while counter < 3 do
+        counter = counter + 1
+    end
+    return counter
+end
+let s = g()
+]]
+check(not folded:find('goto',1,true),'a decidable loop is enumerated, not emitted')
+check(#definitions(folded)==0,'an enumerated loop emits no callee function')
 
 -- Folding: pure ------------------------------------------------------------------
 
@@ -133,7 +152,7 @@ let first = errors()
 let second = errors()
 ]],'fold.let'):build{}
 local full=V.print(program:emit{})
-check(#definitions(full)==1,'a fully known call emits no callee function')
+check(#definitions(full)==0,'a fully known call emits no callee function')
 check(not full:find('LET_MUL',1,true) and not full:find('LET_ADD',1,true),'a fully known call emits no arithmetic helper')
 check(full:find('INT64_C(42)',1,true)~=nil,'known call result 42 is a constant')
 check(full:find('INT64_C(1)',1,true)~=nil and full:find('INT64_C(2)',1,true)~=nil,
@@ -145,7 +164,7 @@ text=emitted[[
 let multiply = let x : Int let y : Int do return x * y end
 let a = multiply(pure_calc(1), 7)
 ]]
-check(#definitions(text)>=2,'a runtime-argument call still emits its entry')
+check(#definitions(text)>=1,'a runtime-argument call still emits its entry')
 check(text:find('pure_calc(',1,true)~=nil,'a demanded pure host call stays in the C')
 
 local effectful=V.parse([[
@@ -156,6 +175,6 @@ let r = noisy(5)
 local effect_text=V.print(effectful:emit{hosts={print_mark={symbol='print_mark',phase='runtime',purity='ordered',
     signature=B.Signature(L{read},L{B.Unit})}}})
 check(effect_text:find('print_mark',1,true)~=nil,'an ordered call inside a known packet is still emitted')
-check(#definitions(effect_text)>=2,'a callee that demands ordered work keeps its entry')
+check(#definitions(effect_text)>=1,'a callee that demands ordered work keeps its entry')
 
 print(('passed %d v2 demand and folding emission checks'):format(checks))

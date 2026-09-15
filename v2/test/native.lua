@@ -30,8 +30,15 @@ void let_trap(char* reason){ fputs("trap: ",stderr); fputs(reason,stderr); fputc
 
 
 -- Emits, compiles, links the host implementations, and runs the module initializer.
-local function native(name,source,extra_c)
-    local build_options={hosts=hosts,resources={Box={destroy='close'}}}
+local modules={
+    ['math.let']='let add = let x : Int let y : Int do return x + y end\n'..
+                 'let negate = let x : Int do return -x end',
+    ['codec.let']='let scale : Int\nlet factor = scale * 2;\n{ let encode = factor }',
+}
+local function native(name,source,extra_c,extra_options)
+    local build_options={hosts=hosts,resources={Box={destroy='close'}},
+        resolve=function(path) local text=modules[path]; if text then return {text=text,file=path} end end}
+    for key,value in pairs(extra_options or {}) do build_options[key]=value end
     local program=V.parse(source,name..'.let'):build(build_options)
     local unit=program:emit(build_options)
     local declarations=L()
@@ -154,7 +161,7 @@ output=native('loop_widening',[[
 let run = do
     let i mut = 0;
     let acc mut = 0;
-    while i < 5 do
+    while i < runtime_int(5) do
         i = i + 1;
         acc = acc + i
     end
@@ -183,6 +190,62 @@ let show = do print_int(answer) end
 let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'42\n','a loop-invariant folds while the loop still runs')
+
+-- A stateful word carried across a loop backedge: the record travels as a loop packet and
+-- its interior state must survive every iteration.
+output=native('loop_stateful',[[
+let run = do
+    let counter = let start : Int let value mut = start do value = value + 1; return value end
+    let c = counter runtime_int(0)
+    let total mut = 0
+    let i mut = 0
+    while i < runtime_int(4) do
+        total = total + c();
+        i = i + 1
+    end
+    return total
+end
+let answer = run()
+let show = do print_int(answer) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'10\n','a stateful word invoked in a loop carries its state across the backedge')
+
+-- §15.2 File chains and imports reach native code: an imported namespace is an ordinary
+-- aggregate whose word members are projected and invoked, and a configurable file is
+-- specialized at its import site.
+output=native('modules',[[
+let math = import "math.let"
+let codec = import "codec.let" 21
+let total = math.add(40, 2) + math.negate(7) + codec.encode
+let show = do print_int(total) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'77\n','§15.2 imported namespaces, word members and a configured file')
+
+-- §15.1 Module unload destroys owned top-level state in reverse successful-construction
+-- order. The initializer returns the namespace and the state that owns it; the host holds
+-- both and calls unload.
+output=native('unload',[[
+let first = open(1)
+let second = open(2)
+let run = do
+    let local_pair = { open(3), open(4) };
+    return 0
+end
+let r = run()
+]],[[int main(void){ struct let_ret_1 m = let_module_init(); let_module_unload(m.r1); return 0; }]])
+eq(output,'open:1\nopen:2\nopen:3\nopen:4\nclose:4\nclose:3\nclose:2\nclose:1\n',
+    '§15.1 unload destroys module state in reverse construction order')
+
+-- A written terminal is a view over the preludes, so a moved owned prelude is still
+-- destroyed once, at its original construction position.
+output=native('unload_view',[[
+let first = open(1)
+let hidden = open(2);
+{ let shown = move first }
+]],[[int main(void){ struct let_ret_1 m = let_module_init(); let_module_unload(m.r1); return 0; }]])
+eq(output,'open:1\nopen:2\nclose:2\nclose:1\n','§15.1 a written terminal does not duplicate ownership')
 
 -- §6.2 Prelude effects reached between stages precede the following argument.
 output=native('preludes',[[

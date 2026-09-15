@@ -192,9 +192,28 @@ still emitted as a loop. Soundness is checked by execution, not by inspecting th
 witness whose accumulator varies must print the value the loop computes, because an unsound
 fold would print a plausible wrong constant.
 
-**Still open: unrolling a loop with a known trip count.** Folding away the loop entirely
-would need block *instances* — the same block emitted once per iteration with its own packet
-values — which the emitter does not model today. Widening deliberately does not attempt it.
+**Implemented: enumeration.** Widening deliberately forgets an induction variable, so a loop
+whose result is a constant still gets emitted. Before falling back to widening, `analyze`
+first tries `enumerate`: concrete-abstract execution that follows one iteration at a time
+while every control decision stays decidable. Each visit seeds a block's packet from the
+edge that reached it, so the header is entered with `i = 0`, then `1`, then `2`, and the
+condition is decidable at every step. If a `Return` is reached with every value result exact
+and nothing ordered was demanded, the function is *folded*: `folded` is set and the emitter
+writes the body as the constant it computes — no blocks, no labels, no gotos.
+
+Enumeration gives up, and widening takes over, on anything it cannot decide: an undecidable
+branch, demanded ordered work, an instance it has already visited (a period, or an
+unbounded loop), or the step budget (`options.unroll_limit`, default 32). Giving up is
+always sound because the fallback is the widening analysis, and widening is sound.
+
+The budget is what keeps this honest. A loop of five iterations folds to nothing; a loop of
+a million falls back and is emitted as a loop, which is correct and which the C compiler
+then reduces on its own.
+
+**Still open: unrolling a loop that has effects.** A decidable loop whose body demands
+ordered work cannot be executed, so it is emitted as a loop rather than unrolled. Unrolling
+it would need block *instances* in the emitter — the same block written once per iteration
+with its own packet values and labels.
 
 Nontermination: the compiler must always terminate. Fuel and widening exist for that, and a
 budget exhaustion is an **implementation limit**, not a proof about the program (§2, and
@@ -313,10 +332,11 @@ the receiver's own bundle), and joins ignore edges from unreachable predecessors
 than only falsified ones.
 
 **B — partial bundles, summaries and loop unrolling.**
-Loop widening from §8 is done. What remains for B: `Partial{template, fields}` so a word
-with a known template but runtime state stays precise, specialized ABIs that drop known
-fields from the parameter list, SCC fixed points for mutually recursive summaries, and block
-instances so a loop with a known trip count can be unrolled rather than widened.
+Loop widening and enumeration from §8 are done. What remains for B: `Partial{template,
+fields}` so a word with a known template but runtime state stays precise, specialized ABIs
+that drop known fields from the parameter list, SCC fixed points for mutually recursive
+summaries, and block instances so a loop that carries effects can be unrolled rather than
+left as a loop.
 
 **C — scheduling and sharing.**
 Deliverable: shared-result materialization (one C temporary for a producer with several

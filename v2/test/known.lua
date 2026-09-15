@@ -6,20 +6,22 @@ local function check(value,message) assert(value,message); checks=checks+1 end
 local function eq(actual,expected,message)
     assert(actual==expected,('%s: expected %s, got %s'):format(message or 'value',tostring(expected),tostring(actual))); checks=checks+1
 end
+local runtime=B.Parameter(B.Int,A.Read)
+local hosts={runtime_int={symbol='runtime_int',phase='runtime',purity='pure',signature=B.Signature(L{runtime},L{B.Int})}}
 local function emitted(source)
-    local program=V.parse(source,'known.let'):build{}
-    program:verify_flow({})
-    return V.print(program:emit{})
+    local program=V.parse(source,'known.let'):build{hosts=hosts}
+    program:verify_flow(hosts)
+    return V.print(program:emit{hosts=hosts})
 end
 -- Executes the module initializer and returns the last binding's value.
 local function result(source)
-    local program=V.parse(source,'known.let'):build{}
+    local program=V.parse(source,'known.let'):build{hosts=hosts}
     local namespace=execute(program.functions[1],{}, {}, 100000, program.functions)
     return namespace.fields[#namespace.fields]
 end
 
--- Fixed-point iteration keeps a loop-invariant value known, so work on it folds even
--- though the loop itself cannot be folded.
+-- A loop whose trip count is decidable and whose body is pure is enumerated, so the loop
+-- disappears and its result is a constant.
 local text=emitted[[
 let run = do
     let bias = 7
@@ -33,10 +35,29 @@ let run = do
 end
 let answer = run()
 ]]
-check(not text:find('LET_MUL',1,true),'a loop-invariant multiplication folds')
-check(text:find('INT64_C(14)',1,true)~=nil,'the invariant folds to 14')
+check(not text:find('goto',1,true),'a decidable pure loop is not emitted at all')
+check(not text:find('LET_MUL',1,true) and not text:find('LET_ADD',1,true),'no loop arithmetic survives')
+check(text:find('INT64_C(42)',1,true)~=nil,'the loop folds to its final value')
+
+-- A loop whose bound is only known at run time cannot be enumerated, so it is emitted and
+-- analyzed with widening instead.
+text=emitted[[
+let run = do
+    let bias = 7
+    let total mut = 0
+    let i mut = 0
+    while i < runtime_int(3) do
+        total = total + bias * 2;
+        i = i + 1
+    end
+    return total
+end
+let answer = run()
+]]
+check(text:find('goto',1,true)~=nil,'a run-time bound leaves a real loop')
+check(not text:find('LET_MUL',1,true),'the loop invariant still folds inside the emitted loop')
+check(text:find('INT64_C(14)',1,true)~=nil,'the invariant is a constant inside the loop')
 check(text:find('LET_ADD',1,true)~=nil,'the varying part is still computed')
-check(text:find('goto',1,true)~=nil,'the loop is still emitted as a loop')
 
 -- Soundness: an induction variable must widen, not be mistaken for a constant. The check
 -- is execution, because a wrong constant would still look plausible in the C.

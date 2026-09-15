@@ -12,9 +12,9 @@ module AST {
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or
     Constraint = (string name, Expr* arguments)
-    Program = (Binding* bindings)
+    Program = (Chain file)
     Binding = (string name, boolean mutable, Constraint? constraint, Chain value, Source.Span span)
-    Chain = (Item* items, Terminal terminal, Source.Span span)
+    Chain = (Item* items, Terminal? terminal, Source.Span span)
     Item = Stage(string name, Capability capability, Constraint? constraint, Source.Span span)
          | Prelude(Binding binding)
     Terminal = Data(Expr value) | Body(Stmt* statements)

@@ -97,14 +97,83 @@ Evaluator={}; Evaluator.__index=Evaluator
 function Evaluator.new(run,belt,options)
     local self=setmetatable({run=run,program=run.program,hosts=run.hosts,belt=belt,options=options or {},
         answers={},params={},decision={},widened={},residual=false},Evaluator)
-    -- Seeded parameters are how a call site asks about a concrete packet; anything not
-    -- seeded is a generic runtime input.
-    if options and options.parameters then
+    self:reset()
+    return self
+end
+
+-- Seeded parameters are how a call site asks about a concrete packet; anything not seeded
+-- is a generic runtime input.
+function Evaluator:reset()
+    self.answers,self.params,self.decision,self.widened,self.residual={},{},{},{},false
+    self.changed=false
+    local seeded=self.options.parameters
+    if seeded then
         local entry={}
-        for i,answer in ipairs(options.parameters) do entry[i]=answer end
+        for i,answer in ipairs(seeded) do entry[i]=answer end
         self.params[1]=entry
     end
-    return self
+end
+
+-- Concrete-abstract execution: follow one iteration at a time while every control decision
+-- remains decidable. This is what lets a loop with a known trip count fold away entirely,
+-- which widening alone cannot do because it deliberately forgets the induction variable.
+-- It gives up on anything it cannot enumerate: an undecidable branch, a repeated instance,
+-- demanded ordered work, or the step budget.
+function Evaluator:enumerate()
+    local budget=self.options.unroll_limit or 32
+    local visited,steps,returns={},0,nil
+    local function key_of(block_id,packet)
+        local parts={block_id}
+        for _,answer in ipairs(packet) do parts[#parts+1]=Known.key(answer) end
+        return table.concat(parts,'|')
+    end
+    local function visit(block_id,packet)
+        if steps>=budget then return false end
+        local key=key_of(block_id,packet)
+        if visited[key] then return false end
+        visited[key]=true; steps=steps+1
+        local block=self.belt.blocks[block_id]
+        self.params[block_id]=packet
+        local demanded=self.needed[block_id]
+        local recorded={}
+        self.answers[block_id]=recorded
+        for index,instruction in ipairs(block.instructions) do
+            local position=#block.parameters+index-1
+            if demanded and demanded[position] then
+                recorded[position]=self:instruction(block,block_id,index,instruction)
+                -- Ordered work has to be emitted, so it cannot be executed here.
+                if self.residual then return false end
+            end
+        end
+        local position=#block.parameters+#block.instructions
+        local exit=block.exit
+        local function packet_of(edge)
+            local packet={}
+            for i,ref in ipairs(edge.arguments) do packet[i]=self:resolve(block,block_id,position,ref) end
+            return packet
+        end
+        if B.Return:isclassof(exit) then
+            returns=packet_of({arguments=exit.values})
+            return true
+        elseif B.Branch:isclassof(exit) then
+            local condition=self:resolve(block,block_id,position,exit.condition)
+            if not Known.is_known(condition) then return false end
+            return visit((condition.value and exit.yes or exit.no).target,packet_of(condition.value and exit.yes or exit.no))
+        elseif B.Jump:isclassof(exit) then
+            return visit(exit.edge.target,packet_of(exit.edge))
+        end
+        return false
+    end
+    local entry={}
+    for i,parameter in ipairs(self.belt.blocks[1].parameters) do entry[i]=self:parameter(1,i) end
+    if not visit(1,entry) then return false end
+    -- Fold only if nothing observable remains and every value result is exact.
+    local types=self.belt.signature.results
+    for i,type_ in ipairs(types) do
+        if type_~=B.Effect and not Known.is_known(returns[i]) then return false end
+    end
+    self.results=returns
+    return true
 end
 
 -- Blocks participating in a cycle. Without widening, a known value must not travel
@@ -410,6 +479,13 @@ end
 function Evaluator:analyze()
     local belt=self.belt
     self.needed=self.options.demands or belt:demands()
+    if self:enumerate() then
+        -- Everything the function does is decided and nothing observable remains.
+        self.folded=true
+        self.live_blocks={}
+        return self
+    end
+    self:reset()
     local limit=self.options.iteration_limit or 16
     self.live_blocks=self:live()
     local verified=false
