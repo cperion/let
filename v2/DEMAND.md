@@ -399,6 +399,63 @@ plan: a callee specialized -- and analysed -- per argument-knownness pattern, si
 emitted body's substitution of a parameter by a constant requires the seeded analysis, not
 just a filter over the signature.
 
+## 14a. One question, asked once
+
+The emitter used to decide an output's fate in five places: `ref` for substitution, `known`
+for a declaration, `folded_call` for a call, `needed_parameter` for an edge, and a second copy
+of the last rule inside `function_parameters`. They had to agree, and nothing made them.
+
+They are now one function. `Emitter:disposition(analysis,belt,block_id,position,output)`
+answers with one of three fates:
+
+| fate | meaning |
+| --- | --- |
+| `constant` | the value is known, so every use is that constant |
+| `value` | it is materialized, and uses read it by name |
+| `dropped` | nothing needs it, so neither it nor its producer is written out |
+
+A parameter asks the same question with `position` equal to its 0-based index, which is where
+its value lives in the entry packet; that, and where the answer is looked up, is the *only*
+difference between a parameter and an instruction output, and it is stated once inside the
+rule. The rule returns the answer it found, so no caller re-derives where an answer lives --
+which is exactly the bug the first consolidation attempt introduced.
+
+Alongside it:
+
+- `Emitter:requirements(belt)` is the one demand input: the demand pass over the instruction
+  positions, merged with the entry parameters block 1 reads (see below).
+- `Emitter:instruction_runs(analysis,belt,block_id,position,instruction)` is the one answer to
+  "is this instruction written out", and the body filter, the liveness walk and the call site
+  all ask it.
+- `Emitter:parameter_live(analysis,belt,block_id,index)` is the one answer to "does this
+  parameter exist in C", asked by the signature, every call site and every edge copy. An
+  effect never does: statement order carries it, so it is neither declared, nor passed, nor
+  copied.
+
+Two clauses were *removed* rather than added while doing this. An "ordered instruction is
+always a value" clause turned out to be redundant -- every reachable block roots its own
+effect parameter, so an ordered output is always demanded -- and the suite is green without
+it. `Emitter:answer` and `Emitter:parameter_answer` went the same way. The count of rules went
+down, not up.
+
+### Why this is the shape the rest needs
+
+Every rule above takes `(analysis, belt)` explicitly instead of reaching for the function
+being emitted. That is not incidental: it means the unit of emission can become an
+**instance** -- a belt function together with the answers of the entry packet it is called
+with -- without touching any rule. `Run:summary` already keys its cache by exactly that pair,
+so the instance key exists and is already deduplicated.
+
+The remaining items then stop being separate features:
+
+- **ABIs specialized per argument-knownness pattern**: emit one instance per key instead of
+  one function per belt id. A parameter whose seeded answer is a constant is then `constant`
+  in that instance and drops out of its signature by the rule that already exists.
+- **SCC fixed points for mutual recursion**: an instance whose key is in progress is simply
+  not foldable, which is what the single-function case already does.
+- **Block instances**, so a loop carrying effects can be unrolled: an instance per
+  `(block, packet)` -- the same pair `enumerate` already walks one at a time.
+
 What remains for B is otherwise unchanged:
 
 - specialized ABIs per argument-knownness pattern, with the seeded analysis that implies;

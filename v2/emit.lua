@@ -108,23 +108,10 @@ end
 function Emitter:param(belt_id,index) return 'p' .. belt_id .. '_' .. index end
 function Emitter:value(belt_id,index,output) return 'v' .. belt_id .. '_' .. index .. '_' .. output end
 
--- Answers come from the abstract evaluator. A Known answer is inlined at every use and
--- its producer is never written out, so folding removes work rather than merely hiding it.
-function Emitter:answer(block_id,position,output)
-    local evaluator=self.analysis[self.current_id]
-    return evaluator and evaluator:answer(block_id,position,output)
-end
-
--- The recorded answer table for one producer, indexed by output.
-function Emitter:answers_at(block_id,position)
-    local evaluator=self.analysis[self.current_id]
-    return evaluator and evaluator.answers[block_id] and evaluator.answers[block_id][position]
-end
-
-function Emitter:parameter_answer(block_id,index)
-    local evaluator=self.analysis[self.current_id]
-    return evaluator and evaluator:param(block_id,index)
-end
+-- Answers come from the abstract evaluator. A known answer is inlined at every use and its
+-- producer is never written out, so folding removes work rather than hiding it. Which answers
+-- exist, and where a producer's answer lives, is `disposition`'s business, not the emitter's:
+-- reaching for an answer directly is how one rule became several.
 
 function Emitter:constant(answer)
     local type_=answer.type
@@ -141,23 +128,12 @@ function Emitter:constant(answer)
     self:error('no C constant for ' .. tostring(type_))
 end
 
--- The evaluator marks the calls it removed on their own answers, so the mark and the
--- answers it depends on cannot disagree.
-function Emitter:folded_call(function_id,block_id,position)
-    local analysis=self.analysis[function_id]
-    return analysis~=nil and analysis:call_was_folded(block_id,position)
-end
-
 -- Resolve a belt reference to the C expression holding that output.
 function Emitter:ref(block,block_id,position,ref)
     local producer=position-1-ref.distance
-    if producer<#block.parameters then
-        local answer=self:parameter_answer(block_id,producer+1)
-        if Known.is_known(answer) then return self:constant(answer) end
-        return C.Name(self:param(block_id,producer))
-    end
-    local answer=self:answer(block_id,producer,ref.output)
-    if Known.is_known(answer) then return self:constant(answer) end
+    local fate,answer=self:disposition(self.analysis[self.current_id],self.current,block_id,producer,ref.output)
+    if fate=='constant' then return self:constant(answer) end
+    if producer<#block.parameters then return C.Name(self:param(block_id,producer)) end
     return C.Name(self:value(block_id,producer-#block.parameters+1,ref.output))
 end
 
@@ -185,8 +161,10 @@ function Emitter:instruction(block,block_id,index,instruction)
     local position=#block.parameters+index-1
     local operation=instruction.operation
     local out={}
-    local answers=self:answers_at(block_id,position)
-    local function known(output) return answers and Known.is_known(answers[output+1]) end
+    -- One question, asked of the same place the body filter and every reference asks.
+    local function known(output)
+        return self:disposition(self.analysis[self.current_id],self.current,block_id,position,output)=='constant'
+    end
     local function declare(output,type_,expr)
         if type_==B.Effect then return false end
         if known(output) then return false end
@@ -279,7 +257,6 @@ function Emitter:instruction(block,block_id,index,instruction)
             self:ref(block,block_id,position,operation.value))
         declare(0,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
     elseif B.CallFunction:isclassof(operation) then
-        if self:folded_call(self.current_id,block_id,position) then return statement_list(out) end
         local callee=self.functions[operation.target]
         -- The callee's effect parameter is not part of its C signature.
         local call=C.Call(C.Name(self:function_name(operation.target)),
@@ -329,15 +306,23 @@ function Emitter:instruction(block,block_id,index,instruction)
     return statement_list(out)
 end
 
--- Which entry parameters the first block actually reads. A local scan: anything used in
--- another block is copied there by an edge, and that copy is itself a reference, so a
--- parameter block 1 never reads is one nothing reads. It is recomputed from the belt rather
--- than taken from the demand pass, because a callee and its call sites must reach the same
--- answer and a shared table can drift between them.
-local entry_read={}
+-- Fate ---------------------------------------------------------------------------------
+--
+-- Every consumer below asks the same two questions, so they are answered here and nowhere
+-- else: what happens to one output, and does one instruction run at all. Answering them at
+-- each use site is how five rules that had to agree came to be written separately.
+
+-- What a function's body needs, as one set of producer positions and outputs. The demand pass
+-- over its instructions, plus the entry parameters block 1 reads.
+--
+-- The second part is not redundant. The demand pass reports the module unload's state -- which
+-- a `Destroy` consumes -- as unneeded, so its answer for an entry packet cannot be used on its
+-- own. The scan is local to block 1 on purpose: anything read in another block was copied
+-- there by an edge, and that copy is itself a reference, so a parameter block 1 never reads is
+-- one nothing reads. It is recomputed per belt rather than cached beside the demand table,
+-- because a callee and its call sites must reach the same answer.
+local requirements={}
 local function entry_parameters_read(belt)
-    local cached=entry_read[belt]
-    if cached then return cached end
     local block=belt.blocks[1]
     local used={}
     local function note(position,ref)
@@ -350,30 +335,70 @@ local function entry_parameters_read(belt)
     end
     local at=#block.parameters+#block.instructions
     for _,ref in ipairs(block.exit:inputs()) do note(at,ref) end
-    entry_read[belt]=used
     return used
 end
 
--- An entry packet is the function's ABI, but only the fields the body reads belong in it: a
--- parameter nothing reads is dropped from the signature and from every call, and one whose
--- value is already known is dropped too, because each of its uses becomes a constant. Other
--- packets drop fields whose output no consumer demands, together with their edge copies.
-function Emitter:needed_parameter(block_id,index)
-    if self.current.blocks[block_id].parameters[index].type==B.Effect then return false end
-    if Known.is_known(self:parameter_answer(block_id,index)) then return false end
-    if block_id==1 then return entry_parameters_read(self.current)[index-1]==true end
-    local block=self.needed[block_id]
-    return (block and block[index-1] and block[index-1][0]) and true or false
+function Emitter:requirements(belt)
+    local cached=requirements[belt]
+    if cached then return cached end
+    local needed=belt:demands()
+    for position in pairs(entry_parameters_read(belt)) do
+        needed[1]=needed[1] or {}
+        needed[1][position]=needed[1][position] or {}
+        needed[1][position][0]=true
+    end
+    requirements[belt]=needed
+    return needed
 end
 
--- The same question asked of a callee, so a call passes exactly what that callee's signature
--- declares.
-function Emitter:needed_parameter_of(target,index)
-    local belt=self.functions[target]
-    if belt.blocks[1].parameters[index].type==B.Effect then return false end
-    local analysis=self.analysis[target]
-    if Known.is_known(analysis and analysis:param(1,index)) then return false end
-    return entry_parameters_read(belt)[index-1]==true
+-- What happens to one output of one producer.
+--   'constant' -- its value is known, so every use of it is that constant;
+--   'value'    -- it is materialized, and uses read it by name;
+--   'dropped'  -- nothing needs it, so neither it nor its producer is written out.
+--
+-- A parameter asks the same question with `position` being its 0-based index, which is where
+-- its value lives in the entry packet.
+function Emitter:disposition(analysis,belt,block_id,position,output)
+    local block=belt.blocks[block_id]
+    local parameter=block.parameters[position+1]
+    -- An effect is not a value and never a declaration; it exists to order the body.
+    if parameter and parameter.type==B.Effect then return 'value' end
+    -- A parameter's value is the packet the caller supplied; an instruction's is its own
+    -- result. That is the only difference between the two, so it is stated here.
+    local answer
+    if parameter then answer=analysis and analysis:param(block_id,position+1)
+    else answer=analysis and analysis:answer(block_id,position,output) end
+    if Known.is_known(answer) then return 'constant',answer end
+    local needed=self:requirements(belt)[block_id]
+    if needed and needed[position] and needed[position][output] then return 'value' end
+    return 'dropped'
+end
+
+-- Whether an instruction is written out at all. A call the evaluator folded is not, and a
+-- pure producer whose outputs are all dropped is not either.
+function Emitter:instruction_runs(analysis,belt,block_id,position,instruction)
+    if analysis and B.CallFunction:isclassof(instruction.operation)
+        and analysis:call_was_folded(block_id,position) then return false end
+    for output=0,#instruction.results-1 do
+        if self:disposition(analysis,belt,block_id,position,output)~='dropped' then return true end
+    end
+    return false
+end
+
+-- Does this parameter of this block exist in C at all? The function's signature, every call
+-- site and every edge copy ask here, so they cannot disagree. An effect never does: statement
+-- order carries it, so it is neither declared, nor passed, nor copied.
+function Emitter:parameter_live(analysis,belt,block_id,index)
+    if belt.blocks[block_id].parameters[index].type==B.Effect then return false end
+    return self:disposition(analysis,belt,block_id,index-1,0)~='dropped'
+end
+
+function Emitter:kept_parameter(belt,index)
+    return self:parameter_live(self.analysis[self.current_id],belt,1,index)
+end
+
+function Emitter:needed_parameter(block_id,index)
+    return self:parameter_live(self.analysis[self.current_id],self.current,block_id,index)
 end
 
 -- The arguments a call passes: belt argument i lands on entry parameter i+1, the effect being
@@ -381,7 +406,9 @@ end
 function Emitter:call_arguments(target,block,block_id,position,refs)
     local out=L()
     for i,ref in ipairs(refs) do
-        if self:needed_parameter_of(target,i+1) then out:insert(self:ref(block,block_id,position,ref)) end
+        if self:parameter_live(self.analysis[target],self.functions[target],1,i+1) then
+            out:insert(self:ref(block,block_id,position,ref))
+        end
     end
     return out
 end
@@ -484,7 +511,8 @@ function Emitter:live_functions()
                 local at=#block.parameters+index-1
                 local operation=instruction.operation
                 if B.CallFunction:isclassof(operation)
-                    and not self:folded_call(id,block_id,at,instruction) and not live[operation.target] then
+                    and self:instruction_runs(self.analysis[id],belt,block_id,at,instruction)
+                    and not live[operation.target] then
                     live[operation.target]=true; work[#work+1]=operation.target
                 end
             end
@@ -504,12 +532,8 @@ end
 function Emitter:function_parameters_for(id,belt)
     local parameters=L()
     for i,parameter in ipairs(belt.blocks[1].parameters) do
-        if parameter.type~=B.Effect then
-            local analysis=self.analysis[id]
-            local known=Known.is_known(analysis and analysis:param(1,i))
-            if known or entry_parameters_read(belt)[i-1] then
-                parameters:insert(C.Parameter(self:ctype(parameter.type),self:param(1,i-1)))
-            end
+        if self:parameter_live(self.analysis[id],belt,1,i) then
+            parameters:insert(C.Parameter(self:ctype(parameter.type),self:param(1,i-1)))
         end
     end
     return parameters
@@ -537,7 +561,6 @@ function Emitter:emit_function(id,belt)
     -- Consumer demand is a frontend decision: an unneeded pure producer is never
     -- written out, so the emitted C does not rely on a C compiler to delete it.
     -- Ordered operations always carry a demanded effect output and are therefore kept.
-    self.needed=belt:demands()
     local result=self:return_shape(belt.signature.results)
     local parameters=self:function_parameters_for(id,belt)
     local body=L()
@@ -556,10 +579,9 @@ function Emitter:emit_function(id,belt)
         body:insert(C.Label('b' .. block_id))
         for index,instruction in ipairs(block.instructions) do
             local position=#block.parameters+index-1
-            local needed=self.needed[block_id] and self.needed[block_id][position]
-            local pure=true
-            for _,type_ in ipairs(instruction.results) do if type_==B.Effect then pure=false end end
-            if needed or not pure then body:insertall(self:instruction(block,block_id,index,instruction)) end
+            if self:instruction_runs(self.analysis[id],belt,block_id,position,instruction) then
+                body:insertall(self:instruction(block,block_id,index,instruction))
+            end
         end
         body:insert(self:exit(id,block,block_id,block.exit))
         ::continue_block::
