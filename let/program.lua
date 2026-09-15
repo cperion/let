@@ -485,6 +485,30 @@ function Builder:invoke(ctx,expression,tail)
         types:insert(B.Effect)
         local results={ctx:emit(B.CallFunction(target,ctx:ref(ctx.effect),ctx:refs(field_values)),types,expression.span)}
         ctx.effect=results[#results]
+        -- §3.4: an invocation is a specialization atom. A Word-typed result names its template and
+        -- supplied count, and its fields are the members of what the callee returned, so the word
+        -- identity survives the call. Copy only: an owned word crossing a call boundary needs the
+        -- ownership rules for that stated first, and says so rather than being guessed at.
+        if B.Word:isclassof(result_type) then
+            if not result_type.is_copy then
+                gap(expression.span,'a returned word with owned state needs ownership vocabulary')
+            end
+            local template
+            for _,candidate in ipairs(self.resolved.templates) do
+                if candidate.id==result_type.template then template=candidate end
+            end
+            if not template then gap(expression.span,'unresolved word template ' .. tostring(result_type.template)) end
+            local fields={}
+            for i,field in ipairs(result_type.fields) do
+                fields[i]={name=field.name,type=field.type,mutable=field.mutable,owned=false,retained=false,
+                    span=expression.span,
+                    value=ctx:emit(B.LoadField(ctx:ref(results[1]),i-1),L{field.type},expression.span)}
+            end
+            local rebuilt=copy(results[1])
+            rebuilt.word={template=template,fields=fields,supplied=result_type.supplied}
+            rebuilt.mode='fresh'
+            results[1]=rebuilt
+        end
         -- Only interior mutable state is written back, and only into the receiver's
         -- existing bundle. A transient specialization of a partial word must not
         -- replace that binding with a saturated one.

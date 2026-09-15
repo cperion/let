@@ -157,8 +157,12 @@ construction diagnostic rather than a language limitation.
   reasoning -- peeling the first iteration, where the entry state is static -- rather than a
   bigger parameter list. Divergence at an ordinary join is supported, and so is
   loop-carried reinitialization, which restores the entry's facts.
-- Construction of stored and returned word values, and higher-order words whose callable
-  shape is not visible where the word is built.
+- A word value in a position that is not a call result: kept where its callable shape is not
+  visible, handed to an `own` stage, or selected by a runtime index. A word *returned* from a call
+  is reconstructed from its type when it is Copy -- the type names the template and the supplied
+  count, and the fields are the members of what the callee returned -- and an owned one is
+  diagnosed, because the rules for a word value crossing a call boundary would have to be stated
+  before it could be honoured.
 - Remaining constraint words: `Bool`, `Int`, `Unit`, `Text`, `Copy` and `Executable` are
   implemented, while a constraint word that takes specialization arguments waits on the
   surface vocabulary §11.2 defers.

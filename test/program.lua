@@ -131,6 +131,19 @@ end
 end)
 check(ok,'§15.1 a do terminal may move an owned prelude into its namespace')
 
+-- §3.4 An invocation is a valid specialization atom. A word that comes back from a call is still
+-- a word: its template and supplied count are in its type and its fields are the members of what
+-- the callee returned, so it can be specialized and then invoked like any other.
+program,builder=build[[
+let adder = let x : Int
+            do return x end
+let make = do return adder end
+let specialized = make() 7
+let answer = specialized()
+]]
+ns=module_namespace(program)
+eq(field(builder.module_order,'answer',ns),7,'§3.4 a word returned by a call can be specialized and invoked')
+
 -- §10.2 Private mutable prelude state: two specializations do not share a counter.
 program,builder=build[[
 let counter =
