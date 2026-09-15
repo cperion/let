@@ -631,6 +631,20 @@ function Builder:build_unload(state_type)
     return B.Function(fn.name,B.Signature(blocks[1].parameters,L{fn.result,B.Effect}),blocks)
 end
 
+-- What a stage's capability requires of the value that satisfies it. A source argument is
+-- checked against this; a host entry *is* it, since the entry's signature is the host's contract.
+-- A mutable stage is a place reached through a borrow, and an owned stage arrives fresh.
+function Builder:host_parameter(ctx,capability,type_,span)
+    if capability==A.Mut or capability==A.OwnMut then
+        local placed=ctx:parameter(B.Borrow(type_,false),A.Read)
+        placed.mode=capability==A.Mut and 'mut' or 'fresh'
+        return placed
+    end
+    local value=ctx:parameter(type_,A.Read)
+    if capability==A.Own then value.mode='fresh' end
+    return value
+end
+
 -- The host's way into an exported word: its first arguments are the word's own fields -- the
 -- construction trace so far, which the host reads from the namespace -- and the stages it still
 -- needs follow. Advancing uses the same protocol a call site uses, so nothing here decides which
@@ -638,20 +652,33 @@ end
 -- call sites every day.
 function Builder:host_entry(name,value,span)
     local word=value.word
-    if not word then return nil end
+    if not word then return nil,'not a word value' end
     local template=word.template
     local layout=self:layout(template)
+    -- Decide before allocating anything: a stage whose type only an argument can determine means
+    -- there is no signature to publish, and leaving a hole in the function list would be worse
+    -- than having no entry.
+    local resolve=setmetatable({fn={types=self:types(),hosts=self.options.hosts or {}},scopes={},cells={}},Context)
+    local stages,items={},{}
+    for i=word.supplied+1,#layout.steps do
+        local item=layout.steps[i].item
+        local type_=resolve:constraint(item.constraint,nil,item.span)
+        if not type_ then
+            return nil,'stage ' .. tostring(item.name) .. ' has no type without an argument'
+        end
+        stages[i]=type_; items[i]=item
+    end
     local id=#self.functions+1
-    local fn={name=name .. '_' .. id,span=span,blocks={},bindings={},next_value=0,result=nil,
+    local fn={name=name,span=span,blocks={},bindings={},next_value=0,result=nil,
         resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
     local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
     ctx.entry_id=id
     self.functions[id]=false
     -- §4.2 the defining word is visible in its own terminal body.
-    if word.template.self then
-        ctx.self_name=word.template.self.name; ctx.self_definition=word.template.self
-    end
+    if template.self then ctx.self_name=template.self.name; ctx.self_definition=template.self end
+    -- The word's own fields are parameters like any other: they are the construction trace, and a
+    -- mutable one is a place, so its binding is its address.
     for _,field in ipairs(word.fields) do
         ctx:push(); if field.retained then ctx:retain() end
         local parameter=ctx:parameter(field.type,A.Read)
@@ -660,9 +687,14 @@ function Builder:host_entry(name,value,span)
             and (field.capability==A.Own or field.capability==A.OwnMut)
         ctx:force_bind(field.name,parameter,field.mutable,owned,false,address,span)
     end
-    local context=setmetatable({fn={types=self:types(),hosts=self.options.hosts or {}},scopes={},cells={}},Context)
+    -- Every parameter exists before the first instruction: a parameter created once emission has
+    -- started takes a position after an instruction and collides with it.
+    local parameters={}
+    for i=word.supplied+1,#layout.steps do
+        parameters[i]=self:host_parameter(ctx,items[i].capability,stages[i],items[i].span)
+    end
     -- What a saturated word means for a host: its terminal body runs here, while the stages the
-    -- host supplied are still bound.
+    -- host supplied are still bound, because `advance` discards its bindings when it returns.
     local function complete(c)
         local data=self:terminal_value(c,template)
         if data then return c:finish(data,span) end
@@ -670,31 +702,18 @@ function Builder:host_entry(name,value,span)
         c:statements(template.source.terminal.statements)
         if not c.block.exit then c:finish(c:emit(B.UnitLiteral,L{B.Unit},span),span) end
     end
-    -- The parameters are the packet, so every one of them exists before the first instruction:
-    -- a parameter created once emission has started takes a position *after* an instruction and
-    -- collides with it. Advancing then only binds names and runs preludes.
-    local stages={}
-    for i=word.supplied+1,#layout.steps do
-        local item=layout.steps[i].item
-        local type_=context:constraint(item.constraint,nil,item.span)
-        -- A mutable stage is a place, and a call site reaches one through a borrow: the host
-        -- passes a pointer to its own storage, and the parameter presents as that place.
-        stages[i]=ctx:parameter(type_)
-        if item.capability==A.Mut or item.capability==A.OwnMut then
-            stages[i].type=B.Borrow(type_,false); stages[i].mode='mut'
-        end
-    end
-    -- A value, not a bare bundle: `advance` takes the same shape `pack` returns.
     local current={type=value.type,word={template=template,fields=word.fields,supplied=word.supplied}}
     for i=word.supplied+1,#layout.steps do
-        current=self:advance(ctx,current,stages[i],layout.steps[i].item.span,B.Transient,
+        current=self:advance(ctx,current,parameters[i],items[i].span,B.Transient,
             i==#layout.steps and complete or nil)
     end
     -- A word that is already saturated has no stages left to advance, so its terminal has not run
     -- yet: the fields bound above are the whole of its state.
     if word.supplied>=#layout.steps then complete(ctx) end
     local blocks=L()
-    for _,block in ipairs(fn.blocks) do assert(block.exit,'unfinished block'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit)) end
+    for _,block in ipairs(fn.blocks) do
+        assert(block.exit,'unfinished host entry'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit))
+    end
     self.functions[id]=B.Function(fn.name,B.Signature(blocks[1].parameters,L{fn.result,B.Effect}),blocks)
     return {name=name,id=id,bundle=#word.fields,stages=#layout.steps-word.supplied}
 end
@@ -707,10 +726,12 @@ function Builder:build()
     self.host_entries={}
     -- Host entries are not built yet: the construction is known (see BUILD.md) but the entry's
     -- packet and its terminal still disagree on one path, so nothing claims an ABI it cannot honour.
-    if self.options.host_entries then
-        for _,export in ipairs(self.exports or {}) do
-            local entry=self:host_entry(export.name,export.value,export.span)
-            if entry then self.host_entries[#self.host_entries+1]=entry end
+    if self.options.host_entries~=false then
+        self.host_entry_skips={}
+    for _,export in ipairs(self.exports or {}) do
+            local entry,reason=self:host_entry(export.name,export.value,export.span)
+            if entry then self.host_entries[#self.host_entries+1]=entry
+            elseif reason then self.host_entry_skips[export.name]=reason end
         end
     end
     local functions=L()

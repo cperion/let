@@ -1108,6 +1108,10 @@ All top-level names are visible through the module namespace. A later module sys
 
 Top-level data and specialized words live until module unload. Their owned state is destroyed in reverse successful-construction order when the host unloads the module.
 
+A module's namespace may hold words. Each is a **host entry point**: invoking one supplies the stages the word still needs, and the entry runs whatever preludes lie between those stages, since the host supplies stages rather than the values a call site would have computed. The word's own fields -- the state it already carries, which is the construction it has been through -- come from the namespace the initializer returned.
+
+A word whose remaining stage has no type of its own -- an unannotated stage, or one constrained only by `Copy` -- has no entry point, because there is no signature for the host to satisfy. The word remains legal; it is simply not callable from outside.
+
 ### 15.2 File chains and imports
 
 A source file **is** a binding chain. Its top-level `let` forms are that chain's items and its namespace is that chain's terminal:

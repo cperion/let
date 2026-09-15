@@ -6,7 +6,8 @@ package.path='./?.lua;./?/init.lua;'..package.path
 local suites={
     'v2/test.lua','v2/test/build.lua','v2/test/demand.lua','v2/test/source.lua',
     'v2/test/resolve.lua','v2/test/program.lua','v2/test/emit.lua','v2/test/aggregate.lua',
-    'v2/test/known.lua','v2/test/import.lua','v2/test/place.lua','v2/test/native.lua',
+    'v2/test/known.lua','v2/test/import.lua','v2/test/place.lua','v2/test/host_entry.lua',
+    'v2/test/native.lua',
 }
 local total,failed=0,{}
 for _,suite in ipairs(suites) do

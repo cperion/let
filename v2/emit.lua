@@ -695,6 +695,12 @@ function Emitter:report(statistics)
             generic=instance.generic,folded=analysis.folded==true,parameters=parameters,
             blocks=blocks,widened=forgotten}
     end
+    statistics.entries={}
+    for _,entry in ipairs(self.options.entries or {}) do
+        local instance=self.generic[entry.id]
+        statistics.entries[#statistics.entries+1]={name=entry.name,id=entry.id,
+            c_name=instance and instance.name or nil,bundle=entry.bundle,stages=entry.stages}
+    end
     statistics.specialized=specialized
     statistics.folded=folded
     statistics.widened=widened
@@ -715,6 +721,9 @@ function Emitter:program(program,options)
     -- by writing the calls it finds -- which is the same discovery that decides liveness.
     self:generic_instance(1)
     self:generic_instance(2)
+    -- A host entry has no caller inside the belt, so nothing would make it live: the entries the
+    -- host will call are roots, like the module interface itself.
+    for _,entry in ipairs(options.entries or {}) do self:generic_instance(entry.id) end
     local functions=L()
     local at=1
     while self.pending[at] do
