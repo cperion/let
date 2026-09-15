@@ -1,0 +1,24 @@
+// Exported runtime words have scalar stage annotations.
+let fibonacci =
+    let n : Int
+    do
+        let i mut = 0
+        let a mut = 0
+        let b mut = 1
+        while i < n do
+            let next = a + b
+            a = b
+            b = next
+            i = i + 1
+        end
+        return a
+    end
+
+let multiply =
+    let x : Int
+    let y : Int
+    do return x * y end
+
+let double = multiply with 2
+let answer = do return double(21) end
+

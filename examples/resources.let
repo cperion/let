@@ -1,0 +1,14 @@
+let consume_buffer =
+    let buffer own : Buffer
+    do
+        let size = buffer_size(buffer)
+        return size
+    end
+
+let answer = do
+    let first = open_buffer(16)
+    let second = open_buffer(32)
+    let left = consume_buffer(move first)
+    return left + consume_buffer(move second)
+end
+

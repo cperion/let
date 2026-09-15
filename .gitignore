@@ -1,0 +1,7 @@
+/output.c
+/output.so
+*.o
+*.so
+/core
+/core.*
+

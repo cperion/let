@@ -1,0 +1,20 @@
+// Non-tail recursion gets a native helper with an inferred result shape.
+let factorial =
+    let n : Int
+    do
+        if n <= 1 do return 1 end
+        return n * factorial(n - 1)
+    end
+
+// A direct-return self call is a block backedge, even at cc -O0.
+let sum_to =
+    let n : Int
+    let acc : Int
+    do
+        if n == 0 do return acc end
+        return sum_to(n - 1, acc + n)
+    end
+
+let sum_from_zero = sum_to with 1_000_000
+let answer = do return factorial(5) + sum_from_zero(0) end
+
