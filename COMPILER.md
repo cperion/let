@@ -132,77 +132,29 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 
 ## Work still required
 
-These are specified behaviours that the implementation does not yet provide, so each is a
-construction diagnostic rather than a language limitation.
+One specified behaviour is not provided:
 
-- **The runtime benchmark**, milestone C's acceptance, measured against the handwritten C
-  reference the harness links. The harness works: `bench/emit.lua` builds the kernels and a
-  shim over `statistics.entries`, and `bench/run.lua` compiles, links and compares. Its first
-  run found a wrong answer, which is the point of having one:
+- A partial move introduced inside a loop whose path is still a hole at the backedge
+  (`while ... do if c do move a.b end end`) needs the hole fact correlated with the guard that
+  created it. A dynamic fact at the loop entry is not enough on its own: the body's `move` then
+  reads a *maybe* initialized place, which stays rejected. Divergence at an ordinary join is
+  supported, and so is loop-carried reinitialization (`move a.b` followed by `a.b = fresh` in
+  the body restores the entry's facts). The rest of §9.2 is implemented, including a bare
+  `move place` statement.
 
-      gcd(-3): Let=-3, C=-1
+Two optimizations are knowingly absent; the compiler is correct without them:
 
-  The emitted loop branched on a `Not` of `y != 0` without swapping the arms, so `gcd`
-  returned `x` at once; the negation was not in the source and appeared only where the known
-  constant `65537` made the condition checkable at entry. That is fixed -- the entry branches
-  on `y != 0` into the body -- and every probe now validates against the reference. The
-  resource-pressure workload is carried: `resource_loop` and `resource_tail` acquire, read and
-  release a handle per iteration or activation, and `bench/driver.c` accounts for every
-  allocation and release in `checked`. What remains for milestone C is a fresh measurement,
-  not a missing workload.
-- A partial move *introduced inside* a loop whose path is still a hole at the backedge
-  (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
-  the loop entry a fact per owned subplace is not enough on its own: the entry's fact must
-  be dynamic for the backedge to carry the hole, and the body's own `move` then reads a
-  *maybe* initialized place, which stays rejected. Breaking that circle needs per-iteration
-  reasoning -- peeling the first iteration, where the entry state is static -- rather than a
-  bigger parameter list. Divergence at an ordinary join is supported, and so is
-  loop-carried reinitialization, which restores the entry's facts.
-- A word value in a position that is not a call result: kept where its callable shape is not
-  visible, handed to an `own` stage, or selected by a runtime index. A word *returned* from a call
-  is reconstructed from its type when it is Copy -- the type names the template and the supplied
-  count, and the fields are the members of what the callee returned -- and an owned one is
-  diagnosed, because the rules for a word value crossing a call boundary would have to be stated
-  before it could be honoured.
-- Constraint words: `Bool`, `Int`, `Float`, `Unit`, `Text`, `Copy` and `Executable` are
-  registered. A constraint word that takes specialization arguments waits on the surface
-  vocabulary §11.2 defers. `Executable` is argument-determined: the word an argument supplies
-  is the stage's type, so a word that receives one (`examples/continuations.let`) builds and
-  runs, but offers no host entry -- an entry with no argument has no type to publish. An
-  unannotated stage is typed from its uses when the source forces exactly one type (an operand
-  literal, a host parameter, a conversion, an alias, a word-valued callee's stage, or a record
-  member the surrounding type describes), so such a word does publish an entry. Still open: an
-  argument-determined (`Executable`) stage, and a word-typed value with no call to read its
-  stages from.
-- Consumer-driven known evaluation, specialization stabilization, and C scheduling.
-  Emission consumes `Function:demands()` and `let/known.lua`'s answers: unneeded pure
-  producers, known producers, their helpers, unused non-entry packet fields and
-  unreachable blocks are not written out, known values are inlined and known branches are
-  selected. Ordered effects are always kept, and a fully known call emits no callee.
-  An argument to a callee parameter the callee drops is not a use, so the caller's parameter is
-  dropped with it: one rule decides the signature and the call site, and neither can disagree.
-  Partial records are done: a member read through a record whose other members are run-time
-  is answered with that member, and a join keeps the members every path agrees on. Summaries
-  are shared too, with `answered` and `foldable` as separate questions: a precise summary
-  that cannot fold leaves the call in place, replaces only its uses, and is evaluated as a
-  statement. A stage an emitted body never reads is dropped from the ABI, so the signature and
-  every call site carry only what the body uses, and a call whose packet carries a constant gets
-  an instance specialized on it: the known stage is inlined in the body and dropped from that
-  instance's signature and calls. Still missing: mutual-recursion summaries, block instances for
-  effect-carrying loops, and shared-result materialization (milestones B and C). No residual AST
-  or old evaluator is introduced.
-- Package resolution policy: `let/file.lua` provides a default resolver (importer-relative
-  paths, an optional extension, configured roots), but §15.2 leaves the lookup to the
-  embedding, so a host with its own layout passes its own resolver. This is not missing
-  behaviour; the language fixes none.
-- The result type of a self-call that is the *only* return of its own word. Such a word has
-  no result type to infer -- nothing in the program determines it -- so it is diagnosed
-  rather than guessed. A word with any other return, including one that returns the call's
-  result, is typed from that return.
-- Dynamically selected words: the language permits storing, passing and invoking a word
-  value (§11.2), but a dispatch needs a representation for a value whose word identity is
-  not statically known, and §18 defers any mandatory universal aggregate or closure layout.
-  Choosing that layout is a language decision before it is an implementation one.
+- **Mutual-recursion summaries.** Mutual recursion itself needs declarations, which §18 defers,
+  so there is no call-graph cycle for the evaluator to reach a fixed point over. Direct
+  recursion is summarized, and a withdrawn cycle is emitted normally.
+- **Block instances.** A decidable loop that carries ordered work is emitted as a loop rather
+  than unrolled, because unrolling would need one emitted block instance per iteration. This
+  changes the emitted C, not its behaviour.
+
+Demand-driven folding, pruning and specialized ABIs are implemented; [DEMAND.md](DEMAND.md)
+describes them and ARCHITECTURE.md's C-output section states what they deliver. The runtime
+benchmark carries the resource-pressure workload and links; a fresh measurement is
+`luajit bench/run.lua`, and `bench/README.md` says how to read the artifacts.
 
 ## Deliberately outside the implementation
 
@@ -221,6 +173,22 @@ These are not gaps. The specification fixes no behaviour to implement, or defers
 - Shape constraints written with arguments, pattern matching, exceptions,
   coroutines, a stable foreign-function ABI, operator overloading and a built-in cyclic
   collector: all deferred by §18.
+- An argument-determined (`Executable`) stage, and a word-typed value with no call to read its
+  stages from: the word an argument supplies *is* the stage's type, so a generic word with such
+  a stage has no signature to publish. The specialization does have one -- `let divide =
+  checked_divide success failure` offers an entry -- and the host calls that. A generic entry
+  would need an ABI for a word value, which is the closure-layout decision below.
+- Dynamically selected words: a word value may be stored, passed and invoked (§11.2), but a
+  dispatch needs a representation for a value whose word identity is not statically known, and
+  §18 defers any mandatory universal aggregate or closure layout.
+- The result type of a self-call that is the only return of its own word: nothing in the
+  program determines it, so it is diagnosed rather than guessed. A word with any other return
+  is typed from that return.
+- An owned word value crossing a call boundary: the ownership rules would have to be stated
+  before they could be honoured. A Copy word returned from a call is already reconstructed from
+  its type.
+- Package resolution policy: `let/file.lua` provides a default resolver, but §15.2 leaves the
+  lookup to the embedding, so a host with its own layout passes its own resolver.
 
 ## Tests and their limits
 

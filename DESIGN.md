@@ -153,8 +153,9 @@ rather than move ownership:
    types now type its arguments, a record result or host parameter types the members a stage
    supplies, and `Project`/`Index` read a known record. Cycles yield no interface rather than
    recursing. Verified: 473 checks green, bundle current, all 36 native witnesses emit
-   identical C; `test/host_entry.lua` and `test/program.lua` carry the witnesses. Still open:
-   an argument-determined (`Executable`) stage and a word-typed value with no call.
+   identical C; `test/host_entry.lua` and `test/program.lua` carry the witnesses. What this
+   cannot infer -- an argument-determined (`Executable`) stage and a word-typed value with no
+   call -- is a closure-ABI decision, not missing inference, and is stated in COMPILER.md.
 
 ## Not in this design
 

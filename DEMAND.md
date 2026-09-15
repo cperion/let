@@ -500,19 +500,29 @@ What remains for B is otherwise unchanged:
 - block instances so a loop that carries effects can be unrolled rather than left as a
   loop.
 
-**C — scheduling and sharing.**
-Deliverable: shared-result materialization (one C temporary for a producer with several
-consumers), order-safe scheduling of demanded effectful results, and specialization
-stability reporting in `statistics`. Acceptance: no duplicated side-effecting evaluation,
-and a benchmark comparison against the handwritten C reference.
+**C — scheduling and sharing. — implemented.**
+A pure producer with several consumers is materialized once and read by name; ordered results
+are scheduled in source order and never duplicated; and `statistics` reports each instance's
+specialized and folded flags and its widened field count, so specialization stability is
+observable. The benchmark harness compiles, links (the embedding provides the `let_trap`
+hook the emitted C calls) and validates every probe against the handwritten C reference:
+`luajit bench/run.lua`.
 
-## 15. Open questions
+## 15. Resolved questions
 
-- Should a `Known` bundle with all-`Known` fields be interned so two structurally equal
-  words share one emitted constant? §5.2 permits deduplication only when nothing can
-  distinguish them; interning must therefore not merge two distinct mutable owners.
-- How much of the acyclic restriction in §8 is worth keeping once widening exists? The
-  conservative rule is safe but leaves known values unfolded inside loops that clearly do
-  not modify them.
-- Whether `PureHostCall` should ever be folded requires a host-supplied pure model. The
-  language does not require one, and inventing one from the C symbol would be unsound.
+Each was open during Milestone A and the implementation settled it, so the decision is
+recorded here rather than left implicit.
+
+- **A `Known` bundle is not interned.** Two structurally equal bundles can still be distinct
+  owners: §5.2 permits deduplication only when nothing can distinguish them, and an owned
+  mutable value's identity is observable. `Known.same` decides equality for joins and cache
+  keys; it never shares emitted storage. Revisit only for a case proved indistinguishable.
+- **The acyclic restriction of §8 is not in force.** `let/known.lua` runs an optimistic fixed
+  point and `verify_packets` widens any packet that disagrees with what the edges actually
+  supply, with `enumerate` for a decidable loop and `widen_cycles` as the sound fallback. A
+  loop-invariant value therefore stays `Known` while a varying one widens; the conservative
+  rule is historical.
+- **`PureHostCall` is never folded.** Folding a host call at compile time needs a host-supplied
+  pure model; the language does not require one, and inferring purity from the C symbol would
+  be unsound. A `PureHostCall` result is `Runtime` and the call is emitted, which
+  `test/emit.lua` covers.

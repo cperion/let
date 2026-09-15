@@ -261,6 +261,9 @@ eq(field(builder.module_order,'good',ns),42,'an Executable stage resolves to the
 eq(field(builder.module_order,'bad',ns),-1,'and reaches the word the other branch selects')
 check(builder.host_entry_skips.checked_divide~=nil,'an Executable stage leaves the word without a host entry')
 check(tostring(builder.host_entry_skips.checked_divide):find('no type without an argument',1,true)~=nil,'and records why')
+-- The generic word cannot offer an ABI, but the specialization can: its stage is already
+-- the concrete word, so the host calls that instead.
+check(has_entry(builder,'divide'),'the specialization of an Executable stage has an entry')
 
 -- The supplied value must be an executable word, with a `do` terminal.
 local function rejects(source)
