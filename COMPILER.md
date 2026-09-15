@@ -57,6 +57,27 @@ through this registration API. Resource-returning hosts promise a fresh owner.
 Registered host/destructor contracts are trusted; no host implementation is
 executed by the compiler.
 
+A host may also state the C prototype it calls, which is how a libc or any other external
+function is reached with no shim:
+
+```lua
+strlen = {
+  symbol = 'strlen', phase = 'runtime', purity = 'pure',
+  signature = B.Signature(L{B.Parameter(B.Text, A.Read)}, L{B.Int}),
+  c = { params = {'const char *'}, result = 'size_t' },
+}
+```
+
+`signature` is the Let contract the frontend checks; `c` is the ABI the emitter spells, and
+the emitted C declares `extern size_t strlen(const char *);` and calls it directly. A `Text`
+argument passes its bytes as the declared `char*`, a `char*` result is measured back into a
+`Text` at the terminator, and an `Int` is cast to the declared integer width; `Float`, `Bool`
+and `Unit` map to `double`, `bool` and `void`. Without `c`, the Let type's default C mapping is
+used (`int64_t`, `double`, `bool`, `void`, and a `{data,size}` struct for `Text`, which a host
+must then take by value). Passing a `Text` as a C string assumes NUL-terminated bytes, so a
+`Text` built from arbitrary bytes must not cross that conversion. The ABI is an embedding
+detail (§15.3), not Let syntax: the program still calls an ordinary host word.
+
 ## Normative obligations and mechanisms
 
 | Spec | Obligation | Construction/check/test mechanism |
