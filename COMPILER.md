@@ -25,9 +25,11 @@ local needed, reachable = fn:demands()
 ```
 
 `options.parameters` may supply concrete stage types, including for unannotated
-stages. Otherwise implemented scalar/resource annotations provide them. Inferring
-unresolved parameter types from uses is pending; annotations are not a language
-requirement. `options.result` optionally constrains the result; otherwise reachable
+stages. Otherwise implemented scalar/resource annotations provide them, and
+`let/contract.lua` supplies a type for an unannotated stage whenever its uses force
+one; annotations are not a language requirement. Inference is conservative: an
+ambiguous stage keeps the existing "no type without an argument" outcome rather than
+guessing. `options.result` optionally constrains the result; otherwise reachable
 construction paths establish one result type. Pure infinite-loop path refinement
 and answer-type specialization are not implemented yet.
 
@@ -113,7 +115,9 @@ It does not independently re-prove ownership for arbitrary manually constructed 
 and one belt function per concrete terminal. `resolve.lua` assigns binding IDs and
 derives initial/inter-stage preparation ranges from the original AST; `binding.lua`
 decides capability and destination for both persistent specialization and transient
-invocation; `program.lua` implements the shared advancement protocol.
+invocation; `contract.lua` computes each template's stage types and result type before its
+body is built; `packet.lua` owns the word field bundle (place-ness, ownership, write-back and
+the entry key); `program.lua` implements the shared advancement protocol.
 
 Word values are `Belt.Word` SSA field bundles. Because advancement clones the bundle,
 a specialized receiver keeps its own stage count and fields, and `multiply 2` followed
@@ -141,7 +145,10 @@ construction diagnostic rather than a language limitation.
   returned `x` at once; the negation was not in the source and appeared only where the known
   constant `65537` made the condition checkable at entry. That is fixed -- the entry branches
   on `y != 0` into the body -- and every probe now validates against the reference. The
-  resource-pressure workload the harness does not yet carry remains.
+  resource-pressure workload is carried: `resource_loop` and `resource_tail` acquire, read and
+  release a handle per iteration or activation, and `bench/driver.c` accounts for every
+  allocation and release in `checked`. What remains for milestone C is a fresh measurement,
+  not a missing workload.
 - A partial move *introduced inside* a loop whose path is still a hole at the backedge
   (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
   the loop entry a fact per owned subplace is not enough on its own: the entry's fact must
@@ -161,8 +168,10 @@ construction diagnostic rather than a language limitation.
   vocabulary §11.2 defers. `Executable` is argument-determined: the word an argument supplies
   is the stage's type, so a word that receives one (`examples/continuations.let`) builds and
   runs, but offers no host entry -- an entry with no argument has no type to publish. An
-  unannotated stage still needs a concrete parameter type; general inference from uses is the
-  remaining piece.
+  unannotated stage is typed from its uses when the terminal forces exactly one type (an
+  operand literal, a host parameter, a conversion, or an immutable alias of one), so such a
+  word does publish an entry. General inference through word-valued callees, aggregates and
+  argument-determined stages remains the open piece.
 - Consumer-driven known evaluation, specialization stabilization, and C scheduling.
   Emission consumes `Function:demands()` and `let/known.lua`'s answers: unneeded pure
   producers, known producers, their helpers, unused non-entry packet fields and

@@ -9,6 +9,7 @@ features documented in [COMPILER.md](COMPILER.md).
 
 - [Language specification](let-language-specification.md)
 - [Compiler architecture, usage, and limitations](COMPILER.md)
+- [Refactoring design and target structure](DESIGN.md)
 - [Native benchmarks](bench/README.md)
 - [Third-party notices](THIRD_PARTY.md)
 

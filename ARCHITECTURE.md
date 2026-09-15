@@ -104,6 +104,24 @@ words. `program.lua` now implements the shared advancement protocol:
 Immutability holds: `word.fields`/`supplied` are cloned per advancement, so a
 specialized receiver keeps its own stage count and field list.
 
+### Construction
+
+Construction has one owner per decision:
+
+- `resolve.lua` assigns lexical identities, capture sets and preparation ranges;
+  `contract.lua` computes each template's interface — stage types and result type — before its
+  body is built, so a self-call or a host entry does not depend on construction order.
+- `packet.lua` owns the word field bundle: whether a field is a place, who owns it, what an
+  invocation writes back, and the key that interns an entry.
+- `build.lua` is the construction context: lexical scopes, SSA values, ownership facts, pins and
+  the draft CFG. `Context:finish_function` runs a terminal body and `Context:blocks` collects
+  the immutable belt, so every driver builds a body the same way.
+- `program.lua` advances words, builds entries and the module interface.
+
+`belt.lua` owns the type questions (`same`, `key`, `copyable`, `owns`, `borrows`) so no consumer
+restates them, and `op.lua` is the one definition of each pure operation, shared by the abstract
+evaluator and the concrete test oracle.
+
 The terminal builder still rejects preludes in the legacy `Chain:build_function` path
 rather than moving them into a function that already received every argument.
 
@@ -207,9 +225,9 @@ compiler.
 Follow the connected implementation sequence in [WORDS.md §10](WORDS.md#10-build-sequence-connected-contracts-not-supported-case-shortcuts).
 Steps 1–5 are implemented for the covered shapes: the shared advancement protocol, the
 binding-time evaluator (`known.lua`), and demand-driven C emission are in place and tested
-natively. Remaining work is the list in COMPILER.md's "Work still required": the benchmark's
-remaining measurement, a partial move introduced inside a loop, word values outside a call
-result, mutual-recursion summaries, and a shared cross-function tail dispatcher.
+natively. Remaining work is the list in COMPILER.md's "Work still required"; COMPILER.md is
+authoritative for coverage, so it is not repeated here. The refactoring that gave each
+construction decision one owner is recorded in [DESIGN.md](DESIGN.md).
 
 Reuse the scalar/control machinery where it fits these contracts, rather than
 adding a separate limited source-call path. Existing coverage and remaining gaps
