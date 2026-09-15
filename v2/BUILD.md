@@ -136,11 +136,21 @@ construction diagnostic rather than a language limitation.
     from a new direction. A host entry is a function boundary, and a captured word carries values
     from the function that built it.
   - the tail-recursive kernels (`sum_tail`, `prelude_tail`, `resource_tail`, `fib_recursive` and
-    their `_impl` words) overflow the stack while their entries are being built, so the construction
-    recurses where a call site would not. With the trace fix above, that class is gone and the next
-    failure is a belt `Destroy` carrying the resource destructor for a *word* value: the word and
-    the owned value it stands for are confused somewhere in the resource kernels' entries. That is
-    the next measurement, and it is one command away.
+    their `_impl` words) overflow the stack while their entries are being built. That class is gone:
+    it was the same stale reference described below, and fixing that fixed these.
+
+  All eighteen entries build now, and the kernel set compiles as far as the shim. What the shim
+  still needs is field *metadata* the emitter does not publish yet. Two cases it cannot guess:
+
+  - a field whose fate is not `value` is not a parameter at all, because a constant is materialized
+    inside the entry -- `statistics.entries` reports the fields the signature kept, but not what
+    each one *is*;
+  - a captured word whose terminal is data is stored as its *value*, not as a bundle, so a field
+    that looks like a word may be an `Int` on the wire. `let_constant_host` therefore expects a
+    struct for a field that holds one.
+
+  So the next step is to report each kept field's belt type alongside its index, which the emitter
+  already knows from the instance's signature, and let the shim pass exactly that.
 
   Neither is a fault in the kernels: both are compiler gaps that the benchmark found by being the
   first program to want a *second* way into the module.

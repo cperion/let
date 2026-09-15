@@ -40,8 +40,10 @@ if compiler == 'v2' then
         if not entry then missing[#missing + 1] = name; return end
         local index = builder.module_exports[name]
         if index == nil then missing[#missing + 1] = name; return end
+        -- The fields the entry's signature kept, read from the namespace the initializer returned,
+        -- then the stage the probe supplies.
         local arguments = {}
-        for field = 0, entry.bundle - 1 do
+        for _, field in ipairs(entry.fields) do
             arguments[#arguments + 1] = ('m.r0.f%d.f%d'):format(index, field)
         end
         arguments[#arguments + 1] = 'n'

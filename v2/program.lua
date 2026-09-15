@@ -417,11 +417,14 @@ function Builder:invoke(ctx,expression,tail)
         local word=clone_word(assert(value.word,'invocation of a saturated data terminal'))
         local layout=self:layout(word.template)
         if word.supplied~=#layout.steps then fail(expression.span,'invocation must exactly saturate remaining stages') end
-        local field_types,capabilities,mutable_mask,retained_mask,refs=L(),L(),{}, {},L()
+        -- The fields are kept as *values*, not as references. A reference is a distance from the
+        -- instruction that carries it, so building one before this block emits anything else --
+        -- and `cleanup` below emits destroys -- would make it mean a different producer.
+        local field_types,capabilities,mutable_mask,retained_mask,field_values=L(),L(),{}, {},L()
         for i,field in ipairs(word.fields) do
             field_types:insert(field.type)
             capabilities:insert(field.capability or (field.mutable and A.Mut or A.Read))
-            mutable_mask[i]=field.mutable; retained_mask[i]=field.retained; refs:insert(ctx:ref(field.value))
+            mutable_mask[i]=field.mutable; retained_mask[i]=field.retained; field_values:insert(field.value)
         end
         local target=self:entry(word.template,field_types,capabilities,mutable_mask,retained_mask)
         if tail then
@@ -455,7 +458,7 @@ function Builder:invoke(ctx,expression,tail)
                 ctx.fn.result=callee.signature.results[1]
             end
             ctx:cleanup()
-            ctx.block.exit=B.TailCall(target,ctx:ref(ctx.effect),refs)
+            ctx.block.exit=B.TailCall(target,ctx:ref(ctx.effect),ctx:refs(field_values))
             return nil
         end
         local callee=self.functions[target]
@@ -472,7 +475,7 @@ function Builder:invoke(ctx,expression,tail)
         local types=L{result_type}
         for i,field in ipairs(word.fields) do if field.mutable and field.retained then types:insert(field.type) end end
         types:insert(B.Effect)
-        local results={ctx:emit(B.CallFunction(target,ctx:ref(ctx.effect),refs),types,expression.span)}
+        local results={ctx:emit(B.CallFunction(target,ctx:ref(ctx.effect),ctx:refs(field_values)),types,expression.span)}
         ctx.effect=results[#results]
         -- Only interior mutable state is written back, and only into the receiver's
         -- existing bundle. A transient specialization of a partial word must not
@@ -671,7 +674,10 @@ function Builder:host_entry(name,value,span)
         stages[i]=type_; items[i]=item
     end
     local id=#self.functions+1
-    local fn={name=name,span=span,blocks={},bindings={},next_value=0,result=nil,
+    -- A host entry is named apart from the word it stands for: the word's own name is what a host
+    -- embedding already projects, and a benchmark driver calls `let_<case>`, so the entry must not
+    -- claim that spelling. `statistics` publishes the name the host should call.
+    local fn={name=name .. '_host',span=span,blocks={},bindings={},next_value=0,result=nil,
         resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
     local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)

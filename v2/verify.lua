@@ -4,7 +4,9 @@ return function(V)
 local A,B,L=V.AST,V.Belt,V.List
 local Check={}; Check.__index=Check
 function Check:type(ref) local _,type_=self.block:resolve(self.position,ref); return type_ end
-function Check:expect(ref,type_) assert(self:type(ref):same(type_),'operand type mismatch') end
+function Check:expect(ref,type_)
+    assert(self:type(ref):same(type_),'operand type mismatch')
+end
 function Check:results(types)
     assert(#types==#self.instruction.results,'instruction result count mismatch')
     for i,type_ in ipairs(types) do assert(self.instruction.results[i]:same(type_),'instruction result type mismatch') end
@@ -188,7 +190,11 @@ function B.Function:verify_flow(hosts,functions)
 end
 function B.Program:verify_flow(hosts)
     local functions={} for i,fn in ipairs(self.functions) do functions[i]=fn.signature end
-    for _,fn in ipairs(self.functions) do fn:verify_flow(hosts,functions) end
+    for i,fn in ipairs(self.functions) do
+        -- Naming the function costs nothing and saves guessing which one failed.
+        local ok,err=pcall(fn.verify_flow,fn,hosts,functions)
+        if not ok then error(('function %d (%s): %s'):format(i,fn.name,tostring(err)),0) end
+    end
     return self
 end
 end

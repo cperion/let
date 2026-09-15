@@ -695,11 +695,23 @@ function Emitter:report(statistics)
             generic=instance.generic,folded=analysis.folded==true,parameters=parameters,
             blocks=blocks,widened=forgotten}
     end
+    -- What the host must pass, which only the emitter knows: a field whose fate is not `value`
+    -- is not a parameter -- a constant is materialized inside the entry -- so the fields the host
+    -- supplies are those the signature kept, in their own order, followed by the stages.
     statistics.entries={}
     for _,entry in ipairs(self.options.entries or {}) do
         local instance=self.generic[entry.id]
+        local fields,stages={},0
+        if instance then
+            local belt=instance.belt
+            -- The entry's parameters are its effect first, then the fields, then the stages.
+            for i=1,entry.bundle do
+                if self:parameter_live(instance.analysis,belt,1,i+1) then fields[#fields+1]=i-1 end
+            end
+            stages=#belt.blocks[1].parameters-1-entry.bundle
+        end
         statistics.entries[#statistics.entries+1]={name=entry.name,id=entry.id,
-            c_name=instance and instance.name or nil,bundle=entry.bundle,stages=entry.stages}
+            c_name=instance and instance.name or nil,fields=fields,stages=stages}
     end
     statistics.specialized=specialized
     statistics.folded=folded
