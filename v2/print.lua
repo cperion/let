@@ -2,8 +2,11 @@
 return function(V)
 local C=V.C
 local function uint64_text(hi,lo) return ('0x%08x%08xULL'):format(hi,lo) end
+-- Small magnitudes print in decimal so the emitted C stays readable; anything else keeps
+-- the exact hexadecimal form, which also avoids ever writing INT64_MIN as a negated literal.
 local function integer(hi,lo)
-    if hi==0 and lo==0 then return 'INT64_C(0)' end
+    if hi==0 and lo<2147483648 then return ('INT64_C(%d)'):format(lo) end
+    if hi==4294967295 and lo>=2147483648 then return ('(-INT64_C(%d))'):format(4294967296-lo) end
     return '((int64_t)' .. uint64_text(hi,lo) .. ')'
 end
 local function quoted(text)

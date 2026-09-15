@@ -10,13 +10,11 @@ local scalar=V.scalar
 local Emitter={}; Emitter.__index=Emitter
 
 local function typekey(type_)
-    if B.Aggregate:isclassof(type_) then
-        local parts={} for _,member in ipairs(type_.members) do parts[#parts+1]=typekey(member) end
-        return 'a(' .. table.concat(parts,',') .. ')'
-    end
-    if B.Word:isclassof(type_) then
-        local parts={} for _,field in ipairs(type_.fields) do parts[#parts+1]=typekey(field) end
-        return 'w(' .. tostring(type_.is_copy) .. ';' .. table.concat(parts,',') .. ')'
+    if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
+        local parts={}
+        for _,field in ipairs(type_.fields) do parts[#parts+1]=(field.name or '') .. ':' .. typekey(field.type) end
+        local tag=B.Word:isclassof(type_) and ('w' .. type_.template .. '/' .. type_.supplied) or 'a'
+        return tag .. '(' .. tostring(type_.is_copy) .. ';' .. table.concat(parts,',') .. ')'
     end
     if B.Address:isclassof(type_) then return '*' .. typekey(type_.pointee) end
     if B.Named:isclassof(type_) then return 'n(' .. type_.name .. ')' end
@@ -38,7 +36,8 @@ function Emitter:register_struct(fields)
     -- Nested aggregate fields must be declared first, so the name is chosen only
     -- after this struct's own fields have registered theirs.
     local declarations=L()
-    for i,field in ipairs(fields) do declarations:insert(C.Parameter(self:ctype(field),'f' .. i)) end
+    -- Field names are zero-based to match belt member indices.
+    for i,field in ipairs(fields) do declarations:insert(C.Parameter(self:ctype(field.type),'f' .. (i-1))) end
     local name='let_val_' .. (#self.structs+1)
     self.struct_names[key]=name
     self.structs[#self.structs+1]=C.Struct(name,declarations)
@@ -53,22 +52,46 @@ function Emitter:ctype(type_)
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if B.Named:isclassof(type_) then return C.I64 end
     if B.Address:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
-    if B.Aggregate:isclassof(type_) then return C.Named(self:register_struct(type_.members)) end
-    if B.Word:isclassof(type_) then return C.Named(self:register_struct(type_.fields)) end
+    if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
+        -- A record with no fields carries no information, and an empty struct is not ISO C.
+        if #type_.fields==0 then return C.U8 end
+        return C.Named(self:register_struct(type_.fields))
+    end
     self:error('no representation for ' .. tostring(type_))
 end
 
-function Emitter:result_struct(types)
+-- Effect tokens are ordering evidence for the frontend and have no C representation: the
+-- belt's statement order already carries the order. Dropping them removes the effect
+-- parameter, the effect field of every result, and every effect update.
+function Emitter:value_types(types)
+    local values={}
+    for _,type_ in ipairs(types) do if type_~=B.Effect then values[#values+1]=type_ end end
+    return values
+end
+
+-- A function returning no value is `void`; one returning a single value returns that type
+-- directly. Only a genuine multiple result needs a struct.
+function Emitter:return_shape(types)
+    local values=self:value_types(types)
+    if #values==0 then return C.Void,0 end
+    if #values==1 then return self:ctype(values[1]),1 end
     local key='r'
-    for _,type_ in ipairs(types) do key=key .. '|' .. typekey(type_) end
+    for _,type_ in ipairs(values) do key=key .. '|' .. typekey(type_) end
     local existing=self.result_names[key]
-    if existing then return "struct " .. existing end
-    local declarations=L()
-    for i,type_ in ipairs(types) do declarations:insert(C.Parameter(self:ctype(type_),'r' .. (i-1))) end
+    if existing then return C.Named('struct ' .. existing),#values end
     local name='let_ret_' .. (#self.results+1)
     self.result_names[key]=name
+    local declarations=L()
+    for i,type_ in ipairs(values) do declarations:insert(C.Parameter(self:ctype(type_),'r' .. (i-1))) end
     self.results[#self.results+1]=C.Struct(name,declarations)
-    return 'struct ' .. name
+    return C.Named('struct ' .. name),#values
+end
+
+-- `values` are the materialized results only; the effect has already been dropped.
+function Emitter:return_value(type_,values)
+    if type_==C.Void then return nil end
+    if #values==1 then return values[1] end
+    return C.Compound(type_,values)
 end
 
 -- Negation is applied in 64-bit two's-complement form here rather than in C, where
@@ -109,6 +132,7 @@ function Emitter:constant(answer)
     if type_==B.Unit then return C.Integer(0,0) end
     if type_==B.Text then return C.Compound(self:ctype(B.Text),L{C.String(answer.value),C.Integer(0,#answer.value)}) end
     if B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) then
+        if #answer.value.fields==0 then return C.Integer(0,0) end
         local fields=L()
         for _,field in ipairs(answer.value.fields) do fields:insert(self:constant(field)) end
         return C.Compound(self:ctype(type_),fields)
@@ -149,7 +173,7 @@ end
 
 local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Less]='<',[A.LessEqual]='<=',
     [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||'}
-local arithmetic={[A.Add]={'add','let_add'}, [A.Subtract]={'sub','let_sub'}, [A.Multiply]={'mul','let_mul'}}
+local arithmetic={[A.Add]={'add','LET_ADD'}, [A.Subtract]={'sub','LET_SUB'}, [A.Multiply]={'mul','LET_MUL'}}
 
 function Emitter:effect_step(effect)
     self.helpers.add=false
@@ -169,6 +193,7 @@ function Emitter:instruction(block,block_id,index,instruction)
     local answers=self:answers_at(block_id,position)
     local function known(output) return answers and Known.is_known(answers[output+1]) end
     local function declare(output,type_,expr)
+        if type_==B.Effect then return false end
         if known(output) then return false end
         out[#out+1]=C.Declare(self:ctype(type_),self:value(block_id,index,output),expr)
         return true
@@ -185,14 +210,14 @@ function Emitter:instruction(block,block_id,index,instruction)
     elseif B.Unary:isclassof(operation) then
         local operand=self:arglist(block,block_id,position,{operation.operand})[1]
         if operation.operator==A.Not then declare(0,B.Bool,C.Unary('!',operand))
-        elseif declare(0,B.Int,C.Call(C.Name('let_neg'),L{operand})) then self.helpers.neg=true end
+        elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
         local arguments=self:arglist(block,block_id,position,{operation.left,operation.right})
         local _,type_=block:resolve(position,operation.left)
         if known(0) then return statement_list(out) end
         if operation.operator==A.Equal or operation.operator==A.NotEqual then
             local call
-            if type_==B.Text then self.helpers.text_eq=true; call=C.Call(C.Name('let_text_eq'),L{arguments[1],arguments[2]})
+            if type_==B.Text then self.helpers.text_eq=true; call=C.Call(C.Name('LET_TEXT_EQ'),L{arguments[1],arguments[2]})
             else call=C.Binary(symbolic[operation.operator],arguments[1],arguments[2]) end
             declare(0,B.Bool,operation.operator==A.Equal and call or C.Unary('!',call))
         elseif arithmetic[operation.operator] then
@@ -212,38 +237,41 @@ function Emitter:instruction(block,block_id,index,instruction)
             self.trap=true
             declare(1,B.Effect,C.Binary('+',effect,C.Integer(0,1)))
         else declare(1,B.Effect,effect) end
-    elseif B.Pack:isclassof(operation) or B.Construct:isclassof(operation) then
-        -- ASDL supplies empty lists for unused variant fields, so select explicitly.
-        local refs=B.Pack:isclassof(operation) and operation.members or operation.fields
-        declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,refs)))
-    elseif B.Project:isclassof(operation) or B.LoadField:isclassof(operation) then
-        local base=B.Project:isclassof(operation) and self:ref(block,block_id,position,operation.aggregate)
-            or self:ref(block,block_id,position,operation.word)
-        local member=B.Project:isclassof(operation) and operation.member or operation.field
-        declare(0,instruction.results[1],C.Field(base,'f' .. member))
+    elseif B.Construct:isclassof(operation) then
+        if #operation.fields==0 then declare(0,instruction.results[1],C.Integer(0,0))
+        else declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,operation.fields))) end
+    elseif B.LoadField:isclassof(operation) then
+        local base=self:ref(block,block_id,position,operation.record)
+        declare(0,instruction.results[1],C.Field(base,'f' .. operation.field))
     elseif B.StoreField:isclassof(operation) then
-        local word=self:ref(block,block_id,position,operation.word)
+        local word=self:ref(block,block_id,position,operation.record)
         local type_=instruction.results[1]
         local fields=L()
-        for i=0,#type_.fields-1 do
+        for i=0,#type_:record()-1 do
             if i==operation.field then fields:insert(self:ref(block,block_id,position,operation.value))
             else fields:insert(C.Field(word,'f' .. i)) end
         end
         declare(0,type_,C.Compound(self:ctype(type_),fields))
     elseif B.CallFunction:isclassof(operation) then
-        if self:folded_call(self.current_id,block_id,position,instruction) then
-            -- No call happens, so no value result exists and the schedule does not advance.
-            declare(#instruction.results-1,B.Effect,self:ref(block,block_id,position,operation.effect))
-            return statement_list(out)
-        end
+        if self:folded_call(self.current_id,block_id,position,instruction) then return statement_list(out) end
         local callee=self.functions[operation.target]
-        -- The first callee parameter is the incoming effect token.
-        local arguments=L{self:ref(block,block_id,position,operation.effect)}
-        arguments:insertall(self:arglist(block,block_id,position,operation.arguments))
-        local result_type=self:result_struct(callee.signature.results)
-        out[#out+1]=C.Declare(C.Named(result_type),self:value(block_id,index,'t'),C.Call(C.Name(self:function_name(operation.target)),arguments))
-        for i,type_ in ipairs(instruction.results) do
-            declare(i-1,type_,C.Field(C.Name(self:value(block_id,index,'t')),'r' .. (i-1)))
+        -- The callee's effect parameter is not part of its C signature.
+        local arguments=self:arglist(block,block_id,position,operation.arguments)
+        local type_,count=self:return_shape(callee.signature.results)
+        if count==0 then
+            out[#out+1]=C.Evaluate(C.Call(C.Name(self:function_name(operation.target)),arguments))
+        elseif count==1 then
+            declare(0,instruction.results[1],C.Call(C.Name(self:function_name(operation.target)),arguments))
+        else
+            local temporary=self:value(block_id,index,'t')
+            out[#out+1]=C.Declare(type_,temporary,C.Call(C.Name(self:function_name(operation.target)),arguments))
+            local output=0
+            for _,result in ipairs(instruction.results) do
+                if result~=B.Effect then
+                    declare(output,result,C.Field(C.Name(temporary),'r' .. output))
+                    output=output+1
+                end
+            end
         end
     elseif B.HostCall:isclassof(operation) or B.PureHostCall:isclassof(operation) then
         local host=self.hosts[operation.symbol] or self:error('missing host contract for ' .. operation.symbol)
@@ -274,6 +302,7 @@ end
 -- The entry packet is the function's ABI, so block 1 is never pruned. Other packets
 -- drop fields whose output no consumer demands, together with their edge copies.
 function Emitter:needed_parameter(block_id,index)
+    if self.current.blocks[block_id].parameters[index].type==B.Effect then return false end
     if block_id==1 then return true end
     if Known.is_known(self:parameter_answer(block_id,index)) then return false end
     local block=self.needed[block_id]
@@ -285,17 +314,17 @@ function Emitter:edge(target_id,edge,block,block_id,position)
     local target=self.current.blocks[target_id]
     local statements=L()
     local temporaries=L()
+    local live={}
     for i,ref in ipairs(edge.arguments) do
         if self:needed_parameter(target_id,i) then
             local name=self:value(block_id,position,'e' .. i)
+            live[#live+1]=i
             temporaries:insert(C.Declare(self:ctype(target.parameters[i].type),name,self:ref(block,block_id,position,ref)))
         end
     end
     statements:insertall(temporaries)
-    for i=1,#edge.arguments do
-        if self:needed_parameter(target_id,i) then
-            statements:insert(C.Assign(C.Name(self:param(target_id,i-1)),C.Name(self:value(block_id,position,'e' .. i))))
-        end
+    for _,i in ipairs(live) do
+        statements:insert(C.Assign(C.Name(self:param(target_id,i-1)),C.Name(self:value(block_id,position,'e' .. i))))
     end
     statements:insert(C.Goto('b' .. target_id))
     return C.Block(statements)
@@ -304,8 +333,12 @@ end
 function Emitter:exit(target_id,block,block_id,exit)
     local position=#block.parameters+#block.instructions
     if B.Return:isclassof(exit) then
-        local values=self:arglist(block,block_id,position,exit.values)
-        return C.Return(C.Compound(C.Named(self:result_struct(self.functions[target_id].signature.results)),statement_list(values)))
+        local types=self.functions[target_id].signature.results
+        local given=self:arglist(block,block_id,position,exit.values)
+        local values=L()
+        for i,type_ in ipairs(types) do if type_~=B.Effect then values:insert(given[i]) end end
+        local type_=self:return_shape(types)
+        return C.Return(self:return_value(type_,values))
     elseif B.Jump:isclassof(exit) then
         return self:edge(exit.edge.target,exit.edge,block,block_id,position)
     elseif B.Branch:isclassof(exit) then
@@ -315,17 +348,21 @@ function Emitter:exit(target_id,block,block_id,exit)
         return C.If(condition,self:edge(exit.yes.target,exit.yes,block,block_id,position),self:edge(exit.no.target,exit.no,block,block_id,position))
     elseif B.TailCall:isclassof(exit) then
         local arguments=self:arglist(block,block_id,position,exit.arguments)
-        local effect=self:ref(block,block_id,position,exit.effect)
-        arguments=L{effect}; for _,value in ipairs(self:arglist(block,block_id,position,exit.arguments)) do arguments:insert(value) end
         if exit.target==target_id then
             -- A self tail transfer reuses this activation: assign the entry packet and
             -- jump back to the entry block instead of growing a continuation chain.
             local entry=self.current.blocks[1]
-            local statements=L()
-            for i,value in ipairs(arguments) do
-                statements:insert(C.Declare(self:ctype(entry.parameters[i].type),self:value(block_id,position,'t' .. i),value))
+            local statements,live=L(),{}
+            -- A tail call's arguments exclude the effect, so argument i lands on belt
+            -- parameter i+1 (1-based for the packet, 0-based for the C name).
+            for i,argument in ipairs(exit.arguments) do
+                if self:needed_parameter(1,i+1) then
+                    local name=self:value(block_id,position,'t' .. i)
+                    live[#live+1]=i
+                    statements:insert(C.Declare(self:ctype(entry.parameters[i+1].type),name,self:ref(block,block_id,position,argument)))
+                end
             end
-            for i=1,#arguments do statements:insert(C.Assign(C.Name(self:param(1,i-1)),C.Name(self:value(block_id,position,'t' .. i)))) end
+            for _,i in ipairs(live) do statements:insert(C.Assign(C.Name(self:param(1,i)),C.Name(self:value(block_id,position,'t' .. i)))) end
             statements:insert(C.Goto('b1'))
             return C.Block(statements)
         end
@@ -334,13 +371,26 @@ function Emitter:exit(target_id,block,block_id,exit)
         self.trap=true
         local statements=L()
         statements:insert(C.Evaluate(C.Call(C.Name('let_trap'),L{C.String(exit.reason)})))
-        statements:insert(C.Return(C.Compound(C.Named(self:result_struct(self.functions[target_id].signature.results)),L{C.Integer(0,0)})))
+        local type_=self:return_shape(self.functions[target_id].signature.results)
+        statements:insert(C.Return(type_==C.Void and nil or C.Integer(0,0)))
         return C.Block(statements)
     end
     self:error('no representation for ' .. tostring(exit))
 end
 
-function Emitter:function_name(id) return 'let_fn_' .. id end
+-- C names come from the belt: the module initializer and each word entry by its source
+-- name, so a reader can tell what a function is without a legend.
+local function sanitize(name)
+    name=name:gsub('[^%w_]','_')
+    if name:match('^%d') then name='w' .. name end
+    return name
+end
+
+function Emitter:function_name(id)
+    local name=self.program.functions[id] and self.program.functions[id].name
+    if name=='__module_init' then return 'let_module_init' end
+    return 'let_' .. sanitize(name or ('fn_' .. id))
+end
 
 function Emitter:live_functions()
     local live,work={[1]=true},{1}
@@ -373,7 +423,9 @@ end
 function Emitter:function_parameters(belt)
     local parameters=L()
     for i,parameter in ipairs(belt.blocks[1].parameters) do
-        parameters:insert(C.Parameter(self:ctype(parameter.type),self:param(1,i-1)))
+        if parameter.type~=B.Effect then
+            parameters:insert(C.Parameter(self:ctype(parameter.type),self:param(1,i-1)))
+        end
     end
     return parameters
 end
@@ -388,7 +440,7 @@ function Emitter:emit_function(id,belt)
     -- written out, so the emitted C does not rely on a C compiler to delete it.
     -- Ordered operations always carry a demanded effect output and are therefore kept.
     self.needed=belt:demands()
-    local result=self:result_struct(belt.signature.results)
+    local result=self:return_shape(belt.signature.results)
     local parameters=self:function_parameters(belt)
     local body=L()
     -- Non-entry block parameters are assigned only by edges, so they are declared once.
@@ -415,12 +467,20 @@ function Emitter:emit_function(id,belt)
         ::continue_block::
     end
     local external=id==1
-    return C.Function(self:function_name(id),external,external,C.Named(result),parameters,C.Block(body))
+    return C.Function(self:function_name(id),external,external,result,parameters,C.Block(body))
 end
 
+-- Resources and hosts are foreign code: the emitter declares the symbols it calls, and
+-- the embedding supplies the implementations.
 function Emitter:host_declarations()
     local declarations=L()
     local names={}
+    for _,descriptor in pairs(self.options.resources or {}) do
+        if not names[descriptor.destroy] then
+            names[descriptor.destroy]=true
+            declarations:insert(C.Function(descriptor.destroy,true,false,C.Void,L{C.Parameter(C.I64,'a0')},nil))
+        end
+    end
     for _,host in pairs(self.hosts or {}) do if not names[host.symbol] then
         names[host.symbol]=true
         local parameters=L()
@@ -439,13 +499,17 @@ function Emitter:helper_declarations()
     if self.text or self.helpers.text_eq then declarations:insert(C.Struct('let_text',L{C.Parameter(C.Pointer(C.Named('char')),'data'),C.Parameter(C.U64,'size')})) end
     declarations:insert(C.Function('let_trap',true,false,C.Void,L{C.Parameter(C.Pointer(C.Named('char')),'reason')},nil))
     local function raw(code) declarations:insert(C.Raw(code)) end
-    if self.helpers.add then raw('static int64_t let_add(int64_t a,int64_t b){return (int64_t)((uint64_t)a+(uint64_t)b);}') end
-    if self.helpers.sub then raw('static int64_t let_sub(int64_t a,int64_t b){return (int64_t)((uint64_t)a-(uint64_t)b);}') end
-    if self.helpers.mul then raw('static int64_t let_mul(int64_t a,int64_t b){return (int64_t)((uint64_t)a*(uint64_t)b);}') end
-    if self.helpers.neg then raw('static int64_t let_neg(int64_t a){return (int64_t)(0-(uint64_t)a);}') end
+    -- Signed overflow is undefined in C, so wrapping arithmetic must go through unsigned.
+    -- These are one-line and branch-free, so a macro inlines them without adding a function.
+    if self.helpers.add then raw('#define LET_ADD(a,b) ((int64_t)((uint64_t)(a)+(uint64_t)(b)))') end
+    if self.helpers.sub then raw('#define LET_SUB(a,b) ((int64_t)((uint64_t)(a)-(uint64_t)(b)))') end
+    if self.helpers.mul then raw('#define LET_MUL(a,b) ((int64_t)((uint64_t)(a)*(uint64_t)(b)))') end
+    if self.helpers.neg then raw('#define LET_NEG(a) ((int64_t)(0-(uint64_t)(a)))') end
+    -- Division and remainder keep one shared helper each: inlining the trap check at every
+    -- site would duplicate control flow rather than remove a function.
     if self.helpers.div then raw('static int64_t let_div(int64_t a,int64_t b){if(b==0)let_trap("division by zero");if(b==-1)return (int64_t)(0-(uint64_t)a);return a/b;}') end
     if self.helpers.rem then raw('static int64_t let_rem(int64_t a,int64_t b){if(b==0)let_trap("remainder by zero");if(b==-1)return 0;return a%b;}') end
-    if self.helpers.text_eq then raw('static bool let_text_eq(struct let_text a,struct let_text b){return a.size==b.size&&memcmp(a.data,b.data,(size_t)a.size)==0;}') end
+    if self.helpers.text_eq then raw('#define LET_TEXT_EQ(a,b) ((a).size==(b).size&&memcmp((a).data,(b).data,(size_t)(a).size)==0)') end
     return declarations
 end
 
@@ -475,7 +539,7 @@ function Emitter:program(program,options)
     declarations:insertall(host_declarations)
     for id,belt in ipairs(program.functions) do
         if self.live_functions[id] then
-            declarations:insert(C.Function(self:function_name(id),id==1,id==1,C.Named(self:result_struct(belt.signature.results)),self:function_parameters(belt),nil))
+            declarations:insert(C.Function(self:function_name(id),id==1,id==1,self:return_shape(belt.signature.results),self:function_parameters(belt),nil))
         end
     end
     declarations:insertall(functions)

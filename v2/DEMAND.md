@@ -158,9 +158,43 @@ decisions. Two rules keep this sound in Milestone A:
 2. **Reachability follows decisions.** If a branch condition is `Known`, only the taken
    edge is live. A block is emitted iff some live edge reaches it.
 
-Milestone B adds real widening: iterate loop headers to a fixed point, widen any parameter
-that fails to stabilize to `Runtime`, then re-evaluate the body so downstream folds see the
-widened value. Widening must move only toward `Runtime`.
+**Implemented: fixed-point iteration with widening.** The earlier rule made every packet of
+a block in a cycle `Runtime`, which discarded all loop-carried information. The evaluator now
+runs an optimistic fixed point and then *verifies* it:
+
+1. `incoming` joins the contributions of every live incoming edge. A predecessor packet
+   field that has no value yet contributes nothing, which is what lets the first pass be
+   optimistic about a loop-carried value.
+2. `verify_packets` recomputes the true join from the settled answers. A stored `Known`
+   packet that disagrees with what the edges actually supply was an unsound guess, so it is
+   widened to `Runtime`.
+3. A widened packet is remembered and stays widened, so the iteration moves only toward
+   `Runtime` and cannot oscillate. `widen_cycles` is the sound fallback when the iteration
+   budget runs out.
+
+The result is that a loop-invariant value stays `Known` while a varying one widens:
+
+```let
+let run = do
+    let bias = 7
+    let total mut = 0
+    let i mut = 0
+    while i < 3 do
+        total = total + bias * 2    // folds to `total + 14`
+        i = i + 1                    // widens
+    end
+    return total
+end
+```
+
+`bias * 2` is folded away and no multiplication helper is emitted, while the loop itself is
+still emitted as a loop. Soundness is checked by execution, not by inspecting the C: a
+witness whose accumulator varies must print the value the loop computes, because an unsound
+fold would print a plausible wrong constant.
+
+**Still open: unrolling a loop with a known trip count.** Folding away the loop entirely
+would need block *instances* — the same block emitted once per iteration with its own packet
+values — which the emitter does not model today. Widening deliberately does not attempt it.
 
 Nontermination: the compiler must always terminate. Fuel and widening exist for that, and a
 budget exhaustion is an **implementation limit**, not a proof about the program (§2, and
@@ -278,12 +312,11 @@ rewrites the receiver binding (only interior mutable state is written back, and 
 the receiver's own bundle), and joins ignore edges from unreachable predecessors rather
 than only falsified ones.
 
-**B — partial bundles and recursion.**
-Milestone A already keys contexts by abstract packet and folds fully known packets; what B
-adds is precision and generality: `Partial{template, fields}` so a word with a known
-template but runtime state stays precise, specialized ABIs that drop known fields from the
-parameter list, SCC fixed points for mutually recursive summaries, and loop widening that
-replaces the conservative acyclic rule in §8.
+**B — partial bundles, summaries and loop unrolling.**
+Loop widening from §8 is done. What remains for B: `Partial{template, fields}` so a word
+with a known template but runtime state stays precise, specialized ABIs that drop known
+fields from the parameter list, SCC fixed points for mutually recursive summaries, and block
+instances so a loop with a known trip count can be unrolled rather than widened.
 
 **C — scheduling and sharing.**
 Deliverable: shared-result materialization (one C temporary for a producer with several

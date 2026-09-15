@@ -66,26 +66,24 @@ function B.PureHostCall:verify(ctx)
     end
     ctx:results(signature.results)
 end
-function B.Pack:verify(ctx)
-    local types=L(); for _,ref in ipairs(self.members) do types:insert(ctx:type(ref)) end
-    ctx:results(L{B.Aggregate(types)})
-end
-function B.Project:verify(ctx)
-    local aggregate=ctx:type(self.aggregate)
-    assert(B.Aggregate:isclassof(aggregate) and self.member<#aggregate.members,'project requires a valid aggregate member')
-    ctx:results(L{aggregate.members[self.member+1]})
-end
+-- Records declare their own shape in the instruction's result type, so the verifier
+-- checks the operand types against it instead of inventing member names.
 function B.Construct:verify(ctx)
-    local types=L(); for _,ref in ipairs(self.fields) do types:insert(ctx:type(ref)) end
-    ctx:results(L{B.Word(types,self.is_copy)})
+    local result=ctx.instruction.results[1]
+    local fields=result and result:record()
+    assert(fields and #fields==#self.fields,'construct must declare a record result')
+    for i,ref in ipairs(self.fields) do ctx:expect(ref,fields[i].type) end
+    ctx:results(L{result})
 end
 function B.LoadField:verify(ctx)
-    local word=ctx:type(self.word); assert(B.Word:isclassof(word) and self.field<#word.fields,'load requires a valid word field')
-    ctx:results(L{word.fields[self.field+1]})
+    local record=ctx:type(self.record); local fields=record:record()
+    assert(fields and self.field<#fields,'load requires a valid record field')
+    ctx:results(L{fields[self.field+1].type})
 end
 function B.StoreField:verify(ctx)
-    local word=ctx:type(self.word); assert(B.Word:isclassof(word) and self.field<#word.fields,'store requires a valid word field')
-    ctx:expect(self.value,word.fields[self.field+1]); ctx:results(L{word})
+    local record=ctx:type(self.record); local fields=record:record()
+    assert(fields and self.field<#fields,'store requires a valid record field')
+    ctx:expect(self.value,fields[self.field+1].type); ctx:results(L{record})
 end
 function Check:callee(target,arguments)
     local callee=assert(self.functions[target],'unknown call target'); callee=callee.signature or callee
@@ -102,7 +100,8 @@ function B.Store:verify(ctx)
     ctx:expect(self.value,address.pointee); ctx:ordered(self.effect,L())
 end
 function B.Move:verify(ctx)
-    local type_=ctx:type(self.value); assert(B.Named:isclassof(type_),'move requires a represented resource')
+    -- Ownership transfer applies to any non-Copy value, including a record of resources.
+    local type_=ctx:type(self.value); assert(not type_:copyable(),'move requires a non-Copy value')
     ctx:ordered(self.effect,L{type_})
 end
 function B.Destroy:verify(ctx)

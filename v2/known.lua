@@ -21,7 +21,6 @@ function Known.is_runtime(answer) return answer==nil or answer.runtime==true end
 function Known.bundle(type_,fields) return Known.value(type_,{fields=fields}) end
 
 local function is_bundle(type_) return B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) end
-local function bundle_fields(type_) return B.Word:isclassof(type_) and type_.fields or type_.members end
 
 function Known.same(a,b)
     if a==nil or b==nil then return false end
@@ -30,7 +29,7 @@ function Known.same(a,b)
     end
     if not a.type:same(b.type) then return false end
     if is_bundle(a.type) then
-        local fields=bundle_fields(a.type)
+        local fields=a.type.fields
         for i=1,#fields do if not Known.same(a.value.fields[i],b.value.fields[i]) then return false end end
         return true
     end
@@ -97,7 +96,7 @@ Evaluator={}; Evaluator.__index=Evaluator
 
 function Evaluator.new(run,belt,options)
     local self=setmetatable({run=run,program=run.program,hosts=run.hosts,belt=belt,options=options or {},
-        answers={},params={},decision={},residual=false},Evaluator)
+        answers={},params={},decision={},widened={},residual=false},Evaluator)
     -- Seeded parameters are how a call site asks about a concrete packet; anything not
     -- seeded is a generic runtime input.
     if options and options.parameters then
@@ -217,20 +216,18 @@ function Evaluator:instruction(block,block_id,index,instruction)
             put(0,Known.runtime(B.Int)); self:schedule(operation)
         end
         put(1,Known.runtime(B.Effect))
-    elseif B.Pack:isclassof(operation) or B.Construct:isclassof(operation) then
-        local arguments=inputs(B.Pack:isclassof(operation) and operation.members or operation.fields)
+    elseif B.Construct:isclassof(operation) then
+        local arguments=inputs(operation.fields)
         if all_known(arguments) then
             local fields={} for i,answer in ipairs(arguments) do fields[i]=answer end
             put(0,Known.bundle(instruction.results[1],fields))
         else put(0,Known.runtime(instruction.results[1])) end
-    elseif B.Project:isclassof(operation) or B.LoadField:isclassof(operation) then
-        local projected=B.Project:isclassof(operation)
-        local answer=inputs{projected and operation.aggregate or operation.word}[1]
-        local member=projected and operation.member or operation.field
-        if Known.is_known(answer) and answer.value.fields[member+1] then put(0,answer.value.fields[member+1])
+    elseif B.LoadField:isclassof(operation) then
+        local answer=inputs{operation.record}[1]
+        if Known.is_known(answer) and answer.value.fields[operation.field+1] then put(0,answer.value.fields[operation.field+1])
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.StoreField:isclassof(operation) then
-        local answer=inputs{operation.word}[1]
+        local answer=inputs{operation.record}[1]
         if Known.is_known(answer) then
             local fields={} for i,field in ipairs(answer.value.fields) do fields[i]=field end
             fields[operation.field+1]=inputs{operation.value}[1]
@@ -264,29 +261,55 @@ function Evaluator:instruction(block,block_id,index,instruction)
     return results
 end
 
-function Evaluator:block(block_id)
+-- A packet field supplied by an edge. A predecessor's own field may have no value yet
+-- during the first pass; that is reported as nil so the join can stay optimistic, and
+-- `verify_packets` is what makes the optimism sound.
+function Evaluator:supplied(source,source_id,ref)
+    local position=#source.parameters+#source.instructions
+    local producer=position-1-ref.distance
+    if producer<#source.parameters then
+        local entry=self.params[source_id]
+        return entry and entry[producer+1]
+    end
+    return self:answer(source_id,producer,ref.output)
+end
+
+-- The join over every live incoming edge. `optimistic` skips a contribution that does not
+-- exist yet; otherwise a missing contribution is Runtime.
+function Evaluator:incoming(block_id,optimistic)
     local belt=self.belt
-    local block=belt.blocks[block_id]
-    if block_id~=1 then
-        local joined,count={},0
-        -- Only an edge whose source block actually runs contributes to the join.
-        for source_id,source in ipairs(belt.blocks) do
+    local joined,seen={},0
+    for source_id,source in ipairs(belt.blocks) do
+        if self.live_blocks[source_id] then
             local allowed=self.decision[source_id]
             for _,edge in ipairs(source.exit:edges()) do
-                if edge.target==block_id and self.live_blocks[source_id] and (allowed==nil or allowed==edge) then
-                    count=count+1
+                if edge.target==block_id and (allowed==nil or allowed==edge) then
+                    seen=seen+1
                     for i,ref in ipairs(edge.arguments) do
-                        local answer=self:resolve(source,source_id,#source.parameters+#source.instructions,ref)
-                        joined[i]=Known.join(joined[i],answer)
+                        local answer=self:supplied(source,source_id,ref)
+                        if answer then joined[i]=Known.join(joined[i],answer)
+                        elseif not optimistic then joined[i]=Known.join(joined[i],Known.runtime(self.belt.blocks[block_id].parameters[i].type)) end
                     end
                 end
             end
         end
+    end
+    return joined,seen
+end
+
+function Evaluator:block(block_id)
+    local belt=self.belt
+    local block=belt.blocks[block_id]
+    if block_id~=1 then
+        local joined,seen=self:incoming(block_id,true)
         local previous=self.params[block_id] or {}
+        local widened=self.widened[block_id]
         local next_={}
         for i,parameter in ipairs(block.parameters) do
-            if count==0 or self.cyclic[block_id] then next_[i]=Known.runtime(parameter.type)
-            else next_[i]=joined[i] or Known.runtime(parameter.type) end
+            -- A widened packet stays widened: the iteration must move only toward Runtime,
+            -- otherwise a later pass could reduce it again and oscillate.
+            if widened and widened[i] then next_[i]=Known.runtime(parameter.type)
+            else next_[i]=(seen>0 and joined[i]) or Known.runtime(parameter.type) end
             if not Known.same(previous[i],next_[i]) then self.changed=true end
         end
         self.params[block_id]=next_
@@ -331,22 +354,78 @@ function Evaluator:live()
     return live
 end
 
+-- A stored packet is sound only if it equals the join of what the edges really supply.
+-- An optimistic pass can guess a loop-carried value; this pass recomputes the true join
+-- from the guessed answers and widens any packet that does not agree. Widening only ever
+-- moves toward Runtime, so the outer loop terminates.
+function Evaluator:verify_packets()
+    local belt=self.belt
+    local changed=false
+    for block_id=2,#belt.blocks do
+        if self.live_blocks[block_id] then
+            local block=belt.blocks[block_id]
+            local joined=self:incoming(block_id,false)
+            for i,parameter in ipairs(block.parameters) do
+                local stored=self:parameter(block_id,i)
+                local actual=joined[i] or Known.runtime(parameter.type)
+                if Known.is_known(stored) and not Known.same(stored,actual) then
+                    self.params[block_id][i]=actual
+                    self.widened[block_id]=self.widened[block_id] or {}
+                    self.widened[block_id][i]=true
+                    changed=true
+                end
+            end
+        end
+    end
+    return changed
+end
+
+-- Widen every packet of a block in a cycle. The fallback when the fixed point needs more
+-- iterations than the budget allows: it is always sound, and it terminates.
+function Evaluator:widen_cycles()
+    for block_id in pairs(Known.cyclic_blocks(self.belt)) do
+        local block=self.belt.blocks[block_id]
+        local next_={}
+        self.widened[block_id]=self.widened[block_id] or {}
+        for i,parameter in ipairs(block.parameters) do
+            next_[i]=Known.runtime(parameter.type)
+            self.widened[block_id][i]=true
+        end
+        self.params[block_id]=next_
+    end
+end
+
+function Evaluator:fixpoint(limit)
+    for _=1,limit do
+        self.changed=false
+        for block_id=1,#self.belt.blocks do
+            if self.live_blocks[block_id] then self:block(block_id) end
+        end
+        self.live_blocks=self:live()
+        if not self.changed then return true end
+    end
+    return false
+end
+
 function Evaluator:analyze()
     local belt=self.belt
     self.needed=self.options.demands or belt:demands()
-    self.cyclic=Known.cyclic_blocks(belt)
     local limit=self.options.iteration_limit or 16
     self.live_blocks=self:live()
+    local verified=false
     for _=1,limit do
-        self.changed=false
-        for block_id=1,#belt.blocks do
-            if self.live_blocks[block_id] then self:block(block_id) end
+        if not self:fixpoint(limit) then
+            -- The optimistic pass did not settle; fall back to generic loop packets.
+            self:widen_cycles()
+            self:fixpoint(limit)
         end
-        local live=self:live()
-        if not self.changed then break end
-        self.live_blocks=live
+        self.live_blocks=self:live()
+        if not self:verify_packets() then verified=true; break end
+        -- A widened packet changes the answers, so settle again before re-verifying.
+        self:fixpoint(limit)
+        self.live_blocks=self:live()
     end
-    self.live_blocks=self:live()
+    if not verified then self:widen_cycles(); self:fixpoint(limit); self.live_blocks=self:live() end
     local results
     for block_id in pairs(self.live_blocks) do
         local exit=belt.blocks[block_id].exit

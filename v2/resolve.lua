@@ -48,7 +48,10 @@ function Context:region(statements,parent)
 end
 local function prepare_range(first,last) return {first=first,last=last} end
 function Context:chain(chain,outer,self_definition)
-    local template={id=#self.templates+1,source=chain,parent=self.current,steps={},captures={},capture_set={},capture_uses={}}
+    -- The source name makes the emitted C self-describing; anonymous chains get a stable
+    -- generated name rather than an opaque index.
+    local template={id=#self.templates+1,source=chain,parent=self.current,steps={},captures={},capture_set={},capture_uses={},
+        name=self_definition and self_definition.name or ('lambda' .. (#self.templates+1))}
     self.templates[#self.templates+1]=template; self.chains[chain]=template
     local previous=self.current; self.current=template
     local scope=self:scope(outer); template.scope=scope

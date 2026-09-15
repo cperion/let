@@ -77,10 +77,19 @@ local function copyable_fields(fields)
     return true
 end
 
+local function copyable_types(types)
+    for _,type_ in ipairs(types) do if not type_:copyable() then return false end end
+    return true
+end
+
 function Builder:pack(ctx,word)
-    local types,refs=L(),L()
-    for _,field in ipairs(word.fields) do types:insert(field.type); refs:insert(ctx:ref(field.value)) end
-    local value=ctx:emit(B.Construct(refs,copyable_fields(word.fields)),L{B.Word(types,copyable_fields(word.fields))})
+    local declared,refs=L(),L()
+    for _,field in ipairs(word.fields) do
+        declared:insert(B.Field(field.name,field.type,field.mutable)); refs:insert(ctx:ref(field.value))
+    end
+    local copy=copyable_fields(word.fields)
+    local type_=B.Word(word.template.id,word.supplied,declared,copy)
+    local value=ctx:emit(B.Construct(refs,copy),L{type_})
     value.word=word; value.mode='fresh'
     return value
 end
@@ -100,7 +109,10 @@ end
 
 -- Build one prelude binding: its initializer runs exactly once per instance, in the
 -- caller's region, when advancement reaches it.
-function Builder:prepare(ctx,word,layout,range)
+-- §5.4: a prelude reached by construction belongs to the constructed word, but one reached
+-- while transiently saturating an invocation is an invocation local that the activation
+-- destroys. The destination decides which, exactly like a supplied stage.
+function Builder:prepare(ctx,word,layout,range,destination)
     if not range or range.last<range.first then return end
     for index=range.first,range.last do
         local item=layout.items[index]
@@ -109,10 +121,14 @@ function Builder:prepare(ctx,word,layout,range)
             local owned=not value.type:copyable() and not value.word
             ctx:force_bind(item.name,value,item.mutable,owned,false,false,item.span)
             word.fields[#word.fields+1]={name=item.name,definition=item.definition,value=value,type=value.type,
-                mutable=item.mutable,owned=owned,retained=true,span=item.span}
+                mutable=item.mutable,owned=owned,retained=destination==B.Persistent,span=item.span}
         end
     end
 end
+
+-- The ambient destination for construction work: a word being built as the callee of an
+-- invocation is constructed transiently, everything else is constructed persistently.
+function Builder:destination() return self.construction_destination or B.Persistent end
 
 function Builder:value_of_binding(ctx,definition)
     local binding=definition.node
@@ -142,7 +158,7 @@ function Builder:instantiate(ctx,definition)
     end
     local ok,result=pcall(function()
         captures()
-        self:prepare(ctx,word,layout,layout.initial)
+        self:prepare(ctx,word,layout,layout.initial,self:destination())
         if #layout.steps==0 and A.Data:isclassof(template.source.terminal) then
             return template.source.terminal.value:build(ctx)
         end
@@ -187,7 +203,7 @@ function Builder:supply(ctx,value,argument,destination)
     word.fields[#word.fields+1]={name=item.name,value=supplied,type=supplied.type,mutable=item.capability==A.Mut or item.capability==A.OwnMut,
         owned=owned,retained=destination==B.Persistent,span=item.span}
     word.supplied=word.supplied+1
-    self:prepare(ctx,word,layout,step.prepare)
+    self:prepare(ctx,word,layout,step.prepare,destination)
     if word.supplied==#layout.steps and A.Data:isclassof(word.template.source.terminal) then
         return self:with_fields(ctx,word,function() return word.template.source.terminal.value:build(ctx) end)
     end
@@ -202,7 +218,7 @@ function Builder:specialize(ctx,expression)
     if value.mode=='borrow' then
         fail(expression.span,'specialization of an existing non-copyable word requires an explicit independent copy')
     end
-    return self:supply(ctx,value,expression.argument,B.Persistent)
+    return self:supply(ctx,value,expression.argument,self:destination())
 end
 
 function Builder:entry(template,field_types,capabilities,mutable_mask,retained_mask)
@@ -229,7 +245,7 @@ function Builder:build_entry(template,fields,id)
     local index=1
     for _,capture in ipairs(layout.captures) do names[index]=capture.name; index=index+1 end
     for _,item in ipairs(layout.items) do names[index]=item.name; index=index+1 end
-    local fn={name='word$' .. template.id .. '$' .. id,span=template.source.span,blocks={},bindings={},next_value=0,
+    local fn={name=(template.name or 'word') .. '_' .. id,span=template.source.span,blocks={},bindings={},next_value=0,
         result=nil,resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
     local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
@@ -253,6 +269,9 @@ function Builder:build_entry(template,fields,id)
         local values=L{self_:ref(value)}; values:insertall(updated); values:insert(self_:ref(self_.effect))
         self_.block.exit=B.Return(values); self_:unpin()
     end
+    for _,record in ipairs(records) do
+        if record.field.mutable and record.field.retained then ctx.mutable_state=true end
+    end
     ctx:statements(template.source.terminal.statements)
     if not ctx.block.exit then ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},template.source.span),template.source.span) end
     local blocks=L()
@@ -266,7 +285,13 @@ function Builder:build_entry(template,fields,id)
 end
 
 function Builder:invoke(ctx,expression,tail)
+    -- A callee that is constructed at this site is built transiently, because its reached
+    -- preludes are invocation locals (§5.4); a named or projected word already has an owner.
+    local inline=not (A.Name:isclassof(expression.word) or A.Project:isclassof(expression.word))
+    local previous=self.construction_destination
+    if inline then self.construction_destination=B.Transient end
     local callee=expression.word:build(ctx)
+    self.construction_destination=previous
     if callee.host then
         if tail then ctx:finish(ctx:call(expression,true),expression.span) else return ctx:call(expression,false) end
         return
@@ -292,6 +317,20 @@ function Builder:invoke(ctx,expression,tail)
         end
         local target=self:entry(word.template,field_types,capabilities,mutable_mask,retained_mask)
         if tail then
+            -- §6.5: the *caller's* own word state is not a local, so it must survive the
+            -- transfer. Carrying it through the tail result needs address-taken state.
+            if ctx.mutable_state then gap(expression.span,'tail invocation from a word with mutable state') end
+            local callee=self.functions[target]
+            if callee and #callee.signature.results>2 then
+                gap(expression.span,'tail invocation of a word whose state belongs to the retiring activation')
+            end
+            -- A function whose only exit is a tail call takes its result type from the callee.
+            if not ctx.fn.result then
+                if not (callee and callee.signature) then
+                    gap(expression.span,'result type of a word whose only exit is a self tail call')
+                end
+                ctx.fn.result=callee.signature.results[1]
+            end
             ctx:cleanup()
             ctx.block.exit=B.TailCall(target,ctx:ref(ctx.effect),refs)
             return nil
@@ -308,7 +347,7 @@ function Builder:invoke(ctx,expression,tail)
         local changed=false
         local at=2
         for i,field in ipairs(word.fields) do
-            if field.mutable and field.retained then
+            if field.mutable and field.retained and i<=#original.fields then
                 if not changed then
                     updated=clone_word(original); changed=true
                 end
@@ -317,8 +356,11 @@ function Builder:invoke(ctx,expression,tail)
             end
         end
         if changed then
+            -- Interior state must be written back to its owner. A projected word member has
+            -- no writable place of its own yet, so its state update would be silently lost.
+            if not origin then gap(expression.span,'invoking a projected word member with mutable state') end
             local packed=self:pack(ctx,updated)
-            if origin then ctx.cells[origin]={value=packed,initialized=true,alive=ctx.fn.bindings[origin].owned} end
+            ctx.cells[origin]={value=packed,initialized=true,alive=ctx.fn.bindings[origin].owned}
         end
         local result=results[1]; result.mode=result.type:copyable() and 'copy' or 'fresh'; result.origin=origin
         return result
@@ -340,7 +382,10 @@ function Builder:build_module()
         order[#order+1]=binding.name; values:insert(ctx.cells[id].value)
     end
     local types=L(); for _,value in ipairs(values) do types:insert(value.type) end
-    local namespace=ctx:emit(B.Pack(ctx:refs(values)),L{B.Aggregate(types)},fn.span)
+    local declared=L()
+    for i,type_ in ipairs(types) do declared:insert(B.Field(nil,type_,false)) end
+    local copy=copyable_types(types)
+    local namespace=ctx:emit(B.Construct(ctx:refs(values),copy),L{B.Aggregate(declared,copy)},fn.span)
     namespace.mode='fresh'
     -- Module bindings live until module unload, not until initialization returns.
     ctx.scopes[1].retained=true

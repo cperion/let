@@ -7,11 +7,9 @@ return function(V)
     function B.Unary:inputs() return L{self.operand} end
     function B.Binary:inputs() return L{self.left,self.right} end
     function B.CheckedBinary:inputs() return L{self.effect,self.left,self.right} end
-    function B.Pack:inputs() return self.members end
     function B.Construct:inputs() return self.fields end
-    function B.LoadField:inputs() return L{self.word} end
-    function B.StoreField:inputs() return L{self.word,self.value} end
-    function B.Project:inputs() return L{self.aggregate} end
+    function B.LoadField:inputs() return L{self.record} end
+    function B.StoreField:inputs() return L{self.record,self.value} end
     function B.CallFunction:inputs() local out=L{self.effect}; append(out,self.arguments); return out end
     function B.HostCall:inputs() local out=L{self.effect}; append(out,self.arguments); return out end
     function B.PureHostCall:inputs() return self.arguments end

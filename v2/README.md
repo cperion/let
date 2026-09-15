@@ -96,6 +96,9 @@ words. `program.lua` now implements the shared advancement protocol:
   call becomes `TailCall`, so self recursion does not grow a continuation chain.
 - Fields carry explicit retention: word-owned state persists and is written back after
   an invocation, while invocation-local prelude state dies with the activation.
+- A record type states its own shape — member names, types and declared mutability — so
+  projection, interior member assignment and projected word invocation are structural.
+  An aggregate's owned members are destroyed in reverse initialization order (§8.5).
 
 Immutability holds: `word.fields`/`supplied` are cloned per advancement, so a
 specialized receiver keeps its own stage count and field list.
@@ -106,17 +109,29 @@ rather than moving them into a function that already received every argument.
 ## C output
 
 `emit.lua` maps the verified belt to the `C` vocabulary and `print.lua` renders it.
-The belt is already the semantic program, so emission chooses representations only:
+The belt is already the semantic program, so emission chooses representations only.
+The emitted C is kept to what the program actually needs:
 
-- `Int`/`Bool`/`Unit` are `int64_t`/`bool`/`uint8_t`; effects are `uint64_t` counters.
+- **Effects have no C representation.** An effect token is ordering evidence for the
+  frontend, and the belt's statement order already carries that order. Dropping them
+  removes the effect parameter from every signature, the effect field from every result,
+  and every effect update, so the module initializer is `let_module_init(void)`.
+- A function returning no value is `void`; one returning a single value returns that type
+  directly. Only a genuine multiple result gets a struct.
+- Names come from the belt: `let_module_init` and `let_<source name>_<id>`, so a function
+  says what it is.
+- `Int`/`Bool`/`Unit` are `int64_t`/`bool`/`uint8_t`; a record with no fields is `uint8_t`
+  because an empty struct is not ISO C.
 - A word or aggregate value is a struct of its fields; `Construct`/`LoadField`/
   `StoreField` are value construction and field access.
 - A `CallFunction` passes the effect token first and receives a result struct; a
   self `TailCall` assigns the entry packet and `goto`s the entry label, so tail
   recursion is a real loop rather than a C call.
-- Arithmetic uses wrapping helpers (`let_add`, `let_neg`, ...) because signed C
-  overflow is undefined, and `let_div`/`let_rem` reproduce Let's truncation,
-  dividend-sign remainder, and defined `INT_MIN / -1` handling.
+- Signed overflow is undefined in C, so wrapping arithmetic goes through unsigned. These
+  are one-line and branch-free, so they are macros (`LET_ADD`, `LET_SUB`, `LET_MUL`,
+  `LET_NEG`, `LET_TEXT_EQ`) rather than functions. Division and remainder keep one shared
+  static helper each, because inlining a trap check at every site would duplicate control
+  flow instead of removing a function.
 - Text is a `{data,size}` struct with byte-wise equality; a `Trap` calls the
   embedding host's `let_trap` hook.
 
@@ -140,6 +155,10 @@ trapping operation rather than becoming a compile-time diagnostic.
   decisions are not emitted at all.
 - A **fully known call** emits no call and no callee function; `multiply 6 7` followed by
   `a()` becomes the constant 42 with no entry emitted.
+- **Loop packets are analyzed to a fixed point.** A loop-invariant value stays known even
+  though the loop runs many times, so work on it folds; a value that varies is widened to a
+  runtime value. Widening only ever moves toward `Runtime`, and it is verified against what
+  the edges actually supply, so a varying value cannot be mistaken for a constant.
 - An **ordered** operation always carries a demanded effect output, so it is kept even
   when its result is unused — this is how §12.2 purity stays observable.
 - Block packets other than the entry block drop fields no consumer demands, together
@@ -175,6 +194,9 @@ luajit v2/test/demand.lua
 luajit v2/test/source.lua
 luajit v2/test/resolve.lua
 luajit v2/test/program.lua
+luajit v2/test/emit.lua
+luajit v2/test/aggregate.lua
+luajit v2/test/known.lua
 luajit v2/test/native.lua
 ```
 

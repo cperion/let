@@ -59,6 +59,10 @@ executed by the compiler.
 
 | Spec | Obligation | Construction/check/test mechanism |
 | --- | --- | --- |
+| §§8.1–8.3 | Aggregates, projection, interior mutability | A record's shape (member names, types and declared mutability) is part of its belt type, so projection and interior assignment are structural rather than side-table facts. A member declared mut stays writable through an immutable owning binding; otherwise the binding must be mutable. |
+| §8.4 | Positional indexing | A compile-time index resolves to a static field; a constant out-of-range index is diagnosed; a runtime index reports that it needs address-taken aggregate storage. |
+| §8.5 | Aggregate ownership and destruction | An aggregate is Copy exactly when every member is Copy and none is declared mutable. Destroying one destroys its owned members in reverse initialization order, recursively, so a moved aggregate destroys its members once. |
+| §10.3, §17.3 | Projected word members | A word member is rebuilt from the projected record so its field values belong to the invoked region, which is why `arithmetic.add(40, 2)` works even when the aggregate was captured. |
 | §§4.1–4.2 | Lexical scope, initializer-before-binding, source self name | Scope maps contain binding IDs; nested scopes may shadow; duplicate same-scope bindings fail. A source self name cannot silently fall back to an outer host word. |
 | §4.3 | Left-to-right observable evaluation | Operands and arguments construct left to right; effect references serialize ordered work. Earlier operand values are pinned across CFG construction. |
 | §§5–6.2 | Specialization is not invocation; preludes run between arguments | `program.lua` advances a word bundle one stage at a time and runs each reached prelude in the caller before the next argument is evaluated. A data terminal returns data; a `do` terminal yields a word, never implicit execution. |
@@ -109,15 +113,16 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
   escape analysis of §10.1 and is currently diagnosed, not silently copied.
 - Mutable borrowed stage storage for `mut place` invocation arguments, which needs
   address-taken object lifetimes rather than SSA scalars.
-- Aggregate owned members and their reverse destruction (§8.5); Copy members work.
-- Projection, indexing, and projected/indexed assignment places.
+- Dynamic positional indexing: a runtime index needs address-taken aggregate storage, so
+  only a compile-time index is resolved today.
+- Projection and assignment through a nested path (`a.b.c = ...`), and invoking a
+  projected word member whose stage is mutable.
 - General recursive and mutual call contracts and dynamically selected words.
 - Consumer-driven known evaluation and scheduling. C emission itself now exists
   (`emit.lua`/`print.lua`); it prints the whole verified belt, so demand is currently
   handled only by the C compiler rather than by the frontend.
   and higher-order words, returned words, and lexical capture lifetimes.
 - Remaining constraint words and inference/specialization from concrete uses.
-- Aggregate construction, projection, indexing, and associated ownership paths.
 - Address-taken locals, projected borrows, mutable borrowed resource stages, and
   construction of stored/returned word values.
 - A precise lowering for explicit moves of Copy bindings. This path is diagnosed
@@ -154,6 +159,21 @@ compares process output. It covers native currying/invocation, persistent interi
 mutable state, prelude ordering, 200000-deep proper tail transfer, 64-bit wrapping and
 truncation, Text equality, and the division trap. Generated C lives in `test/out/`.
 This is real native execution, not the interpreter.
+
+The emitted C contains only what the program needs: the module initializer, live word
+entries, the trap hook, and at most one shared helper for division and one for remainder.
+Effects are erased, single results return directly, and wrapping arithmetic is a macro.
+
+`test/aggregate.lua` covers §8.1 named projection, §8.2 positional and nested indexing,
+§8.3 projection through a capture and both interior-mutability forms, §8.5 reverse and
+nested member destruction plus single destruction of a moved aggregate, §17.3 projected
+word invocation at module level and through a capture, and the four diagnostics.
+
+`test/known.lua` covers fixed-point loop analysis: a loop-invariant multiplication folds
+while the loop is still emitted, an induction variable and an accumulator widen and still
+compute the right values, nested loops settle, and a never-entered loop leaves its variables
+alone. Two native witnesses (`loop_widening`, `loop_invariant`) execute the same cases, so an
+unsound fold would print a wrong number rather than merely look wrong.
 
 `test/emit.lua` checks that demand actually shapes the C: dead pure producers and their
 helpers are absent, an unused pure host call is absent, both ordered host calls survive in

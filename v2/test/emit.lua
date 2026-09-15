@@ -21,7 +21,16 @@ local function calls(text,name)
     end
     return found
 end
-local function foldable(source) return not emitted(source):find('let_fn_2',1,true) end
+-- Function definition lines, so a test can assert how many functions were emitted at all.
+local function definitions(text)
+    local found={}
+    for line in text:gmatch('[^\n]+') do
+        local name=line:match('(let_[%w_]+)%s*%(')
+        if name and line:find('%)%s*{%s*$') then found[#found+1]=name end
+    end
+    return found
+end
+local function foldable(source) return #definitions(emitted(source))==1 end
 
 -- Demand ---------------------------------------------------------------------------
 
@@ -36,14 +45,14 @@ let f = do
 end
 let r = f()
 ]]
-check(not text:find('let_mul',1,true),'unused multiplication helper is not emitted')
-check(not text:find('let_sub',1,true),'unused subtraction helper is not emitted')
-check(not text:find('0x00000000000003e8',1,true),'unused literal operands are not emitted')
+check(not text:find('LET_MUL',1,true),'unused multiplication helper is not emitted')
+check(not text:find('LET_SUB',1,true),'unused subtraction helper is not emitted')
+check(not text:find('INT64_C(1000)',1,true),'unused literal operands are not emitted')
 check(not text:find('pure_calc(v',1,true),'unused pure host call is not emitted')
 local ordered=calls(text,'emit')
 check(#ordered==2,'both ordered host calls remain')
-check(ordered[1]:find('0x0000000000000001',1,true)~=nil,'first ordered call keeps its argument')
-check(ordered[2]:find('0x0000000000000003',1,true)~=nil,'second ordered call keeps its argument')
+check(ordered[1]:find('INT64_C(1)',1,true)~=nil,'first ordered call keeps its argument')
+check(ordered[2]:find('INT64_C(3)',1,true)~=nil,'second ordered call keeps its argument')
 
 -- A binding that no path reads must not survive as a loop packet field, because the
 -- header/body/exit interfaces carry in-scope bindings across every backedge.
@@ -58,8 +67,8 @@ let g = do
 end
 let s = g()
 ]]
-check(not text:find('0x0000000000000063',1,true),'unused loop packet field and its literal are dropped')
-check(text:find('let_add',1,true)~=nil,'the demanded loop body is still emitted')
+check(not text:find('INT64_C(99)',1,true),'unused loop packet field and its literal are dropped')
+check(text:find('LET_ADD',1,true)~=nil,'the demanded loop body is still emitted')
 
 -- Folding: pure ------------------------------------------------------------------
 
@@ -79,7 +88,7 @@ let f = do
 end
 let r = f()
 ]]
-check(not text:find('let_add',1,true) and not text:find('let_mul',1,true),'folding needs no helpers')
+check(not text:find('LET_ADD',1,true) and not text:find('LET_MUL',1,true),'folding needs no helpers')
 check(not text:find('if (',1,true),'a known condition removes the branch entirely')
 
 -- §13.2: a known non-zero divisor is folded and its check omitted, while a possible
@@ -124,10 +133,10 @@ let first = errors()
 let second = errors()
 ]],'fold.let'):build{}
 local full=V.print(program:emit{})
-check(not full:find('let_fn_2',1,true),'a fully known call emits no callee function')
-check(not full:find('let_mul',1,true) and not full:find('let_add',1,true),'a fully known call emits no arithmetic helper')
-check(full:find('0x000000000000002a',1,true)~=nil,'known call result 42 is a constant')
-check(full:find('0x0000000000000001',1,true)~=nil and full:find('0x0000000000000002',1,true)~=nil,
+check(#definitions(full)==1,'a fully known call emits no callee function')
+check(not full:find('LET_MUL',1,true) and not full:find('LET_ADD',1,true),'a fully known call emits no arithmetic helper')
+check(full:find('INT64_C(42)',1,true)~=nil,'known call result 42 is a constant')
+check(full:find('INT64_C(1)',1,true)~=nil and full:find('INT64_C(2)',1,true)~=nil,
     'two invocations of a known-state word fold to 1 then 2, threading the state')
 
 -- Folding must stop where it cannot be justified. A pure host is never executed by the
@@ -136,7 +145,7 @@ text=emitted[[
 let multiply = let x : Int let y : Int do return x * y end
 let a = multiply(pure_calc(1), 7)
 ]]
-check(text:find('let_fn_2',1,true)~=nil,'a runtime-argument call still emits its entry')
+check(#definitions(text)>=2,'a runtime-argument call still emits its entry')
 check(text:find('pure_calc(',1,true)~=nil,'a demanded pure host call stays in the C')
 
 local effectful=V.parse([[
@@ -147,6 +156,6 @@ let r = noisy(5)
 local effect_text=V.print(effectful:emit{hosts={print_mark={symbol='print_mark',phase='runtime',purity='ordered',
     signature=B.Signature(L{read},L{B.Unit})}}})
 check(effect_text:find('print_mark',1,true)~=nil,'an ordered call inside a known packet is still emitted')
-check(effect_text:find('let_fn_2',1,true)~=nil,'a callee that demands ordered work keeps its entry')
+check(#definitions(effect_text)>=2,'a callee that demands ordered work keeps its entry')
 
 print(('passed %d v2 demand and folding emission checks'):format(checks))

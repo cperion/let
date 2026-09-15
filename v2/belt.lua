@@ -4,9 +4,12 @@ return function(context)
 module Belt {
     Destination = Persistent | Transient
     Access = CopyAccess | OwnAccess | ReadAccess | MutAccess
+    Field = (string? name, Type type, boolean mutable)
     Type = Int | Bool | Unit | Text | Effect
          | Named(string name) | Address(Type pointee)
-         | Aggregate(Type* members) | Word(Type* fields, boolean is_copy) | Callable(Signature signature)
+         | Aggregate(Field* fields, boolean is_copy)
+         | Word(number template, number supplied, Field* fields, boolean is_copy)
+         | Callable(Signature signature)
     Parameter = (Type type, AST.Capability capability)
     Signature = (Parameter* parameters, Type* results)
     Ref = (number distance, number output)
@@ -15,10 +18,9 @@ module Belt {
        | Unary(AST.UnaryOp operator, Ref operand)
        | Binary(AST.BinaryOp operator, Ref left, Ref right)
        | CheckedBinary(AST.BinaryOp operator, Ref effect, Ref left, Ref right)
-       | Pack(Ref* members) | Project(Ref aggregate, number member)
        | Construct(Ref* fields, boolean is_copy)
-       | LoadField(Ref word, number field)
-       | StoreField(Ref word, number field, Ref value)
+       | LoadField(Ref record, number field)
+       | StoreField(Ref record, number field, Ref value)
        | CallFunction(number target, Ref effect, Ref* arguments)
        | HostCall(string symbol, Ref effect, Ref* arguments)
        | PureHostCall(string symbol, Ref* arguments)

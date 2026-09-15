@@ -54,12 +54,10 @@ function B.Load:execute(ctx) return ctx:get(self.address).value,ctx:get(self.eff
 function B.Store:execute(ctx) ctx:get(self.address).value=ctx:get(self.value); return ctx:get(self.effect)+1 end
 function B.Move:execute(ctx) return ctx:get(self.value),ctx:get(self.effect)+1 end
 function B.Destroy:execute(ctx) assert(ctx.hosts[self.destructor])(ctx:get(self.value)); return ctx:get(self.effect)+1 end
-function B.Pack:execute(ctx) local fields={}; for i,ref in ipairs(self.members) do fields[i]=ctx:get(ref) end; return {fields=fields} end
-function B.Project:execute(ctx) return ctx:get(self.aggregate).fields[self.member+1] end
 function B.Construct:execute(ctx) local fields={}; for i,ref in ipairs(self.fields) do fields[i]=ctx:get(ref) end; return {fields=fields} end
-function B.LoadField:execute(ctx) return ctx:get(self.word).fields[self.field+1] end
+function B.LoadField:execute(ctx) return ctx:get(self.record).fields[self.field+1] end
 function B.StoreField:execute(ctx)
-    local word=ctx:get(self.word); local fields={} for i,value in ipairs(word.fields) do fields[i]=value end
+    local word=ctx:get(self.record); local fields={} for i,value in ipairs(word.fields) do fields[i]=value end
     fields[self.field+1]=ctx:get(self.value); return {fields=fields}
 end
 function B.CallFunction:execute(ctx)
