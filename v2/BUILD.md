@@ -147,10 +147,11 @@ construction diagnostic rather than a language limitation.
   are shared too, with `answered` and `foldable` as separate questions: a precise summary
   that cannot fold leaves the call in place, replaces only its uses, and is evaluated as a
   statement. A stage an emitted body never reads is dropped from the ABI, so the signature and
-  every call site carry only what the body uses. Still missing: ABIs specialized per
-  argument-knownness pattern, mutual-recursion summaries, block instances for effect-carrying
-  loops, and shared-result materialization (milestones B and C). No residual AST or old
-  evaluator is introduced.
+  every call site carry only what the body uses, and a call whose packet carries a constant gets
+  an instance specialized on it: the known stage is inlined in the body and dropped from that
+  instance's signature and calls. Still missing: mutual-recursion summaries, block instances for
+  effect-carrying loops, and shared-result materialization (milestones B and C). No residual AST
+  or old evaluator is introduced.
 - Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
   paths, an optional extension, configured roots), but §15.2 leaves the lookup to the
   embedding, so a host with its own layout passes its own resolver. This is not missing

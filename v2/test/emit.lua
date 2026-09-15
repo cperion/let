@@ -270,4 +270,22 @@ check(prototype:find('p1_2',1,true)==nil,'the unread stage is not a parameter')
 check(specialized:find('ordered_int(INT64_C(3))',1,true)~=nil,'the dropped argument is still evaluated')
 
 
+-- Specialized ABIs ------------------------------------------------------------------
+
+-- A call whose packet carries a constant gets an instance of its own, and a stage that
+-- instance substituted is not part of its ABI: the value is inlined in the body and the
+-- parameter is dropped from the signature and from the call. A parameter exists in C exactly
+-- when its fate is `value` -- `constant` means every use is the constant, `dropped` means
+-- nothing reads it, and neither belongs in a signature.
+local specialized=emitted[[
+let scale = let by : Int let x : Int do return by * x end
+let double = scale 2
+let n = ordered_int(3)
+let r = double(n)
+]]
+check(specialized:find('LET_MUL(INT64_C(2), p1_2)',1,true)~=nil,'a known stage is inlined')
+check(specialized:find('(int64_t p1_2);',1,true)~=nil,'and is dropped from the specialized signature')
+check(specialized:find('(int64_t p1_1, int64_t p1_2);',1,true)~=nil,'while the generic instance keeps both')
+check(specialized:find('let_scale_%d+_%d+%(v[%w_]+%);')~=nil,'and the call passes only what is left')
+
 print(('passed %d v2 demand and folding emission checks'):format(checks))

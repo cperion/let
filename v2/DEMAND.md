@@ -464,13 +464,25 @@ The value this already delivers, measured:
 emits a specialized instance whose body is `LET_MUL(INT64_C(2), p1_2)`: the known stage is
 inlined rather than passed, which is the point of specializing an ABI.
 
-One thing about it is still open and worth stating exactly, because the rule is supposed to be
-single-voiced. A specialized instance drops a parameter whose *value* it substituted -- asked
-directly, `disposition` answers `constant` for it -- yet the emitted signature still lists it, so
-`let_scale_3_2(int64_t p1_1, int64_t p1_2)` takes a parameter its body never reads. The signature
-and the call site agree with each other (the code is correct, the parameter is merely redundant),
-so something is asking a *different* instance than the one being emitted. That is the next thing
-to pin down, and until it is, this is a missed optimization rather than a wrong program.
+That also closed the ABI: a parameter exists in C exactly when its fate is `value`. `constant`
+means every use of it is that constant, and `dropped` means nothing reads it, so neither belongs
+in a signature -- and saying so in one place is what the five-way split could not do. The first
+attempt at this unification asked `~= 'dropped'` instead, which keeps a substituted parameter in
+the ABI; the measurement that found it was a specialized instance whose body inlined a constant
+while its signature still passed it.
+
+Both directions now specialize:
+
+    let scale = let by : Int let x : Int do return by * x end
+
+    let double = scale 2          -- by is known
+    let r = double(n)             -- let_scale_3_2(int64_t p1_2) { return LET_MUL(INT64_C(2), p1_2); }
+
+    let r = scale(n, 5)           -- x is known
+                                  -- let_scale_3_2(int64_t p1_1) { return LET_MUL(p1_1, INT64_C(5)); }
+
+with the generic instance unchanged beside them, because a call site whose packet carries no
+constant still needs the ABI that passes everything.
 
 The remaining items stop being separate features:
 

@@ -453,7 +453,7 @@ end
 -- order carries it, so it is neither declared, nor passed, nor copied.
 function Emitter:parameter_live(analysis,belt,block_id,index)
     if belt.blocks[block_id].parameters[index].type==B.Effect then return false end
-    return self:disposition(analysis,belt,block_id,index-1,0)~='dropped'
+    return self:disposition(analysis,belt,block_id,index-1,0)=='value'
 end
 
 function Emitter:needed_parameter(block_id,index)
