@@ -88,7 +88,8 @@ pointer result declares `ownership = 'borrowed'` and `nullable`; `Vocabulary` ch
 describe a pointer result and that a representation is `value` or `pointer`. The declared set is
 `c.strlen`, `c.strcmp`, `c.atoi`, `c.llabs`, `c.getenv`, `c.puts`, `c.putchar`, `c.malloc`,
 `c.memcpy`, `c.memset`, `c.memcmp`, `c.write` and `c.read`. `c.string`/`c.text` cross between
-`Text` and `CString`; `c.byte_length` states a `Text`'s byte length and `c.null` tests a borrowed
+`Text` and `CString`; `c.text_of` builds a `Text` over a pointer and a length; `c.byte_length`
+states a `Text`'s byte length and `c.null` tests a borrowed
 pointer, so a pointer-and-count call needs no terminator (`libc.lua`).
 
 ### The `c` namespace and a standalone program
@@ -123,11 +124,10 @@ from the Let types (`Int` `int64_t`, `CString` `const char*`, ...); an embedding
 refines a width that differs, and a source declaration states the same thing as a Text argument on
 the type: `extern puts (text : CString) : Int "int"`. The spelling is checked against the Let
 type and the value is converted at the boundary, so a C `int` is not silently declared as
-`int64_t`. A source name is lexical rather than namespaced, and a declaration whose C symbol is
-already registered -- libc's `strlen`, say -- collides by symbol, so a program either uses the
-`c` namespace or picks its own name.
-than namespaced. A declaration whose C symbol is already registered -- libc's `strlen`, say --
-collides by symbol, so a program either uses the `c` namespace or picks its own name.
+`int64_t`. A dotted name adds a member to a namespace -- `extern c.puts ...` extends `c` -- while a
+plain name is lexical. A symbol already registered with the same Let signature (libc's `strlen`,
+say) is allowed and the first declaration wins; two different signatures for one symbol are a
+declaration error.
 
 ## Normative obligations and mechanisms
 
