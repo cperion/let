@@ -118,7 +118,12 @@ extern pure strlen (text : CString) : Int
 `let/extern.lua` turns each declaration into the same host descriptor an options file would have
 written, so resolution, construction and emission see one vocabulary. The C prototype is derived
 from the Let types (`Int` `int64_t`, `CString` `const char*`, ...); an embedding descriptor
-refines a width that differs (`c = { result = 'size_t' }`), and a source name is lexical rather
+refines a width that differs, and a source declaration states the same thing as a Text argument on
+the type: `extern puts (text : CString) : Int "int"`. The spelling is checked against the Let
+type and the value is converted at the boundary, so a C `int` is not silently declared as
+`int64_t`. A source name is lexical rather than namespaced, and a declaration whose C symbol is
+already registered -- libc's `strlen`, say -- collides by symbol, so a program either uses the
+`c` namespace or picks its own name.
 than namespaced. A declaration whose C symbol is already registered -- libc's `strlen`, say --
 collides by symbol, so a program either uses the `c` namespace or picks its own name.
 
