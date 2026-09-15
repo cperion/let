@@ -133,6 +133,20 @@ construction diagnostic rather than a language limitation.
   that the builder creates it and the emitter roots it. This is the largest gap to embedding, and
   it is why the runtime benchmark comparison against the old compiler cannot run yet.
 
+  A first attempt built the entry with `Builder:entry` directly, from the word's fields plus its
+  remaining stages, and it does not work; the reason is worth keeping. An entry's parameters are a
+  word's captures and its *stages* -- never its preludes -- because §6.2 runs a stage's preludes at
+  the call site, between the arguments, so their values are computed there rather than passed. So
+  `entry` describes an already-advanced word, and a host entry has to be built the other way round:
+  replay the word's construction (`instantiate`, then one `supply` per remaining stage) with those
+  stages supplied as *parameters* rather than as source expressions. That needs `supply` to take a
+  value instead of an AST argument, which is a small refactor of the function that already does the
+  work rather than a new mechanism.
+
+  It also leaves a semantics question to state explicitly, as §18 requires: a host that invokes an
+  exported word supplies the remaining stages, and *the entry runs whatever preludes lie between
+  them*. The host does not supply those, and nothing in the current text says so.
+
 - A partial move *introduced inside* a loop whose path is still a hole at the backedge
   (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
   the loop entry a fact per owned subplace is not enough on its own: the entry's fact must
