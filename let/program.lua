@@ -194,7 +194,8 @@ end
 -- or a parameter a host entry was handed. There is one implementation of this, because two
 -- would disagree about which stage is next and which preludes belong to it.
 function Builder:advance(ctx,value,supplied,span,destination,complete)
-    local word=clone_word(assert(value.word,'specialization requires a word value'))
+    if not value.word then fail(span,'specialization requires a word value') end
+    local word=clone_word(value.word)
     local layout=self:layout(word.template)
     local step=layout.steps[word.supplied+1]
     if not step then fail(span,'oversaturated specialization: the terminal already has every stage') end

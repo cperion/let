@@ -10,7 +10,9 @@ local function run()
     local text = input:read('*a'); input:close()
     local V = require('let')
     local options = arg[3] and dofile(arg[3]) or {}
-    local program = V.parse(text, arg[1]):build(options)
+    local program, builder = V.parse(text, arg[1]):build(options)
+    -- This is a host, and it publishes every exported word: §15.1's "the host selects".
+    options.entries = options.entries or builder.host_entries
     program:verify_flow(options.hosts or {})
     local source = V.print(program:emit(options))
     if arg[2] then

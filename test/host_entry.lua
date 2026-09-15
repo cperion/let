@@ -106,6 +106,21 @@ check(entry.c_name~=nil,'with the C name the host calls')
 check(text:find(entry.c_name..'(int64_t',1,true)~=nil,'and that function is emitted')
 check(text:find('#define LET_ADD',1,true)~=nil,'and it computes')
 
+-- The shipped path is a host, and it must publish the entries: this is the check whose absence let
+-- every exported word be dead-code eliminated through `luajit let.lua in.let out.c`.
+local shipped='/tmp/let_host_shipped'
+os.execute('rm -rf '..shipped..' && mkdir -p '..shipped)
+os.execute(('cp dist/let.lua %s/let.lua'):format(shipped))
+local input=assert(io.open(shipped..'/demo.let','wb'))
+input:write('let twice = let n : Int do return n * 2 end\nlet answer = twice(21)\n')
+input:close()
+os.execute(('cd %s && luajit let.lua demo.let demo.c'):format(shipped))
+local emitted=assert(io.open(shipped..'/demo.c','rb')):read('*a')
+local name=emitted:match('extern int64_t (let_[%w_]*_host)%(')
+check(name~=nil,'the command-line compiler publishes an entry instead of eliminating it')
+check(emitted:find('let_trap')~=nil and emitted:find('INT64_C',1,true)~=nil,'and the entry is a real function')
+check(emitted:find('static int64_t '..name,1,true)==nil,'named for the linker, so a host can call it')
+
 -- The ABI the host actually links against. A C main calls the emitted entry the way the host
 -- will: the word's own fields first, then the stages it still needs, and a mutable stage is a
 -- pointer to the host's own storage.

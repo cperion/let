@@ -37,7 +37,14 @@ local handle=assert(io.open(input,'wb')); handle:write(source); handle:close()
 os.remove(output)
 os.execute(('luajit dist/let.lua %s %s'):format(input,output))
 local compiled=assert(io.open(output,'rb')):read('*a')
-eq(compiled,emit(V),'the bundle compiles a file when it is the running script')
+-- The command line is a host, so it publishes every exported word as an entry; compare against
+-- the same thing done by hand rather than against an emission with nothing published.
+local function emit_published(api)
+    local program,builder=api.parse(source,'bundle.let'):build{}
+    program:verify_flow{}
+    return api.print(program:emit{entries=builder.host_entries})
+end
+eq(compiled,emit_published(V),'the command line publishes each exported word as a host entry')
 
 -- Nothing around the file. Run it from a bare directory, where neither the module tree nor the
 -- vendored files can be found, so a module the walker missed cannot hide behind package.path.

@@ -430,6 +430,13 @@ end
 --
 -- A parameter asks the same question with `position` being its 0-based index, which is where
 -- its value lives in the entry packet.
+-- Whether a function is part of the program's interface to its host: the module initializer and
+-- the entry points published for the host to call. Both are named for the linker rather than
+-- `static`, and that is a property of the program, not of anything a caller passes in.
+function Emitter:hosted(instance)
+    return instance.id==1 or (self.host_ids and self.host_ids[instance.id]==true)
+end
+
 function Emitter:disposition(analysis,belt,block_id,position,output)
     local block=belt.blocks[block_id]
     local parameter=block.parameters[position+1]
@@ -593,7 +600,7 @@ function Emitter:emit_instance(instance)
         for i,result in ipairs(belt.signature.results) do
             if result~=B.Effect then values:insert(self:constant(analysis.results[i])) end
         end
-        local external=instance.id==1
+        local external=self:hosted(instance)
         return C.Function(instance.name,external,external,type_,
             self:function_parameters_for(instance),
             C.Block(L{C.Return(self:return_value(type_,values))}))
@@ -631,7 +638,7 @@ function Emitter:emit_instance(instance)
         body:insert(self:exit(instance.id,block,block_id,block.exit))
         ::continue_block::
     end
-    local external=instance.id==1
+    local external=self:hosted(instance)
     return C.Function(instance.name,external,external,result,parameters,C.Block(body))
 end
 
@@ -743,12 +750,16 @@ function Emitter:program(program,options)
     -- One shared run: an instance is analysed once and reused by every call site that asks
     -- for the same entry packet.
     self.run=Known.run(program,options)
+    -- Which entries the host publishes. The host selects (§15.1); a command-line compiler is a
+    -- host that selects every exported word, and says so by passing them.
+    self.host_ids={}
+    for _,entry in ipairs(options.entries or {}) do self.host_ids[entry.id]=true end
     -- The module interface is the root of the instance graph, and emission discovers the rest
     -- by writing the calls it finds -- which is the same discovery that decides liveness.
     self:generic_instance(1)
     self:generic_instance(2)
     -- A host entry has no caller inside the belt, so nothing would make it live: the entries the
-    -- host will call are roots, like the module interface itself.
+    -- program publishes as its host interface are roots, like the module interface itself.
     for _,entry in ipairs(options.entries or {}) do self:generic_instance(entry.id) end
     local functions=L()
     local at=1
@@ -768,7 +779,7 @@ function Emitter:program(program,options)
     for _,struct in ipairs(self.results) do declarations:insert(struct) end
     declarations:insertall(host_declarations)
     for _,instance in ipairs(self.pending) do
-        declarations:insert(C.Function(instance.name,instance.id==1,instance.id==1,
+        declarations:insert(C.Function(instance.name,self:hosted(instance),self:hosted(instance),
             self:return_shape(instance.belt.signature.results),
             self:function_parameters_for(instance),nil))
     end
