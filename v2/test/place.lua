@@ -272,6 +272,41 @@ end
 let r = f()
 ]],'runtime index in the middle','§9.4 a runtime index in the middle of a path is rejected')
 
+-- §9.2 A Copy value owns no state to remove, so `move` of a Copy place is a copy: the
+-- place stays initialized and the value is indistinguishable from a read.
+eq(run[[
+let f = do
+    let x = 42;
+    let y = move x;
+    return x + y - 41
+end
+let r = f()
+]],43,'§9.2 moving a Copy binding leaves it initialized')
+eq(run[[
+let f = do
+    let a = { let b = 42 let c = 5 };
+    let y = move a.b;
+    return a.b + y - 41
+end
+let r = f()
+]],43,'§9.2 moving a Copy member leaves the aggregate whole')
+eq(run[[
+let f = do
+    let a = { 10, 20 };
+    let y = move a[0];
+    return a[0] + y
+end
+let r = f()
+]],20,'§9.2 moving a Copy positional element')
+eq(run[[
+let twice = let n : Int do return n + n end
+let f = do
+    let x = 3;
+    return twice(move x)
+end
+let r = f()
+]],6,'§9.2 a Copy argument may be spelled move')
+
 -- §9.2 A plain stage receives a read-only borrow "for the invocation", so the caller keeps
 -- ownership: the value is still there afterwards, and the caller releases it once.
 events={} ; live={}
@@ -386,8 +421,9 @@ end
 let r = f()
 ]],'may be uninitialized','§9.2 reading a subplace that may be uninitialized is rejected')
 
--- §9.2 A loop entry has one slot per fact, so a hole the entry never allowed cannot be
--- carried across an iteration; that is a representation limit, not a legal-program error.
+-- §9.2 A hole introduced inside a loop is diagnosed: the loop entry's fact would have to be
+-- dynamic for a backedge to carry the hole, and the body's own move then reads a place that
+-- is only *maybe* initialized. That is an analysis limit, not an illegal program.
 rejects([[
 let f = do
     let a mut = { let b = open_buffer(1) let c = 2 };
@@ -401,7 +437,7 @@ let f = do
     return a.c
 end
 let r = f()
-]],'may not introduce an uninitialized subplace','§9.2 a loop may not introduce a hole')
+]],'path%-sensitive initialization analysis','§9.2 a hole introduced inside a loop needs path-sensitive facts')
 
 -- §9.2 Moving out of a subplace leaves that subplace uninitialized and the aggregate
 -- partially initialized: the sibling is unaffected, and each buffer is released once, by

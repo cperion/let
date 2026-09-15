@@ -787,6 +787,8 @@ For a completed binding `let y = rhs`:
 
 Here **fresh** means a newly produced non-copyable result with no pre-existing source place and exactly one consuming destination in the expression. Freshness is established by the ownership checker, not by a runtime flag.
 
+`move` names the removal of an owned value. A Copy value owns no state to remove, so `move place` for a Copy place is that value, copied: the place stays initialized, nothing is transferred, and the result is indistinguishable from reading the place. `move` is therefore required for an existing non-copyable place and optional everywhere else.
+
 Reading, moving, or destroying an uninitialized place is a compile-time error.
 
 `move place` may name a subplace as well as a whole binding. Moving out of a projected member or a constant positional index leaves that subplace uninitialized and makes the containing aggregate **partially initialized**. The value that was moved is owned by whatever receives it, exactly as for a whole move (§6.3), and the subplace must be assigned a new value before it is read, moved, or destroyed again.

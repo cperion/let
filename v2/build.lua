@@ -198,9 +198,6 @@ function Context:take_member(name,steps,span)
     if not cell.initialized then fail(span,'use after move or uninitialized binding ' .. name) end
     local key,indices,type_=self:path_key(binding.type,steps,span)
     self:check_moved(id,key,span)
-    if type_:copyable() then gap(span,'move of Copy members') end
-    if not binding.owned then fail(span,'cannot move from a borrowed stage') end
-    self:access(id,true,span)
     local value=cell.value
     if binding.address then
         value=self:ordered(B.Load(self:ref(self.effect),self:ref(value)),binding.type,span)
@@ -210,6 +207,13 @@ function Context:take_member(name,steps,span)
         at=at.fields[index+1].type
         value=self:emit(B.LoadField(self:ref(value),index),L{at},span)
     end
+    -- §9.2: a Copy member owns no state to remove either, so the path stays initialized.
+    if type_:copyable() then
+        local read=copy(value); read.mode='copy'; read.origin=id
+        return read
+    end
+    if not binding.owned then fail(span,'cannot move from a borrowed stage') end
+    self:access(id,true,span)
     local taken=self:ordered(B.Move(self:ref(self.effect),self:ref(value)),type_,span)
     taken.mode='fresh'; taken.origin=id
     self.cells[id].moved[key]=true
@@ -284,8 +288,8 @@ function Context:take(name,span)
     local id,binding,cell=self:binding(name,span)
     if not cell.initialized then fail(span,'use after move or uninitialized binding ' .. name) end
     if next(cell.moved) then fail(span,'use of a partially initialized aggregate ' .. name) end
+    if binding.type:copyable() then return self:read_place(id,name,binding,cell,span) end
     self:access(id,true,span)
-    if binding.type:copyable() then gap(span,'move of Copy bindings') end
     if not binding.owned then fail(span,'cannot move from a borrowed stage') end
     -- Moving out of a place reads its contents first; the cell itself stays.
     local source=cell.value
@@ -1065,7 +1069,11 @@ function A.While:build(ctx)
             end
             for key in pairs(body.cells[id].moved) do
                 if not ctx.cells[id].moved[key] then
-                    gap(self.span,'a loop may not introduce an uninitialized subplace')
+                    -- The header's fact must be dynamic for a backedge to carry a hole,
+                    -- yet the body's own move needs it statically initialized. Breaking
+                    -- that circle needs path-sensitive facts (or peeling the first
+                    -- iteration), not a bigger parameter list.
+                    gap(self.span,'a partial move inside a loop needs path-sensitive initialization analysis')
                 end
             end
             values[#values+1]=body.cells[id].value

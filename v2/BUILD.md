@@ -67,6 +67,7 @@ executed by the compiler.
 | §15.1 | Module unload destroys owned state in reverse | The initializer returns the namespace plus the state record that owns every top-level value in construction order; `let_module_unload` destroys that record. A moved prelude stays at its original position in the state, so a written terminal cannot cause a double destruction or reorder it. |
 | §9.2 | Partial moves | `move place` names a subplace as well as a binding: the moved subplace becomes uninitialized, the aggregate becomes partially initialized, and destruction releases only what still holds a value. A subplace containing the hole cannot be read or moved as a value, while a read *through* it to another subplace is allowed; assigning the hole reinitializes it. The path must be statically known. A path moved on only some branch is a run-time fact, carried and destroyed exactly like conditional ownership, so a destruction is guarded by it and reading it is impossible; assigning over it releases the old value only where one is still there. |
 | §9.4 | Assignment to a place path | A destination is any statically known path from a binding: names and constant indices are resolved to member positions, a runtime index may select among them at the last step, and each level is rebuilt from the leaf up. Interior mutability reaches through the whole path (§8.3), while positional elements take capability from the base place (§8.4). A runtime index in the middle of a path, or a write into an uninitialized subplace, is diagnosed. |
+| §9.2 | Moving a Copy place | A Copy value owns no state to remove, so `move place` for a Copy place is that value, copied: the place stays initialized, nothing is transferred, and the result is what reading the place would give. That is now stated in §9.2 rather than left to the implementation, and it applies to a whole binding and to a projected or constant-indexed member alike. |
 | §§5.4, 9.2 | A plain stage borrows its argument | A non-Copy argument to a stage without `own` is a read-only borrow *for the invocation*: the caller keeps ownership, so the value is still usable afterwards and the caller releases it exactly once. Only `own`/`own mut` give the callee ownership, and a `mut` stage reaches the caller's place through an address. |
 | §§6.5, 9.5 | A word body's locals are activation state | A word's own state lives in the field scopes that retain it; its body's locals get their own scope, so the return destroys them. Without that, a word with no stages ran its body in the retained construction scope and its locals were never released. |
 | §§9.3, 10.1 | Places, borrows, captures | Two type forms, and the difference is ownership. `Allocate` makes an **Address**: an owned cell, part of the owner's state, destroyed with it. `BorrowPlace` makes a **Borrow(pointee, stable)**: temporary access to some place, never owned and therefore never destroyed. A mutable stage is a pointer parameter reached through a borrow; a non-Copy capture is a borrow of the owner's storage, so a captured word and its owner share state. `stable` says whether the place outlives any activation, which is exactly what decides escape — no exemption flags, and no blanket rule. |
@@ -123,9 +124,13 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 These are specified behaviours that the implementation does not yet provide, so each is a
 construction diagnostic rather than a language limitation.
 
-- A loop entry carries one initialization fact per subplace it already knows about, so a
-  hole *introduced inside* a loop (`while ... do if c do move a.b end end`) has no slot to
-  be carried across an iteration. Divergence at an ordinary join is supported, and so is
+- A partial move *introduced inside* a loop whose path is still a hole at the backedge
+  (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
+  the loop entry a fact per owned subplace is not enough on its own: the entry's fact must
+  be dynamic for the backedge to carry the hole, and the body's own `move` then reads a
+  *maybe* initialized place, which stays rejected. Breaking that circle needs per-iteration
+  reasoning -- peeling the first iteration, where the entry state is static -- rather than a
+  bigger parameter list. Divergence at an ordinary join is supported, and so is
   loop-carried reinitialization, which restores the entry's facts.
 - A runtime index in the middle of a place path (`a[i].b = x`) needs a place selected per
   arm before each arm writes.
@@ -154,10 +159,6 @@ construction diagnostic rather than a language limitation.
   value (§11.2), but a dispatch needs a representation for a value whose word identity is
   not statically known, and §18 defers any mandatory universal aggregate or closure layout.
   Choosing that layout is a language decision before it is an implementation one.
-- A precise lowering for explicit moves of Copy bindings. §9.2 defines copying for a Copy
-  result and requires `move` only for an existing non-copyable place; what `move` means for
-  a Copy place is not stated, so the path is diagnosed instead of inheriting an
-  undocumented old-compiler exception.
 
 ## Deliberately outside the implementation
 
