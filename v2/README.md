@@ -165,7 +165,9 @@ trapping operation rather than becoming a compile-time diagnostic.
   makes a **Borrow**, temporary access that is never owned. A mutable stage is a pointer
   parameter reached through a borrow, a non-Copy capture is a borrow of the owner's storage
   (so a captured word and its owner share state), and `stable` says whether the place
-  outlives any activation — which is precisely what decides escape.
+  outlives any activation — which is precisely what decides escape. A member or constant
+  index is a place too: `mut a.b` and `mut a[0]` are reached through a field address, so the
+  callee writes the owner's field.
 - **Module unload is a generated function.** The initializer returns the namespace and the
   state that owns it; `let_module_unload(state)` destroys that state in reverse successful-
   construction order (§15.1). One owner means a written terminal that moves an owned prelude

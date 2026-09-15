@@ -312,6 +312,21 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'1\n2\n3\n','§10.1 a captured word shares its owner state: 1, 2, then 3')
 
+-- §9.3 A projected member is a place too: the callee receives a pointer to the owner's
+-- field, and the owner sees the write.
+output=native('projected_borrow',[[
+let bump = let p mut : Int let by : Int do p = p + by; return p end
+let run = do
+    let a mut = { let x = 1 let y = 2 };
+    let r = bump(mut a.x, 40);
+    return a.x + r
+end
+let answer = run()
+let show = do print_int(answer) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'82\n','§9.3 a mutable borrow of a projected member')
+
 -- §6.2 Prelude effects reached between stages precede the following argument.
 output=native('preludes',[[
 let staged =

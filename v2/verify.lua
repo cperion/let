@@ -80,6 +80,13 @@ function B.BorrowPlace:verify(ctx)
     local pointee=ctx:pointee(self.address)
     ctx:results(L{B.Borrow(pointee,self.stable)})
 end
+-- A field of a place is a place, so it is reached through a borrow of that field (§9.3).
+function B.FieldAddress:verify(ctx)
+    local record=ctx:pointee(self.place)
+    local fields=record:record()
+    assert(fields and self.field<#fields,'a field address requires a valid record field')
+    ctx:results(L{B.Borrow(fields[self.field+1].type,self.stable)})
+end
 function B.Construct:verify(ctx)
     local result=ctx.instruction.results[1]
     local fields=result and result:record()

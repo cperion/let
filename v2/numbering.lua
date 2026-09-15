@@ -8,6 +8,7 @@ return function(V)
     function B.Binary:inputs() return L{self.left,self.right} end
     function B.CheckedBinary:inputs() return L{self.effect,self.left,self.right} end
     function B.BorrowPlace:inputs() return L{self.address} end
+    function B.FieldAddress:inputs() return L{self.place} end
     function B.Construct:inputs() return self.fields end
     function B.LoadField:inputs() return L{self.record} end
     function B.StoreField:inputs() return L{self.record,self.value} end

@@ -405,18 +405,70 @@ function A.Move:build(ctx)
     if not A.Name:isclassof(self.place) then gap(self.span,'partial moves') end
     return ctx:take(self.place.name,self.span)
 end
+-- A compile-time index, or nil when the index is only known at run time. `-7` is a
+-- unary negation of a literal, so both spellings are recognized (§2.2).
+local function constant_index(node)
+    local negative=A.Unary:isclassof(node) and node.operator==A.Negate
+    local operand=negative and node.operand or node
+    if not A.Integer:isclassof(operand) then return nil end
+    local value=tonumber(V.scalar.integer(operand.spelling,function(m) error(m,0) end))
+    return negative and -value or value
+end
+
+-- A place expression is a root binding plus the path of members that reaches it. Borrowing
+-- `a.b` makes `a` address-taken, which resolution already recorded, so the root is a cell and
+-- the path is walked as field addresses.
+local function place_path(node)
+    local steps={}
+    local current=node
+    while true do
+        if A.Project:isclassof(current) then
+            table.insert(steps,1,{name=current.name,span=current.span}); current=current.base
+        elseif A.Index:isclassof(current) then
+            local index=constant_index(current.index)
+            if not index then return nil,nil,'dynamic indexing needs a uniform layout' end
+            table.insert(steps,1,{index=index,span=current.span}); current=current.base
+        elseif A.Name:isclassof(current) then
+            return current.name,steps
+        else
+            return nil,nil,'this place form'
+        end
+    end
+end
+
+-- `mut place` yields a borrow: the same storage as the place, viewed as temporary access
+-- rather than as something the borrower owns (§1.3, §9.3).
 function A.Borrow:build(ctx)
-    if not A.Name:isclassof(self.place) then gap(self.span,'projected/indexed borrows') end
-    local id,binding,cell=ctx:binding(self.place.name,self.span)
+    local root,steps,reason=place_path(self.place)
+    if not root then gap(self.span,reason) end
+    local id,binding,cell=ctx:binding(root,self.span)
     if not binding.mutable then fail(self.span,'mutable borrow of immutable binding') end
     if not cell.initialized then fail(self.span,'borrow of uninitialized binding') end
     if not binding.address then gap(self.span,'address-taken locals') end
     ctx:access(id,true,self.span)
-    -- The storage is the place's; borrowing it yields temporary access, so the value's type
-    -- says borrow rather than ownership (§1.3, §9.3), and its stability decides whether a
-    -- word holding it may escape.
-    local value=ctx:emit(B.BorrowPlace(ctx:ref(cell.value),binding.lifetime=='module'),
-        L{B.Borrow(cell.value.type.pointee,binding.lifetime=='module')},self.span)
+    local stable=binding.lifetime=='module'
+    local value=cell.value
+    if #steps==0 then
+        value=ctx:emit(B.BorrowPlace(ctx:ref(value),stable),L{B.Borrow(binding.type,stable)},self.span)
+    else
+        local type_=binding.type
+        for _,step in ipairs(steps) do
+            local fields=type_.fields
+            if not fields then fail(step.span,'a borrow path requires an aggregate') end
+            local index
+            -- Names are found by search and indices are written by the source, so both
+            -- describe the member position; field access is zero-based.
+            if step.name then index=select(1,ctx:record_field(type_,step.name,step.span))-1
+            else
+                index=step.index
+                if index<0 or index>=#fields then
+                    fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
+                end
+            end
+            type_=fields[index+1].type
+            value=ctx:emit(B.FieldAddress(ctx:ref(value),index,stable),L{B.Borrow(type_,stable)},step.span)
+        end
+    end
     value.mode='mut'; value.origin=id
     return value
 end
@@ -487,16 +539,6 @@ function A.NamedAggregate:build(ctx)
     -- The aggregate owns its members, so the member scope must not destroy them.
     ctx:retain(); ctx:pop()
     return ctx:construct_record(values,fields,self.span)
-end
-
--- A compile-time index, or nil when the index is only known at run time. `-7` is a
--- unary negation of a literal, so both spellings are recognized (§2.2).
-local function constant_index(node)
-    local negative=A.Unary:isclassof(node) and node.operator==A.Negate
-    local operand=negative and node.operand or node
-    if not A.Integer:isclassof(operand) then return nil end
-    local value=tonumber(V.scalar.integer(operand.spelling,function(m) error(m,0) end))
-    return negative and -value or value
 end
 
 -- The word identity lives in the type, so a bundle can always be rebuilt from a record.
@@ -612,7 +654,13 @@ function A.Assign:assign_member(ctx)
     end
     local updated=ctx:emit(B.StoreField(ctx:ref(base),index-1,ctx:ref(value)),L{base.type},self.span)
     updated.mode='fresh'
-    ctx.cells[id]={value=updated,initialized=true,alive=binding.owned}
+    if binding.address then
+        -- The aggregate lives in a place, so the updated record goes back into that storage.
+        -- Replacing the cell's value would put a record where its address belongs.
+        ctx:ordered(B.Store(ctx:ref(ctx.effect),ctx:ref(cell.value),ctx:ref(updated)),nil,self.span)
+    else
+        ctx.cells[id]={value=updated,initialized=true,alive=binding.owned}
+    end
     ctx:unpin(); ctx:unpin()
 end
 

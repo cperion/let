@@ -20,6 +20,7 @@ module Belt {
        | Binary(AST.BinaryOp operator, Ref left, Ref right)
        | CheckedBinary(AST.BinaryOp operator, Ref effect, Ref left, Ref right)
        | BorrowPlace(Ref address, boolean stable)
+       | FieldAddress(Ref place, number field, boolean stable)
        | Construct(Ref* fields, boolean is_copy)
        | LoadField(Ref record, number field)
        | StoreField(Ref record, number field, Ref value)

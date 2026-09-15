@@ -285,6 +285,8 @@ function Evaluator:instruction(block,block_id,index,instruction)
             put(0,Known.runtime(B.Int)); self:schedule(operation)
         end
         put(1,Known.runtime(B.Effect))
+    elseif B.FieldAddress:isclassof(operation) then
+        put(0,Known.runtime(instruction.results[1]))
     elseif B.BorrowPlace:isclassof(operation) then
         put(0,Known.runtime(instruction.results[1]))
     elseif B.Construct:isclassof(operation) then

@@ -52,8 +52,24 @@ function B.HostCall:execute(ctx)
 end
 function B.Allocate:execute(ctx) return {value=ctx:get(self.initial)},ctx:get(self.effect)+1 end
 function B.BorrowPlace:execute(ctx) return ctx:get(self.address) end
-function B.Load:execute(ctx) return ctx:get(self.address).value,ctx:get(self.effect)+1 end
-function B.Store:execute(ctx) ctx:get(self.address).value=ctx:get(self.value); return ctx:get(self.effect)+1 end
+-- An address denotes a slot: a cell holding a value, or a field of a record. Reading the
+-- slot, and taking a field address of what it holds, both need it dereferenced.
+local function contents(address)
+    if address.owner then return address.owner.fields[address.index] end
+    if address.value~=nil then return address.value end
+    return address
+end
+function B.Load:execute(ctx)
+    local address=ctx:get(self.address)
+    return contents(address),ctx:get(self.effect)+1
+end
+function B.Store:execute(ctx)
+    local address=ctx:get(self.address)
+    if address.owner then address.owner.fields[address.index]=ctx:get(self.value)
+    else address.value=ctx:get(self.value) end
+    return ctx:get(self.effect)+1
+end
+function B.FieldAddress:execute(ctx) return {owner=contents(ctx:get(self.place)),index=self.field+1} end
 function B.Move:execute(ctx) return ctx:get(self.value),ctx:get(self.effect)+1 end
 function B.Destroy:execute(ctx) assert(ctx.hosts[self.destructor])(ctx:get(self.value)); return ctx:get(self.effect)+1 end
 function B.Construct:execute(ctx) local fields={}; for i,ref in ipairs(self.fields) do fields[i]=ctx:get(ref) end; return {fields=fields} end

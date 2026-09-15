@@ -238,6 +238,10 @@ function Emitter:instruction(block,block_id,index,instruction)
             self.trap=true
             declare(1,B.Effect,C.Binary('+',effect,C.Integer(0,1)))
         else declare(1,B.Effect,effect) end
+    elseif B.FieldAddress:isclassof(operation) then
+        -- A field's address: the same storage, reached one level in.
+        local place=self:ref(block,block_id,position,operation.place)
+        declare(0,instruction.results[1],C.Unary('&',C.Field(C.Unary('*',place),'f' .. operation.field)))
     elseif B.BorrowPlace:isclassof(operation) then
         -- A borrow is the same storage, so nothing is emitted for the operation itself; only
         -- the type changed, and that is a frontend matter.

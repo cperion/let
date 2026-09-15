@@ -68,6 +68,49 @@ let f = do let n mut = 37; let r = take(mut n); return r + n end
 let r = f()
 ]],84,'an address-taken Copy local round-trips through memory')
 
+-- §9.3 Any subplace can be lent, not only a whole binding: a member of an aggregate is
+-- reached by a field address, so the callee writes the owner's field.
+eq(run[[
+let bump = let p mut : Int let by : Int do p = p + by; return p end
+let f = do
+    let a mut = { let x = 1 let y = 2 };
+    let r = bump(mut a.x, 40);
+    return a.x + r
+end
+let r = f()
+]],82,'§9.3 a mutable borrow of a projected member')
+eq(run[[
+let bump = let p mut : Int let by : Int do p = p + by; return p end
+let f = do
+    let a mut = { 1, 2 };
+    let r = bump(mut a[0], 40);
+    return a[0] + r
+end
+let r = f()
+]],82,'§9.3 a mutable borrow of a constant index')
+eq(run[[
+let bump = let p mut : Int let by : Int do p = p + by; return p end
+let f = do
+    let a mut = { let b = { let c = 1 } };
+    let r = bump(mut a.b.c, 40);
+    return a.b.c + r
+end
+let r = f()
+]],82,'§9.3 a mutable borrow of a nested member')
+
+-- §9.4 Assignment through a projected member of a place writes the owner's storage rather
+-- than replacing the place's address with a record.
+eq(run[[
+let touch = let box mut let n : Int do return n end
+let f = do
+    let a mut = { let x = 1 let y = 2 };
+    let r = touch(mut a, 5);
+    a.x = 9;
+    return a.x + a.y
+end
+let r = f()
+]],11,'§9.4 assignment through a projected member of a place')
+
 -- §6.5 A tail transfer retires the activation, so a borrow of one of its places cannot be
 -- passed: the callee would outlive the storage.
 rejects([[ 
