@@ -125,63 +125,30 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 These are specified behaviours that the implementation does not yet provide, so each is a
 construction diagnostic rather than a language limitation.
 
-- **The runtime benchmark against the old compiler**, which is milestone C's acceptance and is
-  blocked by two gaps it exposed rather than by harness work. The harness is written:
-  `bench/emit.lua --compiler=v2` builds the kernels, emits the C plus a shim that calls each host
-  entry the way the driver does, and records emission statistics. Five of the eleven kernels get an
-  entry today; the other six fail with reasons the builder records:
+- **The runtime benchmark against the old compiler**, which is milestone C's acceptance. The
+  harness works: `bench/emit.lua --compiler=v2` builds the kernels, emits the C plus a shim that
+  calls each host entry the way the driver does, and `bench/run.lua --compiler=v2` compiles, links
+  against the driver and the reference, and compares. What the shim passes comes from
+  `statistics.entries`: each entry's C name, the fields its signature kept, and how many stages it
+  takes -- a field or stage whose fate is not `value` is not in the signature, and a generic
+  instance never has a constant parameter, so one left out is one nothing reads.
 
-  - `constant` invokes a *captured* word (`pending`), whose bundle fields belong to the initializer's
-    context, so a host entry cannot name them: this is the "stored word values" gap below, reached
-    from a new direction. A host entry is a function boundary, and a captured word carries values
-    from the function that built it.
-  - the tail-recursive kernels (`sum_tail`, `prelude_tail`, `resource_tail`, `fib_recursive` and
-    their `_impl` words) overflow the stack while their entries are being built. That class is gone:
-    it was the same stale reference described below, and fixing that fixed these.
-
-  All eighteen entries build now, and the kernel set compiles as far as the shim. What the shim
-  still needs is field *metadata* the emitter does not publish yet. Two cases it cannot guess:
-
-  - a field whose fate is not `value` is not a parameter at all, because a constant is materialized
-    inside the entry -- `statistics.entries` reports the fields the signature kept, but not what
-    each one *is*;
-  - a captured word whose terminal is data is stored as its *value*, not as a bundle, so a field
-    that looks like a word may be an `Int` on the wire. `let_constant_host` therefore expects a
-    struct for a field that holds one.
-
-  That is done: `statistics.entries` reports each entry's C name, the fields its signature kept and
-  how many stages it takes, and the shim passes exactly those. The benchmark now *runs* -- the
-  kernels compile, link against the driver and the reference, and are compared -- and it immediately
-  found a real bug, which is what it is for:
+  The first run immediately found a wrong answer, which is the point of having one:
 
       gcd(-3): Let=-3, C=-1
 
-  `gcd` returns its input unchanged, because a `mut` stage in a host entry is emitted as a plain
-  `int64_t` (`let_gcd_impl_host(int64_t, int64_t)`) where a place is needed, so the writes the loop
-  makes stay local. A mutable stage's parameter must be a borrow, which is what `host_parameter`
-  asks for and what the entry's *belt* type says; the C signature is where that is being lost.
+  The emitted loop is
 
-  Neither is a fault in the kernels: both are compiler gaps that the benchmark found by being the
-  first program to want a *second* way into the module.
+      bool v2_2_0 = (!(p2_4 != INT64_C(0)));   /* y == 0 */
+      if (v2_2_0) { ... goto b3; }             /* b3 is the loop body */
+      else        { ... return x; }            /* exits when y != 0 */
 
-  Two further attempts got the construction right and then failed on belt typing. What they
-  established, in the order the failures moved:
-
-  1. A word's fields are its **captures** followed by a prefix of its **items**, in source order.
-     The entry must bind the captures first; a walk over items alone binds a capture's value to a
-     stage's name.
-  2. `bound` counts *items*, not fields -- the parameters are captures and items together -- and
-     the remaining stages come after them, each followed by the preludes that belong to it.
-     `prepare` runs exactly those, so a host entry is `build_entry` with the supplied count known.
-  3. A mutable stage must be declared as a borrow, because that is what a mutable stage is
-     everywhere else: the callee reaches the place through a pointer, and a host can pass one.
-  4. What is left is a belt `operand type mismatch` in the entry's body once all of the above are
-     in place. The kernels are the wrong instrument for hunting it -- they exercise captures,
-     preludes, mutable stages and recursion at once; each fix moved the failure to a different
-     kernel, which is how 1-3 were found. The next attempt should build a minimal exported word per
-     feature (a capture, a prelude between stages, a mutable stage) and grow it, which is cheaper
-     than what I did.
-
+  so `gcd` returns `x` at once: the condition carries a `Not` the arms do not match. The source is
+  `while y != 0`, so the negation is not in the text, and it appears only where the loop's condition
+  is checkable at entry -- `y` begins at the known constant 65537. The module-level path hid it
+  because a known input is constant-folded before the loop is ever emitted. One operator to find:
+  something negates a loop condition without swapping the arms, and only when the condition is
+  known.
 - A partial move *introduced inside* a loop whose path is still a hole at the backedge
   (`while ... do if c do move a.b end end`) needs path-sensitive initialization facts. Giving
   the loop entry a fact per owned subplace is not enough on its own: the entry's fact must
