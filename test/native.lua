@@ -712,4 +712,18 @@ int main(void){ let_module_init(); return 0; }
         CAlloc=V.libc.resources.CAlloc}})
 eq(output,'A','§12.4 a foreign type names its C spelling: `Int "int"`')
 
+-- §12.4 A Text's byte length reaches a C call that takes a pointer and a count, and a borrowed
+-- pointer can be tested for null; neither assumes a terminator.
+output=native('cbytes',[[
+let text = "hi\n"
+let written = c.write(1, c.string(text), c.byte_length(text))
+let missing = c.null(c.getenv(c.string("LET_NO_SUCH_VARIABLE_XYZ")))
+let show = do if missing do c.putchar(49) else c.putchar(48) end end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }',
+    {dictionary={c={members=V.libc.members}},
+        resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
+            CAlloc=V.libc.resources.CAlloc}})
+eq(output,'hi\n1','§12.4 `c.byte_length`, `c.write` and `c.null` over a borrowed view')
+
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))

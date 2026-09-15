@@ -40,6 +40,11 @@ function B.Unary:verify(ctx)
     elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
     elseif self.operator==A.ToCString then ctx:expect(self.operand,B.Text); ctx:results(L{B.CString})
     elseif self.operator==A.ToText then ctx:expect(self.operand,B.CString); ctx:results(L{B.Text})
+    elseif self.operator==A.TextSize then ctx:expect(self.operand,B.Text); ctx:results(L{B.Int})
+    elseif self.operator==A.IsNull then
+        local pointer=ctx:type(self.operand)
+        assert(pointer==B.CString or pointer==B.CPointer,'null test requires a pointer')
+        ctx:results(L{B.Bool})
     else
         assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
         ctx:results(L{type_})

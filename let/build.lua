@@ -1182,15 +1182,19 @@ end
 -- ownership to move. The same definition serves an invocation and a juxtaposition, so they
 -- cannot lower differently.
 local conversions={
-    float={from=B.Int,to=B.Float,operator=A.ToFloat},
-    int={from=B.Float,to=B.Int,operator=A.ToInt},
-    cstring={from=B.Text,to=B.CString,operator=A.ToCString},
-    ctext={from=B.CString,to=B.Text,operator=A.ToText},
+    float={from={B.Int},to=B.Float,operator=A.ToFloat},
+    int={from={B.Float},to=B.Int,operator=A.ToInt},
+    cstring={from={B.Text},to=B.CString,operator=A.ToCString},
+    ctext={from={B.CString},to=B.Text,operator=A.ToText},
+    byte_length={from={B.Text},to=B.Int,operator=A.TextSize},
+    null={from={B.CString,B.CPointer},to=B.Bool,operator=A.IsNull},
 }
 function Context:convert(kind,argument,span)
     local conversion=conversions[kind]
     local value=argument:build(self)
-    expect(value,conversion.from,span)
+    local accepted=false
+    for _,type_ in ipairs(conversion.from) do if value.type:same(type_) then accepted=true end end
+    if not accepted then fail(span,'a ' .. kind .. ' conversion is not defined for ' .. tostring(value.type)) end
     local result=self:emit(B.Unary(conversion.operator,self:ref(value)),L{conversion.to},span)
     result.mode='copy'
     return result

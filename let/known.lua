@@ -312,7 +312,7 @@ function Evaluator:instruction(block,block_id,index,instruction)
         local operand=inputs{operation.operand}[1]
         -- A C string is not a Let value: a pointer has no known representation, and measuring a
         -- C string is run-time work, so these stay residual.
-        if operation.operator==A.ToCString or operation.operator==A.ToText then
+        if operation.operator==A.ToCString or operation.operator==A.ToText or operation.operator==A.IsNull then
             put(0,Known.runtime(instruction.results[1]))
         elseif Known.is_known(operand) then
             local value=Op.unary[operation.operator](operand.value)

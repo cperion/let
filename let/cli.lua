@@ -8,7 +8,12 @@ return function(V,arg)
     -- An exported word named `main` that needs no stage is the program's entry.
     local function entry(builder)
         for _,candidate in ipairs(builder.host_entries or {}) do
-            if candidate.name=='main' and candidate.stages==0 then return candidate end
+            if candidate.name=='main' and candidate.stages==0 then
+                -- The generated `main` passes the word's own fields from the namespace, and that
+                -- mapping is not published yet; a closed word needs none.
+                assert(candidate.bundle==0,'a `main` entry may not capture module state yet')
+                return candidate
+            end
         end
     end
 

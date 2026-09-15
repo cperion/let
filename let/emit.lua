@@ -226,6 +226,10 @@ function Emitter:instruction(block,block_id,index,instruction)
         elseif operation.operator==A.ToText then
             self.text=true; self.helpers.text_from_c=true
             declare(0,B.Text,C.Call(C.Name('let_text_from_c'),L{operand}))
+        elseif operation.operator==A.TextSize then
+            declare(0,B.Int,C.Cast(C.I64,C.Field(operand,'size')))
+        elseif operation.operator==A.IsNull then
+            declare(0,B.Bool,C.Binary('==',operand,C.Integer(0,0)))
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then

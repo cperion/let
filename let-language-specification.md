@@ -1036,6 +1036,10 @@ Two conversions cross between `Text` and `CString`: one borrows a `Text`'s bytes
 them to be NUL-terminated, and the other measures a `CString` into a `Text` at its terminator,
 producing a **borrowed view**, so the C storage must outlive it.
 
+A `Text` also states its byte length, so a C call that takes a pointer and a count needs no
+terminator, and a borrowed pointer may be tested for null. Neither is a conversion between types:
+one reads a length the `Text` already has, the other compares a pointer to the null pointer.
+
 
 A program may declare a foreign word in source, with no embedding registration:
 

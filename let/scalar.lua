@@ -66,4 +66,7 @@ function M.limbs(value)
     return tonumber(unsigned/4294967296ULL),tonumber(unsigned%4294967296ULL)
 end
 
+-- The byte length of a Text, shared so a known Text folds and the emitted C reads `.size`.
+function M.text_size(value) return #value end
+
 return M

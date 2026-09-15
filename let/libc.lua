@@ -36,6 +36,9 @@ return {
         -- The explicit crossings between a Let Text and a borrowed C string.
         string={phase='runtime',conversion='cstring'},
         text={phase='runtime',conversion='ctext'},
+        -- The byte length of a Text, and a null test for a borrowed pointer.
+        byte_length={phase='runtime',conversion='byte_length'},
+        null={phase='runtime',conversion='null'},
 
         puts=ordered('puts',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
         putchar=ordered('putchar',B.Signature(L{int},L{B.Int}),{c={params={'int'},result='int'}}),
@@ -43,7 +46,8 @@ return {
         strcmp=pure('strcmp',B.Signature(L{cstring,cstring},L{B.Int}),{c={result='int'}}),
         atoi=pure('atoi',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
         llabs=pure('llabs',B.Signature(L{int},L{B.Int}),{c={params={'long long'},result='long long'}}),
-        getenv=pure('getenv',B.Signature(L{cstring},L{B.CString}),{ownership='borrowed',nullable=true}),
+        getenv=pure('getenv',B.Signature(L{cstring},L{B.CString}),
+            {c={result='char *'},ownership='borrowed',nullable=true}),
 
         -- C memory. The allocation is the owner; `memset`/`memcpy`/`memcmp` borrow it.
         malloc=ordered('malloc',B.Signature(L{int},L{B.Named('CAlloc')}),
@@ -54,6 +58,12 @@ return {
             {c={params={'void *','const void *','size_t'},result='void *'}}),
         memcmp=pure('memcmp',B.Signature(L{allocation,cstring,int},L{B.Int}),
             {c={params={'const void *','const void *','size_t'},result='int'}}),
+        -- A file descriptor reads into an owned allocation and writes a borrowed Text view; the
+        -- count comes from `c.byte_length`, so no terminator is assumed.
+        write=ordered('write',B.Signature(L{int,cstring,int},L{B.Int}),
+            {c={params={'int','const void *','size_t'},result='long'}}),
+        read=ordered('read',B.Signature(L{int,allocation,int},L{B.Int}),
+            {c={params={'int','void *','size_t'},result='long'}}),
     },
 }
 end

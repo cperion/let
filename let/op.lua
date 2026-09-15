@@ -21,6 +21,8 @@ Op.binary={
 Op.unary={
     [A.Negate]=scalar.negate, [A.Not]=function(a) return not a end,
     [A.ToFloat]=scalar.to_float, [A.ToInt]=scalar.to_int,
+    [A.TextSize]=scalar.text_size,
+    -- `IsNull` is not here: a pointer is not a Let value, so it never folds.
 }
 
 -- Operations that can trap, used when the divisor is not known non-zero.

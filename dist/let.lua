@@ -882,7 +882,7 @@ module Source {
 }
 module AST {
     Capability = Read | Mut | Own | OwnMut
-    UnaryOp = Negate | Not | ToFloat | ToInt | ToCString | ToText
+    UnaryOp = Negate | Not | ToFloat | ToInt | ToCString | ToText | TextSize | IsNull
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or
@@ -1521,6 +1521,9 @@ function M.limbs(value)
     return tonumber(unsigned/4294967296ULL),tonumber(unsigned%4294967296ULL)
 end
 
+-- The byte length of a Text, shared so a known Text folds and the emitted C reads `.size`.
+function M.text_size(value) return #value end
+
 return M
 
 end)
@@ -1784,8 +1787,23 @@ function Vocabulary.new(options)
             assert(result==B.CString or result==B.CPointer,
                 'ownership and nullability apply to a pointer result')
         end
-        assert(not symbols[host.symbol],'duplicate host symbol')
-        symbols[host.symbol]=host
+        -- A symbol may be declared twice with the same Let signature: a source `extern` for a
+        -- libc name the embedding also registers, for instance. The first declaration wins.
+        local existing=symbols[host.symbol]
+        if existing then
+            local same=#existing.signature.parameters==#host.signature.parameters
+                and #existing.signature.results==#host.signature.results
+            if same then
+                for i,parameter in ipairs(existing.signature.parameters) do
+                    local other=host.signature.parameters[i]
+                    same=same and parameter.capability==other.capability and parameter.type:same(other.type)
+                end
+                for i,result in ipairs(existing.signature.results) do same=same and result:same(host.signature.results[i]) end
+            end
+            assert(same,'host symbol ' .. host.symbol .. ' is declared with two different signatures')
+        else
+            symbols[host.symbol]=host
+        end
         hosts[name]=host
     end
     for name,host in pairs(options.hosts or {}) do add_host(name,host) end
@@ -1847,6 +1865,9 @@ return {
         -- The explicit crossings between a Let Text and a borrowed C string.
         string={phase='runtime',conversion='cstring'},
         text={phase='runtime',conversion='ctext'},
+        -- The byte length of a Text, and a null test for a borrowed pointer.
+        byte_length={phase='runtime',conversion='byte_length'},
+        null={phase='runtime',conversion='null'},
 
         puts=ordered('puts',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
         putchar=ordered('putchar',B.Signature(L{int},L{B.Int}),{c={params={'int'},result='int'}}),
@@ -1854,7 +1875,8 @@ return {
         strcmp=pure('strcmp',B.Signature(L{cstring,cstring},L{B.Int}),{c={result='int'}}),
         atoi=pure('atoi',B.Signature(L{cstring},L{B.Int}),{c={result='int'}}),
         llabs=pure('llabs',B.Signature(L{int},L{B.Int}),{c={params={'long long'},result='long long'}}),
-        getenv=pure('getenv',B.Signature(L{cstring},L{B.CString}),{ownership='borrowed',nullable=true}),
+        getenv=pure('getenv',B.Signature(L{cstring},L{B.CString}),
+            {c={result='char *'},ownership='borrowed',nullable=true}),
 
         -- C memory. The allocation is the owner; `memset`/`memcpy`/`memcmp` borrow it.
         malloc=ordered('malloc',B.Signature(L{int},L{B.Named('CAlloc')}),
@@ -1865,6 +1887,12 @@ return {
             {c={params={'void *','const void *','size_t'},result='void *'}}),
         memcmp=pure('memcmp',B.Signature(L{allocation,cstring,int},L{B.Int}),
             {c={params={'const void *','const void *','size_t'},result='int'}}),
+        -- A file descriptor reads into an owned allocation and writes a borrowed Text view; the
+        -- count comes from `c.byte_length`, so no terminator is assumed.
+        write=ordered('write',B.Signature(L{int,cstring,int},L{B.Int}),
+            {c={params={'int','const void *','size_t'},result='long'}}),
+        read=ordered('read',B.Signature(L{int,allocation,int},L{B.Int}),
+            {c={params={'int','void *','size_t'},result='long'}}),
     },
 }
 end
@@ -3225,15 +3253,19 @@ end
 -- ownership to move. The same definition serves an invocation and a juxtaposition, so they
 -- cannot lower differently.
 local conversions={
-    float={from=B.Int,to=B.Float,operator=A.ToFloat},
-    int={from=B.Float,to=B.Int,operator=A.ToInt},
-    cstring={from=B.Text,to=B.CString,operator=A.ToCString},
-    ctext={from=B.CString,to=B.Text,operator=A.ToText},
+    float={from={B.Int},to=B.Float,operator=A.ToFloat},
+    int={from={B.Float},to=B.Int,operator=A.ToInt},
+    cstring={from={B.Text},to=B.CString,operator=A.ToCString},
+    ctext={from={B.CString},to=B.Text,operator=A.ToText},
+    byte_length={from={B.Text},to=B.Int,operator=A.TextSize},
+    null={from={B.CString,B.CPointer},to=B.Bool,operator=A.IsNull},
 }
 function Context:convert(kind,argument,span)
     local conversion=conversions[kind]
     local value=argument:build(self)
-    expect(value,conversion.from,span)
+    local accepted=false
+    for _,type_ in ipairs(conversion.from) do if value.type:same(type_) then accepted=true end end
+    if not accepted then fail(span,'a ' .. kind .. ' conversion is not defined for ' .. tostring(value.type)) end
     local result=self:emit(B.Unary(conversion.operator,self:ref(value)),L{conversion.to},span)
     result.mode='copy'
     return result
@@ -3378,6 +3410,11 @@ function B.Unary:verify(ctx)
     elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
     elseif self.operator==A.ToCString then ctx:expect(self.operand,B.Text); ctx:results(L{B.CString})
     elseif self.operator==A.ToText then ctx:expect(self.operand,B.CString); ctx:results(L{B.Text})
+    elseif self.operator==A.TextSize then ctx:expect(self.operand,B.Text); ctx:results(L{B.Int})
+    elseif self.operator==A.IsNull then
+        local pointer=ctx:type(self.operand)
+        assert(pointer==B.CString or pointer==B.CPointer,'null test requires a pointer')
+        ctx:results(L{B.Bool})
     else
         assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
         ctx:results(L{type_})
@@ -5239,6 +5276,8 @@ Op.binary={
 Op.unary={
     [A.Negate]=scalar.negate, [A.Not]=function(a) return not a end,
     [A.ToFloat]=scalar.to_float, [A.ToInt]=scalar.to_int,
+    [A.TextSize]=scalar.text_size,
+    -- `IsNull` is not here: a pointer is not a Let value, so it never folds.
 }
 
 -- Operations that can trap, used when the divisor is not known non-zero.
@@ -5565,7 +5604,7 @@ function Evaluator:instruction(block,block_id,index,instruction)
         local operand=inputs{operation.operand}[1]
         -- A C string is not a Let value: a pointer has no known representation, and measuring a
         -- C string is run-time work, so these stay residual.
-        if operation.operator==A.ToCString or operation.operator==A.ToText then
+        if operation.operator==A.ToCString or operation.operator==A.ToText or operation.operator==A.IsNull then
             put(0,Known.runtime(instruction.results[1]))
         elseif Known.is_known(operand) then
             local value=Op.unary[operation.operator](operand.value)
@@ -6265,6 +6304,10 @@ function Emitter:instruction(block,block_id,index,instruction)
         elseif operation.operator==A.ToText then
             self.text=true; self.helpers.text_from_c=true
             declare(0,B.Text,C.Call(C.Name('let_text_from_c'),L{operand}))
+        elseif operation.operator==A.TextSize then
+            declare(0,B.Int,C.Cast(C.I64,C.Field(operand,'size')))
+        elseif operation.operator==A.IsNull then
+            declare(0,B.Bool,C.Binary('==',operand,C.Integer(0,0)))
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
@@ -6961,7 +7004,12 @@ return function(V,arg)
     -- An exported word named `main` that needs no stage is the program's entry.
     local function entry(builder)
         for _,candidate in ipairs(builder.host_entries or {}) do
-            if candidate.name=='main' and candidate.stages==0 then return candidate end
+            if candidate.name=='main' and candidate.stages==0 then
+                -- The generated `main` passes the word's own fields from the namespace, and that
+                -- mapping is not published yet; a closed word needs none.
+                assert(candidate.bundle==0,'a `main` entry may not capture module state yet')
+                return candidate
+            end
         end
     end
 

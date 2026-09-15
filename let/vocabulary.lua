@@ -100,8 +100,23 @@ function Vocabulary.new(options)
             assert(result==B.CString or result==B.CPointer,
                 'ownership and nullability apply to a pointer result')
         end
-        assert(not symbols[host.symbol],'duplicate host symbol')
-        symbols[host.symbol]=host
+        -- A symbol may be declared twice with the same Let signature: a source `extern` for a
+        -- libc name the embedding also registers, for instance. The first declaration wins.
+        local existing=symbols[host.symbol]
+        if existing then
+            local same=#existing.signature.parameters==#host.signature.parameters
+                and #existing.signature.results==#host.signature.results
+            if same then
+                for i,parameter in ipairs(existing.signature.parameters) do
+                    local other=host.signature.parameters[i]
+                    same=same and parameter.capability==other.capability and parameter.type:same(other.type)
+                end
+                for i,result in ipairs(existing.signature.results) do same=same and result:same(host.signature.results[i]) end
+            end
+            assert(same,'host symbol ' .. host.symbol .. ' is declared with two different signatures')
+        else
+            symbols[host.symbol]=host
+        end
         hosts[name]=host
     end
     for name,host in pairs(options.hosts or {}) do add_host(name,host) end
