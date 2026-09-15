@@ -6,23 +6,16 @@ local A,B,L=V.AST,V.Belt,V.List
 local Build=V.Build; local Context=Build.Context
 local expect,fail,gap,copy=Build.expect,Build.fail,Build.gap,Build.copy
 local Packet=V.Packet
+local Vocabulary=V.Vocabulary
 
 local Builder={}; Builder.__index=Builder
 
 
 function Builder.new(ast,resolved,options)
-    return setmetatable({ast=ast,resolved=resolved,options=options or {},
+    return setmetatable({ast=ast,resolved=resolved,options=options or {},vocabulary=Vocabulary.new(options),
         layouts={},functions={false,false},entries={},templates={}},Builder)
 end
 
-function Builder:types()
-    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}
-    for name,descriptor in pairs(self.options.resources or {}) do
-        assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z0-9_]*$'),'resource requires a destructor symbol')
-        types[name]=B.Named(name)
-    end
-    return types
-end
 
 -- Template layout: captures first, then items in source order, so field order equals
 -- the order in which advancement produces them.
@@ -32,7 +25,7 @@ function Builder:layout(template)
     local items={}
     -- The contract construction needs: the stage types the body forces and the result
     -- the returns state, both computed before the body is built.
-    local contract=V.Contract.template(template,self.resolved,self:types())
+    local contract=V.Contract.template(template,self.resolved,self.vocabulary.types)
     for index,item in ipairs(template.source.items) do
         if A.Stage:isclassof(item) then
             items[index]={kind='stage',name=item.name,capability=item.capability,constraint=item.constraint,span=item.span,
@@ -319,9 +312,9 @@ function Builder:build_entry(template,fields,id)
     for i,definition in ipairs(template.captures) do
         capture_types[definition]=fields[i] and fields[i].type or nil
     end
-    local result=V.Contract.template(template,self.resolved,self:types(),capture_types).result
+    local result=V.Contract.template(template,self.resolved,self.vocabulary.types,capture_types).result
     local ctx=Context.new_function{name=(template.name or 'word') .. '_' .. id,span=template.source.span,
-        resources=self.options.resources,hosts=self.options.hosts,types=self:types(),
+        vocabulary=self.vocabulary,
         builder=self,resolved=self.resolved,function_id=id,result=result}
     local fn=ctx.fn
     fn.template=template
@@ -527,7 +520,7 @@ end
 function Builder:build_module()
     local file=self.ast.file
     local ctx=Context.new_function{name='__module_init',span=file.span,state=nil,
-        resources=self.options.resources,hosts=self.options.hosts,types=self:types(),
+        vocabulary=self.vocabulary,
         builder=self,resolved=self.resolved,lifetime='module'}
     local fn=ctx.fn
     local order,ids,fields=L(),L(),L()
@@ -636,7 +629,7 @@ end
 -- function; a record destroys its own contents in reverse (§8.5).
 function Builder:build_unload(state_type)
     local ctx=Context.new_function{name='__module_unload',span=self.ast.file.span,
-        resources=self.options.resources,hosts=self.options.hosts,types=self:types(),
+        vocabulary=self.vocabulary,
         builder=self,resolved=self.resolved}
     local fn=ctx.fn
     ctx:destroy(ctx:parameter(state_type),fn.span)
@@ -659,8 +652,8 @@ function Builder:host_entry(name,value,span)
     -- Decide before allocating anything: a stage whose type only an argument can determine means
     -- there is no signature to publish, and leaving a hole in the function list would be worse
     -- than having no entry.
-    local resolve=Context.new_function{name='resolve',span=span,types=self:types(),
-        hosts=self.options.hosts,resolved=self.resolved}
+    local resolve=Context.new_function{name='resolve',span=span,vocabulary=self.vocabulary,
+        resolved=self.resolved}
     local stages,items={},{}
     for i=word.supplied+1,#layout.steps do
         local item=layout.steps[i].item
@@ -680,7 +673,7 @@ function Builder:host_entry(name,value,span)
     -- embedding already projects, and a benchmark driver calls `let_<case>`, so the entry must not
     -- claim that spelling. `statistics` publishes the name the host should call.
     local ctx=Context.new_function{name=name .. '_host',span=span,
-        resources=self.options.resources,hosts=self.options.hosts,types=self:types(),
+        vocabulary=self.vocabulary,
         builder=self,resolved=self.resolved,function_id=id}
     local fn=ctx.fn
     fn.template=template
@@ -773,7 +766,7 @@ function Builder:build()
     for _,template in ipairs(self.resolved.templates) do
         templates:insert(B.Template(tostring(template.id),#template.steps,#template.captures,template.source.span))
     end
-    return B.Program(self.options.name or '__program',templates,functions):verify_flow(self.options.hosts)
+    return B.Program(self.options.name or '__program',templates,functions):verify_flow(self.vocabulary.hosts)
 end
 
 function A.Program:build(options)

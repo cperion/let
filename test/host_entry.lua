@@ -128,6 +128,18 @@ let consumes = let x do mark(x); return 0 end
     signature=B.Signature(L{B.Parameter(B.Int,A.Read)},L{B.Unit})}}})
 check(host.entries.consumes~=nil,'a stage typed by a host parameter still has an entry')
 
+-- A word-valued callee's stages type its arguments too, so a chain of unannotated stages
+-- still reaches one interface.
+host=build[[
+let inc = let x do return x + 1 end
+let twice = let y do return inc(inc(y)) end
+]]
+check(host.entries.twice~=nil,'a stage typed through a word callee has an entry')
+-- The callee is a capture, so the entry takes it in front of the stage; the point here is
+-- that the stage has a type at all, which is what inference supplies.
+eq(host.entries.twice.bundle,1,'the word callee arrives as the capture field')
+eq(host.entries.twice.stages,1,'and the stage typed through it is the one open stage')
+
 
 -- The host can only call an entry that was written out, so an entry is a root of emission: it
 -- has no caller inside the belt, and without this nothing would make it live.

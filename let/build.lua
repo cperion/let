@@ -3,6 +3,7 @@
 return function(V)
 local A,B,L=V.AST,V.Belt,V.List
 local Packet=V.Packet
+local Vocabulary=V.Vocabulary
 local literal=require('let.literal')
 local Context={}; Context.__index=Context
 local function copy(t) local out={}; for k,v in pairs(t) do out[k]=v end; return out end
@@ -177,9 +178,9 @@ function Context:take_member(name,steps,span)
     return taken
 end
 function Context:resource(type_,span)
-    local r=B.Named:isclassof(type_) and self.fn.resources[type_.name]
-    if not r then gap(span,'ownership representation for ' .. tostring(type_)) end
-    return r
+    local destroy=B.Named:isclassof(type_) and self.fn.vocabulary:destructor(type_.name)
+    if not destroy then gap(span,'ownership representation for ' .. tostring(type_)) end
+    return {destroy=destroy}
 end
 
 -- Validate that every resource reachable inside a type has a declared representation.
@@ -196,12 +197,12 @@ end
 -- reports a shape it cannot bind to a type.
 function Context:constraint_type(annotation)
     if not annotation then return nil end
-    return self.fn.types[annotation.name]
+    return self.fn.vocabulary:type(annotation.name)
 end
 function Context:constraint(annotation,type_,span)
     if not annotation then return type_ end
     if #annotation.arguments>0 then gap(span,'specialized constraint words') end
-    if self:find(annotation.name) or self.fn.hosts[annotation.name] or (self.fn.self_visible and annotation.name==self.fn.name) then
+    if self:find(annotation.name) or self.fn.vocabulary:host(annotation.name) or (self.fn.self_visible and annotation.name==self.fn.name) then
         fail(span,'constraint name is shadowed by a runtime binding')
     end
     if annotation.name=='Copy' and type_ then
@@ -283,7 +284,7 @@ end
 function Context.new_function(spec)
     local fn={name=spec.name,span=spec.span,blocks={},bindings={},next_value=0,
         result=spec.result,state=spec.state,
-        resources=spec.resources or {},hosts=spec.hosts or {},types=spec.types}
+        vocabulary=spec.vocabulary}
     local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},
         builder=spec.builder,resolved=spec.resolved,lifetime=spec.lifetime},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
@@ -518,11 +519,11 @@ function A.Name:build(ctx)
     if ctx.self_name==self.name and ctx.builder then return ctx.builder:self_value(ctx,ctx.self_definition) end
     if ctx.resolved and ctx.resolved.import_words[self] then return {construction='import'} end
     if self.name==ctx.fn.name then gap(self.span,'source-word invocation and recursion') end
-    local host=ctx.fn.hosts[self.name]; if host then return {host=host} end
+    local host=ctx.fn.vocabulary:host(self.name); if host then return {host=host} end
     -- The core numeric conversions are ordinary names (§13.3), so a binding or host above
     -- shadows them like any other dictionary entry.
     if self.name=='float' or self.name=='int' then return {conversion=self.name} end
-    if ctx.fn.types[self.name] or self.name=='Copy' or self.name=='Executable' then fail(self.span,'constraint word is not a runtime value') end
+    if ctx.fn.vocabulary:type(self.name) or self.name=='Copy' or self.name=='Executable' then fail(self.span,'constraint word is not a runtime value') end
     fail(self.span,'unknown name ' .. self.name)
 end
 function A.Integer:build(ctx)
@@ -1260,22 +1261,14 @@ function A.Prelude:bind_parameter() gap(self.binding.span,'stage preparation: pr
 function A.Chain:build_function(name,options)
     options=options or {}
     if not A.Body:isclassof(self.terminal) then gap(self.span,'data-terminal construction (not a runtime function)') end
-    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text}
-    for resource,descriptor in pairs(options.resources or {}) do
-        assert(type(descriptor.destroy)=='string' and descriptor.destroy:match('^[A-Za-z_][A-Za-z_0-9]*$'),'resource requires a destructor symbol')
-        types[resource]=B.Named(resource)
-    end
-    for _,host in pairs(options.hosts or {}) do
-        assert(host.phase=='runtime' and (host.purity=='ordered' or host.purity=='pure'),'host must declare runtime phase and purity')
-        assert(type(host.symbol)=='string' and host.symbol:match('^[A-Za-z_][A-Za-z_0-9]*$'),'host requires a symbol')
-        assert(B.Signature:isclassof(host.signature) and #host.signature.results==1,'host requires one Let result')
-    end
+    -- One validated vocabulary, the same one a program build uses.
+    local vocabulary=Vocabulary.new(options)
     local ctx=Context.new_function{name=name,span=self.span,result=options.result,
-        resources=options.resources,hosts=options.hosts,types=types}
+        vocabulary=vocabulary}
     local fn=ctx.fn
     for i,item in ipairs(self.items) do item:bind_parameter(ctx,i,options) end
     fn.self_visible=true
-    return ctx:finish_function(self.terminal.statements):verify_flow(fn.hosts)
+    return ctx:finish_function(self.terminal.statements):verify_flow(vocabulary.hosts)
 end
 V.Build={Context=Context,expect=expect,fail=fail,gap=gap,copy=copy}
 end

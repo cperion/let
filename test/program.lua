@@ -13,6 +13,11 @@ local function build(source,extra)
     for key,value in pairs(extra or {}) do options[key]=value end
     return V.parse(source,'program.let'):build(options)
 end
+-- The builder publishes entries as a list; ask it by name.
+local function has_entry(builder,name)
+    for _,entry in ipairs(builder.host_entries or {}) do if entry.name==name then return true end end
+    return false
+end
 -- Evaluates the module initializer and returns the namespace bundle.
 local function module_namespace(program,host_functions)
     return execute(program.functions[1],{},host_functions or {},100000,program.functions)
@@ -206,6 +211,29 @@ let b = from_capture(2)
 ]]
 ns=module_namespace(program)
 eq(field(builder.module_order,'b',ns),7,'a capture fixes a self-call result type')
+
+-- A record result is a type too, so a self-call whose fixing return builds one still gets a
+-- result type.
+program,builder=build[[
+let shape = do
+    let first = shape()
+    return { let a = 1 let b = 2 }
+end
+let r = shape()
+]]
+check(has_entry(builder,'shape'),'a record result fixes a self-call result type')
+
+-- A host parameter can describe a record, and its members then type the stages they name.
+local pair=B.Aggregate(L{B.Field('a',B.Int,false),B.Field('b',B.Int,false)},true)
+local pair_host={symbol='take_pair',phase='runtime',purity='ordered',
+    signature=B.Signature(L{B.Parameter(pair,A.Read)},L{B.Unit})}
+program,builder=build([[
+let fill = let x do
+    take_pair({ let a = x let b = 0 })
+    return 0
+end
+]],{hosts={take_pair=pair_host}})
+check(has_entry(builder,'fill'),'a record host parameter types the member a stage supplies')
 
 -- §11.2 `Executable` is a shape, not a type: the word an argument supplies is the stage's
 -- type. The continuation idiom passes two words and invokes the selected one.

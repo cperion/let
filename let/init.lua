@@ -9,6 +9,7 @@ local V={Source=context.Source,AST=context.AST,Belt=context.Belt,C=context.C,Lis
 -- Vocabulary a construction phase needs, loaded before the phase that reads it.
 V.Contract=require('let.contract')(V)
 V.Packet=require('let.packet')(V)
+V.Vocabulary=require('let.vocabulary')(V)
 require('let.numbering')(V)
 require('let.build')(V)
 require('let.verify')(V)

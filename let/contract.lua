@@ -8,11 +8,14 @@
 --
 -- It is deliberately conservative. It records a type only when the source forces exactly one: an
 -- operator's other operand is a literal, a host stage declares the parameter, a conversion fixes
--- it, or an immutable alias carries a forced initializer. Anything ambiguous -- `x + y` with no
--- other constraint, `return x` alone, a word-typed stage -- yields no type, and the builder keeps
--- its existing outcome. It never rejects; construction still checks the type it is given.
+-- it, a word-valued callee's stage declares it, an aggregate member that the surrounding type
+-- matches, or an alias carries a forced initializer. Anything ambiguous -- `x + y` with no other
+-- constraint, `return x` alone, a word-typed stage with no call -- yields no type, and the
+-- builder keeps its existing outcome. It never rejects; construction still checks what it is
+-- given.
 return function(V)
-local A,B=V.AST,V.Belt
+local A,B,L=V.AST,V.Belt,V.List
+local scalar=require('let.scalar')
 
 local Contract={}
 
@@ -32,13 +35,23 @@ local function constraint_type(types,constraint)
     return types[constraint.name]
 end
 
--- One template's contract. `resolved` is the resolve context, `types` the name -> Belt.Type
--- vocabulary (base scalars and registered resources). Returns
--- `{stages = definition -> Belt.Type, result = Belt.Type or nil}`.
-function Contract.template(template,resolved,types,environment)
-    environment=environment or {}
+-- A written integer index, or nil when the index is only known at run time. `-7` is a unary
+-- negation of a literal, so both spellings are recognized (§2.2).
+local function static_index(expr)
+    local negative=A.Unary:isclassof(expr) and expr.operator==A.Negate
+    local operand=negative and expr.operand or expr
+    if not A.Integer:isclassof(operand) then return nil end
+    local value=tonumber(scalar.integer(operand.spelling,function(message) error(message,0) end))
+    return negative and -value or value
+end
+
+-- One template's contract, computed once per template. A cycle returns no interface rather than
+-- recursing: a word that calls itself through another word simply keeps the conservative outcome.
+local memo=setmetatable({},{__mode='k'})
+
+local function compute(template,resolved,types,environment)
     local inferred={}      -- stage definition -> Belt.Type, or false once two uses disagree
-    local initializer={}   -- immutable-binding definition -> its initializer Chain
+    local initializer={}   -- binding definition -> its initializer Chain
     local stated,returns,conflict=nil,0,false
 
     -- A stage is recorded only once, and only toward one type. A disagreement is a program the
@@ -58,7 +71,24 @@ function Contract.template(template,resolved,types,environment)
         if definition then initializer[definition]=binding.value end
     end
 
-    local infer, statements
+    local infer, statements, chain
+
+    -- The template a callee names, when the callee is a word rather than a data value. A
+    -- specialization (`let double = scale 2`) has a data terminal and no stages of its own, so
+    -- its remaining stages are not visible here and it yields no interface.
+    local function callee_template(definition)
+        local callee=definition and definition.template
+        if not callee then return nil end
+        if #callee.steps==0 and not A.Body:isclassof(callee.source.terminal) then return nil end
+        return callee
+    end
+
+    -- The stage type a callee's argument fills. `index` is the 1-based stage position.
+    local function callee_stage(callee,contract,index)
+        local step=callee.steps[index]
+        if not step then return nil end
+        return constraint_type(types,step.stage.constraint) or contract.stages[resolved.bindings[step.stage]]
+    end
 
     -- The type of `expr`, recording a forced type on any stage name it reaches. `expected` is
     -- what the surrounding form requires of this expression, or nil when nothing does.
@@ -117,6 +147,62 @@ function Contract.template(template,resolved,types,environment)
             end
             return type_ and numeric(type_) and type_ or nil
         end
+        -- A record the surrounding type already describes: each member takes the member type.
+        if A.PositionalAggregate:isclassof(expr) then
+            local wanted=expected and expected:record()
+            local declared,complete,copy=L(),true,true
+            for i,element in ipairs(expr.elements) do
+                local type_=chain(element,wanted and wanted[i] and wanted[i].type)
+                if not type_ then complete=false
+                else
+                    declared:insert(B.Field(nil,type_,false))
+                    if not type_:copyable() then copy=false end
+                end
+            end
+            if not complete then return nil end
+            return B.Aggregate(declared,copy)
+        end
+        if A.NamedAggregate:isclassof(expr) then
+            local wanted=expected and expected:record()
+            local declared,complete,copy=L(),true,true
+            for _,member in ipairs(expr.members) do
+                local member_type
+                if wanted then for _,field in ipairs(wanted) do if field.name==member.name then member_type=field.type end end end
+                local type_=constraint_type(types,member.constraint) or chain(member.value,member_type)
+                if not type_ then complete=false
+                else
+                    declared:insert(B.Field(member.name,type_,member.mutable))
+                    if member.mutable or not type_:copyable() then copy=false end
+                end
+            end
+            if not complete then return nil end
+            return B.Aggregate(declared,copy)
+        end
+        if A.Project:isclassof(expr) then
+            local base=infer(expr.base,nil)
+            local fields=base and base:record()
+            if fields then
+                for _,field in ipairs(fields) do if field.name==expr.name then return field.type end end
+            end
+            return nil
+        end
+        if A.Index:isclassof(expr) then
+            local base=infer(expr.base,nil)
+            local fields=base and base:record()
+            if not fields then return nil end
+            local index=static_index(expr.index)
+            if index then
+                local field=fields[index+1]
+                return field and field.type or nil
+            end
+            -- A run-time index yields one value, so the members must share one type.
+            infer(expr.index,B.Int)
+            local element=fields[1] and fields[1].type
+            for i=2,#fields do if not fields[i].type:same(element) then return nil end end
+            return element
+        end
+        -- A named callee: a conversion, a registered host, or a word whose contract types the
+        -- arguments. A word's own result type is known when its contract could compute one.
         if A.Invoke:isclassof(expr) and A.Name:isclassof(expr.word) then
             local definition=definition_of(resolved,expr.word)
             if definition and definition.kind=='dictionary' then
@@ -132,13 +218,34 @@ function Contract.template(template,resolved,types,environment)
                     end
                     return signature.results[1]
                 end
+                return nil
+            end
+            local callee=callee_template(definition)
+            if not callee then return nil end
+            local contract=Contract.template(callee,resolved,types,nil)
+            for i,argument in ipairs(expr.arguments) do infer(argument,callee_stage(callee,contract,i)) end
+            return contract.result
+        end
+        -- Juxtaposition: a conversion, or the next stage of a word. The result is the more
+        -- specific word value, whose type this pass does not model.
+        if A.Specialize:isclassof(expr) and A.Name:isclassof(expr.word) then
+            local definition=definition_of(resolved,expr.word)
+            if definition and definition.kind=='dictionary' then
+                if definition.name=='float' then infer(expr.argument,B.Int); return B.Float end
+                if definition.name=='int' then infer(expr.argument,B.Float); return B.Int end
+                return nil
+            end
+            local callee=callee_template(definition)
+            if callee then
+                local contract=Contract.template(callee,resolved,types,nil)
+                infer(expr.argument,callee_stage(callee,contract,1))
             end
             return nil
         end
         return nil
     end
 
-    local function chain(chain,expected)
+    function chain(chain,expected)
         if chain and #chain.items==0 and A.Data:isclassof(chain.terminal) then
             return infer(chain.terminal.value,expected)
         end
@@ -211,6 +318,22 @@ function Contract.template(template,resolved,types,environment)
     local stages={}
     for definition,type_ in pairs(inferred) do if type_ then stages[definition]=type_ end end
     return {stages=stages,result=result}
+end
+
+-- A template's contract. `environment` maps a binding to the type the entry packet gave it, so
+-- the result a return states can be computed where those types are known. A contract computed
+-- without one is remembered, because it describes the template rather than one packet.
+function Contract.template(template,resolved,types,environment)
+    local general=environment==nil or next(environment)==nil
+    if general then
+        local cached=memo[template]
+        if cached==false then return {stages={},result=nil} end
+        if cached then return cached end
+        memo[template]=false
+    end
+    local contract=compute(template,resolved,types,environment or {})
+    if general then memo[template]=contract end
+    return contract
 end
 
 return Contract
