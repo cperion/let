@@ -111,6 +111,72 @@ end
 let r = f()
 ]],11,'§9.4 assignment through a projected member of a place')
 
+-- §8.4 A runtime index selects among the members. An aggregate is a record with as many
+-- members as the source wrote, so the selection costs one comparison per member, and the
+-- members must share a type because the selection's result is one value.
+eq(run[[
+let f = do
+    let values = { 10, 20, 30 };
+    let total mut = 0;
+    let i mut = 0;
+    while i < 3 do
+        total = total + values[i];
+        i = i + 1
+    end
+    return total
+end
+let r = f()
+]],60,'§8.4 a runtime index reads the selected member')
+
+eq(run[[
+let f = do
+    let values = { 10, 20, 30 };
+    let i mut = 2;
+    return values[i]
+end
+let r = f()
+]],30,'§8.4 a runtime index selects the last member')
+
+-- §9.4 Indexed assignment writes the selected member, and the out-of-range case traps
+-- rather than being silently ignored.
+eq(run[[
+let f = do
+    let a mut = { 1, 2, 3 };
+    let i mut = 0;
+    while i < 3 do
+        a[i] = a[i] * 10;
+        i = i + 1
+    end
+    return a[0] + a[1] + a[2]
+end
+let r = f()
+]],60,'§9.4 indexed assignment through a runtime index')
+eq(run[[
+let f = do
+    let a mut = { 1, 2 };
+    a[0] = 9;
+    return a[0] + a[1]
+end
+let r = f()
+]],11,'§9.4 indexed assignment through a constant index')
+
+local trapped=select(2,pcall(run,[[
+let f = do
+    let a mut = { 1, 2 };
+    let i mut = 5;
+    a[i] = 9;
+    return a[0]
+end
+let r = f()
+]]))
+check(tostring(trapped):find('index out of range'),'§8.4 an out-of-range index traps')
+
+-- A runtime index needs one member type, because the selection produces one value.
+rejects([[
+let f = do let v = { 1, "a" }; let i mut = 0; return v[i] end
+let r = f()
+]],'needs members of one type','§8.4 a runtime index over mixed members is rejected')
+
 -- §6.5 A tail transfer retires the activation, so a borrow of one of its places cannot be
 -- passed: the callee would outlive the storage.
 rejects([[ 

@@ -327,6 +327,26 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'82\n','§9.3 a mutable borrow of a projected member')
 
+-- §8.4 A runtime index selects among the members, and §9.4 indexed assignment writes the
+-- selected member. The out-of-range case traps, so it is not silently ignored.
+output=native('dynamic_index',[[
+let run = do
+    let a mut = { 1, 2, 3 };
+    let i mut = 0;
+    let total mut = 0;
+    while i < 3 do
+        a[i] = a[i] * 10;
+        total = total + a[i];
+        i = i + 1
+    end
+    return total
+end
+let answer = run()
+let show = do print_int(answer) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'60\n','§8.4/§9.4 a runtime index and indexed assignment')
+
 -- §6.2 Prelude effects reached between stages precede the following argument.
 output=native('preludes',[[
 let staged =

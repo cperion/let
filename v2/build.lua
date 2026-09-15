@@ -426,7 +426,7 @@ local function place_path(node)
             table.insert(steps,1,{name=current.name,span=current.span}); current=current.base
         elseif A.Index:isclassof(current) then
             local index=constant_index(current.index)
-            if not index then return nil,nil,'dynamic indexing needs a uniform layout' end
+            if not index then return nil,nil,'a runtime index in a borrowed path' end
             table.insert(steps,1,{index=index,span=current.span}); current=current.base
         elseif A.Name:isclassof(current) then
             return current.name,steps
@@ -583,20 +583,51 @@ end
 
 -- §8.4: the index must be a non-negative Int below the known length. A constant index is
 -- resolved statically; a dynamic one needs address-taken aggregate storage.
+-- §8.4: the index must be a non-negative Int below the length, and anything else traps.
+-- A constant index is resolved statically; a runtime index selects among the members, which
+-- needs them to share one type because the result of the selection is one value. An
+-- aggregate is a record with as many members as the source wrote, so this costs as many
+-- comparisons as there are members, and a large runtime array belongs to host vocabulary.
 function A.Index:build(ctx)
     local base=self.base:build(ctx)
     if base.host then gap(self.span,'indexing requires a value') end
     local fields=base.type.fields
     if not fields then fail(self.span,'indexing requires an aggregate value') end
     local index=constant_index(self.index)
-    if not index then gap(self.span,'dynamic positional indexing requires address-taken aggregate storage') end
-    if index<0 or index>=#fields then
-        fail(self.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
+    if index then
+        if index<0 or index>=#fields then
+            fail(self.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
+        end
+        local value=ctx:emit(B.LoadField(ctx:ref(base),index),L{fields[index+1].type},self.span)
+        value.mode=fields[index+1].type:copyable() and 'copy' or 'borrow'
+        return value
     end
-    local value=ctx:emit(B.LoadField(ctx:ref(base),index),L{fields[index+1].type},self.span)
-    value.mode=fields[index+1].type:copyable() and 'copy' or 'borrow'
+    local key=self.index:build(ctx); expect(key,B.Int,self.index.span)
+    local element=fields[1].type
+    for i=2,#fields do
+        if not fields[i].type:same(element) then
+            fail(self.span,'a runtime index needs members of one type')
+        end
+    end
+    ctx:pin(base); ctx:pin(key)
+    local function select(c,at)
+        if at>=#fields then
+            c.block.exit=B.Trap(c:ref(c.effect),'index out of range')
+            return nil
+        end
+        local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},self.span)
+        local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},self.span)
+        return c:branch(test,
+            function(y) return y:emit(B.LoadField(y:ref(base),at),L{element},self.span) end,
+            function(n) return select(n,at+1) end,
+            element)
+    end
+    local value=select(ctx,0)
+    ctx:unpin(); ctx:unpin()
+    if value then value.mode=element:copyable() and 'copy' or 'borrow' end
     return value
 end
+
 
 function A.Binding:build(ctx)
     local value
@@ -632,6 +663,73 @@ function A.Local:build(ctx) self.binding:build(ctx) end
 -- §4.3: assignment evaluates the destination place, then the right-hand side, then
 -- replaces. For a record member the place is the aggregate binding plus a static member
 -- index, and replacement is a functional record update rebound to that owner.
+-- A record updated in place goes back into the storage that holds it. Replacing the cell's
+-- value would put a record where the cell's address belongs.
+function Context:rebind(id,binding,cell,updated,span)
+    if binding.address then
+        self:ordered(B.Store(self:ref(self.effect),self:ref(cell.value),self:ref(updated)),nil,span)
+    else
+        self.cells[id]={value=updated,initialized=true,alive=binding.owned}
+    end
+end
+
+-- §8.4 positional elements have no individual qualifier, so their write capability comes
+-- from the base place. §4.3 evaluates the destination first, then the right-hand side.
+function A.Assign:assign_index(ctx)
+    local place=self.place
+    if not A.Name:isclassof(place.base) then gap(self.span,'assignment through a nested place') end
+    local id,binding,cell=ctx:binding(place.base.name,self.span)
+    if not cell.initialized then fail(self.span,'assignment to uninitialized binding ' .. binding.name) end
+    ctx:access(id,true,self.span)
+    local base=ctx:read(place.base.name,self.span)
+    local fields=base.type.fields
+    if not fields then fail(place.span,'indexing requires an aggregate value') end
+    local constant=constant_index(place.index)
+    local key
+    if constant then
+        if constant<0 or constant>=#fields then
+            fail(place.span,('index %d is outside the valid range 0..%d'):format(constant,#fields-1))
+        end
+    else
+        key=place.index:build(ctx); expect(key,B.Int,place.index.span)
+        for i=2,#fields do
+            if not fields[i].type:same(fields[1].type) then
+                fail(place.span,'a runtime index needs members of one type')
+            end
+        end
+    end
+    if not binding.mutable then
+        fail(self.span,'assignment to an immutable binding ' .. binding.name)
+    end
+    -- The destination is established before the right-hand side (§4.3), and both it and the
+    -- place it indexes must survive any control flow the right-hand side builds.
+    ctx:pin(base); if key then ctx:pin(key) end
+    local value=self.value:build(ctx)
+    local element=constant and fields[constant+1].type or fields[1].type
+    expect(value,element,self.span); ctx:accept_owned(value,self.span)
+    ctx:pin(value)
+    local function replace(c,at,target)
+        if ctx:owns(element) then
+            c:destroy(c:emit(B.LoadField(c:ref(base),at),L{element},self.span),self.span)
+        end
+        return c:emit(B.StoreField(c:ref(base),at,c:ref(target)),L{base.type},self.span)
+    end
+    local updated
+    if constant then
+        updated=replace(ctx,constant,value)
+    else
+        local function arm(c,at)
+            if at>=#fields then c.block.exit=B.Trap(c:ref(c.effect),'index out of range'); return nil end
+            local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},self.span)
+            local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},self.span)
+            return c:branch(test,function(y) return replace(y,at,value) end,function(n) return arm(n,at+1) end,base.type)
+        end
+        updated=arm(ctx,0)
+    end
+    if updated then ctx:rebind(id,binding,cell,updated,self.span) end
+    ctx:unpin(); if key then ctx:unpin() end; ctx:unpin()
+end
+
 function A.Assign:assign_member(ctx)
     local place=self.place
     if not A.Name:isclassof(place.base) then gap(self.span,'assignment through a nested place') end
@@ -654,19 +752,14 @@ function A.Assign:assign_member(ctx)
     end
     local updated=ctx:emit(B.StoreField(ctx:ref(base),index-1,ctx:ref(value)),L{base.type},self.span)
     updated.mode='fresh'
-    if binding.address then
-        -- The aggregate lives in a place, so the updated record goes back into that storage.
-        -- Replacing the cell's value would put a record where its address belongs.
-        ctx:ordered(B.Store(ctx:ref(ctx.effect),ctx:ref(cell.value),ctx:ref(updated)),nil,self.span)
-    else
-        ctx.cells[id]={value=updated,initialized=true,alive=binding.owned}
-    end
+    ctx:rebind(id,binding,cell,updated,self.span)
     ctx:unpin(); ctx:unpin()
 end
 
 function A.Assign:build(ctx)
     if A.Project:isclassof(self.place) then return self:assign_member(ctx) end
-    if not A.Name:isclassof(self.place) then gap(self.span,'indexed assignment') end
+    if A.Index:isclassof(self.place) then return self:assign_index(ctx) end
+    if not A.Name:isclassof(self.place) then gap(self.span,'this assignment place') end
     local id,binding=ctx:binding(self.place.name,self.span)
     if not binding.mutable then fail(self.span,'assignment to immutable binding ' .. binding.name) end
     local value=self.value:build(ctx); expect(value,binding.type,self.span); ctx:accept_owned(value,self.span); ctx:access(id,true,self.span)

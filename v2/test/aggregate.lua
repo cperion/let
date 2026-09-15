@@ -139,11 +139,13 @@ let r = arithmetic.add(40, 2)
 ]],42,'§17.3 projected word invocation at module level')
 
 -- The diagnostic must say why rather than silently mis-lower the program.
-rejects([[
+-- §8.4 A runtime index is resolved by selecting among the members (test/place.lua covers the
+-- trap and the mixed-member diagnostic).
+eq(result[[
 let rgb = { 1, 2, 3 }
 let f = do let i = 1; return rgb[i] end
 let r = f()
-]],'dynamic positional indexing','a runtime index needs address-taken aggregate storage')
+]],2,'§8.4 a runtime index reads the selected member')
 rejects([[
 let point = { let x = 1 }
 let r = point.y
