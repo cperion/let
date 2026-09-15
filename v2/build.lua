@@ -905,17 +905,25 @@ end
 -- §9.4 Assignment establishes the destination place first, then evaluates the right-hand
 -- side, then replaces whatever the place still holds. A destination is any statically known
 -- path from a binding, and each level of that path is rebuilt from the leaf up.
+-- §9.4 Assignment establishes the destination place first, then evaluates the right-hand
+-- side, then replaces whatever the place still holds. A destination is any place path from a
+-- binding: names and constant indices resolve to member positions, one index may be computed
+-- at run time, and each level of the path is rebuilt from the leaf up.
+-- §9.4 Assignment establishes the destination place first, then evaluates the right-hand
+-- side, then replaces whatever the place still holds. A destination is any place path from a
+-- binding: names and constant indices resolve to member positions, one index may be computed
+-- at run time, and each level of the path is rebuilt from the leaf up.
 function A.Assign:assign_place(ctx)
     local root,steps=place_path(self.place)
     if not root then gap(self.span,'this assignment place') end
     local id,binding,cell=ctx:binding(root,self.span)
     if not cell.initialized then fail(self.span,'assignment to uninitialized binding ' .. binding.name) end
     ctx:access(id,true,self.span)
-    -- Resolve each step to a member position. Only the last step may be a runtime index; one
-    -- in the middle would name a place that a further path cannot continue into.
+    -- Walk the steps written in the source. The first index computed at run time stops the
+    -- walk, because which member it names is only known per arm.
     local positions,interior={},false
     local records={ctx:read_place(id,root,binding,cell,self.span)}
-    local path,type_='',binding.type
+    local path,type_,dynamic='',binding.type,0
     for i,step in ipairs(steps) do
         local fields=type_.fields
         if not fields then fail(step.span,'a place path requires an aggregate value') end
@@ -928,27 +936,44 @@ function A.Assign:assign_place(ctx)
             if index<0 or index>=#fields then
                 fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
             end
-        elseif i~=#steps then
-            gap(step.span,'a runtime index in the middle of a place path')
         end
+        if not index then dynamic=i; break end
         positions[i]=index
-        if index then
-            path=(path=='' and tostring(index)) or (path .. '.' .. tostring(index))
-            if i<#steps then
-                records[i+1]=ctx:emit(B.LoadField(ctx:ref(records[i]),index),L{fields[index+1].type},step.span)
-            end
-            type_=fields[index+1].type
+        path=(path=='' and tostring(index)) or (path .. '.' .. tostring(index))
+        type_=fields[index+1].type
+        if i<#steps then
+            records[i+1]=ctx:emit(B.LoadField(ctx:ref(records[i]),index),L{type_},step.span)
         end
     end
-    -- `path` reaches the leaf for a static final step and the leaf's container otherwise.
-    local parent,leaf=records[#steps],type_
-    if not positions[#steps] then
-        local fields=parent.type.fields
-        for i=2,#fields do
-            if not fields[i].type:same(fields[1].type) then fail(self.span,'a runtime index needs members of one type') end
+    -- The steps after a run-time index are resolved against the member's type, so the
+    -- alternatives have to look alike. `levels[i]` is the record type that `suffix[i]`
+    -- indexes, which is what makes each load and store below well typed.
+    local suffix,levels,leaf={}, {},type_
+    if dynamic>0 then
+        local members=records[dynamic].type.fields
+        for i=2,#members do
+            if not members[i].type:same(members[1].type) then fail(self.span,'a runtime index needs members of one type') end
         end
-        leaf=fields[1].type
-        ctx:nested_moved(id,path,self.span)
+        leaf=members[1].type
+        for i=dynamic+1,#steps do
+            local step=steps[i]
+            local fields=leaf.fields
+            if not fields then fail(step.span,'a place path requires an aggregate value') end
+            local index
+            if step.name then
+                index=select(1,ctx:record_field(leaf,step.name,step.span))-1
+                if fields[index+1].mutable then interior=true end
+            elseif step.index then
+                index=step.index
+                if index<0 or index>=#fields then
+                    fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
+                end
+            else
+                gap(step.span,'two runtime indices in one place path')
+            end
+            suffix[#suffix+1]=index; levels[#levels+1]=leaf; leaf=fields[index+1].type
+        end
+        ctx:nested_moved(id,path,self.span); ctx:check_writable(id,path,self.span)
     else
         ctx:check_writable(id,path,self.span)
     end
@@ -961,48 +986,77 @@ function A.Assign:assign_place(ctx)
         fail(self.span,'assignment to an immutable binding ' .. binding.name)
     end
     local key
-    if not positions[#steps] then key=self.place.index:build(ctx); expect(key,B.Int,self.place.span) end
+    if dynamic>0 then
+        key=steps[dynamic].expression:build(ctx); expect(key,B.Int,steps[dynamic].span)
+    end
     -- The destination is established before the right-hand side (§4.3), and every level of
     -- it must survive any control flow that the right-hand side builds.
+    local parent=records[dynamic>0 and dynamic or #steps]
     for i=1,#records do ctx:pin(records[i]) end
     local crossed=ctx:pin_moved(ctx.cells[id].moved)
     if key then ctx:pin(key) end
     local value=self.value:build(ctx)
     expect(value,leaf,self.span); ctx:accept_owned(value,self.span)
     ctx:pin(value)
-    local function install(c,position,target)
-        local updated=c:emit(B.StoreField(c:ref(parent),position,c:ref(target)),L{parent.type},self.span)
-        for i=#steps-1,1,-1 do
-            updated=c:emit(B.StoreField(c:ref(records[i]),positions[i],c:ref(updated)),L{records[i].type},self.span)
+    -- A hole holds no value, so replacing one releases nothing. Only a path the source wrote
+    -- completely can be a hole, and its state may be a run-time fact (see `destroy`).
+    local hole=(dynamic==0) and ctx.cells[id].moved[path] or nil
+    local function replace(c,at,target)
+        local position=(dynamic>0) and at or positions[#steps]
+        -- Rebuild from the leaf up: the suffix inside the selected member, then the member
+        -- itself, then the levels the source wrote before the run-time index.
+        local chain={}
+        if dynamic>0 then
+            chain[1]=c:emit(B.LoadField(c:ref(parent),at),L{levels[1] or leaf},self.span)
+        else
+            chain[1]=parent
         end
-        return updated
-    end
-    -- A hole holds no value, so replacing one releases nothing.
-    local hole=ctx.cells[id].moved[path]
-    local function replace(c,position,target)
-        if ctx:owns(leaf) and hole~=true then
-            local function release(target)
-                target:destroy(target:emit(B.LoadField(target:ref(parent),position),L{leaf},self.span),
-                    self.span,ctx.cells[id].moved,path)
-            end
-            if hole==nil then release(c)
-            else
-                -- The place may already be a hole, so the old value is released only where
-                -- one is still there.
-                c:pin(parent); c:pin(hole)
-                c:branch(hole,function() end,release)
-                c:unpin(); c:unpin()
-            end
+        for i=1,#suffix do
+            chain[i+1]=c:emit(B.LoadField(c:ref(chain[i]),suffix[i]),L{levels[i].fields[suffix[i]+1].type},self.span)
         end
-        return install(c,position,target)
+        -- The value being replaced is the member itself when the path stops at the index,
+        -- and the last level the suffix reached otherwise. Releasing the container instead
+        -- would destroy the wrong thing.
+        local old
+        if #suffix==0 then
+            old=c:emit(B.LoadField(c:ref(parent),position),L{leaf},self.span)
+        else
+            old=chain[#suffix+1]
+        end
+        local function store()
+            local updated=target
+            for i=#suffix,1,-1 do
+                updated=c:emit(B.StoreField(c:ref(chain[i]),suffix[i],c:ref(updated)),L{levels[i]},self.span)
+            end
+            local joined=c:emit(B.StoreField(c:ref(parent),position,c:ref(updated)),L{parent.type},self.span)
+            for i=(dynamic>0 and dynamic or #steps)-1,1,-1 do
+                joined=c:emit(B.StoreField(c:ref(records[i]),positions[i],c:ref(joined)),L{records[i].type},self.span)
+            end
+            return joined
+        end
+        if not (c:owns(leaf) and hole~=true) then return store() end
+        local function release(t)
+            t:destroy(old,self.span,dynamic==0 and ctx.cells[id].moved or nil,dynamic==0 and path or nil)
+        end
+        if hole==nil then
+            release(c)
+            return store()
+        end
+        -- The place may already be a hole, so the old value goes only where one is there.
+        -- Everything the store still needs must cross the branch with it.
+        for i=1,#chain do c:pin(chain[i]) end
+        c:pin(old); c:pin(hole)
+        c:branch(hole,function() end,release)
+        c:unpin(); c:unpin()
+        for i=1,#chain do c:unpin() end
+        return store()
     end
     local updated
-    if positions[#steps] then
+    if dynamic==0 then
         updated=replace(ctx,positions[#steps],value)
     else
         local function arm(c,at)
-            local fields=parent.type.fields
-            if at>=#fields then c.block.exit=B.Trap(c:ref(c.effect),'index out of range'); return nil end
+            if at>=#parent.type.fields then c.block.exit=B.Trap(c:ref(c.effect),'index out of range'); return nil end
             local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},self.span)
             local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},self.span)
             return c:branch(test,function(y) return replace(y,at,value) end,function(n) return arm(n,at+1) end,records[1].type)
@@ -1011,8 +1065,10 @@ function A.Assign:assign_place(ctx)
     end
     if updated then
         ctx:rebind(id,binding,cell,updated,self.span)
-        for was in pairs(ctx.cells[id].moved) do
-            if contains(path,was) then ctx.cells[id].moved[was]=nil end
+        if dynamic==0 then
+            for was in pairs(ctx.cells[id].moved) do
+                if contains(path,was) then ctx.cells[id].moved[was]=nil end
+            end
         end
     end
     if key then ctx:unpin() end
@@ -1020,6 +1076,7 @@ function A.Assign:assign_place(ctx)
     for i=1,#records do ctx:unpin() end
     ctx:unpin()
 end
+
 function A.Assign:assign_binding(ctx)
     local id,binding=ctx:binding(self.place.name,self.span)
     if not binding.mutable then fail(self.span,'assignment to immutable binding ' .. binding.name) end

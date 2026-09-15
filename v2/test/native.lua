@@ -383,6 +383,24 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'42\n','§9.4 native assignment to a nested member')
 
+-- §9.4 A run-time index in the middle of an assignment path: the suffix after the index is
+-- resolved against the selected member, and each level is rebuilt on the way back up.
+output=native('midpath_index',[[
+let run = do
+    let values mut = { { 1, 2 }, { 3, 4 } };
+    let i mut = 0;
+    while i < 2 do
+        values[i][1] = values[i][0] * 10;
+        i = i + 1
+    end
+    return values[0][1] + values[1][1]
+end
+let answer = run()
+let show = do print_int(answer) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'40\n','§9.4 native assignment through a mid-path run-time index')
+
 -- §9.2 A plain stage receives a read-only borrow for the invocation, so a non-Copy
 -- argument is still the caller's afterwards and is released once, by the caller. If the
 -- callee owned it, the release would appear before the consume, or twice.

@@ -262,15 +262,46 @@ let f = do
 end
 let r = f()
 ]],'immutable member','§8.3 a nested path with no mutable member is rejected')
+-- §8.4 An index yields a mutable element place, and a projection through it is still a
+-- place, so a runtime index may appear in the middle of an assignment path. The suffix after
+-- it is resolved against the member's type, which must therefore be one type.
+eq(run[[
+let f = do
+    let a mut = { { 1, 2 }, { 3, 4 } };
+    let i = 1;
+    a[i][1] = 9;
+    return a[0][1] + a[1][1]
+end
+let r = f()
+]],11,'§9.4 assignment through a runtime index in the middle of a path')
+eq(run[[
+let f = do
+    let a mut = { let p mut = { let b mut = 1 let c = 2 } let q mut = { let b mut = 10 let c = 20 } };
+    let i = 1;
+    a[i].b = 40;
+    return a[0].b + a[0].c + a[1].b
+end
+let r = f()
+]],43,'§9.4 mid-path runtime index on a named member')
+eq(run[[
+let f = do
+    let a mut = { let p mut = { let b mut = { let c mut = 1 } } let q mut = { let b mut = { let c mut = 5 } } };
+    let i = 1;
+    a[i].b.c = 7;
+    return a[0].b.c + a[1].b.c
+end
+let r = f()
+]],8,'§9.4 mid-path runtime index with a nested suffix')
 rejects([[
 let f = do
     let a mut = { { 1, 2 }, { 3, 4 } };
     let i = 0;
-    a[i][1] = 9;
-    return a[0][1]
+    let j = 1;
+    a[i][j] = 9;
+    return 0
 end
 let r = f()
-]],'runtime index in the middle','§9.4 a runtime index in the middle of a path is rejected')
+]],'two runtime indices','§9.4 two runtime indices in one path are rejected')
 
 -- §9.2 A Copy value owns no state to remove, so `move` of a Copy place is a copy: the
 -- place stays initialized and the value is indistinguishable from a read.
