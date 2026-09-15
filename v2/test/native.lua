@@ -247,6 +247,22 @@ let hidden = open(2);
 ]],[[int main(void){ struct let_ret_1 m = let_module_init(); let_module_unload(m.r1); return 0; }]])
 eq(output,'open:1\nopen:2\nclose:2\nclose:1\n','§15.1 a written terminal does not duplicate ownership')
 
+-- §4.2 Self recursion that is not a tail call: the recursive call returns whatever the
+-- word returns, so its result type comes from the word itself.
+output=native('recursion',[[
+let factorial = let n : Int do
+    if n == 0 do return 1 end
+    return n * factorial(n - 1)
+end
+let fib = let n : Int do
+    if n < 2 do return n end
+    return fib(n - 1) + fib(n - 2)
+end
+let show = do print_int(factorial(5)); print_int(fib(10)) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'120\n55\n','§4.2 non-tail self recursion, including two recursive calls')
+
 -- §6.2 Prelude effects reached between stages precede the following argument.
 output=native('preludes',[[
 let staged =

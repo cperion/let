@@ -124,7 +124,10 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
   only a compile-time index is resolved today.
 - Projection and assignment through a nested path (`a.b.c = ...`), and invoking a
   projected word member whose stage is mutable.
-- General recursive and mutual call contracts and dynamically selected words.
+- Dynamically selected words: a runtime word value needs a tagged representation and
+  dispatch, so only statically known word identities are invoked today.
+- The result type of a recursive call whose word has no other return to fix it (rare, and
+  diagnosed rather than guessed).
 - Consumer-driven known evaluation and scheduling. C emission itself now exists
   (`emit.lua`/`print.lua`); it prints the whole verified belt, so demand is currently
   handled only by the C compiler rather than by the frontend.
@@ -176,7 +179,8 @@ Effects are erased, single results return directly, and wrapping arithmetic is a
 nested member destruction plus single destruction of a moved aggregate, §17.3 projected
 word invocation at module level and through a capture, and the four diagnostics.
 
-`test/native.lua` also covers module unload: owned top-level state is destroyed in reverse
+`test/native.lua` also covers non-tail self recursion (`factorial`, and `fib` with two
+recursive calls), and module unload: owned top-level state is destroyed in reverse
 successful-construction order, and a written terminal that moves an owned prelude into the
 namespace still destroys it exactly once at its original position.
 

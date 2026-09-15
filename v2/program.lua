@@ -279,6 +279,7 @@ function Builder:build_entry(template,fields,id)
         result=nil,resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
     local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
+    ctx.entry_id=id
     local records={}
     for i,field in ipairs(fields) do
         ctx:push(); if field.retained then ctx:retain() end
@@ -365,7 +366,18 @@ function Builder:invoke(ctx,expression,tail)
             ctx.block.exit=B.TailCall(target,ctx:ref(ctx.effect),refs)
             return nil
         end
-        local types=L{self.functions[target].signature.results[1]}
+        local callee=self.functions[target]
+        local result_type
+        if callee and callee.signature then
+            result_type=callee.signature.results[1]
+        elseif target==ctx.entry_id and ctx.fn.result then
+            -- A direct self call: the entry is still being built, and a recursive call
+            -- returns whatever this word returns.
+            result_type=ctx.fn.result
+        else
+            gap(expression.span,'the result type of a recursive call must be fixed by another return in the same word')
+        end
+        local types=L{result_type}
         for i,field in ipairs(word.fields) do if field.mutable and field.retained then types:insert(field.type) end end
         types:insert(B.Effect)
         local results={ctx:emit(B.CallFunction(target,ctx:ref(ctx.effect),refs),types,expression.span)}
