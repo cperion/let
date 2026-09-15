@@ -383,6 +383,35 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'42\n','§9.4 native assignment to a nested member')
 
+-- §9.2 A move on one branch only makes the aggregate partially initialized on that path, so
+-- the flag is a run-time fact and the destruction of that subplace is guarded. An unguarded
+-- or inverted guard shows up here as a second release or a missing one.
+output=native('conditional_move',[[
+let run = do
+    let pair = { let first = open(1) let second = open(2) };
+    let k = 1;
+    if k == 1 do
+        let gone = move pair.first;
+    end
+    return 0
+end
+let ran = run()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'open:1\nopen:2\nclose:1\nclose:2\n','§9.2 native guarded release after a conditional move')
+
+output=native('conditional_move_kept',[[
+let run = do
+    let pair = { let first = open(1) let second = open(2) };
+    let k = 2;
+    if k == 1 do
+        let gone = move pair.first;
+    end
+    return 0
+end
+let ran = run()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'open:1\nopen:2\nclose:2\nclose:1\n','§9.2 native release of a subplace that was not moved')
+
 -- §9.2 Moving one subplace out of an aggregate hands that resource to the new binding: one
 -- release per buffer, by whichever binding owns it, and the other members are untouched.
 output=native('partial_move',[[

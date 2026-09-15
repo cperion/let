@@ -262,6 +262,87 @@ end
 let r = f()
 ]],'runtime index in the middle','§9.4 a runtime index in the middle of a path is rejected')
 
+-- §9.2 A move on one arm of a branch leaves the aggregate partially initialized on that
+-- path only, so the state of a subplace can be a run-time fact. Destruction guards it, the
+-- same way conditional destruction of a whole binding is guarded (§6.5).
+events={}
+eq(run[[
+let f = do
+    let a = { let b = open_buffer(1) let c = open_buffer(2) };
+    let k = 1;
+    if k == 1 do
+        let gone = move a.b;
+    end
+    return 0
+end
+let r = f()
+]],0,'§9.2 a partial move on one branch')
+eq(table.concat(events,','),'open:1,open:2,close:1,close:2',
+    '§9.2 the moved subplace is released by its new owner and the rest by the aggregate')
+
+-- The other branch did not move it, so the aggregate still releases it -- the guard must not
+-- turn a conditional move into a leak.
+events={}
+eq(run[[
+let f = do
+    let a = { let b = open_buffer(1) let c = open_buffer(2) };
+    let k = 2;
+    if k == 1 do
+        let gone = move a.b;
+    end
+    return 0
+end
+let r = f()
+]],0,'§9.2 a branch that did not move the subplace')
+eq(table.concat(events,','),'open:1,open:2,close:2,close:1',
+    '§9.2 a subplace that was not moved is still released once by the aggregate')
+
+-- §9.4 Replacing a subplace whose state is a run-time fact releases the old value only where
+-- one is still there.
+events={}
+eq(run[[
+let f = do
+    let a mut = { let b = open_buffer(1) let c = open_buffer(2) };
+    let k = 2;
+    if k == 1 do
+        let gone = move a.b;
+    end
+    a.b = open_buffer(9);
+    return 0
+end
+let r = f()
+]],0,'§9.4 assignment over a subplace that may have been moved')
+eq(table.concat(events,','),'open:1,open:2,open:9,close:1,close:2,close:9',
+    '§9.4 a possibly-moved old value is released once, and only when it is still there')
+rejects([[
+let f = do
+    let a = { let b = open_buffer(1) let c = open_buffer(2) };
+    let k = 1;
+    if k == 1 do
+        let gone = move a.b;
+    end
+    return a.b
+end
+let r = f()
+]],'may be uninitialized','§9.2 reading a subplace that may be uninitialized is rejected')
+
+-- §9.2 A loop entry has one slot per fact, so a hole the entry never allowed cannot be
+-- carried across an iteration; that is a representation limit, not a legal-program error.
+rejects([[
+let f = do
+    let a mut = { let b = open_buffer(1) let c = 2 };
+    let i mut = 0;
+    while i < 2 do
+        if i == 0 do
+            let gone = move a.b;
+        end
+        i = i + 1
+    end
+    return a.c
+end
+let r = f()
+]],'may not introduce an uninitialized subplace','§9.2 a loop may not introduce a hole')
+
 -- §9.2 Moving out of a subplace leaves that subplace uninitialized and the aggregate
 -- partially initialized: the sibling is unaffected, and each buffer is released once, by
 -- whichever binding owns it when it goes out of scope.

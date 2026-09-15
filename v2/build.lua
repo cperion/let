@@ -75,6 +75,12 @@ function Context:ordered(operation,type_,span)
 end
 function Context:boolean(value,span) return self:emit(B.BooleanLiteral(value),L{B.Bool},span) end
 function Context:pin(value) self.pins[#self.pins+1]=value; return value end
+function Context:pin_moved(moved)
+    local count=0
+    if moved then for _,state in pairs(moved) do if state~=true then self:pin(state); count=count+1 end end end
+    return count
+end
+function Context:unpin_moved(count) for _=1,count do self:unpin() end end
 function Context:unpin() self.pins[#self.pins]=nil end
 function Context:push() self.scopes[#self.scopes+1]={names={},ids={}} end
 -- A retained scope keeps its initialized state under the caller's ownership: it is
@@ -143,35 +149,45 @@ local function contains(outer,inner)
     return inner:sub(1,#outer+1)==outer..'.'
 end
 function Context:check_moved(id,key,span)
-    for was in pairs(self.cells[id].moved) do
+    local name=self.fn.bindings[id].name
+    for was,state in pairs(self.cells[id].moved) do
         if contains(was,key) or contains(key,was) then
-            fail(span,'use of an uninitialized subplace of ' .. self.fn.bindings[id].name)
+            fail(span,state==true and ('use of an uninitialized subplace of ' .. name)
+                or ('use of a subplace of ' .. name .. ' that may be uninitialized'))
         end
     end
 end
 function Context:check_readable(id,key,span,intermediate)
-    for was in pairs(self.cells[id].moved) do
+    local name=self.fn.bindings[id].name
+    for was,state in pairs(self.cells[id].moved) do
         if was==key or contains(was,key) then
-            fail(span,'use of an uninitialized subplace of ' .. self.fn.bindings[id].name)
+            fail(span,state==true and ('use of an uninitialized subplace of ' .. name)
+                or ('use of a subplace of ' .. name .. ' that may be uninitialized'))
         end
         if not intermediate and contains(key,was) then
-            fail(span,'use of a partially initialized subplace of ' .. self.fn.bindings[id].name)
+            fail(span,state==true and ('use of a partially initialized subplace of ' .. name)
+                or ('use of a subplace of ' .. name .. ' that may be partially initialized'))
         end
     end
 end
 -- Assigning a place replaces it whole, so a hole *inside* it is destroyed with it, while a
 -- hole that contains it has no value to write into.
 function Context:check_writable(id,key,span)
-    for was in pairs(self.cells[id].moved) do
+    local name=self.fn.bindings[id].name
+    for was,state in pairs(self.cells[id].moved) do
         if was~=key and contains(was,key) then
-            fail(span,'assignment inside an uninitialized subplace of ' .. self.fn.bindings[id].name)
+            fail(span,state==true and ('assignment inside an uninitialized subplace of ' .. name)
+                or ('assignment inside a subplace of ' .. name .. ' that may be uninitialized'))
         end
     end
 end
 
 function Context:nested_moved(id,key,span)
-    for was in pairs(self.cells[id].moved) do
-        if contains(key,was) then fail(span,'a runtime index over a partially initialized aggregate') end
+    for was,state in pairs(self.cells[id].moved) do
+        if contains(key,was) then
+            fail(span,state==true and 'a runtime index over a partially initialized aggregate'
+                or 'a runtime index over an aggregate that may be partially initialized')
+        end
     end
 end
 
@@ -305,12 +321,24 @@ function Context:interface(endpoints,extras,loop_head)
     for id=1,#self.fn.bindings do if self.cells[id] then
         local base=self.cells[id]; local initialized=true
         for _,e in ipairs(endpoints) do initialized=initialized and e.cells[id].initialized end
-        -- A subplace moved out before the boundary is uninitialized after it.
-        local moved=base.moved
-        for _,e in ipairs(endpoints) do
-            local other=e.cells[id].moved
-            for key in pairs(other) do if not moved[key] then gap(self.fn.bindings[id].span,'a partial move that diverges across a control boundary') end end
-            for key in pairs(moved) do if not other[key] then gap(self.fn.bindings[id].span,'a partial move that diverges across a control boundary') end end
+        -- A subplace moved out before the boundary is uninitialized after it. Paths the
+        -- endpoints disagree about become dynamic facts, one Bool parameter each: a
+        -- destruction can then be guarded, while reading such a path stays impossible.
+        local keys={}
+        for _,e in ipairs(endpoints) do for key in pairs(e.cells[id].moved) do keys[key]=true end end
+        local moved={}
+        for key in pairs(keys) do
+            local constant=endpoints[1].cells[id].moved[key]==true and not loop_head
+            for _,e in ipairs(endpoints) do constant=constant and e.cells[id].moved[key]==true end
+            if constant then moved[key]=true
+            else
+                moved[key]=parameter(B.Bool,function(e)
+                    local state=e.cells[id].moved[key]
+                    if state==nil then return e:boolean(false,self.fn.bindings[id].span) end
+                    if state==true then return e:boolean(true,self.fn.bindings[id].span) end
+                    return state
+                end)
+            end
         end
         local value=parameter(base.value.type,function(e) return e.cells[id].value end)
         local alive=false
@@ -322,8 +350,7 @@ function Context:interface(endpoints,extras,loop_head)
                 alive=parameter(B.Bool,function(e) local a=e.cells[id].alive; return type(a)=='boolean' and e:boolean(a,self.fn.bindings[id].span) or a end)
             end
         end
-        target.cells[id]={value=value,initialized=initialized,alive=alive,moved={}}
-        for key in pairs(moved) do target.cells[id].moved[key]=true end
+        target.cells[id]={value=value,initialized=initialized,alive=alive,moved=moved}
     end end
     for i,pin in ipairs(self.pins) do
         local value=parameter(pin.type,function(e) return e.pins[i] end)
@@ -376,8 +403,18 @@ function Context:destroy(value,span,moved,prefix)
         for index=#type_.fields,1,-1 do
             local field=type_.fields[index]
             local key=(prefix and prefix~='') and (prefix .. '.' .. (index-1)) or tostring(index-1)
-            if not (moved and moved[key]) and self:owns(field.type) then
-                self:destroy(self:emit(B.LoadField(self:ref(value),index-1),L{field.type},span),span,moved,key)
+            local state=moved and moved[key]
+            if self:owns(field.type) and state~=true then
+                local function release(target)
+                    target:destroy(target:emit(B.LoadField(target:ref(value),index-1),L{field.type},span),span,moved,key)
+                end
+                if state==nil then release(self)
+                else
+                    -- A dynamic hole: release the member only where it still holds a value.
+                    self:pin(value); self:pin(state)
+                    self:branch(state,function(c) end,release)
+                    self:unpin(); self:unpin()
+                end
             end
         end
     else
@@ -400,9 +437,10 @@ function Context:release(id)
         gap(binding.span,'conditional destruction of an address-taken binding')
     else
         -- Pin the old value: conditional destruction introduces new block parameters.
-        self:pin(cell.value)
-        self:branch(cell.alive,function(ctx) ctx:destroy(cell.value,binding.span) end,function() end)
-        self:unpin()
+        self:pin(cell.value); local crossed=self:pin_moved(cell.moved)
+        self:branch(cell.alive,
+            function(ctx) ctx:destroy(cell.value,binding.span,cell.moved,'') end,function() end)
+        self:unpin_moved(crossed); self:unpin()
     end
 end
 function Context:pop()
@@ -918,6 +956,7 @@ function A.Assign:assign_place(ctx)
     -- The destination is established before the right-hand side (§4.3), and every level of
     -- it must survive any control flow that the right-hand side builds.
     for i=1,#records do ctx:pin(records[i]) end
+    local crossed=ctx:pin_moved(ctx.cells[id].moved)
     if key then ctx:pin(key) end
     local value=self.value:build(ctx)
     expect(value,leaf,self.span); ctx:accept_owned(value,self.span)
@@ -932,8 +971,19 @@ function A.Assign:assign_place(ctx)
     -- A hole holds no value, so replacing one releases nothing.
     local hole=ctx.cells[id].moved[path]
     local function replace(c,position,target)
-        if ctx:owns(leaf) and not hole then
-            c:destroy(c:emit(B.LoadField(c:ref(parent),position),L{leaf},self.span),self.span,ctx.cells[id].moved,path)
+        if ctx:owns(leaf) and hole~=true then
+            local function release(target)
+                target:destroy(target:emit(B.LoadField(target:ref(parent),position),L{leaf},self.span),
+                    self.span,ctx.cells[id].moved,path)
+            end
+            if hole==nil then release(c)
+            else
+                -- The place may already be a hole, so the old value is released only where
+                -- one is still there.
+                c:pin(parent); c:pin(hole)
+                c:branch(hole,function() end,release)
+                c:unpin(); c:unpin()
+            end
         end
         return install(c,position,target)
     end
@@ -957,6 +1007,7 @@ function A.Assign:assign_place(ctx)
         end
     end
     if key then ctx:unpin() end
+    ctx:unpin_moved(crossed)
     for i=1,#records do ctx:unpin() end
     ctx:unpin()
 end
@@ -1002,8 +1053,16 @@ function A.While:build(ctx)
         body:pop(); local values={body.effect}
         for id=1,#ctx.fn.bindings do if ctx.cells[id] then
             if body.cells[id].initialized~=ctx.cells[id].initialized then gap(self.span,'loop ownership states that require initialization fixed-point analysis') end
-            for key in pairs(body.cells[id].moved) do if not ctx.cells[id].moved[key] then gap(self.span,'a partial move in a loop requires initialization fixed-point analysis') end end
-            for key in pairs(ctx.cells[id].moved) do if not body.cells[id].moved[key] then gap(self.span,'a partial move in a loop requires initialization fixed-point analysis') end end
+            for key in pairs(ctx.cells[id].moved) do
+                local state=body.cells[id].moved[key]
+                values[#values+1]=state==true and body:boolean(true,self.span)
+                    or (state or body:boolean(false,self.span))
+            end
+            for key in pairs(body.cells[id].moved) do
+                if not ctx.cells[id].moved[key] then
+                    gap(self.span,'a loop may not introduce an uninitialized subplace')
+                end
+            end
             values[#values+1]=body.cells[id].value
             if ctx.fn.bindings[id].owned then local alive=body.cells[id].alive; values[#values+1]=type(alive)=='boolean' and body:boolean(alive,self.span) or alive end
         end end

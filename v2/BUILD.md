@@ -65,7 +65,7 @@ executed by the compiler.
 | §10.3, §17.3 | Projected word members | A word member is rebuilt from the projected record so its field values belong to the invoked region, which is why `arithmetic.add(40, 2)` works even when the aggregate was captured. |
 | §§15.1–15.2 | File chains, namespace, imports | A file is a chain: top-level `let` forms are its items, and its namespace is the terminal — the named record of its preludes, or a written terminal that chooses the export surface. `import` is a construction-phase dictionary entry whose one slot is a constant `Text` path; the file's preludes are constructed at the import site, its stages are supplied by the following arguments, and the result is its terminal value. Two imports are two specializations, so their state is independent (§5.2), and the namespace is destroyed with the binding the importer gave it. Cycles are diagnosed. |
 | §15.1 | Module unload destroys owned state in reverse | The initializer returns the namespace plus the state record that owns every top-level value in construction order; `let_module_unload` destroys that record. A moved prelude stays at its original position in the state, so a written terminal cannot cause a double destruction or reorder it. |
-| §9.2 | Partial moves | `move place` names a subplace as well as a binding: the moved subplace becomes uninitialized, the aggregate becomes partially initialized, and destruction releases only what still holds a value. A subplace containing the hole cannot be read or moved as a value, while a read *through* it to another subplace is allowed; assigning the hole reinitializes it. The path must be statically known. |
+| §9.2 | Partial moves | `move place` names a subplace as well as a binding: the moved subplace becomes uninitialized, the aggregate becomes partially initialized, and destruction releases only what still holds a value. A subplace containing the hole cannot be read or moved as a value, while a read *through* it to another subplace is allowed; assigning the hole reinitializes it. The path must be statically known. A path moved on only some branch is a run-time fact, carried and destroyed exactly like conditional ownership, so a destruction is guarded by it and reading it is impossible; assigning over it releases the old value only where one is still there. |
 | §9.4 | Assignment to a place path | A destination is any statically known path from a binding: names and constant indices are resolved to member positions, a runtime index may select among them at the last step, and each level is rebuilt from the leaf up. Interior mutability reaches through the whole path (§8.3), while positional elements take capability from the base place (§8.4). A runtime index in the middle of a path, or a write into an uninitialized subplace, is diagnosed. |
 | §§9.3, 10.1 | Places, borrows, captures | Two type forms, and the difference is ownership. `Allocate` makes an **Address**: an owned cell, part of the owner's state, destroyed with it. `BorrowPlace` makes a **Borrow(pointee, stable)**: temporary access to some place, never owned and therefore never destroyed. A mutable stage is a pointer parameter reached through a borrow; a non-Copy capture is a borrow of the owner's storage, so a captured word and its owner share state. `stable` says whether the place outlives any activation, which is exactly what decides escape — no exemption flags, and no blanket rule. |
 | §8.4 | Runtime positional indexing | A runtime index selects among the members, which is a chain of comparisons ending in a trap; the members must share one type because the selection produces one value. A constant index, a member name and any constant path are resolved statically. Out of range traps. |
@@ -121,13 +121,12 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 - Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
   paths, an optional extension, configured roots), but the language fixes none of it, so a
   host with its own layout should pass its own resolver.
-- Partial moves whose initialization state *diverges* across a control boundary need
-  initialization fixed-point analysis; a uniform state is supported and a divergent one is
-  diagnosed rather than guessed. A run-time path is not a place that can be partially moved
-  (§9.2), so it is rejected by the language rather than by omission.
-- The same fixed-point analysis is what loop-carried reinitialization needs, and a runtime
-  index in the middle of a place path (`a[i].b = x`) needs a place selected per arm before
-  each arm writes, so both are diagnosed rather than guessed.
+- A loop entry carries one initialization fact per subplace it already knows about, so a
+  hole *introduced inside* a loop (`while ... do if c do move a.b end end`) has no slot to
+  be carried across an iteration and is diagnosed. Divergence at an ordinary join is
+  supported, and so is loop-carried reinitialization, which restores the entry's facts.
+- A runtime index in the middle of a place path (`a[i].b = x`) needs a place selected per
+  arm before each arm writes, so it is diagnosed rather than guessed.
 - Dynamically selected words: a runtime word value needs a tagged representation and
   dispatch, so only statically known word identities are invoked today.
 - The result type of a recursive call whose word has no other return to fix it (rare, and
@@ -179,7 +178,9 @@ Effects are erased, single results return directly, and wrapping arithmetic is a
 nested member destruction plus single destruction of a moved aggregate, §17.3 projected
 word invocation at module level and through a capture, and the four diagnostics.
 
-`test/native.lua` also covers non-tail self recursion (`factorial`, and `fib` with two
+`test/native.lua` also covers a conditional partial move in both directions -- the moved
+subplace released by its new owner, and the one that was not moved still released by the
+aggregate -- and non-tail self recursion (`factorial`, and `fib` with two
 recursive calls), and module unload: owned top-level state is destroyed in reverse
 successful-construction order; a written terminal that moves an owned prelude into the
 namespace still destroys it exactly once at its original position; and a `do` terminal
@@ -188,9 +189,10 @@ preludes are handed over as the state.
 
 `test/place.lua` covers §17.4's canonical ownership example, a mutable stage writing the
 caller's place, an address-taken Copy local, borrowed members and constant and runtime
-indices (including a nested path), indexed and projected assignment, partial moves and the
-uninitialized-subplace diagnostics they raise, the borrow diagnostics, and §10.1's
-shared-state capture with its escape rejections. Native witnesses (`mut_place`,
+indices (including a nested path), indexed and projected assignment, partial moves with the
+uninitialized-subplace diagnostics they raise and the run-time facts a conditional move
+produces, the borrow diagnostics, and §10.1's shared-state capture with its escape
+rejections. Native witnesses (`mut_place`,
 `ownership_lend`, `capture`, `partial_move`) execute the same cases.
 
 `test/import.lua` covers the implicit namespace, a written terminal, a configurable file,
