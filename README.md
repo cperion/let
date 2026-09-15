@@ -57,6 +57,6 @@ luajit test/all.lua
 Set `CC=clang` to run the tests with Clang. Benchmarks use LuaJIT orchestration
 and native C timing loops: `luajit bench/run.lua`.
 
-The specification references separate Sring design documents. Those companion
-documents and the Sring workbench are not included in this compiler repository.
+The compiler emits C11 and has no other backend. [COMPILER.md](COMPILER.md) records the covered
+language and the remaining gaps.
 

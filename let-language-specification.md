@@ -4,7 +4,6 @@
 
 **Scope:** source syntax, source semantics, ownership, constraints, construction vocabulary, and embedding behavior
 
-**Companion:** [Let-to-Sring implementation contract](let-sring-implementation-contract.md), specified separately and not part of the language semantics
 **Status:** Let language specification under active development
 
 ---
@@ -12,16 +11,6 @@
 ## 0. Authority and purpose
 
 This document specifies what a Let program means. It does not prescribe a parser data structure, intermediate representation, instruction set, virtual machine, register organization, or compilation strategy.
-
-The documents have separate jobs:
-
-| Document | Authority |
-| --- | --- |
-| This specification | Let tokens, grammar, binding, evaluation, words, control, ownership, constraints, and observable embedding behavior |
-| [Let-to-Sring implementation contract](let-sring-implementation-contract.md) | Lowering this language to portable MillK and its interface to the Sring implementation |
-| [Sring working paper](sring-working-paper.md) | The Sring machine and its symbolic and concrete execution algorithms |
-
-The companion documents must preserve the language rules here. Their implementation mechanisms do not add source-language rules.
 
 The words **must**, **must not**, **should**, and **may** have their usual specification force. This document defines Let, independently of the current compiler's implementation coverage. Missing compiler features are implementation gaps, not a smaller language; they are tracked in `COMPILER.md`. Deferred language designs are identified explicitly.
 
@@ -1338,7 +1327,7 @@ An implementation conforms to Let only when all of the following hold:
 14. Constraints run in the frontend and add no implicit runtime tags.
 15. Every dictionary primitive truthfully declares `pure` or `ordered`.
 
-These obligations define language conformance. An implementation targeting Sring must additionally satisfy the separate implementation contract; passing language tests alone does not establish machine conformance.
+These obligations define language conformance. Passing the language tests alone does not establish machine conformance.
 
 ---
 
