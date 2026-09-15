@@ -278,6 +278,20 @@ let hidden = open(2);
 ]],[[int main(void){ struct let_ret_1 m = let_module_init(); let_module_unload(m.r1); return 0; }]])
 eq(output,'open:1\nopen:2\nclose:2\nclose:1\n','§15.1 a written terminal does not duplicate ownership')
 
+-- §6.3 A user word with an `own` stage takes the argument from the call site and destroys it
+-- once -- not from a host, and not before the callee runs.
+output=native('own_stage',[[
+let drop =
+    let buffer own : Buffer
+    do return 0 end
+let run = do
+    let b = open_buffer(8);
+    return drop(move b)
+end
+let answer = run()
+]],[[int main(void){ let_module_init(); return 0; }]])
+eq(output,'open:8\nclose_buffer:7\n','§6.3 a user word owns and destroys its own-stage argument once')
+
 -- §4.2 Self recursion that is not a tail call: the recursive call returns whatever the
 -- word returns, so its result type comes from the word itself.
 output=native('recursion',[[

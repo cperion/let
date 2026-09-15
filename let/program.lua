@@ -193,7 +193,7 @@ end
 -- Advancing a word by one stage, whatever the value came from: an argument a call site built,
 -- or a parameter a host entry was handed. There is one implementation of this, because two
 -- would disagree about which stage is next and which preludes belong to it.
-function Builder:advance(ctx,value,supplied,span,destination,complete)
+function Builder:advance(ctx,value,supplied,span,destination,complete,handoff)
     if not value.word then fail(span,'specialization requires a word value') end
     local word=clone_word(value.word)
     local layout=self:layout(word.template)
@@ -226,6 +226,10 @@ function Builder:advance(ctx,value,supplied,span,destination,complete)
     -- closed their own scopes, so without this a prelude reached at this stage could not see
     -- a prelude reached at an earlier one.
     ctx:push()
+    -- A hand-off scope does not release what it bound: a call site's fields go to the callee's
+    -- entry, which owns them, and a specialization's go into the word bundle. Only a `complete`
+    -- step, which runs the terminal here, and a host entry, which passes no hand-off, own them.
+    if handoff then ctx:retain() end
     local ok,result=pcall(function()
         for _,field in ipairs(word.fields) do
             -- Every field the word already has, including a mutable one, which is a place for the
@@ -301,18 +305,19 @@ function Builder:specialize(ctx,expression)
     if value.mode=='borrow' then
         fail(expression.span,'specialization of an existing non-copyable word requires an explicit independent copy')
     end
-    return self:supply(ctx,value,expression.argument,self:destination())
+    return self:supply(ctx,value,expression.argument,self:destination(),true)
 end
 
 -- The call-site spelling of advancement: build the argument, then hand it to `advance`.
-function Builder:supply(ctx,value,argument,destination)
-    return self:advance(ctx,value,argument:build(ctx),argument.span,destination)
+function Builder:supply(ctx,value,argument,destination,handoff)
+    return self:advance(ctx,value,argument:build(ctx),argument.span,destination,nil,handoff)
 end
 
-function Builder:entry(template,field_types,capabilities,mutable_mask,retained_mask)
+function Builder:entry(template,field_types,capabilities,mutable_mask,retained_mask,owned_mask)
     local parts={tostring(template.id)}
     for _,type_ in ipairs(field_types) do parts[#parts+1]=typekey(type_) end
     for i=1,#field_types do parts[#parts+1]=retained_mask[i] and '1' or '0' end
+    for i=1,#field_types do parts[#parts+1]=owned_mask[i] and '1' or '0' end
     local key=table.concat(parts,'|')
     local existing=self.entries[key]
     if existing then return existing end
@@ -322,7 +327,7 @@ function Builder:entry(template,field_types,capabilities,mutable_mask,retained_m
     self.entries[key]=id
     local fields={}
     for i,type_ in ipairs(field_types) do
-        fields[i]={type=type_,capability=capabilities[i],mutable=mutable_mask[i],retained=retained_mask[i]}
+        fields[i]={type=type_,capability=capabilities[i],mutable=mutable_mask[i],retained=retained_mask[i],owned=owned_mask[i]}
     end
     self.functions[id]=false
     self.functions[id]=self:build_entry(template,fields,id)
@@ -351,8 +356,10 @@ function Builder:build_entry(template,fields,id)
         local value=ctx:parameter(field.type,A.Read)
         -- A mutable stage arrives as an address, so the field is that place, not a copy.
         local address=(B.Address:isclassof(field.type) or B.Borrow:isclassof(field.type)) and value or false
+        -- A prelude the call site built carries ownership even though it has no stage
+        -- capability: the entry it is handed to is where it dies.
         local owned=not address and not field.type:copyable()
-            and (field.capability==A.Own or field.capability==A.OwnMut)
+            and (field.owned or field.capability==A.Own or field.capability==A.OwnMut)
         local binding=ctx:force_bind(names[i],value,field.mutable,owned,false,address,template.source.span)
         records[i]={field=field,id=binding,value=value}
     end
@@ -428,20 +435,21 @@ function Builder:invoke(ctx,expression,tail)
     ctx:push(); ctx:retain()
     local ok,result=pcall(function()
         local value=callee
-        for _,argument in ipairs(expression.arguments) do value=self:supply(ctx,value,argument,B.Transient) end
+        for _,argument in ipairs(expression.arguments) do value=self:supply(ctx,value,argument,B.Transient,true) end
         local word=clone_word(assert(value.word,'invocation of a saturated data terminal'))
         local layout=self:layout(word.template)
         if word.supplied~=#layout.steps then fail(expression.span,'invocation must exactly saturate remaining stages') end
         -- The fields are kept as *values*, not as references. A reference is a distance from the
         -- instruction that carries it, so building one before this block emits anything else --
         -- and `cleanup` below emits destroys -- would make it mean a different producer.
-        local field_types,capabilities,mutable_mask,retained_mask,field_values=L(),L(),{}, {},L()
+        local field_types,capabilities,mutable_mask,retained_mask,owned_mask,field_values=L(),L(),{},{},{},L()
         for i,field in ipairs(word.fields) do
             field_types:insert(field.type)
             capabilities:insert(field.capability or (field.mutable and A.Mut or A.Read))
-            mutable_mask[i]=field.mutable; retained_mask[i]=field.retained; field_values:insert(field.value)
+            mutable_mask[i]=field.mutable; retained_mask[i]=field.retained
+            owned_mask[i]=field.owned; field_values:insert(field.value)
         end
-        local target=self:entry(word.template,field_types,capabilities,mutable_mask,retained_mask)
+        local target=self:entry(word.template,field_types,capabilities,mutable_mask,retained_mask,owned_mask)
         if tail then
             -- §6.5: the *caller's* own word state is not a local, so it must survive the
             -- transfer. Carrying it through the tail result needs address-taken state.
@@ -734,8 +742,10 @@ function Builder:host_entry(name,value,span)
         ctx:push(); if field.retained then ctx:retain() end
         local parameter=ctx:parameter(field.type,A.Read)
         local address=(B.Address:isclassof(field.type) or B.Borrow:isclassof(field.type)) and parameter or false
+        -- A prelude the call site built carries ownership even though it has no stage
+        -- capability: the entry it is handed to is where it dies.
         local owned=not address and not field.type:copyable()
-            and (field.capability==A.Own or field.capability==A.OwnMut)
+            and (field.owned or field.capability==A.Own or field.capability==A.OwnMut)
         ctx:force_bind(field.name,parameter,field.mutable,owned,false,address,span)
         trace[#trace+1]={name=field.name,value=parameter,type=field.type,mutable=field.mutable,
             owned=owned,retained=field.retained,span=span,capability=field.capability}
@@ -751,14 +761,22 @@ function Builder:host_entry(name,value,span)
     -- what a call site does, so the host entry is a wrapper and one template emits one body.
     local function complete(c,saturated)
         local data=self:terminal_value(c,template)
-        if data then return c:finish(data,span) end
-        local field_types,capabilities,mutable_mask,retained_mask,field_values=L(),L(),{},{},L()
+        if data then
+            -- No entry is built to own the fields, so the host entry destroys them here.
+            for i=#saturated.fields,1,-1 do
+                local field=saturated.fields[i]
+                if field.owned then c:destroy(field.value,field.span or span) end
+            end
+            return c:finish(data,span)
+        end
+        local field_types,capabilities,mutable_mask,retained_mask,owned_mask,field_values=L(),L(),{},{},{},L()
         for i,field in ipairs(saturated.fields) do
             field_types:insert(field.type)
             capabilities:insert(field.capability or (field.mutable and A.Mut or A.Read))
-            mutable_mask[i]=field.mutable; retained_mask[i]=field.retained; field_values:insert(field.value)
+            mutable_mask[i]=field.mutable; retained_mask[i]=field.retained
+            owned_mask[i]=field.owned; field_values:insert(field.value)
         end
-        local target=self:entry(saturated.template,field_types,capabilities,mutable_mask,retained_mask)
+        local target=self:entry(saturated.template,field_types,capabilities,mutable_mask,retained_mask,owned_mask)
         local callee=assert(self.functions[target],'a host entry calls an entry this build just made')
         local types=L()
         for i=1,#callee.signature.results do types:insert(callee.signature.results[i]) end
@@ -769,7 +787,7 @@ function Builder:host_entry(name,value,span)
     local current={type=value.type,word={template=template,fields=trace,supplied=word.supplied}}
     for i=word.supplied+1,#layout.steps do
         current=self:advance(ctx,current,parameters[i],items[i].span,B.Transient,
-            i==#layout.steps and complete or nil)
+            i==#layout.steps and complete or nil,true)
     end
     -- A word that is already saturated has no stages left to advance, so its terminal has not run
     -- yet: the fields bound above are the whole of its state.

@@ -65,6 +65,45 @@ let r = example()
 ]]
 eq(table.concat(events,','),'open:1024,write:0:42,consume:1024','§17.4 a mutable stage receives the caller place')
 
+-- §6.3 A user word with an `own` stage takes the argument from the call site, not from a host:
+-- the argument is transferred to the callee, which uses it and destroys it exactly once. The
+-- result is only 1 if the callee could still reach the live buffer.
+events={}
+eq(run[[
+let consume =
+    let buffer own : Buffer
+    do
+        let bytes = buffer_size(buffer);
+        return bytes
+    end
+let main = do
+    let first = open_buffer(16);
+    let left = consume(move first);
+    return left
+end
+let answer = main()
+]],1,'a user word owns its own-stage argument and destroys it once')
+eq(table.concat(events,','),'open:16,close:16','§6.3 the callee destroys the argument after using it')
+
+-- §5.4 A prelude resource an invocation reaches is invocation-local, but it must outlive the
+-- callee's use of it: the entry that receives it owns and destroys it, not the call site.
+events={}
+eq(run[[
+let use =
+    let n : Int
+    let buf = open_buffer(n)
+    do
+        let bytes = buffer_size(buf);
+        return bytes
+    end
+let main = do
+    let r = use(16);
+    return r
+end
+let answer = main()
+]],1,'a resource prelude outlives the callee that reads it')
+eq(table.concat(events,','),'open:16,close:16','and is destroyed once, by the entry that received it')
+
 -- §6.3 A mutable stage writes the caller's place, so the change is visible afterwards.
 eq(run[[
 let bump = let counter mut : Int let by : Int do counter = counter + by; return counter end
