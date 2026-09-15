@@ -308,13 +308,13 @@ function Builder:entry(template,field_types,capabilities,mutable_mask,retained_m
     local existing=self.entries[key]
     if existing then return existing end
     local id=#self.functions+1
-    self.entries[key]=id
     local fields={}
     for i,type_ in ipairs(field_types) do
         fields[i]={type=type_,capability=capabilities[i],mutable=mutable_mask[i],retained=retained_mask[i]}
     end
-    self.functions[id]=false
-    self.functions[id]=self:build_entry(template,fields,id)
+    local built=self:build_entry(template,fields,id)
+    self.entries[key]=id
+    self.functions[id]=built
     return id
 end
 
@@ -729,9 +729,17 @@ function Builder:build()
     if self.options.host_entries~=false then
         self.host_entry_skips={}
     for _,export in ipairs(self.exports or {}) do
-            local entry,reason=self:host_entry(export.name,export.value,export.span)
-            if entry then self.host_entries[#self.host_entries+1]=entry
-            elseif reason then self.host_entry_skips[export.name]=reason end
+            -- An entry is an interface the word may not be able to offer: a body that invokes a
+            -- captured word reaches fields belonging to the initializer's context, which is a gap
+            -- in this compiler rather than a fault in the program. The word is still legal, so the
+            -- entry is skipped and the reason recorded.
+            local before=#self.functions
+            local ok,entry,reason=pcall(self.host_entry,self,export.name,export.value,export.span)
+            if ok and entry then self.host_entries[#self.host_entries+1]=entry
+            else
+                for i=before+1,#self.functions do self.functions[i]=nil end
+                self.host_entry_skips[export.name]= ok and reason or tostring(entry):gsub('^.*: ','')
+            end
         end
     end
     local functions=L()

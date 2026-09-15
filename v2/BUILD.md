@@ -125,12 +125,22 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 These are specified behaviours that the implementation does not yet provide, so each is a
 construction diagnostic rather than a language limitation.
 
-- **The runtime benchmark against the old compiler.** Emitting `bench/kernels.let` produced one
-  function where the old compiler produces eighteen, because a module's exported words had no host
-  entry point: the initializer builds the namespace, the namespace holds words, and nothing made
-  those words live or callable. That is fixed -- see the §15.1 obligation below -- so what remains
-  is the harness: a generated shim that calls each entry with the fields the namespace returned and
-  times it, and the comparison it reports.
+- **The runtime benchmark against the old compiler**, which is milestone C's acceptance and is
+  blocked by two gaps it exposed rather than by harness work. The harness is written:
+  `bench/emit.lua --compiler=v2` builds the kernels, emits the C plus a shim that calls each host
+  entry the way the driver does, and records emission statistics. Five of the eleven kernels get an
+  entry today; the other six fail with reasons the builder records:
+
+  - `constant` invokes a *captured* word (`pending`), whose bundle fields belong to the initializer's
+    context, so a host entry cannot name them: this is the "stored word values" gap below, reached
+    from a new direction. A host entry is a function boundary, and a captured word carries values
+    from the function that built it.
+  - the tail-recursive kernels (`sum_tail`, `prelude_tail`, `resource_tail`, `fib_recursive` and
+    their `_impl` words) overflow the stack while their entries are being built, so the construction
+    recurses where a call site would not.
+
+  Neither is a fault in the kernels: both are compiler gaps that the benchmark found by being the
+  first program to want a *second* way into the module.
 
   Two further attempts got the construction right and then failed on belt typing. What they
   established, in the order the failures moved:
