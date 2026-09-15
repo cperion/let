@@ -40,5 +40,15 @@ check(A.OwnMut:bind_argument(owned,B.Persistent,error)==B.OwnAccess)
 check(V.specialization_access(owned,error)==B.OwnAccess)
 local ok=pcall(V.specialization_access,{type=owned.type,mode='borrow'},error)
 check(not ok)
+-- §3.2: an adjacent expression statement continues a binding's value, so it needs ";". The
+-- diagnostic names that cause rather than reporting the binding's own name as unknown.
+local function separator_message(text)
+    local ok,err=pcall(function() V.parse(text,'separator.let'):resolve{} end)
+    return ok,err
+end
+local separated,separator_error=separator_message('let f=let x:Int do return x end\ndo let b=1\nf(b) return end')
+check(not separated)
+check(tostring(separator_error):find('end the value with ";"',1,true))
+check(separator_message('let f=let x:Int do return x end\ndo let b=1;\nf(b) return end'))
 print(('passed %d lexical/stage contract checks'):format(count))
 

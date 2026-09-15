@@ -291,11 +291,18 @@ function Context.new_function(spec)
     ctx.function_id=spec.function_id
     return ctx
 end
--- A cloned context is the same construction, one block later, so it must carry the
--- builder/resolution it resolves word identities and templates against.
+-- A cloned context is the same construction one block later, so it carries everything that
+-- describes the construction rather than the current block: the builder and resolution, the
+-- word being defined (`self_name`/`self_definition`), the function under construction, and
+-- any mode the enclosing region set. Only the per-region fields are fresh. Naming the ambient
+-- fields by hand is how a self reference came to be lost inside every control block.
 function Context:clone()
-    local child=setmetatable({fn=self.fn,block=self:new_block(),locations={},cells={},pins={},locks=self.locks,scopes={},
-        builder=self.builder,resolved=self.resolved,mutable_state=self.mutable_state,lifetime=self.lifetime},Context)
+    local child=setmetatable({fn=self.fn,block=self:new_block(),locations={},cells={},pins={},locks=self.locks,scopes={}},Context)
+    for key,value in pairs(self) do
+        if key~='block' and key~='locations' and key~='cells' and key~='pins' and key~='scopes' then
+            child[key]=value
+        end
+    end
     for i,scope in ipairs(self.scopes) do child.scopes[i]={names=copy(scope.names),ids=copy(scope.ids),retained=scope.retained} end
     return child
 end
@@ -1073,6 +1080,68 @@ function A.Discard:build(ctx)
 end
 function A.Return:build(ctx)
     if self.value then self.value:tail(ctx) else ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},self.span),self.span) end
+end
+-- A word's result type is the type its returns state, but construction is source-ordered: a
+-- self call inside an early control block can be built before the return that fixes the type.
+-- `peek_type`/`peek_result_type` ask the returns the question a return would ask, and return
+-- nil rather than guess. They break that ordering; they are not a second type system, because
+-- the return still validates the answer through `finish`, so a wrong answer is an error.
+function Context:peek_type(expression)
+    if A.Unit:isclassof(expression) then return B.Unit end
+    if A.Integer:isclassof(expression) then return B.Int end
+    if A.Float:isclassof(expression) then return B.Float end
+    if A.Boolean:isclassof(expression) then return B.Bool end
+    if A.Text:isclassof(expression) then return B.Text end
+    if A.Name:isclassof(expression) then
+        local id=self:find(expression.name)
+        local binding=id and self.fn.bindings[id]
+        return binding and binding.type
+    end
+    if A.Unary:isclassof(expression) then
+        if expression.operator==A.Not then return B.Bool end
+        if expression.operator==A.ToFloat then return B.Float end
+        if expression.operator==A.ToInt then return B.Int end
+        return self:peek_type(expression.operand)
+    end
+    if A.Binary:isclassof(expression) then
+        local operator=expression.operator
+        if operator==A.And or operator==A.Or or operator==A.Equal or operator==A.NotEqual
+            or operator==A.Less or operator==A.LessEqual or operator==A.Greater or operator==A.GreaterEqual then
+            return B.Bool
+        end
+        return self:peek_type(expression.left) or self:peek_type(expression.right)
+    end
+    if A.Move:isclassof(expression) then return self:peek_type(expression.place) end
+    return nil
+end
+function Context:peek_result_type()
+    local template=self.fn.template
+    local terminal=template and template.source.terminal
+    if not terminal or not A.Body:isclassof(terminal) then return nil end
+    local stated,returns,conflict=nil,0,false
+    local function visit(statements)
+        for _,statement in ipairs(statements) do
+            if A.Return:isclassof(statement) then
+                returns=returns+1
+                local type_
+                if statement.value then type_=self:peek_type(statement.value) else type_=B.Unit end
+                if type_ then
+                    if stated==nil then stated=type_
+                    elseif not stated:same(type_) then conflict=true end
+                end
+            elseif A.If:isclassof(statement) then visit(statement.yes); visit(statement.no)
+            elseif A.While:isclassof(statement) then visit(statement.body)
+            elseif A.Switch:isclassof(statement) then
+                for _,arm in ipairs(statement.cases) do visit(arm.body) end
+                visit(statement.otherwise)
+            end
+        end
+    end
+    visit(terminal.statements)
+    if conflict then return nil end
+    -- No return at all: the body falls through to the implicit Unit result.
+    if returns==0 then return B.Unit end
+    return stated
 end
 function A.If:build(ctx)
     local condition=self.condition:build(ctx); expect(condition,B.Bool,self.span)

@@ -1414,11 +1414,18 @@ function Context.new_function(spec)
     ctx.function_id=spec.function_id
     return ctx
 end
--- A cloned context is the same construction, one block later, so it must carry the
--- builder/resolution it resolves word identities and templates against.
+-- A cloned context is the same construction one block later, so it carries everything that
+-- describes the construction rather than the current block: the builder and resolution, the
+-- word being defined (`self_name`/`self_definition`), the function under construction, and
+-- any mode the enclosing region set. Only the per-region fields are fresh. Naming the ambient
+-- fields by hand is how a self reference came to be lost inside every control block.
 function Context:clone()
-    local child=setmetatable({fn=self.fn,block=self:new_block(),locations={},cells={},pins={},locks=self.locks,scopes={},
-        builder=self.builder,resolved=self.resolved,mutable_state=self.mutable_state,lifetime=self.lifetime},Context)
+    local child=setmetatable({fn=self.fn,block=self:new_block(),locations={},cells={},pins={},locks=self.locks,scopes={}},Context)
+    for key,value in pairs(self) do
+        if key~='block' and key~='locations' and key~='cells' and key~='pins' and key~='scopes' then
+            child[key]=value
+        end
+    end
     for i,scope in ipairs(self.scopes) do child.scopes[i]={names=copy(scope.names),ids=copy(scope.ids),retained=scope.retained} end
     return child
 end
@@ -2196,6 +2203,68 @@ function A.Discard:build(ctx)
 end
 function A.Return:build(ctx)
     if self.value then self.value:tail(ctx) else ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},self.span),self.span) end
+end
+-- A word's result type is the type its returns state, but construction is source-ordered: a
+-- self call inside an early control block can be built before the return that fixes the type.
+-- `peek_type`/`peek_result_type` ask the returns the question a return would ask, and return
+-- nil rather than guess. They break that ordering; they are not a second type system, because
+-- the return still validates the answer through `finish`, so a wrong answer is an error.
+function Context:peek_type(expression)
+    if A.Unit:isclassof(expression) then return B.Unit end
+    if A.Integer:isclassof(expression) then return B.Int end
+    if A.Float:isclassof(expression) then return B.Float end
+    if A.Boolean:isclassof(expression) then return B.Bool end
+    if A.Text:isclassof(expression) then return B.Text end
+    if A.Name:isclassof(expression) then
+        local id=self:find(expression.name)
+        local binding=id and self.fn.bindings[id]
+        return binding and binding.type
+    end
+    if A.Unary:isclassof(expression) then
+        if expression.operator==A.Not then return B.Bool end
+        if expression.operator==A.ToFloat then return B.Float end
+        if expression.operator==A.ToInt then return B.Int end
+        return self:peek_type(expression.operand)
+    end
+    if A.Binary:isclassof(expression) then
+        local operator=expression.operator
+        if operator==A.And or operator==A.Or or operator==A.Equal or operator==A.NotEqual
+            or operator==A.Less or operator==A.LessEqual or operator==A.Greater or operator==A.GreaterEqual then
+            return B.Bool
+        end
+        return self:peek_type(expression.left) or self:peek_type(expression.right)
+    end
+    if A.Move:isclassof(expression) then return self:peek_type(expression.place) end
+    return nil
+end
+function Context:peek_result_type()
+    local template=self.fn.template
+    local terminal=template and template.source.terminal
+    if not terminal or not A.Body:isclassof(terminal) then return nil end
+    local stated,returns,conflict=nil,0,false
+    local function visit(statements)
+        for _,statement in ipairs(statements) do
+            if A.Return:isclassof(statement) then
+                returns=returns+1
+                local type_
+                if statement.value then type_=self:peek_type(statement.value) else type_=B.Unit end
+                if type_ then
+                    if stated==nil then stated=type_
+                    elseif not stated:same(type_) then conflict=true end
+                end
+            elseif A.If:isclassof(statement) then visit(statement.yes); visit(statement.no)
+            elseif A.While:isclassof(statement) then visit(statement.body)
+            elseif A.Switch:isclassof(statement) then
+                for _,arm in ipairs(statement.cases) do visit(arm.body) end
+                visit(statement.otherwise)
+            end
+        end
+    end
+    visit(terminal.statements)
+    if conflict then return nil end
+    -- No return at all: the body falls through to the implicit Unit result.
+    if returns==0 then return B.Unit end
+    return stated
 end
 function A.If:build(ctx)
     local condition=self.condition:build(ctx); expect(condition,B.Bool,self.span)
@@ -3310,7 +3379,17 @@ end
 function A.Binding:resolve(ctx,scope)
     local definition=ctx:definition(self.name,'binding',self,ctx.current)
     if self.constraint then self.constraint:resolve(ctx,scope,self.span) end
-    definition.template=ctx:chain(self.value,scope,definition)
+    -- A value ends at the next statement only when that statement cannot continue it; an
+    -- adjacent expression can, so `let b = 1` followed by `f(b)` makes `1 f(b)` the value and
+    -- then `b` is not yet visible. Name that cause instead of reporting the name as unknown.
+    local ok,template=pcall(ctx.chain,ctx,self.value,scope,definition)
+    if not ok then
+        if tostring(template):find('unknown name '..self.name,1,true) then
+            fail(self.span,'a binding is not visible in its own initializer; end the value with ";" if the next statement is separate')
+        end
+        error(template,0)
+    end
+    definition.template=template
     ctx:publish(scope,definition,self.span); return definition
 end
 function A.Stage:resolve(ctx,scope,index)
@@ -3782,6 +3861,7 @@ function Builder:build_entry(template,fields,id)
         resources=self.options.resources,hosts=self.options.hosts,types=self:types(),
         builder=self,resolved=self.resolved,function_id=id}
     local fn=ctx.fn
+    fn.template=template
     local records={}
     for i,field in ipairs(fields) do
         ctx:push(); if field.retained then ctx:retain() end
@@ -3901,11 +3981,16 @@ function Builder:invoke(ctx,expression,tail)
                 gap(expression.span,'tail invocation of a word whose state belongs to the retiring activation')
             end
             -- A function whose only exit is a tail call takes its result type from the callee.
+            -- A function whose only exit is a tail call takes its result type from the callee.
             if not ctx.fn.result then
-                if not (callee and callee.signature) then
-                    gap(expression.span,'result type of a word whose only exit is a self tail call')
+                if callee and callee.signature then
+                    ctx.fn.result=callee.signature.results[1]
+                else
+                    -- A self tail transfer: the result is the word's own, which a return states.
+                    local peeked=ctx:peek_result_type()
+                    if not peeked then gap(expression.span,'result type of a word whose only exit is a self tail call') end
+                    ctx.fn.result=peeked
                 end
-                ctx.fn.result=callee.signature.results[1]
             end
             ctx:cleanup()
             ctx.block.exit=B.TailCall(target,ctx:ref(ctx.effect),ctx:refs(field_values))
@@ -3915,10 +4000,14 @@ function Builder:invoke(ctx,expression,tail)
         local result_type
         if callee and callee.signature then
             result_type=callee.signature.results[1]
-        elseif target==ctx.function_id and ctx.fn.result then
-            -- A direct self call: the entry is still being built, and a recursive call
-            -- returns whatever this word returns.
-            result_type=ctx.fn.result
+        elseif target==ctx.function_id then
+            -- A direct self call: the entry is still being built, and a recursive call returns
+            -- whatever this word returns. A return states that type, but construction is source
+            -- ordered, so ask the returns directly when the fixing return is not built yet.
+            result_type=ctx.fn.result or ctx:peek_result_type()
+            if not result_type then
+                gap(expression.span,'the result type of a recursive call must be fixed by another return in the same word')
+            end
         else
             gap(expression.span,'the result type of a recursive call must be fixed by another return in the same word')
         end
@@ -4000,19 +4089,26 @@ function Builder:build_module()
         resources=self.options.resources,hosts=self.options.hosts,types=self:types(),
         builder=self,resolved=self.resolved,lifetime='module'}
     local fn=ctx.fn
-    local order,values,fields=L(),L(),L()
+    local order,ids,fields=L(),L(),L()
     for index,item in ipairs(file.items) do
         if A.Stage:isclassof(item) then item:bind_parameter(ctx,index,self.options)
         else
             A.Local(item.binding,item.binding.span):build(ctx)
             local id=ctx:find(item.binding.name)
-            -- The value is recorded even when the terminal later moves it out: the state
-            -- keeps its original construction position, which is what destruction order
-            -- needs, and only the state is destroyed.
-            values:insert(ctx.cells[id].value)
+            -- The binding id is recorded, not its value handle: the terminal body may split
+            -- the CFG, and a prelude's current value is then the block parameter that carried
+            -- it, which only the context at the return point knows. The state keeps the
+            -- binding's construction position, which is what destruction order needs.
+            ids:insert(id)
             order:insert(item.binding.name)
             fields:insert({name=item.binding.name,type=ctx.cells[id].value.type,mutable=item.binding.mutable})
         end
+    end
+    -- The current value of each prelude binding, asked where the state record is built.
+    local function state_values(target)
+        local values=L()
+        for _,id in ipairs(ids) do values:insert(target.cells[id].value) end
+        return values
     end
     -- Module bindings live until module unload, not until initialization returns, so a
     -- borrow of module storage outlives any value that holds it.
@@ -4022,7 +4118,7 @@ function Builder:build_module()
     if file.terminal==nil then
         -- The common case: the namespace is exactly the prelude record, so it is its own
         -- state and there is nothing to duplicate.
-        local state=ctx:construct_record(values,fields,fn.span)
+        local state=ctx:construct_record(state_values(ctx),fields,fn.span)
         self.module_exports=self:export_map(fields)
         -- A field that is a word is a host entry point: the namespace holds it, and the host
         -- invokes it by supplying its remaining stages. Recorded here, where the preludes are
@@ -4030,7 +4126,7 @@ function Builder:build_module()
         self.exports={}
         for i,field in ipairs(fields) do
             if B.Word:isclassof(field.type) then
-                self.exports[#self.exports+1]={name=field.name,value=values[i],span=fn.span}
+                self.exports[#self.exports+1]={name=field.name,value=ctx.cells[ids[i]].value,span=fn.span}
             end
         end
         ctx:finish_pair(state,state,fn.span)
@@ -4041,7 +4137,7 @@ function Builder:build_module()
         end
         namespace=file.terminal.value:build(ctx)
         ctx.module_preludes=nil
-        local state=ctx:construct_record(values,fields,fn.span)
+        local state=ctx:construct_record(state_values(ctx),fields,fn.span)
         self.module_exports=self:export_map(namespace.type)
         ctx:finish_pair(namespace,state,fn.span)
     else
@@ -4057,7 +4153,7 @@ function Builder:build_module()
             -- The restriction applies to the namespace the body produced; the state record
             -- is where untouched preludes belong, exactly as for a written terminal.
             target.module_preludes=nil
-            local state=target:construct_record(values,fields,span)
+            local state=target:construct_record(state_values(target),fields,span)
             target:finish_pair(namespace,state,span)
         end
         -- The body's own locals are activation state, not module state: they live in their
@@ -4155,6 +4251,7 @@ function Builder:host_entry(name,value,span)
         resources=self.options.resources,hosts=self.options.hosts,types=self:types(),
         builder=self,resolved=self.resolved,function_id=id}
     local fn=ctx.fn
+    fn.template=template
     self.functions[id]=false
     -- §4.2 the defining word is visible in its own terminal body.
     if template.self then ctx.self_name=template.self.name; ctx.self_definition=template.self end

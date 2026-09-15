@@ -335,6 +335,38 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'120\n55\n','§4.2 non-tail self recursion, including two recursive calls')
 
+-- §4.2 and §7: a self reference is resolvable inside any nested control block, and the result
+-- type a word's returns state is used even when construction reaches the self call first.
+output=native('recursion_branch',[[
+let digits = let n : Int
+do
+    if n >= 10 do digits(n / 10) end
+    print_int(n % 10)
+end
+let show = do digits(123) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'1\n2\n3\n','§4.2 a recursive call inside a control block')
+
+-- §15.1: a module whose do terminal splits the CFG still builds its state record from the
+-- current prelude bindings, not from handles captured before the terminal ran.
+output=native('prelude_terminal',[[
+let counter =
+    let start : Int
+    let value mut = start
+    do
+        value = value + 1
+        return value
+    end
+let errors = counter 0
+do
+    if 1 < 2 do print_int(errors()) end
+    print_int(errors())
+    return
+end
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'1\n2\n','§15.1 a module do terminal with control flow and a prelude')
+
 -- §17.4 A mutable stage lends the caller's place: the host receives a pointer and its write
 -- is visible in the caller afterwards.
 output=native('mut_place',[[

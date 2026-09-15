@@ -112,7 +112,17 @@ end
 function A.Binding:resolve(ctx,scope)
     local definition=ctx:definition(self.name,'binding',self,ctx.current)
     if self.constraint then self.constraint:resolve(ctx,scope,self.span) end
-    definition.template=ctx:chain(self.value,scope,definition)
+    -- A value ends at the next statement only when that statement cannot continue it; an
+    -- adjacent expression can, so `let b = 1` followed by `f(b)` makes `1 f(b)` the value and
+    -- then `b` is not yet visible. Name that cause instead of reporting the name as unknown.
+    local ok,template=pcall(ctx.chain,ctx,self.value,scope,definition)
+    if not ok then
+        if tostring(template):find('unknown name '..self.name,1,true) then
+            fail(self.span,'a binding is not visible in its own initializer; end the value with ";" if the next statement is separate')
+        end
+        error(template,0)
+    end
+    definition.template=template
     ctx:publish(scope,definition,self.span); return definition
 end
 function A.Stage:resolve(ctx,scope,index)
