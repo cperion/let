@@ -81,11 +81,13 @@ string at its terminator, and the result is a borrowed view, so the C storage mu
 No call converts silently.
 
 `CPointer` is an opaque `void*` with no Let operation -- it cannot be dereferenced, indexed,
-compared, or turned into an integer -- so it is passed back to C and released explicitly. A
-foreign word may also declare `ownership = 'owned' | 'borrowed'` and `nullable`, which C's type
-system cannot express; `Vocabulary` validates that both describe a pointer result. The declared
-set is `c.strlen`, `c.strcmp`, `c.atoi`, `c.llabs`, `c.getenv`, `c.puts`, `c.putchar` and
-`c.malloc`/`c.free`/`c.memcpy`/`c.memset`/`c.memcmp` (`libc.lua`).
+compared, or turned into an integer -- so it is passed back to C. Owned C memory is instead a
+**resource** with a declared C representation: `CAlloc = { destroy = 'free', representation =
+'pointer' }`, so Let destroys it exactly once and there is no `c.free` to call. Only a borrowed
+pointer result declares `ownership = 'borrowed'` and `nullable`; `Vocabulary` checks that those
+describe a pointer result and that a representation is `value` or `pointer`. The declared set is
+`c.strlen`, `c.strcmp`, `c.atoi`, `c.llabs`, `c.getenv`, `c.puts`, `c.putchar`, `c.malloc`,
+`c.memcpy`, `c.memset` and `c.memcmp` (`libc.lua`).
 
 ### The `c` namespace and a standalone program
 
