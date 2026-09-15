@@ -25,7 +25,8 @@ to select another. The runner works from outside the repository as well.
 - `reference.c`: corresponding handwritten C, with explicit unsigned wrapping
   and bit-preserving signed results on the measured two's-complement target.
   Reference tail recursion is written as loops, preserving bounded stack at `-O0`.
-- `host.c`: a small shared handle pool, not a malloc benchmark.
+- `host.c`: a small shared handle pool and the embedding's nonreturning `let_trap` hook, which
+  the emitted C calls for a division or remainder by zero.
 - `driver.c`: correctness checks, resource accounting, calibration, native timing.
 - `emit.lua`: invokes the Let compiler and records residual C emission statistics.
 - `run.lua`: build, affinity, execution, statistics, and artifact reporting.

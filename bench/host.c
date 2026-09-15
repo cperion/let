@@ -1,5 +1,7 @@
 #include "support.h"
 #include <assert.h>
+#include <assert.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 /* External calls deliberately remain outside the kernels' translation units.
@@ -26,4 +28,11 @@ void bench_reset(void) { assert(live == 0); allocations = releases = 0; }
 uint64_t bench_allocations(void) { return allocations; }
 uint64_t bench_releases(void) { return releases; }
 int bench_live(void) { return live; }
+
+/* The embedding's nonreturning trap hook, which the emitted C calls for a division or
+   remainder by zero. The validated inputs never trap; if one does, report and stop. */
+void let_trap(char *reason) {
+    fprintf(stderr, "trap: %s\n", reason);
+    abort();
+}
 
