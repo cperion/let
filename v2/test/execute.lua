@@ -101,6 +101,10 @@ function Run.frame(fn,incoming,hosts,program,limit)
         while block_id do
             steps=steps+1; assert(steps<=limit,'test interpreter fuel exhausted')
             local block=fn.blocks[block_id]
+            if os.getenv('LET_DEBUG_PACKET') and #incoming~=#block.parameters then
+                io.stderr:write(('DEBUG packet fn=%s block=%s incoming=%d parameters=%d\n'):format(
+                    tostring(fn.name),tostring(block_id),#incoming,#block.parameters))
+            end
             assert(#incoming==#block.parameters,'bad test packet')
             local ctx=setmetatable({block=block,values={},hosts=hosts,program=program,limit=limit},Run)
             for i,value in ipairs(incoming) do ctx.values[i-1]={value} end

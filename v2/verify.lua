@@ -138,6 +138,8 @@ function B.Destroy:verify(ctx)
 end
 function Check:edge(edge)
     local parameters=self.fn.blocks[edge.target].parameters
+    -- Zipping the two lists hides a length mismatch; the packet is the target block's shape.
+    assert(#edge.arguments==#parameters,'edge packet count mismatch')
     for i,ref in ipairs(edge.arguments) do self:expect(ref,parameters[i].type) end
     self:effect(edge.arguments[1])
 end
