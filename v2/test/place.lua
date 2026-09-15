@@ -17,13 +17,23 @@ local options={hosts={
         signature=B.Signature(L{B.Parameter(buffer,A.Mut),B.Parameter(B.Int,A.Read),B.Parameter(B.Int,A.Read)},L{B.Unit})},
     consume_buffer={symbol='consume_buffer',phase='runtime',purity='ordered',
         signature=B.Signature(L{B.Parameter(buffer,A.Own)},L{B.Unit})},
+    buffer_size={symbol='buffer_size',phase='runtime',purity='ordered',
+        signature=B.Signature(L{B.Parameter(buffer,A.Read)},L{B.Int})},
 },resources={Buffer={destroy='close_buffer'}}}
-local events={}
+local events,live={},{}
 local host_functions={
-    open_buffer=function(n) events[#events+1]='open:'..tonumber(n); return tonumber(n) end,
+    open_buffer=function(n)
+        local handle=tonumber(n); live[handle]=true
+        events[#events+1]='open:'..handle; return handle
+    end,
     write_byte=function(a,i,v) events[#events+1]=('write:%d:%d'):format(tonumber(i),tonumber(v)) end,
     consume_buffer=function(b) events[#events+1]='consume:'..tonumber(b) end,
-    close_buffer=function(b) events[#events+1]='close:'..tonumber(b) end,
+    buffer_size=function(b) return live[tonumber(b)] and 1 or 0 end,
+    close_buffer=function(b)
+        local handle=tonumber(b)
+        if not live[handle] then events[#events+1]='DOUBLE-CLOSE:'..handle end
+        live[handle]=nil; events[#events+1]='close:'..handle
+    end,
 }
 local function run(source)
     local program=V.parse(source,'place.let'):build(options)
@@ -261,6 +271,56 @@ let f = do
 end
 let r = f()
 ]],'runtime index in the middle','§9.4 a runtime index in the middle of a path is rejected')
+
+-- §9.2 A plain stage receives a read-only borrow "for the invocation", so the caller keeps
+-- ownership: the value is still there afterwards, and the caller releases it once.
+events={} ; live={}
+eq(run[[
+let touch = let b : Buffer do return 0 end
+let f = do
+    let b = open_buffer(1);
+    let n = touch(b);
+    consume_buffer(move b);
+    return n
+end
+let r = f()
+]],0,'§9.2 a plain stage borrows its non-Copy argument')
+eq(table.concat(events,','),'open:1,consume:1',
+    '§9.2 the argument survives the borrow and stays the caller\'s to release')
+eq(run[[
+let f = do
+    let b = open_buffer(4);
+    let n = buffer_size(b);
+    return n
+end
+let r = f()
+]],1,'§9.2 a plain stage reads a live value')
+
+-- §9.2 A word's own locals are activation state even when the word has no stages, so its
+-- return destroys them rather than leaving them in the word's retained state scope.
+events={} ; live={}
+eq(run[[
+let f = do
+    let b = open_buffer(2);
+    return 0
+end
+let r = f()
+]],0,'§9.2 a word with no stages releases its locals')
+eq(table.concat(events,','),'open:2,close:2','§9.2 the local is released exactly once')
+
+-- §6.5 A tail invocation retires this activation, so it can neither borrow an argument for
+-- the call nor hand the callee a borrow of a local. Both are ownership errors, not gaps.
+rejects([[
+let f = do return buffer_size(open_buffer(3)) end
+let r = f()
+]],'cannot borrow an argument for the call','§6.5 a tail call cannot borrow a temporary')
+rejects([[
+let f = do
+    let b = open_buffer(3);
+    return buffer_size(b)
+end
+let r = f()
+]],'does not outlive caller cleanup','§6.5 a tail call cannot pass a local borrow')
 
 -- §9.2 A move on one arm of a branch leaves the aggregate partially initialized on that
 -- path only, so the state of a subplace can be a run-time fact. Destruction guards it, the

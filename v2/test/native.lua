@@ -383,6 +383,21 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'42\n','§9.4 native assignment to a nested member')
 
+-- §9.2 A plain stage receives a read-only borrow for the invocation, so a non-Copy
+-- argument is still the caller's afterwards and is released once, by the caller. If the
+-- callee owned it, the release would appear before the consume, or twice.
+output=native('borrowed_argument',[[
+let look = let b : Buffer do return 0 end
+let run = do
+    let b = open_buffer(1);
+    let n = look(b);
+    consume_buffer(move b);
+    return n
+end
+let answer = run()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'open:1\nconsume:7\n','§9.2 native plain stage borrows and the caller releases')
+
 -- §9.2 A move on one branch only makes the aggregate partially initialized on that path, so
 -- the flag is a run-time fact and the destruction of that subplace is guarded. An unguarded
 -- or inverted guard shows up here as a second release or a missing one.

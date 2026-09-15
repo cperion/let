@@ -257,7 +257,12 @@ end
 function Context:force_bind(name,value,mutable,owned,external,address,span)
     local scope=self.scopes[#self.scopes]
     local existing=scope.names[name]
-    if existing then scope.ids[#scope.ids]=nil end
+    -- A rebind must drop the id it replaces, not whichever id happens to be last.
+    if existing then
+        for i=#scope.ids,1,-1 do
+            if scope.ids[i]==existing then table.remove(scope.ids,i) end
+        end
+    end
     local id=#self.fn.bindings+1
     local type_=address and value.type.pointee or value.type
     self.fn.bindings[id]={name=name,type=type_,mutable=mutable,owned=owned,external=external,address=address,span=span}
@@ -1122,7 +1127,12 @@ function Context:call(expression,tail)
             expect(value,parameter.type,argument.span)
         end
         if temporary then
-            if tail then gap(argument.span,'tail invocation with a borrowed resource temporary') end
+            -- §6.5: the callee and every borrowed argument must outlive this activation's
+            -- cleanup, and a value the callee only borrows for the call cannot. That is an
+            -- ownership error, not a missing lowering.
+            if tail then
+                fail(argument.span,'a tail invocation cannot borrow an argument for the call')
+            end
             local id=self:bind('$argument' .. i,value,false,true,false,false,argument.span)
             value=copy(value); value.origin=id; value.mode='borrow'
         end

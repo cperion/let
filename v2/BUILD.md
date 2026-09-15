@@ -67,6 +67,8 @@ executed by the compiler.
 | §15.1 | Module unload destroys owned state in reverse | The initializer returns the namespace plus the state record that owns every top-level value in construction order; `let_module_unload` destroys that record. A moved prelude stays at its original position in the state, so a written terminal cannot cause a double destruction or reorder it. |
 | §9.2 | Partial moves | `move place` names a subplace as well as a binding: the moved subplace becomes uninitialized, the aggregate becomes partially initialized, and destruction releases only what still holds a value. A subplace containing the hole cannot be read or moved as a value, while a read *through* it to another subplace is allowed; assigning the hole reinitializes it. The path must be statically known. A path moved on only some branch is a run-time fact, carried and destroyed exactly like conditional ownership, so a destruction is guarded by it and reading it is impossible; assigning over it releases the old value only where one is still there. |
 | §9.4 | Assignment to a place path | A destination is any statically known path from a binding: names and constant indices are resolved to member positions, a runtime index may select among them at the last step, and each level is rebuilt from the leaf up. Interior mutability reaches through the whole path (§8.3), while positional elements take capability from the base place (§8.4). A runtime index in the middle of a path, or a write into an uninitialized subplace, is diagnosed. |
+| §§5.4, 9.2 | A plain stage borrows its argument | A non-Copy argument to a stage without `own` is a read-only borrow *for the invocation*: the caller keeps ownership, so the value is still usable afterwards and the caller releases it exactly once. Only `own`/`own mut` give the callee ownership, and a `mut` stage reaches the caller's place through an address. |
+| §§6.5, 9.5 | A word body's locals are activation state | A word's own state lives in the field scopes that retain it; its body's locals get their own scope, so the return destroys them. Without that, a word with no stages ran its body in the retained construction scope and its locals were never released. |
 | §§9.3, 10.1 | Places, borrows, captures | Two type forms, and the difference is ownership. `Allocate` makes an **Address**: an owned cell, part of the owner's state, destroyed with it. `BorrowPlace` makes a **Borrow(pointee, stable)**: temporary access to some place, never owned and therefore never destroyed. A mutable stage is a pointer parameter reached through a borrow; a non-Copy capture is a borrow of the owner's storage, so a captured word and its owner share state. `stable` says whether the place outlives any activation, which is exactly what decides escape — no exemption flags, and no blanket rule. |
 | §8.4 | Runtime positional indexing | A runtime index selects among the members, which is a chain of comparisons ending in a trap; the members must share one type because the selection produces one value. A constant index, a member name and any constant path are resolved statically. Out of range traps. |
 | §9.4 | Indexed assignment | Writing through a constant or runtime index updates the selected member, reusing the destination-then-right-hand-side order and the same storage rule as a projected assignment. |
@@ -118,28 +120,20 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 
 ## Work still required
 
-- Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
-  paths, an optional extension, configured roots), but the language fixes none of it, so a
-  host with its own layout should pass its own resolver.
+These are specified behaviours that the implementation does not yet provide, so each is a
+construction diagnostic rather than a language limitation.
+
 - A loop entry carries one initialization fact per subplace it already knows about, so a
   hole *introduced inside* a loop (`while ... do if c do move a.b end end`) has no slot to
-  be carried across an iteration and is diagnosed. Divergence at an ordinary join is
-  supported, and so is loop-carried reinitialization, which restores the entry's facts.
+  be carried across an iteration. Divergence at an ordinary join is supported, and so is
+  loop-carried reinitialization, which restores the entry's facts.
 - A runtime index in the middle of a place path (`a[i].b = x`) needs a place selected per
-  arm before each arm writes, so it is diagnosed rather than guessed.
-- Dynamically selected words: a runtime word value needs a tagged representation and
-  dispatch, so only statically known word identities are invoked today.
-- The result type of a recursive call whose word has no other return to fix it (rare, and
-  diagnosed rather than guessed).
-- Remaining constraint words and inference/specialization from concrete uses.
+  arm before each arm writes.
 - Construction of stored and returned word values, and higher-order words whose callable
   shape is not visible where the word is built.
-- A precise lowering for explicit moves of Copy bindings. This path is diagnosed
-  rather than inheriting an undocumented old-compiler exception.
-- Text now has a C layout and byte-wise equality, but no concatenation, indexing, or
-  dynamic ownership vocabulary.
-- Tail calls borrowing newly created resource temporaries need invocation-owned
-  temporary storage; they are explicitly diagnosed as an implementation gap.
+- Remaining constraint words: `Bool`, `Int`, `Unit`, `Text`, `Copy` and `Executable` are
+  implemented, while a constraint word that takes specialization arguments waits on the
+  surface vocabulary §11.2 defers.
 - Consumer-driven known evaluation, specialization stabilization, and C scheduling.
   Emission consumes `Function:demands()` and `v2/known.lua`'s answers: unneeded pure
   producers, known producers, their helpers, unused non-entry packet fields and
@@ -148,6 +142,40 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
   Still missing: partial bundles, specialized ABIs, mutual-recursion summaries, loop
   widening, and shared-result materialization (DEMAND.md milestones B and C). No residual
   AST or old evaluator is introduced.
+- Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
+  paths, an optional extension, configured roots), but §15.2 leaves the lookup to the
+  embedding, so a host with its own layout passes its own resolver. This is not missing
+  behaviour; the language fixes none.
+- The result type of a self-call that is the *only* return of its own word. Such a word has
+  no result type to infer -- nothing in the program determines it -- so it is diagnosed
+  rather than guessed. A word with any other return, including one that returns the call's
+  result, is typed from that return.
+- Dynamically selected words: the language permits storing, passing and invoking a word
+  value (§11.2), but a dispatch needs a representation for a value whose word identity is
+  not statically known, and §18 defers any mandatory universal aggregate or closure layout.
+  Choosing that layout is a language decision before it is an implementation one.
+- A precise lowering for explicit moves of Copy bindings. §9.2 defines copying for a Copy
+  result and requires `move` only for an existing non-copyable place; what `move` means for
+  a Copy place is not stated, so the path is diagnosed instead of inheriting an
+  undocumented old-compiler exception.
+
+## Deliberately outside the implementation
+
+These are not gaps. The specification fixes no behaviour to implement, or defers it.
+
+- Text concatenation, Unicode indexing, normalization, formatting and allocation policy:
+  §13.4 specifies a Text literal as an immutable module-lifetime byte sequence and says the
+  core specifies none of these. Dynamically allocated or host-owned strings use separately
+  declared vocabulary and an ownership contract.
+- Tail invocations that borrow an argument for the call: §6.5 makes this an ownership
+  error, and it is reported as one. The same applies to a borrow of a local that cleanup
+  would destroy.
+- Mutual recursion beyond what direct recursion needs: §18 defers the declarations. The
+  evaluator's missing piece is an optimization (a fixed point over a strongly connected
+  component), not a behaviour.
+- Shape constraints written with arguments, floating point, pattern matching, exceptions,
+  coroutines, a stable foreign-function ABI, operator overloading and a built-in cyclic
+  collector: all deferred by §18.
 
 ## Tests and their limits
 
@@ -187,7 +215,9 @@ namespace still destroys it exactly once at its original position; and a `do` te
 returns its namespace to the host while its own locals are destroyed by that return and its
 preludes are handed over as the state.
 
-`test/place.lua` covers §17.4's canonical ownership example, a mutable stage writing the
+`test/place.lua` covers §17.4's canonical ownership example, a plain stage borrowing a
+non-Copy argument that the caller then uses and releases, a word with no stages releasing
+its locals, the two §6.5 tail-invocation ownership errors, a mutable stage writing the
 caller's place, an address-taken Copy local, borrowed members and constant and runtime
 indices (including a nested path), indexed and projected assignment, partial moves with the
 uninitialized-subplace diagnostics they raise and the run-time facts a conditional move

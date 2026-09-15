@@ -226,7 +226,7 @@ function Builder:supply(ctx,value,argument,destination)
         end
         ctx:force_bind(item.name,supplied,owned or item.capability==A.Mut or item.capability==A.OwnMut,owned,false,false,item.span)
         word.fields[#word.fields+1]={name=item.name,value=supplied,type=supplied.type,mutable=item.capability==A.Mut or item.capability==A.OwnMut,
-            owned=owned,retained=destination==B.Persistent,span=item.span}
+            owned=owned,retained=destination==B.Persistent,span=item.span,capability=item.capability}
         word.supplied=word.supplied+1
         self:prepare(ctx,word,layout,step.prepare,destination)
         if word.supplied==#layout.steps then
@@ -315,7 +315,8 @@ function Builder:build_entry(template,fields,id)
         local value=ctx:parameter(field.type,A.Read)
         -- A mutable stage arrives as an address, so the field is that place, not a copy.
         local address=(B.Address:isclassof(field.type) or B.Borrow:isclassof(field.type)) and value or false
-        local owned=not address and not field.type:copyable() and not field.mutable
+        local owned=not address and not field.type:copyable()
+            and (field.capability==A.Own or field.capability==A.OwnMut)
         local binding=ctx:force_bind(names[i],value,field.mutable,owned,false,address,template.source.span)
         records[i]={field=field,id=binding,value=value}
     end
@@ -343,8 +344,14 @@ function Builder:build_entry(template,fields,id)
     for _,record in ipairs(records) do
         if record.field.mutable and record.field.retained then ctx.mutable_state=true end
     end
+    -- The word's own state lives in the field scopes above; its body's locals are
+    -- activation state and must be destroyed by the return, so they get their own scope
+    -- rather than landing in whichever field scope happens to be current.
+    ctx:push()
     ctx:statements(template.source.terminal.statements)
-    if not ctx.block.exit then ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},template.source.span),template.source.span) end
+    if not ctx.block.exit then
+        ctx:finish(ctx:emit(B.UnitLiteral,L{B.Unit},template.source.span),template.source.span)
+    end
     local blocks=L()
     for _,block in ipairs(fn.blocks) do assert(block.exit,'unfinished block'); blocks:insert(B.Block(block.parameters,block.instructions,block.exit)) end
     local results=L{fn.result}
@@ -385,7 +392,8 @@ function Builder:invoke(ctx,expression,tail)
         if word.supplied~=#layout.steps then fail(expression.span,'invocation must exactly saturate remaining stages') end
         local field_types,capabilities,mutable_mask,retained_mask,refs=L(),L(),{}, {},L()
         for i,field in ipairs(word.fields) do
-            field_types:insert(field.type); capabilities:insert(field.mutable and A.Mut or A.Read)
+            field_types:insert(field.type)
+            capabilities:insert(field.capability or (field.mutable and A.Mut or A.Read))
             mutable_mask[i]=field.mutable; retained_mask[i]=field.retained; refs:insert(ctx:ref(field.value))
         end
         local target=self:entry(word.template,field_types,capabilities,mutable_mask,retained_mask)
