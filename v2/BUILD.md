@@ -66,6 +66,7 @@ executed by the compiler.
 | §§15.1–15.2 | File chains, namespace, imports | A file is a chain: top-level `let` forms are its items, and its namespace is the terminal — the named record of its preludes, or a written terminal that chooses the export surface. `import` is a construction-phase dictionary entry whose one slot is a constant `Text` path; the file's preludes are constructed at the import site, its stages are supplied by the following arguments, and the result is its terminal value. Two imports are two specializations, so their state is independent (§5.2), and the namespace is destroyed with the binding the importer gave it. Cycles are diagnosed. |
 | §15.1 | Module unload destroys owned state in reverse | The initializer returns the namespace plus the state record that owns every top-level value in construction order; `let_module_unload` destroys that record. A moved prelude stays at its original position in the state, so a written terminal cannot cause a double destruction or reorder it. |
 | §9.2 | Partial moves | `move place` names a subplace as well as a binding: the moved subplace becomes uninitialized, the aggregate becomes partially initialized, and destruction releases only what still holds a value. A subplace containing the hole cannot be read or moved as a value, while a read *through* it to another subplace is allowed; assigning the hole reinitializes it. The path must be statically known. |
+| §9.4 | Assignment to a place path | A destination is any statically known path from a binding: names and constant indices are resolved to member positions, a runtime index may select among them at the last step, and each level is rebuilt from the leaf up. Interior mutability reaches through the whole path (§8.3), while positional elements take capability from the base place (§8.4). A runtime index in the middle of a path, or a write into an uninitialized subplace, is diagnosed. |
 | §§9.3, 10.1 | Places, borrows, captures | Two type forms, and the difference is ownership. `Allocate` makes an **Address**: an owned cell, part of the owner's state, destroyed with it. `BorrowPlace` makes a **Borrow(pointee, stable)**: temporary access to some place, never owned and therefore never destroyed. A mutable stage is a pointer parameter reached through a borrow; a non-Copy capture is a borrow of the owner's storage, so a captured word and its owner share state. `stable` says whether the place outlives any activation, which is exactly what decides escape — no exemption flags, and no blanket rule. |
 | §8.4 | Runtime positional indexing | A runtime index selects among the members, which is a chain of comparisons ending in a trap; the members must share one type because the selection produces one value. A constant index, a member name and any constant path are resolved statically. Out of range traps. |
 | §9.4 | Indexed assignment | Writing through a constant or runtime index updates the selected member, reusing the destination-then-right-hand-side order and the same storage rule as a projected assignment. |
@@ -122,32 +123,22 @@ independently of construction, including `CallFunction`/`TailCall` contracts.
 - Package resolution policy: `v2/file.lua` provides a default resolver (importer-relative
   paths, an optional extension, configured roots), but the language fixes none of it, so a
   host with its own layout should pass its own resolver.
-- Partial moves out of a projected or indexed aggregate path (`move a.b`): a subplace can
-  be borrowed, but not yet moved out of.
 - Partial moves whose initialization state *diverges* across a control boundary need
   initialization fixed-point analysis; a uniform state is supported and a divergent one is
   diagnosed rather than guessed. A run-time path is not a place that can be partially moved
   (§9.2), so it is rejected by the language rather than by omission.
-- Dynamic positional indexing: a runtime index needs address-taken aggregate storage, so
-  only a compile-time index is resolved today.
-- Projection and assignment through a nested path (`a.b.c = ...`), and invoking a
-  projected word member whose stage is mutable.
+- The same fixed-point analysis is what loop-carried reinitialization needs, and a runtime
+  index in the middle of a place path (`a[i].b = x`) needs a place selected per arm before
+  each arm writes, so both are diagnosed rather than guessed.
 - Dynamically selected words: a runtime word value needs a tagged representation and
   dispatch, so only statically known word identities are invoked today.
 - The result type of a recursive call whose word has no other return to fix it (rare, and
   diagnosed rather than guessed).
-- Consumer-driven known evaluation and scheduling. C emission itself now exists
-  (`emit.lua`/`print.lua`); it prints the whole verified belt, so demand is currently
-  handled only by the C compiler rather than by the frontend.
-  and higher-order words, returned words, and lexical capture lifetimes.
 - Remaining constraint words and inference/specialization from concrete uses.
-- Address-taken locals, projected borrows, mutable borrowed resource stages, and
-  construction of stored/returned word values.
+- Construction of stored and returned word values, and higher-order words whose callable
+  shape is not visible where the word is built.
 - A precise lowering for explicit moves of Copy bindings. This path is diagnosed
   rather than inheriting an undocumented old-compiler exception.
-- Loop ownership states requiring initialization fixed-point analysis. For now an
-  accepted backedge must restore the incoming initialization facts; other cases
-  are diagnosed as implementation gaps, not declared illegal Let programs.
 - Text now has a C layout and byte-wise equality, but no concatenation, indexing, or
   dynamic ownership vocabulary.
 - Tail calls borrowing newly created resource temporaries need invocation-owned

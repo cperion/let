@@ -203,6 +203,65 @@ end
 let r = f()
 ]],'needs members of one type','§9.3 a borrowed runtime index over mixed members is rejected')
 
+-- §9.4 Assignment to a path rebuilds each level of it, so a nested place is writable and
+-- every sibling keeps its value.
+eq(run[[
+let f = do
+    let a mut = { let b mut = { let c mut = 1 let d = 2 } };
+    a.b.c = 3;
+    return a.b.c
+end
+let r = f()
+]],3,'§9.4 assignment to a nested member')
+eq(run[[
+let f = do
+    let a mut = { let b = { let c = 1 } let d = 5 };
+    a.b.c = 9;
+    return a.b.c + a.d
+end
+let r = f()
+]],14,'§9.4 a nested write preserves its siblings')
+eq(run[[
+let f = do
+    let a mut = { let b mut = { 0, 0 } };
+    let i mut = 0;
+    while i < 2 do
+        a.b[i] = i + 10;
+        i = i + 1
+    end
+    return a.b[0] + a.b[1]
+end
+let r = f()
+]],21,'§9.4 a runtime index writes into a nested aggregate')
+
+-- §8.3 A member declared mut is interior mutable state, so the whole path into it is
+-- writable even though the root binding is not mut.
+eq(run[[
+let f = do
+    let a = { let b = { let c mut = 1 } };
+    a.b.c = 7;
+    return a.b.c
+end
+let r = f()
+]],7,'§8.3 interior mutability reaches through a nested path')
+rejects([[
+let f = do
+    let a = { let b = { let c = 1 } };
+    a.b.c = 7;
+    return a.b.c
+end
+let r = f()
+]],'immutable member','§8.3 a nested path with no mutable member is rejected')
+rejects([[
+let f = do
+    let a mut = { { 1, 2 }, { 3, 4 } };
+    let i = 0;
+    a[i][1] = 9;
+    return a[0][1]
+end
+let r = f()
+]],'runtime index in the middle','§9.4 a runtime index in the middle of a path is rejected')
+
 -- §9.2 Moving out of a subplace leaves that subplace uninitialized and the aggregate
 -- partially initialized: the sibling is unaffected, and each buffer is released once, by
 -- whichever binding owns it when it goes out of scope.

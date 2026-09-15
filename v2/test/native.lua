@@ -347,6 +347,20 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'60\n','§8.4/§9.4 a runtime index and indexed assignment')
 
+-- §9.4 A nested assignment rebuilds each level of the path, so the write lands in the
+-- member it names and every sibling survives it.
+output=native('nested_assignment',[[
+let run = do
+    let a mut = { let b mut = { let c mut = 1 let d = 2 } };
+    a.b.c = 40;
+    return a.b.c + a.b.d
+end
+let answer = run()
+let show = do print_int(answer) end
+let shown = show()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'42\n','§9.4 native assignment to a nested member')
+
 -- §9.2 Moving one subplace out of an aggregate hands that resource to the new binding: one
 -- release per buffer, by whichever binding owns it, and the other members are untouched.
 output=native('partial_move',[[

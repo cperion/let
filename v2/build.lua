@@ -852,106 +852,112 @@ end
 
 -- §8.4 positional elements have no individual qualifier, so their write capability comes
 -- from the base place. §4.3 evaluates the destination first, then the right-hand side.
-function A.Assign:assign_index(ctx)
-    local place=self.place
-    if not A.Name:isclassof(place.base) then gap(self.span,'assignment through a nested place') end
-    local id,binding,cell=ctx:binding(place.base.name,self.span)
+-- §9.4 Assignment establishes the destination place first, then evaluates the right-hand
+-- side, then replaces whatever the place still holds. A destination is any statically known
+-- path from a binding, and each level of that path is rebuilt from the leaf up.
+function A.Assign:assign_place(ctx)
+    local root,steps=place_path(self.place)
+    if not root then gap(self.span,'this assignment place') end
+    local id,binding,cell=ctx:binding(root,self.span)
     if not cell.initialized then fail(self.span,'assignment to uninitialized binding ' .. binding.name) end
     ctx:access(id,true,self.span)
-    local base=ctx:read_place(id,place.base.name,binding,cell,self.span)
-    local fields=base.type.fields
-    if not fields then fail(place.span,'indexing requires an aggregate value') end
-    local constant=constant_index(place.index)
-    if constant then ctx:check_writable(id,tostring(constant),self.span)
-    else ctx:nested_moved(id,'',self.span) end
-    local key
-    if constant then
-        if constant<0 or constant>=#fields then
-            fail(place.span,('index %d is outside the valid range 0..%d'):format(constant,#fields-1))
-        end
-    else
-        key=place.index:build(ctx); expect(key,B.Int,place.index.span)
-        for i=2,#fields do
-            if not fields[i].type:same(fields[1].type) then
-                fail(place.span,'a runtime index needs members of one type')
+    -- Resolve each step to a member position. Only the last step may be a runtime index; one
+    -- in the middle would name a place that a further path cannot continue into.
+    local positions,interior={},false
+    local records={ctx:read_place(id,root,binding,cell,self.span)}
+    local path,type_='',binding.type
+    for i,step in ipairs(steps) do
+        local fields=type_.fields
+        if not fields then fail(step.span,'a place path requires an aggregate value') end
+        local index
+        if step.name then
+            index=select(1,ctx:record_field(type_,step.name,step.span))-1
+            if fields[index+1].mutable then interior=true end
+        elseif step.index then
+            index=step.index
+            if index<0 or index>=#fields then
+                fail(step.span,('index %d is outside the valid range 0..%d'):format(index,#fields-1))
             end
+        elseif i~=#steps then
+            gap(step.span,'a runtime index in the middle of a place path')
+        end
+        positions[i]=index
+        if index then
+            path=(path=='' and tostring(index)) or (path .. '.' .. tostring(index))
+            if i<#steps then
+                records[i+1]=ctx:emit(B.LoadField(ctx:ref(records[i]),index),L{fields[index+1].type},step.span)
+            end
+            type_=fields[index+1].type
         end
     end
-    if not binding.mutable then
+    -- `path` reaches the leaf for a static final step and the leaf's container otherwise.
+    local parent,leaf=records[#steps],type_
+    if not positions[#steps] then
+        local fields=parent.type.fields
+        for i=2,#fields do
+            if not fields[i].type:same(fields[1].type) then fail(self.span,'a runtime index needs members of one type') end
+        end
+        leaf=fields[1].type
+        ctx:nested_moved(id,path,self.span)
+    else
+        ctx:check_writable(id,path,self.span)
+    end
+    -- §8.3 interior mutable state stays writable through an immutable owning binding, while
+    -- §8.4 positional elements take their write capability from the base place instead.
+    if not (binding.mutable or interior) then
+        if A.Project:isclassof(self.place) then
+            fail(self.span,'assignment to an immutable member ' .. self.place.name)
+        end
         fail(self.span,'assignment to an immutable binding ' .. binding.name)
     end
-    -- The destination is established before the right-hand side (§4.3), and both it and the
-    -- place it indexes must survive any control flow the right-hand side builds.
-    ctx:pin(base); if key then ctx:pin(key) end
+    local key
+    if not positions[#steps] then key=self.place.index:build(ctx); expect(key,B.Int,self.place.span) end
+    -- The destination is established before the right-hand side (§4.3), and every level of
+    -- it must survive any control flow that the right-hand side builds.
+    for i=1,#records do ctx:pin(records[i]) end
+    if key then ctx:pin(key) end
     local value=self.value:build(ctx)
-    local element=constant and fields[constant+1].type or fields[1].type
-    expect(value,element,self.span); ctx:accept_owned(value,self.span)
+    expect(value,leaf,self.span); ctx:accept_owned(value,self.span)
     ctx:pin(value)
-    local function replace(c,at,target)
-        if ctx:owns(element) and not (cell.moved[tostring(at)]) then
-            c:destroy(c:emit(B.LoadField(c:ref(base),at),L{element},self.span),self.span,cell.moved,constant and tostring(at) or nil)
+    local function install(c,position,target)
+        local updated=c:emit(B.StoreField(c:ref(parent),position,c:ref(target)),L{parent.type},self.span)
+        for i=#steps-1,1,-1 do
+            updated=c:emit(B.StoreField(c:ref(records[i]),positions[i],c:ref(updated)),L{records[i].type},self.span)
         end
-        return c:emit(B.StoreField(c:ref(base),at,c:ref(target)),L{base.type},self.span)
+        return updated
+    end
+    -- A hole holds no value, so replacing one releases nothing.
+    local hole=ctx.cells[id].moved[path]
+    local function replace(c,position,target)
+        if ctx:owns(leaf) and not hole then
+            c:destroy(c:emit(B.LoadField(c:ref(parent),position),L{leaf},self.span),self.span,ctx.cells[id].moved,path)
+        end
+        return install(c,position,target)
     end
     local updated
-    if constant then
-        updated=replace(ctx,constant,value)
+    if positions[#steps] then
+        updated=replace(ctx,positions[#steps],value)
     else
         local function arm(c,at)
+            local fields=parent.type.fields
             if at>=#fields then c.block.exit=B.Trap(c:ref(c.effect),'index out of range'); return nil end
             local matches=c:emit(B.IntegerLiteral(tostring(at)),L{B.Int},self.span)
             local test=c:emit(B.Binary(A.Equal,c:ref(key),c:ref(matches)),L{B.Bool},self.span)
-            return c:branch(test,function(y) return replace(y,at,value) end,function(n) return arm(n,at+1) end,base.type)
+            return c:branch(test,function(y) return replace(y,at,value) end,function(n) return arm(n,at+1) end,records[1].type)
         end
         updated=arm(ctx,0)
     end
     if updated then
         ctx:rebind(id,binding,cell,updated,self.span)
-        if constant then
-            local path=tostring(constant)
-            for was in pairs(ctx.cells[id].moved) do
-                if contains(path,was) then ctx.cells[id].moved[was]=nil end
-            end
+        for was in pairs(ctx.cells[id].moved) do
+            if contains(path,was) then ctx.cells[id].moved[was]=nil end
         end
     end
-    ctx:unpin(); if key then ctx:unpin() end; ctx:unpin()
+    if key then ctx:unpin() end
+    for i=1,#records do ctx:unpin() end
+    ctx:unpin()
 end
-
-function A.Assign:assign_member(ctx)
-    local place=self.place
-    if not A.Name:isclassof(place.base) then gap(self.span,'assignment through a nested place') end
-    local id,binding,cell=ctx:binding(place.base.name,self.span)
-    if not cell.initialized then fail(self.span,'assignment to uninitialized binding ' .. binding.name) end
-    ctx:access(id,true,self.span)
-    local base=ctx:read_place(id,place.base.name,binding,cell,self.span)
-    local index,field=ctx:record_field(base.type,place.name,self.span)
-    local key=tostring(index-1)
-    ctx:check_writable(id,key,self.span)
-    -- §8.3: a member declared mut is an interior mutable place and stays writable through
-    -- an immutable owning binding; otherwise the binding itself must be mutable.
-    if not (binding.mutable or field.mutable) then
-        fail(self.span,'assignment to an immutable member ' .. place.name)
-    end
-    local value=self.value:build(ctx)
-    expect(value,field.type,self.span); ctx:accept_owned(value,self.span)
-    ctx:pin(base); ctx:pin(value)
-    -- §9.4: the old value is destroyed only once the right-hand side has completed.
-    if ctx:owns(field.type) and not cell.moved[key] then
-        ctx:destroy(ctx:emit(B.LoadField(ctx:ref(base),index-1),L{field.type},self.span),self.span,cell.moved,key)
-    end
-    local updated=ctx:emit(B.StoreField(ctx:ref(base),index-1,ctx:ref(value)),L{base.type},self.span)
-    updated.mode='fresh'
-    ctx:rebind(id,binding,cell,updated,self.span)
-    for was in pairs(ctx.cells[id].moved) do
-        if contains(key,was) then ctx.cells[id].moved[was]=nil end
-    end
-    ctx:unpin(); ctx:unpin()
-end
-
-function A.Assign:build(ctx)
-    if A.Project:isclassof(self.place) then return self:assign_member(ctx) end
-    if A.Index:isclassof(self.place) then return self:assign_index(ctx) end
-    if not A.Name:isclassof(self.place) then gap(self.span,'this assignment place') end
+function A.Assign:assign_binding(ctx)
     local id,binding=ctx:binding(self.place.name,self.span)
     if not binding.mutable then fail(self.span,'assignment to immutable binding ' .. binding.name) end
     local value=self.value:build(ctx); expect(value,binding.type,self.span); ctx:accept_owned(value,self.span); ctx:access(id,true,self.span)
@@ -963,6 +969,10 @@ function A.Assign:build(ctx)
         ctx:release(id); ctx.cells[id]={value=value,initialized=true,alive=binding.owned,moved={}}
     end
     ctx:unpin()
+end
+function A.Assign:build(ctx)
+    if A.Name:isclassof(self.place) then return self:assign_binding(ctx) end
+    return self:assign_place(ctx)
 end
 
 function A.Discard:build(ctx)
