@@ -12,6 +12,25 @@ features documented in [COMPILER.md](COMPILER.md).
 - [Native benchmarks](bench/README.md)
 - [Third-party notices](THIRD_PARTY.md)
 
+## One file
+
+`dist/let.lua` is the whole compiler: no installation, no `package.path`, nothing to link. It is
+generated from the module tree by
+
+```sh
+luajit bundle.lua            # writes dist/let.lua
+```
+
+and it is read two ways. As a library it returns the same table the modules do, so
+`local V = dofile('dist/let.lua')` is the compiler. As a script it compiles a file:
+
+```sh
+luajit dist/let.lua input.let output.c [options.lua]
+```
+
+`test/bundle.lua` keeps it honest: the committed file must equal what the generator produces, must
+emit exactly what the module layout emits, and must compile a file when run.
+
 ## Surface
 
 Juxtaposition supplies stages; parentheses invoke words. There is no `with` operator.
