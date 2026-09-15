@@ -109,6 +109,19 @@ end
 becomes an executable with `luajit dist/let.lua hello.let hello.c && cc hello.c -o hello`
 (`examples/hello.let`). The ABI stays an embedding detail (§15.3), not Let syntax.
 
+A foreign word may also be declared in source, which needs no options file at all:
+
+```let
+extern pure strlen (text : CString) : Int
+```
+
+`let/extern.lua` turns each declaration into the same host descriptor an options file would have
+written, so resolution, construction and emission see one vocabulary. The C prototype is derived
+from the Let types (`Int` `int64_t`, `CString` `const char*`, ...); an embedding descriptor
+refines a width that differs (`c = { result = 'size_t' }`), and a source name is lexical rather
+than namespaced. A declaration whose C symbol is already registered -- libc's `strlen`, say --
+collides by symbol, so a program either uses the `c` namespace or picks its own name.
+
 ## Normative obligations and mechanisms
 
 | Spec | Obligation | Construction/check/test mechanism |
