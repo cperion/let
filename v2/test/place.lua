@@ -96,7 +96,7 @@ let make = do
     return move f
 end
 let g = make()
-]],'borrows enclosing state','§10.1 a borrow of activation-local state cannot be returned')
+]],'borrows activation state','§10.1 a borrow of activation-local state cannot be returned')
 
 -- A capture used only inside its own activation is fine.
 eq(run[[

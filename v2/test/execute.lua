@@ -51,6 +51,7 @@ function B.HostCall:execute(ctx)
     if result==nil then result=unit end; return result,ctx:get(self.effect)+1
 end
 function B.Allocate:execute(ctx) return {value=ctx:get(self.initial)},ctx:get(self.effect)+1 end
+function B.BorrowPlace:execute(ctx) return ctx:get(self.address) end
 function B.Load:execute(ctx) return ctx:get(self.address).value,ctx:get(self.effect)+1 end
 function B.Store:execute(ctx) ctx:get(self.address).value=ctx:get(self.value); return ctx:get(self.effect)+1 end
 function B.Move:execute(ctx) return ctx:get(self.value),ctx:get(self.effect)+1 end

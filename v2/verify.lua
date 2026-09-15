@@ -52,7 +52,13 @@ function B.HostCall:verify(ctx)
     local host=assert(ctx.hosts[self.symbol],'missing host contract'); local signature=host.signature
     assert(#signature.parameters==#self.arguments,'host argument count mismatch')
     for i,parameter in ipairs(signature.parameters) do
-        ctx:expect(self.arguments[i],parameter.capability==A.Mut and B.Address(parameter.type) or parameter.type)
+        if parameter.capability==A.Mut then
+            -- A mutable stage is reached through a borrow of the caller's place (§6.3).
+            local borrow=ctx:type(self.arguments[i])
+            assert(B.Borrow:isclassof(borrow) and borrow.pointee:same(parameter.type),'host mutable stage requires a mutable place')
+        else
+            ctx:expect(self.arguments[i],parameter.type)
+        end
     end
     ctx:ordered(self.effect,signature.results)
 end
@@ -68,6 +74,12 @@ function B.PureHostCall:verify(ctx)
 end
 -- Records declare their own shape in the instruction's result type, so the verifier
 -- checks the operand types against it instead of inventing member names.
+-- Borrowing a place is an operation in its own right (§9.3): it is the same storage, but
+-- the type becomes a borrow, which is what carries the ownership and lifetime rules.
+function B.BorrowPlace:verify(ctx)
+    local pointee=ctx:pointee(self.address)
+    ctx:results(L{B.Borrow(pointee,self.stable)})
+end
 function B.Construct:verify(ctx)
     local result=ctx.instruction.results[1]
     local fields=result and result:record()
@@ -95,13 +107,17 @@ function B.Allocate:verify(ctx)
     local type_=ctx:type(self.initial)
     ctx:ordered(self.effect,L{B.Address(type_)})
 end
+function Check:pointee(ref)
+    local type_=self:type(ref)
+    assert(B.Address:isclassof(type_) or B.Borrow:isclassof(type_),'a place is required here')
+    return type_.pointee
+end
 function B.Load:verify(ctx)
-    local address=ctx:type(self.address); assert(B.Address:isclassof(address),'load requires an address')
-    ctx:ordered(self.effect,L{address.pointee})
+    ctx:ordered(self.effect,L{ctx:pointee(self.address)})
 end
 function B.Store:verify(ctx)
-    local address=ctx:type(self.address); assert(B.Address:isclassof(address),'store requires an address')
-    ctx:expect(self.value,address.pointee); ctx:ordered(self.effect,L())
+    local pointee=ctx:pointee(self.address)
+    ctx:expect(self.value,pointee); ctx:ordered(self.effect,L())
 end
 function B.Move:verify(ctx)
     -- Ownership transfer applies to any non-Copy value, including a record of resources.

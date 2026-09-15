@@ -19,6 +19,7 @@ local function typekey(type_)
         return 'word(' .. tostring(type_.is_copy) .. ';' .. table.concat(parts,',') .. ')'
     end
     if B.Address:isclassof(type_) then return 'address(' .. typekey(type_.pointee) .. ')' end
+    if B.Borrow:isclassof(type_) then return 'borrow(' .. tostring(type_.stable) .. typekey(type_.pointee) .. ')' end
     if B.Named:isclassof(type_) then return 'named(' .. type_.name .. ')' end
     return tostring(type_)
 end
@@ -139,7 +140,10 @@ function Builder:instantiate(ctx,definition)
                 -- §10.1: a non-escaping word captures an owned binding as a read borrow, and
                 -- a borrow of a value is the owner's storage. The word therefore holds the
                 -- owner's address, and invoking through it mutates the owner in place.
-                value=copy(ctx.cells[id].value); value.mode='borrow'
+                local address=ctx.cells[id].value
+                value=ctx:emit(B.BorrowPlace(ctx:ref(address),binding.lifetime=='module'),
+                    L{B.Borrow(address.type.pointee,binding.lifetime=='module')},capture.span)
+                value.mode='borrow'
                 borrows={id}
             else
                 value=ctx:read(capture.name,capture.span)
@@ -198,9 +202,16 @@ function Builder:supply(ctx,value,argument,destination)
     -- A mutable stage is a place, so its argument is the declared type's address and the
     -- constraint describes what that place contains.
     local mut=item.capability==A.Mut
-    local subject=mut and (B.Address:isclassof(supplied.type) and supplied.type.pointee or supplied.type) or supplied.type
-    local type_=ctx:constraint(item.constraint,subject,argument.span)
-    if type_ then expect(supplied,mut and B.Address(type_) or type_,argument.span) end
+    if mut and not B.Borrow:isclassof(supplied.type) then
+        fail(argument.span,'mutable stage requires mut place')
+    end
+    -- A mutable stage is a place, so what its constraint describes is the place's contents,
+    -- not the borrow that reaches them.
+    local type_=ctx:constraint(item.constraint,mut and supplied.type.pointee or supplied.type,argument.span)
+    if type_ then
+        if mut then expect({type=supplied.type.pointee,origin=supplied.origin},type_,argument.span)
+        else expect(supplied,type_,argument.span) end
+    end
     if (item.capability==A.Own or item.capability==A.OwnMut) and ctx:borrows(supplied.type) then
         gap(argument.span,'passing a word that borrows enclosing state to an ownership-taking stage')
     end
@@ -303,7 +314,7 @@ function Builder:build_entry(template,fields,id)
         ctx:push(); if field.retained then ctx:retain() end
         local value=ctx:parameter(field.type,A.Read)
         -- A mutable stage arrives as an address, so the field is that place, not a copy.
-        local address=B.Address:isclassof(field.type) and value or false
+        local address=(B.Address:isclassof(field.type) or B.Borrow:isclassof(field.type)) and value or false
         local owned=not address and not field.type:copyable() and not field.mutable
         local binding=ctx:force_bind(names[i],value,field.mutable,owned,false,address,template.source.span)
         records[i]={field=field,id=binding,value=value}
@@ -313,7 +324,7 @@ function Builder:build_entry(template,fields,id)
         -- §10.1: the storage this word borrowed belongs to this activation, so the word
         -- cannot leave it.
         if self_:borrows(value.type) then
-            fail(span,'a word that borrows enclosing state cannot be returned from the invocation that owns it')
+            fail(span,'a word that borrows activation state cannot be returned from the invocation that owns it')
         end
         self_:accept_owned(value,span)
         if self_.fn.result then expect(value,self_.fn.result,span) else self_.fn.result=value.type end
@@ -386,7 +397,7 @@ function Builder:invoke(ctx,expression,tail)
             -- cannot be passed. Only a borrow of module storage would survive, and the type
             -- does not distinguish that, so any borrow is conservative here.
             for _,field in ipairs(word.fields) do
-                if B.Address:isclassof(field.type) then
+                if ctx:borrows(field.type) then
                     fail(expression.span,'tail invocation borrow does not outlive caller cleanup')
                 end
             end
@@ -475,7 +486,8 @@ function Builder:build_module()
     local file=self.ast.file
     local fn={name='__module_init',span=file.span,
         blocks={},bindings={},next_value=0,result=nil,state=nil,resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
-    local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
+    local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,
+        resolved=self.resolved,lifetime='module'},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
     local order,values,fields=L(),L(),L()
     for index,item in ipairs(file.items) do
@@ -494,7 +506,6 @@ function Builder:build_module()
     -- Module bindings live until module unload, not until initialization returns, so a
     -- borrow of module storage outlives any value that holds it.
     ctx.scopes[1].retained=true
-    ctx.allow_borrow_escape=true
     self.module_order=order
     local namespace
     if file.terminal==nil then

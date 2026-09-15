@@ -7,6 +7,7 @@ module Belt {
     Field = (string? name, Type type, boolean mutable)
     Type = Int | Bool | Unit | Text | Effect
          | Named(string name) | Address(Type pointee)
+         | Borrow(Type pointee, boolean stable)
          | Aggregate(Field* fields, boolean is_copy)
          | Word(number template, number supplied, Field* fields, boolean is_copy)
          | Callable(Signature signature)
@@ -18,6 +19,7 @@ module Belt {
        | Unary(AST.UnaryOp operator, Ref operand)
        | Binary(AST.BinaryOp operator, Ref left, Ref right)
        | CheckedBinary(AST.BinaryOp operator, Ref effect, Ref left, Ref right)
+       | BorrowPlace(Ref address, boolean stable)
        | Construct(Ref* fields, boolean is_copy)
        | LoadField(Ref record, number field)
        | StoreField(Ref record, number field, Ref value)

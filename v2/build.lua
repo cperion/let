@@ -17,6 +17,10 @@ local function fields_same(a,b)
     end
     return true
 end
+-- A borrow is a view of a place: the same pointee, but not the same thing to own.
+function B.Borrow:same(other)
+    return B.Borrow:isclassof(other) and self.stable==other.stable and self.pointee:same(other.pointee)
+end
 function B.Aggregate:same(other)
     return B.Aggregate:isclassof(other) and self.is_copy==other.is_copy and fields_same(self.fields,other.fields)
 end
@@ -129,7 +133,8 @@ function Context:bind(name,value,mutable,owned,external,address,span)
     if scope.names[name] then fail(span,'duplicate binding ' .. name) end
     local id=#self.fn.bindings+1
     local type_=address and value.type.pointee or value.type
-    self.fn.bindings[id]={name=name,type=type_,mutable=mutable,owned=owned,external=external,address=address,span=span}
+    self.fn.bindings[id]={name=name,type=type_,mutable=mutable,owned=owned,external=external,
+        address=address,span=span,lifetime=self.lifetime or 'activation'}
     scope.names[name]=id; scope.ids[#scope.ids+1]=id
     self.cells[id]={value=value,initialized=true,alive=owned}; return id
 end
@@ -149,7 +154,7 @@ end
 -- borrow is represented. Such a value may not leave the activation that owns the storage,
 -- so escape points can be decided from the type alone, with no value-level tracking.
 function Context:borrows(type_)
-    if B.Address:isclassof(type_) then return true end
+    if B.Borrow:isclassof(type_) then return not type_.stable end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         for _,field in ipairs(type_.fields) do if self:borrows(field.type) then return true end end
     end
@@ -184,7 +189,7 @@ end
 -- builder/resolution it resolves word identities and templates against.
 function Context:clone()
     local child=setmetatable({fn=self.fn,block=self:new_block(),locations={},cells={},pins={},locks=self.locks,scopes={},
-        builder=self.builder,resolved=self.resolved,mutable_state=self.mutable_state},Context)
+        builder=self.builder,resolved=self.resolved,mutable_state=self.mutable_state,lifetime=self.lifetime},Context)
     for i,scope in ipairs(self.scopes) do child.scopes[i]={names=copy(scope.names),ids=copy(scope.ids),retained=scope.retained} end
     return child
 end
@@ -242,6 +247,7 @@ end
 -- destroying its owned fields in reverse initialization order (§8.5, §9.5).
 function Context:owns(type_)
     if B.Address:isclassof(type_) then return self:owns(type_.pointee) end
+    if B.Borrow:isclassof(type_) then return false end
     if type_:copyable() then return false end
     if B.Named:isclassof(type_) then return true end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
@@ -315,8 +321,8 @@ function Context:finish_pair(namespace,state,span)
 end
 
 function Context:finish(value,span)
-    if not self.allow_borrow_escape and self:borrows(value.type) then
-        fail(span,'a word that borrows enclosing state cannot be returned from the invocation that owns it')
+    if self:borrows(value.type) then
+        fail(span,'a word that borrows activation state cannot be returned from the invocation that owns it')
     end
     self:accept_owned(value,span)
     if self.fn.result then expect(value,self.fn.result,span) else self.fn.result=value.type end
@@ -405,7 +411,14 @@ function A.Borrow:build(ctx)
     if not binding.mutable then fail(self.span,'mutable borrow of immutable binding') end
     if not cell.initialized then fail(self.span,'borrow of uninitialized binding') end
     if not binding.address then gap(self.span,'address-taken locals') end
-    ctx:access(id,true,self.span); local value=copy(cell.value); value.mode='mut'; value.origin=id; return value
+    ctx:access(id,true,self.span)
+    -- The storage is the place's; borrowing it yields temporary access, so the value's type
+    -- says borrow rather than ownership (§1.3, §9.3), and its stability decides whether a
+    -- word holding it may escape.
+    local value=ctx:emit(B.BorrowPlace(ctx:ref(cell.value),binding.lifetime=='module'),
+        L{B.Borrow(cell.value.type.pointee,binding.lifetime=='module')},self.span)
+    value.mode='mut'; value.origin=id
+    return value
 end
 function A.Data:build(ctx) return self.value:build(ctx) end
 -- A complete binding chain is also a value, so aggregates and delimited arguments can
@@ -692,7 +705,11 @@ function Context:call(expression,tail)
         local parameter=sig.parameters[i]; local value=argument:build(self)
         if not value.type then gap(argument.span,'word values in data positions') end
         local access,temporary=parameter.capability:bind_argument(value,B.Transient,function(message) fail(argument.span,message) end)
-        expect(value,access==B.MutAccess and B.Address(parameter.type) or parameter.type,argument.span)
+        if access==B.MutAccess then
+            assert(B.Borrow:isclassof(value.type) and value.type.pointee:same(parameter.type),'a mutable stage requires a mutable place')
+        else
+            expect(value,parameter.type,argument.span)
+        end
         if temporary then
             if tail then gap(argument.span,'tail invocation with a borrowed resource temporary') end
             local id=self:bind('$argument' .. i,value,false,true,false,false,argument.span)
@@ -736,7 +753,9 @@ function A.Stage:entry(ctx,index,options)
     local address=self.capability==A.Mut
     if address and not type_:copyable() then gap(self.span,'mutable borrowed resource stages') end
     ctx:validate_ownership(type_,self.span)
-    local value=ctx:parameter(address and B.Address(type_) or type_,self.capability)
+    -- A mutable stage arrives as a borrow of the caller's place (§6.3). Its stability is a
+    -- property of the call site, so the generic entry path here is the conservative one.
+    local value=ctx:parameter(address and B.Borrow(type_,false) or type_,self.capability)
     local owned=not type_:copyable() and (self.capability==A.Own or self.capability==A.OwnMut)
     local external=address or (not owned and not type_:copyable())
     ctx:bind(self.name,value,self.capability==A.Mut or self.capability==A.OwnMut,owned,external,address,self.span)

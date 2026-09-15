@@ -17,6 +17,7 @@ local function typekey(type_)
         return tag .. '(' .. tostring(type_.is_copy) .. ';' .. table.concat(parts,',') .. ')'
     end
     if B.Address:isclassof(type_) then return '*' .. typekey(type_.pointee) end
+    if B.Borrow:isclassof(type_) then return '*b' .. tostring(type_.stable) .. typekey(type_.pointee) end
     if B.Named:isclassof(type_) then return 'n(' .. type_.name .. ')' end
     return tostring(type_)
 end
@@ -51,7 +52,7 @@ function Emitter:ctype(type_)
     if type_==B.Effect then return C.U64 end
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if B.Named:isclassof(type_) then return C.I64 end
-    if B.Address:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
+    if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         -- A record with no fields carries no information, and an empty struct is not ISO C.
         if #type_.fields==0 then return C.U8 end
@@ -237,6 +238,10 @@ function Emitter:instruction(block,block_id,index,instruction)
             self.trap=true
             declare(1,B.Effect,C.Binary('+',effect,C.Integer(0,1)))
         else declare(1,B.Effect,effect) end
+    elseif B.BorrowPlace:isclassof(operation) then
+        -- A borrow is the same storage, so nothing is emitted for the operation itself; only
+        -- the type changed, and that is a frontend matter.
+        declare(0,instruction.results[1],self:ref(block,block_id,position,operation.address))
     elseif B.Construct:isclassof(operation) then
         if #operation.fields==0 then declare(0,instruction.results[1],C.Integer(0,0))
         else declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,operation.fields))) end

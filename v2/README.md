@@ -160,10 +160,12 @@ trapping operation rather than becoming a compile-time diagnostic.
   runtime value. Widening only ever moves toward `Runtime`, and it is verified against what
   the edges actually supply, so a varying value cannot be mistaken for a constant.
 - **A binding becomes a place when its address is asked for** — by `mut place`, or because a
-  nested word captures it (§9.3, §10.1). The cell is a C local (file-scope at module
-  lifetime, so a captured word's address outlives the initializer), a mutable stage is a
-  pointer parameter, and a non-Copy capture is the owner's address, so a captured word and
-  its owner share state. Because a borrow *is* an address, escape is decided from the type.
+  nested word captures it (§9.3, §10.1). Two type forms carry the difference that matters:
+  `Allocate` makes an **Address**, an owned cell destroyed with its owner; `BorrowPlace`
+  makes a **Borrow**, temporary access that is never owned. A mutable stage is a pointer
+  parameter reached through a borrow, a non-Copy capture is a borrow of the owner's storage
+  (so a captured word and its owner share state), and `stable` says whether the place
+  outlives any activation — which is precisely what decides escape.
 - **Module unload is a generated function.** The initializer returns the namespace and the
   state that owns it; `let_module_unload(state)` destroys that state in reverse successful-
   construction order (§15.1). One owner means a written terminal that moves an owned prelude
