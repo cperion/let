@@ -280,8 +280,8 @@ function Builder:specialize(ctx,expression)
     return self:supply(ctx,value,expression.argument,self:destination())
 end
 
-function Builder:entry(template,field_types,capabilities,mutable_mask,retained_mask)
-    local parts={tostring(template.id)}
+function Builder:entry(template,field_types,capabilities,mutable_mask,retained_mask,supplied_stages,bound_items)
+    local parts={tostring(template.id),'s' .. tostring(supplied_stages or #field_types)}
     for _,type_ in ipairs(field_types) do parts[#parts+1]=typekey(type_) end
     for i=1,#field_types do parts[#parts+1]=retained_mask[i] and '1' or '0' end
     local key=table.concat(parts,'|')
@@ -294,32 +294,64 @@ function Builder:entry(template,field_types,capabilities,mutable_mask,retained_m
         fields[i]={type=type_,capability=capabilities[i],mutable=mutable_mask[i],retained=retained_mask[i]}
     end
     self.functions[id]=false
-    self.functions[id]=self:build_entry(template,fields,id)
+    self.functions[id]=self:build_entry(template,fields,id,supplied_stages,bound_items)
     return id
 end
 
-function Builder:build_entry(template,fields,id)
+-- An entry binds its parameters and runs whatever preludes lie between them. For a saturated
+-- entry the call site already ran every prelude, so `supplied` is every stage and the parameters
+-- are the word's fields. For a host entry the word is part way through: the parameters are its
+-- captures and the items it already has, then the stages it has left, and the preludes belonging
+-- to those stages run here because nobody else can run them.
+function Builder:build_entry(template,fields,id,supplied,bound)
     local layout=self:layout(template)
-    local names={}
-    local index=1
-    for _,capture in ipairs(layout.captures) do names[index]=capture.name; index=index+1 end
-    for _,item in ipairs(layout.items) do names[index]=item.name; index=index+1 end
+    supplied=supplied or #layout.steps
+    bound=bound or #layout.items
     local fn={name=(template.name or 'word') .. '_' .. id,span=template.source.span,blocks={},bindings={},next_value=0,
         result=nil,resources=self.options.resources or {},hosts=self.options.hosts or {},types=self:types()}
     local ctx=setmetatable({fn=fn,locations={},cells={},scopes={},pins={},locks={},builder=self,resolved=self.resolved},Context)
     ctx.block=ctx:new_block(); ctx:push(); ctx.effect=ctx:parameter(B.Effect)
     ctx.entry_id=id
-    local records={}
-    for i,field in ipairs(fields) do
+    local records,at={},0
+    local function bind(name,field,span)
+        at=at+1
         ctx:push(); if field.retained then ctx:retain() end
         local value=ctx:parameter(field.type,A.Read)
         -- A mutable stage arrives as an address, so the field is that place, not a copy.
         local address=(B.Address:isclassof(field.type) or B.Borrow:isclassof(field.type)) and value or false
         local owned=not address and not field.type:copyable()
             and (field.capability==A.Own or field.capability==A.OwnMut)
-        local binding=ctx:force_bind(names[i],value,field.mutable,owned,false,address,template.source.span)
-        records[i]={field=field,id=binding,value=value}
+        local binding=ctx:force_bind(name,value,field.mutable,owned,false,address,span or template.source.span)
+        records[#records+1]={field=field,id=binding,value=value}
     end
+    local function take()
+        local field=fields[at+1]
+        if not field then fail(template.source.span,'entry parameter count does not match its stages') end
+        return field
+    end
+    -- A word's fields are its captures followed by a prefix of its items, in source order.
+    for _,capture in ipairs(layout.captures) do bind(capture.name,take(),capture.span) end
+    for index,item in ipairs(layout.items) do
+        if index<=bound then bind(item.name,take(),item.span) end
+    end
+    -- The stages left are parameters, and the preludes belonging to each of them run here.
+    -- `layout.steps` is not in source order -- the resolver orders it -- so the walk is over the
+    -- items, and each stage's own step supplies the prelude range that follows it.
+    local step_of={}
+    for _,step in ipairs(layout.steps) do step_of[step.index]=step end
+    local scratch={template=template,fields={},supplied=supplied}
+    local stage=0
+    for index,item in ipairs(layout.items) do
+        if item.kind=='stage' then
+            stage=stage+1
+            if stage>supplied then
+                bind(item.name,take(),item.span)
+                local step=assert(step_of[index],'a stage without a step')
+                self:prepare(ctx,scratch,layout,step.prepare,B.Transient)
+            end
+        end
+    end
+    if at~=#fields then fail(template.source.span,'entry parameter count does not match its stages') end
     if template.self then ctx.self_name=template.self.name; ctx.self_definition=template.self end
     ctx.finish=function(self_,value,span)
         -- §10.1: the storage this word borrowed belongs to this activation, so the word
@@ -521,6 +553,15 @@ function Builder:build_module()
         -- state and there is nothing to duplicate.
         local state=ctx:construct_record(values,fields,fn.span)
         self.module_exports=self:export_map(fields)
+        -- A field that is a word is a host entry point: the namespace holds it, and the host
+        -- invokes it by supplying its remaining stages. Recorded here, where the preludes are
+        -- still values rather than references.
+        self.exports={}
+        for i,field in ipairs(fields) do
+            if B.Word:isclassof(field.type) then
+                self.exports[#self.exports+1]={name=field.name,value=values[i],span=fn.span}
+            end
+        end
         ctx:finish_pair(state,state,fn.span)
     elseif A.Data:isclassof(file.terminal) then
         ctx.module_preludes={}
@@ -597,10 +638,44 @@ function Builder:build_unload(state_type)
     return B.Function(fn.name,B.Signature(blocks[1].parameters,L{fn.result,B.Effect}),blocks)
 end
 
+-- The host's way into an exported word: its entry takes the word's own fields -- which the host
+-- reads from the namespace the initializer returned -- followed by the stages it still needs.
+function Builder:host_entry(name,value,span)
+    local word=value.word
+    if not word then return nil end
+    local layout=self:layout(word.template)
+    local types,capabilities,mutable_mask,retained_mask=L(),L(),{}, {}
+    for _,field in ipairs(word.fields) do
+        types:insert(field.type); capabilities:insert(field.capability or A.Read)
+        mutable_mask[#types]=field.mutable; retained_mask[#types]=field.retained
+    end
+    local bundle=#types
+    local context=setmetatable({fn={types=self:types(),hosts=self.options.hosts or {}},scopes={},cells={}},Context)
+    for i=word.supplied+1,#layout.steps do
+        local item=layout.steps[i].item
+        local type_=context:constraint(item.constraint,nil,item.span)
+        local mutable=item.capability==A.Mut or item.capability==A.OwnMut
+        -- A mutable stage is a place, and the belt already says so: the callee reaches it
+        -- through a borrow, so a host passes a pointer to its own storage.
+        if mutable then type_=B.Borrow(type_,false) end
+        types:insert(type_); capabilities:insert(item.capability)
+        mutable_mask[#types]=mutable; retained_mask[#types]=false
+    end
+    local id=self:entry(word.template,types,capabilities,mutable_mask,retained_mask,word.supplied,
+        #word.fields-#layout.captures)
+    return {name=name,id=id,bundle=bundle,stages=#types-bundle}
+end
+
 function Builder:build()
     local module=self:build_module()
     self.functions[1]=module
     self.functions[2]=self:build_unload(module.signature.results[2])
+    -- After the module interface, so ids 1 and 2 stay what the host already expects.
+    self.host_entries={}
+    for _,export in ipairs(self.exports or {}) do
+        local entry=self:host_entry(export.name,export.value,export.span)
+        if entry then self.host_entries[#self.host_entries+1]=entry end
+    end
     local functions=L()
     for _,fn in ipairs(self.functions) do functions:insert(fn) end
     local templates=L()
