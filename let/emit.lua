@@ -43,7 +43,10 @@ end
 
 function Emitter:host_result(host,call)
     local spelling=host.c and host.c.result
-    if spelling and c_integer_type(spelling) then return C.Cast(C.I64,call) end
+    -- A Unit result discards the value, so there is nothing to convert.
+    if spelling and host.signature.results[1]~=B.Unit and c_integer_type(spelling) then
+        return C.Cast(C.I64,call)
+    end
     return call
 end
 

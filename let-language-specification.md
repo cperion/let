@@ -1048,9 +1048,12 @@ optional quoted C symbol when it differs from the name, the ordered stages in pa
 the usual capability and `:` constraint, and the result after `:` -- which defaults to Unit. The
 C prototype is derived from the Let types: `Int` is `int64_t`, `Float` `double`, `Bool` `bool`,
 `Unit` `void`, `CString` `const char*`, `CPointer` `void*`, and a resource its declared
-representation. Where a C type differs from that default -- a C `int` or `size_t`, say -- the
-embedding's descriptor states the exact spelling (§15.3): the declaration states meaning, and the
-embedding may refine the ABI. A source name is lexical like any binding; an embedding that wants
+representation. Where a C type differs from that default -- a C `int` or `size_t`, say -- the type
+may name its exact spelling as a Text argument: `Int "size_t"`, `CString "const void *"`. The
+spelling is checked against the Let type and the value is converted once at the boundary. An
+embedding that registers a word itself states the same fact in its descriptor (§15.3). A source
+name is lexical like any binding; an embedding that wants a namespace, such as the
+command-line host's `c`, registers its words that way instead.
 a namespace, such as the command-line host's `c`, registers its words that way instead.
 
 `Text` and `CString` are never interchangeable: a `Text` has a known length and no terminator

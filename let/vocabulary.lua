@@ -77,9 +77,13 @@ function Vocabulary.new(options)
                 assert(ok,('C type %s does not describe Let parameter %d'):format(spelling,i))
             end
             if host.c.result then
-                local kind=c_kind(host.c.result)
-                assert(kind~='unknown' and compatible(host.signature.results[1],kind),
-                    ('C result %s does not describe the Let result'):format(host.c.result))
+                -- A Unit result discards the C value, so any C result type describes it.
+                local result=host.signature.results[1]
+                if result~=B.Unit then
+                    local kind=c_kind(host.c.result)
+                    assert(kind~='unknown' and compatible(result,kind),
+                        ('C result %s does not describe the Let result'):format(host.c.result))
+                end
             end
         end
         -- The boundary declares ownership and nullability, which C's type system cannot: they

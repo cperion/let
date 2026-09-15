@@ -697,4 +697,19 @@ int main(void){ let_module_init(); return 0; }
         CAlloc=V.libc.resources.CAlloc}})
 eq(output,'5\n','§12.4 a source `extern` declares a foreign word without an options file')
 
+-- §12.4 A type may name its exact C spelling, so a C `int` is declared and converted at the
+-- boundary rather than silently widened to the default `int64_t`.
+output=native('cwidth',[[
+extern pure ffi_at (text : CString, index : Int "int") : Int "int"
+
+let ch = ffi_at(c.string("A"), 0)
+let shown = c.putchar(ch)
+]],[[
+int ffi_at(const char* text, int index){ return text[index]; }
+int main(void){ let_module_init(); return 0; }
+]],{dictionary={c={members=V.libc.members}},
+    resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
+        CAlloc=V.libc.resources.CAlloc}})
+eq(output,'A','§12.4 a foreign type names its C spelling: `Int "int"`')
+
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))
