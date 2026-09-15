@@ -4,7 +4,7 @@ return function(V)
 local Source,L=V.Source,V.List
 local Lexer={}; Lexer.__index=Lexer
 local keywords={}
-for word in ('let do end own mut move return if else while switch case and or not true false extern pure'):gmatch('%S+') do keywords[word]=true end
+for word in ('let do end own mut move return if else while switch case and or not true false extern pure break continue'):gmatch('%S+') do keywords[word]=true end
 local escapes={['\\']='\\',['"']='"',n='\n',r='\r',t='\t'}
 function Lexer.fail(span,message) error(('%s:%d:%d: %s'):format(span.file,span.line,span.column,message),0) end
 function Lexer.new(text,file) return setmetatable({text=text,file=file or '<source>',pos=1,line=1,column=1},Lexer) end

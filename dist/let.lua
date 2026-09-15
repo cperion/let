@@ -909,6 +909,7 @@ module AST {
          | Return(Expr? value) | Discard(Expr value)
          | If(Expr condition, Stmt* yes, Stmt* no)
          | While(Expr condition, Stmt* body)
+         | Break | Continue
          | Switch(Expr subject, Case* cases, Stmt* otherwise)
          attributes (Source.Span span)
     Case = (Expr* labels, Stmt* body, Source.Span span)
@@ -2391,6 +2392,7 @@ local function ambient(frame)
         self_name=frame.self_name, self_definition=frame.self_definition,
         module_pending=frame.module_pending, module_preludes=frame.module_preludes,
         mutable_state=frame.mutable_state, intermediate=frame.intermediate, finish=frame.finish,
+        loops=frame.loops,
     }
 end
 function Context:clone()
@@ -2548,6 +2550,19 @@ function Context:cleanup()
             local ids=self.scopes[i].ids; for j=#ids,1,-1 do self:release(ids[j]) end
         end
     end
+end
+-- `break` and `continue` reach their loop through the frame, like the locks and the resolved
+-- module do: a child sees the loops its enclosing regions published. Entering a loop prepends
+-- its target so the nearest enclosing loop wins, copying the list so a sibling is unaffected.
+function Context:loop(target)
+    local outer=self.loops; local loops={target}
+    if outer then for i=1,#outer do loops[#loops+1]=outer[i] end end
+    self.loops=loops
+end
+-- Leaving a loop body for `break` or `continue` destroys the locals its iteration created,
+-- exactly as reaching the end of the body would; scopes outside the loop are untouched.
+function Context:unwind(depth)
+    while #self.scopes>=depth do self:pop() end
 end
 -- A module initializer returns the namespace plus the state that owns it (§15.1).
 function Context:finish_pair(namespace,state,span)
@@ -3216,7 +3231,11 @@ function A.While:build(ctx)
     local condition=self.condition:build(head); expect(condition,B.Bool,self.span)
     local body,ba=head:interface({head}); local exit,ea=head:interface({head})
     head.block.exit=B.Branch(head:ref(condition),head:edge(body,ba[1]),head:edge(exit,ea[1]))
-    body:push(); body:statements(self.body)
+    body:push()
+    -- `depth` is the loop body's own scope, so a `break` or `continue` unwinds to it and
+    -- destroys exactly the locals one iteration created (§9.3).
+    body:loop({head=head,exit=exit,depth=#body.scopes})
+    body:statements(self.body)
     if not body.block.exit then
         body:pop()
         for id=1,#ctx.fn.bindings do if ctx.cells[id] then
@@ -3234,6 +3253,21 @@ function A.While:build(ctx)
         body.block.exit=B.Jump(B.Edge(header.id,body:refs(head:pack(body))))
     end
     ctx:adopt(exit)
+end
+-- A `break` leaves the nearest enclosing loop; a `continue` re-evaluates its condition.
+-- Both carry the current state to the loop's exit or header interface, so the loop-carried
+-- facts and the effect thread cross the edge like any other branch.
+function A.Break:build(ctx)
+    local target=ctx.loops and ctx.loops[1]
+    if not target then gap(self.span,'break outside a loop') end
+    ctx:unwind(target.depth)
+    ctx.block.exit=B.Jump(ctx:edge(target.exit,target.exit:pack(ctx)))
+end
+function A.Continue:build(ctx)
+    local target=ctx.loops and ctx.loops[1]
+    if not target then gap(self.span,'continue outside a loop') end
+    ctx:unwind(target.depth)
+    ctx.block.exit=B.Jump(ctx:edge(target.head,target.head:pack(ctx)))
 end
 function A.Expr:case_label() fail(self.span,'case labels must be Int or Bool literals') end
 function A.Integer:case_label() local _,key=literal.integer(self.spelling,false,function(m) fail(self.span,m) end); return B.Int,key end
@@ -3718,7 +3752,7 @@ return function(V)
 local Source,L=V.Source,V.List
 local Lexer={}; Lexer.__index=Lexer
 local keywords={}
-for word in ('let do end own mut move return if else while switch case and or not true false extern pure'):gmatch('%S+') do keywords[word]=true end
+for word in ('let do end own mut move return if else while switch case and or not true false extern pure break continue'):gmatch('%S+') do keywords[word]=true end
 local escapes={['\\']='\\',['"']='"',n='\n',r='\r',t='\t'}
 function Lexer.fail(span,message) error(('%s:%d:%d: %s'):format(span.file,span.line,span.column,message),0) end
 function Lexer.new(text,file) return setmetatable({text=text,file=file or '<source>',pos=1,line=1,column=1},Lexer) end
@@ -4015,6 +4049,8 @@ function Parser:statement()
         return A.Return(value,token.span)
     end
     if self:accept('if') then return self:conditional(token.span) end
+    if self:accept('break') then return A.Break(token.span) end
+    if self:accept('continue') then return A.Continue(token.span) end
     if self:accept('switch') then return self:selection(token.span) end
     if self:accept('while') then local condition=self:expression(); return A.While(condition,self:body(),token.span) end
     -- §7.3 makes any expression a statement, and §9.2 admits `move place` as an
@@ -4158,6 +4194,8 @@ function A.Body:check_literals() visit(self.statements) end
 function A.Local:check_literals() self.binding:check_literals() end
 function A.Assign:check_literals() self.place:check_literals(); self.value:check_literals() end
 function A.Return:check_literals() if self.value then self.value:check_literals() end end
+function A.Break:check_literals() end
+function A.Continue:check_literals() end
 function A.Discard:check_literals() self.value:check_literals() end
 function A.If:check_literals() self.condition:check_literals(); visit(self.yes); visit(self.no) end
 function A.While:check_literals() self.condition:check_literals(); visit(self.body) end
@@ -4439,6 +4477,8 @@ function A.Assign:resolve(ctx,scope)
     self.place:resolve_place(ctx,scope,'write'); self.value:resolve(ctx,scope)
 end
 function A.Return:resolve(ctx,scope) if self.value then self.value:resolve(ctx,scope) end end
+function A.Break:resolve() end
+function A.Continue:resolve() end
 function A.Discard:resolve(ctx,scope) self.value:resolve(ctx,scope) end
 function A.If:resolve(ctx,scope)
     self.condition:resolve(ctx,scope); ctx:region(self.yes,scope); ctx:region(self.no,scope)

@@ -128,6 +128,24 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'42\n','runtime arguments still take the emitted call path')
 
+-- §7.4 `break` and `continue` compile to ordinary edges: the loop, the iteration cleanup, the
+-- effect thread and the loop-carried state all survive into C, and the program runs.
+output=native('loop_break',[[
+let compute = do
+    let x mut = 0
+    let total mut = 0
+    while x < 10 do
+        x = x + 1
+        if x == 3 do continue end
+        if x == 6 do break end
+        total = total + x
+    end
+    print_int(total)
+end
+let shown = compute()
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'12\n','§7.4 native break and continue')
+
 -- Runtime interior state must thread through invocations rather than fold.
 output=native('runtime_state',[[
 let counter =

@@ -182,6 +182,8 @@ function Parser:statement()
         return A.Return(value,token.span)
     end
     if self:accept('if') then return self:conditional(token.span) end
+    if self:accept('break') then return A.Break(token.span) end
+    if self:accept('continue') then return A.Continue(token.span) end
     if self:accept('switch') then return self:selection(token.span) end
     if self:accept('while') then local condition=self:expression(); return A.While(condition,self:body(),token.span) end
     -- §7.3 makes any expression a statement, and §9.2 admits `move place` as an
@@ -325,6 +327,8 @@ function A.Body:check_literals() visit(self.statements) end
 function A.Local:check_literals() self.binding:check_literals() end
 function A.Assign:check_literals() self.place:check_literals(); self.value:check_literals() end
 function A.Return:check_literals() if self.value then self.value:check_literals() end end
+function A.Break:check_literals() end
+function A.Continue:check_literals() end
 function A.Discard:check_literals() self.value:check_literals() end
 function A.If:check_literals() self.condition:check_literals(); visit(self.yes); visit(self.no) end
 function A.While:check_literals() self.condition:check_literals(); visit(self.body) end

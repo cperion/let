@@ -216,6 +216,8 @@ function A.Assign:resolve(ctx,scope)
     self.place:resolve_place(ctx,scope,'write'); self.value:resolve(ctx,scope)
 end
 function A.Return:resolve(ctx,scope) if self.value then self.value:resolve(ctx,scope) end end
+function A.Break:resolve() end
+function A.Continue:resolve() end
 function A.Discard:resolve(ctx,scope) self.value:resolve(ctx,scope) end
 function A.If:resolve(ctx,scope)
     self.condition:resolve(ctx,scope); ctx:region(self.yes,scope); ctx:region(self.no,scope)

@@ -118,6 +118,21 @@ eq(run(crossed,{true},'open:1,open:2,consume:1,drop:2'),42)
 eq(run(crossed,{false},'open:1,open:2,consume:2,drop:1'),42)
 local swapped=build({local_('x',i(1),true),local_('y',i(2),true),local_('count',i(0),true),while_(op(A.Less,n('count'),i(3)),{local_('saved',n('x')),assign('x',n('y')),assign('y',n('saved')),assign('count',op(A.Add,n('count'),i(1)))}),ret(op(A.Add,op(A.Multiply,n('x'),i(10)),n('y')))})
 eq(run(swapped),21,'backedge transfer is parallel')
+-- §7.4 `break` leaves the nearest enclosing loop and `continue` starts its next iteration.
+local function break_() return A.Break(span) end
+local function continue_() return A.Continue(span) end
+local broken=build({local_('x',i(0),true),while_(op(A.Less,n('x'),i(5)),{assign('x',op(A.Add,n('x'),i(1))),if_(op(A.Equal,n('x'),i(2)),{break_()})}),ret(n('x'))})
+eq(run(broken),2,'break leaves the loop')
+local continued=build({local_('x',i(0),true),local_('s',i(0),true),while_(op(A.Less,n('x'),i(3)),{assign('x',op(A.Add,n('x'),i(1))),if_(op(A.Equal,n('x'),i(2)),{continue_()}),assign('s',op(A.Add,n('s'),i(10)))}),ret(op(A.Add,n('x'),n('s')))})
+eq(run(continued),23,'continue skips the rest of the iteration')
+-- A body-local owner is destroyed on both exits, exactly as reaching the end of the body would.
+local break_owner=build({local_('x',i(0),true),while_(op(A.Less,n('x'),i(5)),{local_('r',call('open',n('x'))),assign('x',op(A.Add,n('x'),i(1))),if_(op(A.Equal,n('x'),i(2)),{break_()})}),ret(i(42))})
+eq(run(break_owner,{},'open:0,drop:0,open:1,drop:1'),42,'break destroys the iteration locals')
+local continue_owner=build({local_('x',i(0),true),while_(op(A.Less,n('x'),i(3)),{local_('r',call('open',op(A.Add,n('x'),i(10)))),assign('x',op(A.Add,n('x'),i(1))),if_(op(A.Equal,n('x'),i(2)),{continue_()})}),ret(n('x'))})
+eq(run(continue_owner,{},'open:10,drop:10,open:11,drop:11,open:12,drop:12'),3,'continue destroys the iteration locals')
+-- Nested loops: the nearest enclosing loop wins.
+local nested=build({local_('o',i(0),true),local_('c',i(0),true),while_(op(A.Less,n('o'),i(3)),{assign('o',op(A.Add,n('o'),i(1))),local_('m',i(0),true),while_(op(A.Less,n('m'),i(3)),{assign('m',op(A.Add,n('m'),i(1))),if_(op(A.Equal,n('m'),i(2)),{break_()})}),assign('c',op(A.Add,n('c'),n('m')))}),ret(op(A.Add,op(A.Multiply,n('o'),i(100)),n('c')))})
+eq(run(nested),306,'break leaves the nearest loop')
 local result_resource=build({local_('a',call('open',i(1))),local_('b',call('open',i(2))),ret(move('b'))})
 eq(run(result_resource,{},'open:1,open:2,drop:1'),2); check(alive[2],'returned owner must survive')
 -- §9.3: external mutable places use ordered loads/stores, not scalar copy-back.
@@ -142,6 +157,8 @@ reject({local_('a',call('open',i(1))),if_(n('flag'),{discard(call('consume',move
 reject({ret(move('a'))},'borrowed stage',{stage('a','Box')})
 reject({local_('x',i(1),true),discard(call('bump',borrow('x')))},'address%-taken locals')
 reject({ret(call('tick'))},'exactly saturate')
+reject({A.Break(span)},'break outside a loop')
+reject({A.Continue(span)},'continue outside a loop')
 reject({switch(i(1),{case({i(1)},{ret(i(1))}),case({i('0x1')},{ret(i(2))})})},'duplicate case')
 local prelude=A.Prelude(A.Binding('p',false,nil,data(call('tick',i(1))),span))
 ok,err=pcall(function() A.Chain(L{stage('a','Int'),prelude,stage('b','Int')},A.Body(L{ret(i(42))}),span):build_function('staged',options) end)

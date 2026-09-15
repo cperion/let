@@ -34,6 +34,7 @@ module AST {
          | Return(Expr? value) | Discard(Expr value)
          | If(Expr condition, Stmt* yes, Stmt* no)
          | While(Expr condition, Stmt* body)
+         | Break | Continue
          | Switch(Expr subject, Case* cases, Stmt* otherwise)
          attributes (Source.Span span)
     Case = (Expr* labels, Stmt* body, Source.Span span)
