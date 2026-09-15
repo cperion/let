@@ -189,6 +189,9 @@ function Emitter:instruction(block,block_id,index,instruction)
     elseif B.Unary:isclassof(operation) then
         local operand=self:arglist(block,block_id,position,{operation.operand})[1]
         if operation.operator==A.Not then declare(0,B.Bool,C.Unary('!',operand))
+        elseif operation.operator==A.ToFloat then declare(0,B.Float,C.Cast(self:ctype(B.Float),operand))
+        elseif operation.operator==A.ToInt then
+            if declare(0,B.Int,C.Call(C.Name('let_to_int'),L{operand})) then self.helpers.to_int=true end
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
@@ -712,6 +715,9 @@ function Emitter:helper_declarations()
     -- site would duplicate control flow rather than remove a function.
     if self.helpers.div then raw('static int64_t let_div(int64_t a,int64_t b){if(b==0)let_trap("division by zero");if(b==-1)return (int64_t)(0-(uint64_t)a);return a/b;}') end
     if self.helpers.rem then raw('static int64_t let_rem(int64_t a,int64_t b){if(b==0)let_trap("remainder by zero");if(b==-1)return 0;return a%b;}') end
+    -- The conversion is total (§13.3): a NaN becomes zero and an out-of-range value saturates at
+    -- the nearer Int bound, so it needs no effect and can be folded or dropped.
+    if self.helpers.to_int then raw('static int64_t let_to_int(double x){if(x!=x)return 0;if(x>=9223372036854775808.0)return INT64_MAX;if(x<-9223372036854775808.0)return INT64_MIN;return (int64_t)x;}') end
     if self.helpers.text_eq then raw('#define LET_TEXT_EQ(a,b) ((a).size==(b).size&&memcmp((a).data,(b).data,(size_t)(a).size)==0)') end
     return declarations
 end

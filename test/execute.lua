@@ -33,6 +33,8 @@ function A.GreaterEqual:execute(a,b) return scalar.greater_equal(a,b) end
 function A.And:execute(a,b) return a and b end
 function A.Or:execute(a,b) return a or b end
 function A.Negate:execute(a) return scalar.negate(a) end
+function A.ToFloat:execute(a) return scalar.to_float(a) end
+function A.ToInt:execute(a) return scalar.to_int(a) end
 function A.Not:execute(a) return not a end
 function B.Unary:execute(ctx) return self.operator:execute(ctx:get(self.operand)) end
 function B.Binary:execute(ctx) return self.operator:execute(ctx:get(self.left),ctx:get(self.right)) end

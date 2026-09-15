@@ -68,6 +68,10 @@ local shadow=build({local_('x',i(42)),if_(n('flag'),{local_('x',op(A.Add,n('x'),
 eq(run(shadow,{true}),42); eq(run(shadow,{false}),42)
 local joined=build({local_('x',i(1),true),if_(n('flag'),{assign('x',i(10))},{assign('x',i(20))}),ret(n('x'))},{stage('flag','Bool')})
 eq(run(joined,{true}),10); eq(run(joined,{false}),20)
+-- §13.3 The core conversions are pure and total, and the no-builder path lowers them too.
+eq(run(build({ret(call('float',i(7)))})),7.0)
+eq(run(build({ret(call('int',A.Float('3.9',span)))})),3)
+eq(tonumber(run(build({ret(call('int',A.Float('1e300',span)))}))),9223372036854775807)
 local returning=build({local_('x',i(1),true),if_(n('flag'),{ret(i(42))},{assign('x',i(7))}),ret(n('x'))},{stage('flag','Bool')})
 eq(run(returning,{true}),42); eq(run(returning,{false}),7)
 -- §§4.3, 13, 14: left-to-right effects; pins preserve earlier operands across branches.

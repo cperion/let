@@ -503,6 +503,9 @@ function A.Name:build(ctx)
     if ctx.resolved and ctx.resolved.import_words[self] then return {construction='import'} end
     if self.name==ctx.fn.name then gap(self.span,'source-word invocation and recursion') end
     local host=ctx.fn.hosts[self.name]; if host then return {host=host} end
+    -- The core numeric conversions are ordinary names (§13.3), so a binding or host above
+    -- shadows them like any other dictionary entry.
+    if self.name=='float' or self.name=='int' then return {conversion=self.name} end
     if ctx.fn.types[self.name] or self.name=='Copy' or self.name=='Executable' then fail(self.span,'constraint word is not a runtime value') end
     fail(self.span,'unknown name ' .. self.name)
 end
@@ -1190,8 +1193,23 @@ function A.Switch:build(ctx)
     end
     ctx:push(); arm_at(ctx,1); if not ctx.block.exit then ctx:pop() end; ctx:unpin()
 end
+-- A core numeric conversion (§13.3): one pure argument, one pure result, no ownership to move.
+-- This is the one implementation, so an invocation and a juxtaposition cannot lower differently.
+function Context:convert(kind,argument,span)
+    local from=kind=='float' and B.Int or B.Float
+    local to=kind=='float' and B.Float or B.Int
+    local value=argument:build(self)
+    expect(value,from,span)
+    local result=self:emit(B.Unary(kind=='float' and A.ToFloat or A.ToInt,self:ref(value)),L{to},span)
+    result.mode='copy'
+    return result
+end
 function Context:call(expression,tail)
     local callee=expression.word:build(self)
+    if callee.conversion then
+        if #expression.arguments~=1 then fail(expression.span,'a conversion takes exactly one argument') end
+        return self:convert(callee.conversion,expression.arguments[1],expression.span)
+    end
     if not callee.host then
         if callee.type and not B.Callable:isclassof(callee.type) then fail(expression.span,'invocation requires a runtime word') end
         gap(expression.span,'source/indirect word invocation')

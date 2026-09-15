@@ -87,6 +87,34 @@ rejects('let x = 1.0 + 1')
 rejects('let x = 1.0 % 2.0')
 -- A word body is built when it is invoked, so the mix is reached by applying it.
 rejects('let f = let y : Int do return y * 2.0 end\nlet x = f(3)')
+rejects('let x = float(1.5)')
+rejects('let x = int(1)')
+rejects('let x = float(1, 2)')
+
+-- §13.3 The core conversions are ordinary names: `float` widens and `int` narrows, both pure
+-- and total. `int` truncates toward zero, saturates at the Int bounds and maps NaN to zero.
+host=build[[
+let widen = let n : Int do return float(n) * 0.5 end
+let narrow = let x : Float do return int(x) end
+let big = 9007199254740993
+let rounded = float(big)
+let shadow = do
+    let float = let n : Int do return n + 1 end
+    return float(2)
+end
+]]
+eq(host.call('widen',7),3.5,'float(Int) widens explicitly')
+eq(host.call('narrow',3.9),3,'int(Float) truncates toward zero')
+eq(host.call('narrow',-3.9),-3,'and toward zero below zero')
+eq(tostring(host.call('narrow',1e300)),'9223372036854775807LL','int saturates at the upper bound')
+eq(tostring(host.call('narrow',-1e300)),'-9223372036854775808LL','int saturates at the lower bound')
+eq(host.call('narrow',0/0),0,'a NaN narrows to zero')
+local converted=host.namespace()
+eq(tostring(converted.fields[3]),'9007199254740993LL','an Int literal keeps 2^53+1 exactly')
+eq(converted.fields[4],9007199254740992.0,'float rounds it to the nearest binary64')
+eq(host.call('shadow'),3,'a lexical binding named float shadows the conversion')
+local juxtaposed=V.parse('let seven = float 7','float.let'):build{}
+check(V.print(juxtaposed:emit{}):find('0x1.cp+2',1,true)~=nil,'float by juxtaposition is the same conversion')
 
 -- A pure Float producer folds to a constant, so the C carries the value, not the arithmetic.
 for _,case in ipairs{
@@ -110,6 +138,9 @@ let half = let x : Float do return x / 2.0 end
 let divzero = let x : Float do return x / 0.0 end
 let nan = 0.0 / 0.0
 let inf = 1.0 / 0.0
+let widen = let n : Int do return float(n) * 0.5 end
+let narrow = let x : Float do return int(x) end
+let sat = let x : Float do return int(x) end
 ]]
 local program,builder=V.parse(native,'float_native.let'):build{}
 program:verify_flow{}
@@ -130,6 +161,12 @@ int main(void){
     if (let_divzero_host(-1.0)!=-INFINITY) return 8;
     double n=let_divzero_host(0.0);
     if (n==n) return 9;
+    if (let_widen_host(7)!=3.5) return 10;
+    if (let_narrow_host(3.9)!=3) return 11;
+    if (let_narrow_host(-3.9)!=-3) return 12;
+    if (let_sat_host(1e300)!=INT64_MAX) return 13;
+    if (let_sat_host(-1e300)!=INT64_MIN) return 14;
+    if (let_sat_host(0.0/0.0)!=0) return 15;
     return 0;
 }
 ]])

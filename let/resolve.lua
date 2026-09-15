@@ -208,6 +208,8 @@ function A.Program:resolve(options)
         imports={},import_words={},importing={},import_resolver=options.resolve,file=self.file.span.file},Context)
     local builtins={}
     for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
+    -- The core numeric conversions are runtime words (§13.3), shadowable like any binding.
+    for _,name in ipairs{'float','int'} do builtins[name]={phase='runtime'} end
     local outer=dictionary(ctx,nil,builtins)
     outer=dictionary(ctx,outer,options.dictionary or {})
     local resources={}

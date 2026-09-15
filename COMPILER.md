@@ -87,7 +87,7 @@ executed by the compiler.
 | §§9.2–9.4 | Moves, borrows, mutation | Binding-ID initialization/borrow state; explicit Move; ordered external Load/Store; plain resource stages cannot be consumed; overlapping reads are allowed but mutable borrowing excludes access. |
 | §§9.5–9.6 | Reverse destruction, conditional initialization | Owned locals track initialization and alive facts; divergent alive facts become Bool block parameters; guarded Destroy consumes the effect. Replacement evaluates its RHS before destroying the old owner. |
 | §§11, 13 | Static representation and exact scalar meaning | Concrete types are checked during construction and again on belt flow; literals are range-checked with split integer arithmetic. Arithmetic stays as typed operations, not Lua-number folding. |
-| §13.3 | Float literals and IEEE arithmetic | A Float literal is validated and rounded once in `let/literal.lua`; folding and C emission take their bits from that same conversion, so they cannot round differently. Arithmetic is native binary64: division by zero yields an infinity or NaN rather than a trap, and a NaN is unequal to itself. Int and Float do not promote; conversion between them is explicit vocabulary. |
+| §13.3 | Float literals and IEEE arithmetic | A Float literal is validated and rounded once in `let/literal.lua`; folding and C emission take their bits from that same conversion, so they cannot round differently. Arithmetic is native binary64: division by zero yields an infinity or NaN rather than a trap, and a NaN is unequal to itself. Int and Float do not promote; the core's `float` and `int` words convert explicitly, both pure and total, with `int` truncating toward zero and saturating at the Int bounds while a NaN becomes zero. |
 | §§12.2, 14 | Purity, traps, and effects remain observable | Unused trapping arithmetic has an effect output. Test execution stops at traps without running later cleanup. Pure value-only hosts may be undemanded; memory/resource access remains ordered. |
 
 Ordinary mutable Copy locals use new SSA values, not memory stores. Each block
@@ -290,7 +290,8 @@ cycles, ordered calls whose data is unused, and effects in nonreturning cycles.
 Actual known-branch specialization and C emission remain later steps.
 
 `test/float.lua` covers §13.3: the four literal spellings, the arithmetic and comparison
-operators, division by zero as an infinity, signed zero, and NaN inequality. It executes each
-case through the belt interpreter and compiles a native witness, so a fold and native execution
-that disagreed about an IEEE case would print different results rather than merely look wrong.
+operators, the `float`/`int` conversions and their saturation, division by zero as an
+infinity, signed zero, and NaN inequality. It executes each case through the belt
+interpreter and compiles a native witness, so a fold and native execution that disagreed
+about an IEEE case would print different results rather than merely look wrong.
 

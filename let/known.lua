@@ -313,7 +313,12 @@ function Evaluator:instruction(block,block_id,index,instruction)
     elseif B.Unary:isclassof(operation) then
         local operand=inputs{operation.operand}[1]
         if Known.is_known(operand) then
-            put(0,Known.value(instruction.results[1],operation.operator==A.Not and not operand.value or scalar.negate(operand.value)))
+            local value
+            if operation.operator==A.Not then value=not operand.value
+            elseif operation.operator==A.ToFloat then value=scalar.to_float(operand.value)
+            elseif operation.operator==A.ToInt then value=scalar.to_int(operand.value)
+            else value=scalar.negate(operand.value) end
+            put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.Binary:isclassof(operation) then
         local arguments=inputs{operation.left,operation.right}

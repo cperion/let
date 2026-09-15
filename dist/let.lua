@@ -874,7 +874,7 @@ module Source {
 }
 module AST {
     Capability = Read | Mut | Own | OwnMut
-    UnaryOp = Negate | Not
+    UnaryOp = Negate | Not | ToFloat | ToInt
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or
@@ -1584,6 +1584,9 @@ function A.Name:build(ctx)
     if ctx.resolved and ctx.resolved.import_words[self] then return {construction='import'} end
     if self.name==ctx.fn.name then gap(self.span,'source-word invocation and recursion') end
     local host=ctx.fn.hosts[self.name]; if host then return {host=host} end
+    -- The core numeric conversions are ordinary names (§13.3), so a binding or host above
+    -- shadows them like any other dictionary entry.
+    if self.name=='float' or self.name=='int' then return {conversion=self.name} end
     if ctx.fn.types[self.name] or self.name=='Copy' or self.name=='Executable' then fail(self.span,'constraint word is not a runtime value') end
     fail(self.span,'unknown name ' .. self.name)
 end
@@ -2271,8 +2274,23 @@ function A.Switch:build(ctx)
     end
     ctx:push(); arm_at(ctx,1); if not ctx.block.exit then ctx:pop() end; ctx:unpin()
 end
+-- A core numeric conversion (§13.3): one pure argument, one pure result, no ownership to move.
+-- This is the one implementation, so an invocation and a juxtaposition cannot lower differently.
+function Context:convert(kind,argument,span)
+    local from=kind=='float' and B.Int or B.Float
+    local to=kind=='float' and B.Float or B.Int
+    local value=argument:build(self)
+    expect(value,from,span)
+    local result=self:emit(B.Unary(kind=='float' and A.ToFloat or A.ToInt,self:ref(value)),L{to},span)
+    result.mode='copy'
+    return result
+end
 function Context:call(expression,tail)
     local callee=expression.word:build(self)
+    if callee.conversion then
+        if #expression.arguments~=1 then fail(expression.span,'a conversion takes exactly one argument') end
+        return self:convert(callee.conversion,expression.arguments[1],expression.span)
+    end
     if not callee.host then
         if callee.type and not B.Callable:isclassof(callee.type) then fail(expression.span,'invocation requires a runtime word') end
         gap(expression.span,'source/indirect word invocation')
@@ -2464,6 +2482,8 @@ end
 function B.Unary:verify(ctx)
     local type_=ctx:type(self.operand)
     if self.operator==A.Not then ctx:expect(self.operand,B.Bool); ctx:results(L{B.Bool})
+    elseif self.operator==A.ToFloat then ctx:expect(self.operand,B.Int); ctx:results(L{B.Float})
+    elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
     else
         assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
         ctx:results(L{type_})
@@ -3393,6 +3413,8 @@ function A.Program:resolve(options)
         imports={},import_words={},importing={},import_resolver=options.resolve,file=self.file.span.file},Context)
     local builtins={}
     for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
+    -- The core numeric conversions are runtime words (§13.3), shadowable like any binding.
+    for _,name in ipairs{'float','int'} do builtins[name]={phase='runtime'} end
     local outer=dictionary(ctx,nil,builtins)
     outer=dictionary(ctx,outer,options.dictionary or {})
     local resources={}
@@ -3707,6 +3729,7 @@ end
 
 function Builder:specialize(ctx,expression)
     local value=expression.word:build(ctx)
+    if value.conversion then return ctx:convert(value.conversion,expression.argument,expression.span) end
     -- `import` is a construction entry: the named file's chain is constructed here, and the
     -- arguments that follow specialize it like any other word.
     if value.construction=='import' then
@@ -3834,6 +3857,12 @@ function Builder:invoke(ctx,expression,tail)
     if inline then self.construction_destination=B.Transient end
     local callee=expression.word:build(ctx)
     self.construction_destination=previous
+    if callee.conversion then
+        if #expression.arguments~=1 then fail(expression.span,'a conversion takes exactly one argument') end
+        local result=ctx:convert(callee.conversion,expression.arguments[1],expression.span)
+        if tail then ctx:finish(result,expression.span); return nil end
+        return result
+    end
     if callee.host then
         if tail then ctx:finish(ctx:call(expression,true),expression.span) else return ctx:call(expression,false) end
         return
@@ -4570,7 +4599,12 @@ function Evaluator:instruction(block,block_id,index,instruction)
     elseif B.Unary:isclassof(operation) then
         local operand=inputs{operation.operand}[1]
         if Known.is_known(operand) then
-            put(0,Known.value(instruction.results[1],operation.operator==A.Not and not operand.value or scalar.negate(operand.value)))
+            local value
+            if operation.operator==A.Not then value=not operand.value
+            elseif operation.operator==A.ToFloat then value=scalar.to_float(operand.value)
+            elseif operation.operator==A.ToInt then value=scalar.to_int(operand.value)
+            else value=scalar.negate(operand.value) end
+            put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.Binary:isclassof(operation) then
         local arguments=inputs{operation.left,operation.right}
@@ -4909,6 +4943,18 @@ end
 function M.float(spelling,fail) return literal.float(spelling,fail or error) end
 
 function M.fdivide(a,b) return a/b end
+
+-- The two core conversions. `to_float` is total; `to_int` is also total, truncating toward
+-- zero and saturating at the Int bounds with a NaN becoming zero, so it stays a pure value
+-- operation that can be folded and dropped. One definition serves folding and the test
+-- interpreter; the C helper mirrors it.
+function M.to_float(value) return tonumber(value) end
+function M.to_int(value)
+    if value~=value then return ffi.new('int64_t',0) end
+    if value>=9223372036854775808.0 then return ffi.cast('int64_t',0x7fffffffffffffffULL) end
+    if value<-9223372036854775808.0 then return ffi.cast('int64_t',0x8000000000000000ULL) end
+    return ffi.new('int64_t',value)
+end
 
 function M.add(a,b) return a+b end
 function M.subtract(a,b) return a-b end
@@ -5303,6 +5349,9 @@ function Emitter:instruction(block,block_id,index,instruction)
     elseif B.Unary:isclassof(operation) then
         local operand=self:arglist(block,block_id,position,{operation.operand})[1]
         if operation.operator==A.Not then declare(0,B.Bool,C.Unary('!',operand))
+        elseif operation.operator==A.ToFloat then declare(0,B.Float,C.Cast(self:ctype(B.Float),operand))
+        elseif operation.operator==A.ToInt then
+            if declare(0,B.Int,C.Call(C.Name('let_to_int'),L{operand})) then self.helpers.to_int=true end
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
@@ -5826,6 +5875,9 @@ function Emitter:helper_declarations()
     -- site would duplicate control flow rather than remove a function.
     if self.helpers.div then raw('static int64_t let_div(int64_t a,int64_t b){if(b==0)let_trap("division by zero");if(b==-1)return (int64_t)(0-(uint64_t)a);return a/b;}') end
     if self.helpers.rem then raw('static int64_t let_rem(int64_t a,int64_t b){if(b==0)let_trap("remainder by zero");if(b==-1)return 0;return a%b;}') end
+    -- The conversion is total (§13.3): a NaN becomes zero and an out-of-range value saturates at
+    -- the nearer Int bound, so it needs no effect and can be folded or dropped.
+    if self.helpers.to_int then raw('static int64_t let_to_int(double x){if(x!=x)return 0;if(x>=9223372036854775808.0)return INT64_MAX;if(x<-9223372036854775808.0)return INT64_MIN;return (int64_t)x;}') end
     if self.helpers.text_eq then raw('#define LET_TEXT_EQ(a,b) ((a).size==(b).size&&memcmp((a).data,(b).data,(size_t)(a).size)==0)') end
     return declarations
 end

@@ -1057,8 +1057,12 @@ involving a NaN is false. Positive and negative zero compare equal.
 
 Unary `-` and the four arithmetic operators `+`, `-`, `*`, and `/` accept only Float operands
 and return Float. `%` is not defined for Float. Relational operators accept two Float values
-and return Bool. There are no implicit conversions between Int and Float; a conversion
-between numeric vocabularies is explicit vocabulary (§13.2, §13.6).
+and return Bool. There are no implicit conversions between Int and Float. The core provides
+two conversion words. `float x` converts an Int to the Float nearest to it, rounding to
+nearest, ties to even, and is total. `int x` converts a Float to an Int by truncating toward
+zero; a NaN converts to zero, and a value at or beyond an Int bound converts to that bound.
+Both are pure, take one argument, and are ordinary names a lexical binding or host may
+shadow. Other numeric vocabularies convert with explicit vocabulary (§13.2, §13.6).
 
 ### 13.4 Equality
 

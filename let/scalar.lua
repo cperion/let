@@ -25,6 +25,18 @@ function M.float(spelling,fail) return literal.float(spelling,fail or error) end
 
 function M.fdivide(a,b) return a/b end
 
+-- The two core conversions. `to_float` is total; `to_int` is also total, truncating toward
+-- zero and saturating at the Int bounds with a NaN becoming zero, so it stays a pure value
+-- operation that can be folded and dropped. One definition serves folding and the test
+-- interpreter; the C helper mirrors it.
+function M.to_float(value) return tonumber(value) end
+function M.to_int(value)
+    if value~=value then return ffi.new('int64_t',0) end
+    if value>=9223372036854775808.0 then return ffi.cast('int64_t',0x7fffffffffffffffULL) end
+    if value<-9223372036854775808.0 then return ffi.cast('int64_t',0x8000000000000000ULL) end
+    return ffi.new('int64_t',value)
+end
+
 function M.add(a,b) return a+b end
 function M.subtract(a,b) return a-b end
 function M.multiply(a,b) return a*b end
