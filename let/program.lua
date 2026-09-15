@@ -766,7 +766,7 @@ function Builder:build()
     for _,template in ipairs(self.resolved.templates) do
         templates:insert(B.Template(tostring(template.id),#template.steps,#template.captures,template.source.span))
     end
-    return B.Program(self.options.name or '__program',templates,functions):verify_flow(self.vocabulary.hosts)
+    return B.Program(self.options.name or '__program',templates,functions):verify_flow(self.vocabulary.symbols)
 end
 
 function A.Program:build(options)

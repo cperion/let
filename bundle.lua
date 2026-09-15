@@ -48,6 +48,9 @@ local function collect(name)
     for required in text:gmatch([[require%s*['"]([^'"]+)['"]%s*%(]]) do collect(required) end
 end
 collect(entry)
+-- The command-line host is reached from the generated script rather than from `let`, so it is
+-- collected explicitly.
+collect('let.cli')
 
 local out = {}
 local function line(text) out[#out + 1] = text end
@@ -85,21 +88,8 @@ line('-- Run as a script rather than required: compile arg[1] to arg[2], or to s
 line("local this, script = debug.getinfo(1, 'S').short_src, arg and arg[0]")
 line('-- Run as a script rather than required: compile arg[1] to arg[2], or to stdout. The test is')
 line('-- whether this chunk *is* the running script; loading it into another program is not.')
-line('if script and this == script and arg[1] then')
-line("    local options = arg[3] and dofile(arg[3]) or {}")
-line("    local file = assert(io.open(arg[1], 'rb'))")
-line("    local text = file:read('*a'); file:close()")
-line('    local program, builder = V.parse(text, arg[1]):build(options)')
-line('    -- This is a host, and it publishes every exported word.')
-line('    options.entries = options.entries or builder.host_entries')
-line('    program:verify_flow(options.hosts or {})')
-line('    local source = V.print(program:emit(options))')
-line('    if arg[2] then')
-line("        local handle = assert(io.open(arg[2], 'wb')); handle:write(source); handle:close()")
-line('    else io.write(source) end')
-line('elseif script and this == script then')
-line('    io.stderr:write("usage: luajit let.lua input.let [output.c [options.lua]]\\n")')
-line('    os.exit(1)')
+line('if script and this == script then')
+line("    require('let.cli')(V, arg)")
 line('else')
 line('    return V')
 line('end')

@@ -38,6 +38,8 @@ function B.Unary:verify(ctx)
     if self.operator==A.Not then ctx:expect(self.operand,B.Bool); ctx:results(L{B.Bool})
     elseif self.operator==A.ToFloat then ctx:expect(self.operand,B.Int); ctx:results(L{B.Float})
     elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
+    elseif self.operator==A.ToCString then ctx:expect(self.operand,B.Text); ctx:results(L{B.CString})
+    elseif self.operator==A.ToText then ctx:expect(self.operand,B.CString); ctx:results(L{B.Text})
     else
         assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
         ctx:results(L{type_})

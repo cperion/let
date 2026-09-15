@@ -12,15 +12,14 @@ local Emitter={}; Emitter.__index=Emitter
 
 function Emitter.new(options)
     return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
-        names={},helpers={},text=false,stdbool=true,trap=false,
+        names={},helpers={},used_hosts={},text=false,stdbool=true,trap=false,
         instances={},pending={},generic={},serial={},self_tail={}},Emitter)
 end
 
--- A host may state the C prototype it calls, because that ABI is an embedding detail (§15.3): a
--- libc function takes `const char*` and `int`, which are not Let's `Text` and `Int`. The
--- conversion between the two is one rule per pair, stated here rather than at every call.
+-- A host may state the C prototype it calls, because that ABI is an embedding detail (§15.3).
+-- The Let types already map to C (`CString` is `const char*`, the scalars are themselves), so
+-- only an integer of a different width needs a cast.
 local function compact(name) return (name:gsub('%s','')) end
-local function c_string_type(name) local c=compact(name); return c=='char*' or c=='constchar*' end
 local c_integer={}
 for _,name in ipairs{'char','signedchar','unsignedchar','short','unsignedshort','int','unsigned',
     'long','unsignedlong','longlong','unsignedlonglong','size_t','ssize_t','ptrdiff_t','intptr_t',
@@ -29,17 +28,11 @@ for _,name in ipairs{'char','signedchar','unsignedchar','short','unsignedshort',
 end
 local function c_integer_type(name) return c_integer[compact(name)]==true end
 
--- Each Let argument becomes the C parameter the host declared: a `Text` passes its bytes as a
--- `char*`, an `Int` is cast to the declared width, anything else passes through.
 function Emitter:host_arguments(host,arguments)
     local converted=L()
     for i,value in ipairs(arguments) do
         local spelling=host.c and host.c.params and host.c.params[i]
-        local parameter=host.signature.parameters[i]
-        local place=parameter and (parameter.capability==A.Mut or parameter.capability==A.OwnMut)
-        if spelling and c_string_type(spelling) and not place then
-            converted:insert(C.Field(value,'data'))
-        elseif spelling and c_integer_type(spelling) then
+        if spelling and c_integer_type(spelling) then
             converted:insert(C.Cast(C.Named(spelling),value))
         else
             converted:insert(value)
@@ -48,16 +41,9 @@ function Emitter:host_arguments(host,arguments)
     return converted
 end
 
--- The C result becomes the Let result: a `char*` is measured into a `Text`, an integer is
--- widened to `Int`, anything else passes through.
 function Emitter:host_result(host,call)
     local spelling=host.c and host.c.result
-    if not spelling then return call end
-    if c_string_type(spelling) then
-        self.text=true; self.helpers.text_from_c=true
-        return C.Call(C.Name('let_text_from_c'),L{call})
-    end
-    if c_integer_type(spelling) then return C.Cast(C.I64,call) end
+    if spelling and c_integer_type(spelling) then return C.Cast(C.I64,call) end
     return call
 end
 
@@ -86,6 +72,7 @@ function Emitter:ctype(type_)
     if type_==B.Effect then return C.U64 end
     if type_==B.Float then self.math=true; return C.F64 end
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
+    if type_==B.CString then return C.Pointer(C.Named('const char')) end
     if B.Named:isclassof(type_) then return C.I64 end
     if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
     if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
@@ -225,6 +212,11 @@ function Emitter:instruction(block,block_id,index,instruction)
         elseif operation.operator==A.ToFloat then declare(0,B.Float,C.Cast(self:ctype(B.Float),operand))
         elseif operation.operator==A.ToInt then
             if declare(0,B.Int,C.Call(C.Name('let_to_int'),L{operand})) then self.helpers.to_int=true end
+        elseif operation.operator==A.ToCString then
+            declare(0,B.CString,C.Field(operand,'data'))
+        elseif operation.operator==A.ToText then
+            self.text=true; self.helpers.text_from_c=true
+            declare(0,B.Text,C.Call(C.Name('let_text_from_c'),L{operand}))
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
@@ -337,6 +329,7 @@ function Emitter:instruction(block,block_id,index,instruction)
         end
     elseif B.HostCall:isclassof(operation) or B.PureHostCall:isclassof(operation) then
         local host=self.hosts[operation.symbol] or self:error('missing host contract for ' .. operation.symbol)
+        self.used_hosts[host.symbol]=host
         local arguments=self:host_arguments(host,self:arglist(block,block_id,position,operation.arguments))
         local call=self:host_result(host,C.Call(C.Name(operation.symbol),statement_list(arguments)))
         local pure=B.PureHostCall:isclassof(operation)
@@ -725,12 +718,17 @@ function Emitter:host_declarations()
         declarations:insert(C.Function(symbol,true,false,C.Void,L{C.Parameter(C.I64,'a0')},nil))
     end
     local symbols={}
-    for _,host in pairs(self.hosts or {}) do
+    -- Only a host the program actually calls is declared: a vocabulary may be registered for
+    -- names a program does not use, and those must not appear in its C.
+    for _,host in pairs(self.used_hosts) do
         if not names[host.symbol] then names[host.symbol]=true; symbols[#symbols+1]=host.symbol end
     end
     table.sort(symbols)
     for _,symbol in ipairs(symbols) do
         local host=self.hosts[symbol]
+        -- A declared prototype may name `size_t` or `ptrdiff_t`, so the includes follow the
+        -- hosts actually written out, not every registered one.
+        if host.c then self.c_hosts=true end
         local parameters=L()
         for i,parameter in ipairs(host.signature.parameters) do
             local spelling=host.c and host.c.params and host.c.params[i]
@@ -833,11 +831,14 @@ function Emitter:program(program,options)
     self.statics=L()
     self.program=program
     self.functions=program.functions
+    -- Symbols to declare and call, from the top-level hosts and from any namespace member that
+    -- is a host (`c.puts`).
     self.hosts={}
-    self.c_hosts=false
-    for _,host in pairs(options.hosts or {}) do
-        self.hosts[host.symbol]=host
-        if host.c then self.c_hosts=true end
+    for _,host in pairs(options.hosts or {}) do self.hosts[host.symbol]=host end
+    for _,namespace in pairs(options.dictionary or {}) do
+        for _,member in pairs(namespace.members or {}) do
+            if member.signature then self.hosts[member.symbol]=member end
+        end
     end
     -- One shared run: an instance is analysed once and reused by every call site that asks
     -- for the same entry packet.

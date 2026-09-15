@@ -10,6 +10,7 @@ local V={Source=context.Source,AST=context.AST,Belt=context.Belt,C=context.C,Lis
 V.Contract=require('let.contract')(V)
 V.Packet=require('let.packet')(V)
 V.Vocabulary=require('let.vocabulary')(V)
+V.libc=require('let.libc')(V)
 require('let.numbering')(V)
 require('let.build')(V)
 require('let.verify')(V)

@@ -310,7 +310,11 @@ function Evaluator:instruction(block,block_id,index,instruction)
         put(0,Known.value(B.Text,operation.value))
     elseif B.Unary:isclassof(operation) then
         local operand=inputs{operation.operand}[1]
-        if Known.is_known(operand) then
+        -- A C string is not a Let value: a pointer has no known representation, and measuring a
+        -- C string is run-time work, so these stay residual.
+        if operation.operator==A.ToCString or operation.operator==A.ToText then
+            put(0,Known.runtime(instruction.results[1]))
+        elseif Known.is_known(operand) then
             local value=Op.unary[operation.operator](operand.value)
             put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end

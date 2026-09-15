@@ -60,4 +60,17 @@ local emitted=assert(io.open(directory..'/demo.c','rb')):read('*a')
 check(emitted:find('INT64_C(42)',1,true)~=nil,
     'the bundle compiles on its own, with no module tree to fall back on')
 
+-- A file whose exported word is `main` becomes a complete C program: the command-line host
+-- supplies libc and emits `main` and a trap hook, so a pure Let file compiles to an
+-- executable with no C host and no options file.
+local hello=directory..'/hello.let'
+local handle=assert(io.open(hello,'wb'))
+handle:write('let main = do c.puts(c.string("hello from let")) end\n')
+handle:close()
+os.execute(('cd %s && luajit let.lua hello.let hello.c'):format(directory))
+os.execute(('cc -std=c11 -O1 -o %s/hello %s/hello.c'):format(directory,directory))
+local pipe=io.popen(directory..'/hello 2>&1')
+local greeting=pipe:read('*a'); pipe:close()
+eq(greeting,'hello from let\n','a `let main` file compiles to a runnable executable')
+
 print(('passed %d bundle checks'):format(checks))

@@ -826,6 +826,13 @@ end
 
 -- §8.3: projection selects a statically known named member and never invokes it.
 function A.Project:build(ctx)
+    -- A namespace member is a dictionary entry, not a field of a value.
+    local member=ctx.resolved and ctx.resolved.namespace_members and ctx.resolved.namespace_members[self]
+    if member then
+        if member.conversion then return {conversion=member.conversion} end
+        if member.signature then return {host=member} end
+        gap(self.span,'a namespace member here is not a runtime word')
+    end
     local root,steps=place_path(self)
     local id=root and ctx:find(root)
     local key=id and ctx:path_key(ctx.fn.bindings[id].type,steps,self.span,true)
@@ -1171,14 +1178,20 @@ function A.Switch:build(ctx)
     end
     ctx:push(); arm_at(ctx,1); if not ctx.block.exit then ctx:pop() end; ctx:unpin()
 end
--- A core numeric conversion (§13.3): one pure argument, one pure result, no ownership to move.
--- This is the one implementation, so an invocation and a juxtaposition cannot lower differently.
+-- The explicit conversions between Let and C values: one pure argument, one pure result, no
+-- ownership to move. The same definition serves an invocation and a juxtaposition, so they
+-- cannot lower differently.
+local conversions={
+    float={from=B.Int,to=B.Float,operator=A.ToFloat},
+    int={from=B.Float,to=B.Int,operator=A.ToInt},
+    cstring={from=B.Text,to=B.CString,operator=A.ToCString},
+    ctext={from=B.CString,to=B.Text,operator=A.ToText},
+}
 function Context:convert(kind,argument,span)
-    local from=kind=='float' and B.Int or B.Float
-    local to=kind=='float' and B.Float or B.Int
+    local conversion=conversions[kind]
     local value=argument:build(self)
-    expect(value,from,span)
-    local result=self:emit(B.Unary(kind=='float' and A.ToFloat or A.ToInt,self:ref(value)),L{to},span)
+    expect(value,conversion.from,span)
+    local result=self:emit(B.Unary(conversion.operator,self:ref(value)),L{conversion.to},span)
     result.mode='copy'
     return result
 end

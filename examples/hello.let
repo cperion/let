@@ -1,0 +1,3 @@
+let main = do
+    c.puts(c.string("hello, world"))
+end

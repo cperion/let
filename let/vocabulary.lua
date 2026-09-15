@@ -21,7 +21,7 @@ function Vocabulary.new(options)
     end
     local hosts={}
     local symbols={}
-    for name,host in pairs(options.hosts or {}) do
+    local function add_host(name,host)
         assert(host.phase=='runtime' and (host.purity=='ordered' or host.purity=='pure'),
             'host must declare runtime phase and purity')
         assert(type(host.symbol)=='string' and host.symbol:match('^[A-Za-z_][A-Za-z0-9_]*$'),
@@ -29,10 +29,17 @@ function Vocabulary.new(options)
         assert(B.Signature:isclassof(host.signature) and #host.signature.results==1,
             'host requires one Let result')
         assert(not symbols[host.symbol],'duplicate host symbol')
-        symbols[host.symbol]=true
+        symbols[host.symbol]=host
         hosts[name]=host
     end
-    return setmetatable({types=types,destroy=destroy,hosts=hosts},Vocabulary)
+    for name,host in pairs(options.hosts or {}) do add_host(name,host) end
+    -- A namespace member is a host too, but it has no top-level name; symbol lookup still needs it.
+    for _,namespace in pairs(options.dictionary or {}) do
+        for name,member in pairs(namespace.members or {}) do
+            if member.signature then add_host(name,member) end
+        end
+    end
+    return setmetatable({types=types,destroy=destroy,hosts=hosts,symbols=symbols},Vocabulary)
 end
 
 function Vocabulary:type(name) return self.types[name] end

@@ -15,12 +15,18 @@ function Context:publish(scope,definition,span)
     if scope.names[definition.name] then fail(span,'duplicate binding ' .. definition.name) end
     scope.names[definition.name]=definition
 end
-function Context:lookup(scope,name,span)
+-- A lookup that reports absence instead of failing, for a form that may name a value or a
+-- namespace.
+function Context:peek(scope,name)
     while scope do
         if scope.names[name] then return scope.names[name] end
         scope=scope.parent
     end
-    fail(span,'unknown name ' .. name)
+end
+function Context:lookup(scope,name,span)
+    local definition=self:peek(scope,name)
+    if not definition then fail(span,'unknown name ' .. name) end
+    return definition
 end
 function Context:use(scope,name,node,access,path)
     local definition=self:lookup(scope,name,node.span)
@@ -34,7 +40,7 @@ function Context:use(scope,name,node,access,path)
     -- A nested constructor's free input must also be available to its containing
     -- delayed construction/body. Stop at the defining template or a self link.
     local template=self.current
-    while template and template~=definition.owner and definition.kind~='dictionary' do
+    while template and template~=definition.owner and definition.kind~='dictionary' and definition.kind~='namespace' do
         if template.self==definition then break end
         -- Crossing a template boundary is not yet a capture: §10.1 is about a *word body*
         -- reaching out, and a binding initializer is not a word. Which enclosing templates
@@ -182,7 +188,20 @@ function A.Project:resolve_read(ctx,scope,path) self.base:resolve_read(ctx,scope
 function A.Index:resolve_read(ctx,scope,path)
     self.base:resolve_read(ctx,scope,path or self); self.index:resolve(ctx,scope)
 end
-function A.Project:resolve(ctx,scope) self:resolve_read(ctx,scope,self) end
+-- `c.member` where `c` is a namespace is a dictionary lookup, not a value projection: the
+-- member is a word, so `c.puts(...)` invokes it exactly like a top-level one.
+function A.Project:resolve(ctx,scope)
+    if A.Name:isclassof(self.base) then
+        local definition=ctx:peek(scope,self.base.name)
+        if definition and definition.kind=='namespace' then
+            local member=definition.members[self.name]
+            if not member then fail(self.span,'no ' .. self.name .. ' in ' .. self.base.name) end
+            ctx.namespace_members[self]=member
+            return
+        end
+    end
+    self:resolve_read(ctx,scope,self)
+end
 function A.Index:resolve(ctx,scope) self:resolve_read(ctx,scope,self) end
 function A.Move:resolve(ctx,scope) self.place:resolve_place(ctx,scope,'move') end
 function A.Borrow:resolve(ctx,scope) self.place:resolve_place(ctx,scope,'mut') end
@@ -208,14 +227,17 @@ local function dictionary(ctx,parent,entries)
     local scope=ctx:scope(parent); local names={}
     for name in pairs(entries) do names[#names+1]=name end; table.sort(names)
     for _,name in ipairs(names) do
-        local definition=ctx:definition(name,'dictionary',entries[name]); scope.names[name]=definition
+        local entry=entries[name]
+        local definition=ctx:definition(name,entry.members and 'namespace' or 'dictionary',entry)
+        if entry.members then definition.members=entry.members end
+        scope.names[name]=definition
     end
     return scope
 end
 function A.Program:resolve(options)
     options=options or {}
     local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},constraints={},scopes={},templates={},
-        imports={},import_words={},importing={},import_resolver=options.resolve,file=self.file.span.file},Context)
+        imports={},import_words={},importing={},namespace_members={},import_resolver=options.resolve,file=self.file.span.file},Context)
     local builtins={}
     for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable'} do builtins[name]={phase='constraint'} end
     -- The core numeric conversions are runtime words (§13.3), shadowable like any binding.

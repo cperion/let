@@ -5,7 +5,7 @@ module Belt {
     Destination = Persistent | Transient
     Access = CopyAccess | OwnAccess | ReadAccess | MutAccess
     Field = (string? name, Type type, boolean mutable)
-    Type = Int | Float | Bool | Unit | Text | Effect
+    Type = Int | Float | Bool | Unit | Text | Effect | CString
          | Named(string name) | Address(Type pointee)
          | Borrow(Type pointee, boolean stable)
          | Aggregate(Field* fields, boolean is_copy)
@@ -72,6 +72,8 @@ function B.Float:copyable() return true end
 function B.Bool:copyable() return true end
 function B.Unit:copyable() return true end
 function B.Text:copyable() return true end
+-- A C string is a borrowed `const char*`: Copy as a value, owned by C rather than by Let.
+function B.CString:copyable() return true end
 -- §8.5: an aggregate is Copy exactly when every contained value is Copy and it declares
 -- no mutable member. Both facts are recorded in the type, because member types alone
 -- cannot express a declared mutable member.
@@ -97,6 +99,7 @@ function B.Float:key() return 'float' end
 function B.Bool:key() return 'bool' end
 function B.Unit:key() return 'unit' end
 function B.Text:key() return 'text' end
+function B.CString:key() return 'cstring' end
 function B.Effect:key() return 'effect' end
 function B.Named:key() return 'named('..self.name..')' end
 function B.Address:key() return '&'..self.pointee:key() end

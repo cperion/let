@@ -33,7 +33,13 @@ void consume_buffer(int64_t buffer){ printf("consume:%lld\n",(long long)buffer);
 void close_buffer(int64_t buffer){ printf("close_buffer:%lld\n",(long long)buffer); }
 void print_bool(bool value){ printf("%d\n",value?1:0); }
 void print_int(int64_t value){ printf("%lld\n",(long long)value); }
+]]
+-- A host that takes or returns `Text` is compiled in this unit, so its implementation needs
+-- the struct. The generated C declares it only when the program uses Text, so this follows.
+local text_host_code=[[
 struct let_text mark(struct let_text text){ fwrite(text.data,1,(size_t)text.size,stdout); fputc('\n',stdout); return text; }
+]]
+local trap_code=[[
 void let_trap(char* reason){ fputs("trap: ",stderr); fputs(reason,stderr); fputc('\n',stderr); abort(); }
 ]]
 
@@ -52,7 +58,11 @@ local function native(name,source,extra_c,extra_options)
     local unit=program:emit(build_options)
     local declarations=L()
     for _,declaration in ipairs(unit.declarations) do declarations:insert(declaration) end
-    declarations:insert(C.Raw(host_code .. '\n' .. (extra_c or '')))
+    local has_text=false
+    for _,declaration in ipairs(unit.declarations) do
+        if C.Struct:isclassof(declaration) and declaration.name=='let_text' then has_text=true end
+    end
+    declarations:insert(C.Raw(host_code .. '\n' .. (has_text and text_host_code or '') .. '\n' .. trap_code .. '\n' .. (extra_c or '')))
     local includes=L(); for _,include in ipairs(unit.includes) do if include~='stdint.h' then includes:insert(include) end end
     includes:insert('inttypes.h')
     local text=V.print(C.Unit(includes,declarations))
@@ -609,28 +619,22 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 check(output:find('trap: division by zero',1,true)~=nil,'§14.2 native division trap')
 
--- §15.3 How a host reaches C is an embedding detail, so a host may state the C prototype it
--- calls. That is what lets a libc function be called directly: no shim, and the conversions
--- (Text passes as `const char*`, a `char*` result is measured back into Text, and an `Int` casts
--- to the declared width) happen at the call.
-local libc_hosts={}
-for name,host in pairs(hosts) do libc_hosts[name]=host end
-local text_parameter=B.Parameter(B.Text,A.Read)
-libc_hosts.strlen={symbol='strlen',phase='runtime',purity='pure',
-    signature=B.Signature(L{text_parameter},L{B.Int}), c={params={'const char *'},result='size_t'}}
-libc_hosts.puts={symbol='puts',phase='runtime',purity='ordered',
-    signature=B.Signature(L{text_parameter},L{B.Int}), c={params={'const char *'},result='int'}}
-libc_hosts.greeting={symbol='ffi_greeting',phase='runtime',purity='pure',
-    signature=B.Signature(L{},L{B.Text}), c={result='const char *'}}
+-- §15.3 A host may state the C prototype it calls, and the C vocabulary lives under `c`: its
+-- members take a borrowed `CString` (a `const char*`), and `c.string`/`c.text` are the
+-- explicit crossings between that and Let's `Text`. No shim, and no implicit string conflation.
+local c_members={}
+for name,host in pairs(V.libc) do c_members[name]=host end
+c_members.greeting={symbol='ffi_greeting',phase='runtime',purity='pure',
+    signature=B.Signature(L{},L{B.CString})}
 output=native('libc',[[
-let n = strlen("hello")
-let g = greeting()
-let gn = strlen(g)
-let wrote = puts("from-libc")
+let n = c.strlen(c.string("hello"))
+let g = c.greeting()
+let gn = c.strlen(g)
+let wrote = c.puts(c.string("from-libc"))
 let r = n + gn
 let shown = print_int(r)
 ]],'const char* ffi_greeting(void){ return "hello-from-c"; }\n'..
-    'int main(void){ let_module_init(); return 0; }',{hosts=libc_hosts})
-eq(output,'from-libc\n17\n','§15.3 native libc: a size_t result and two `const char*` prototypes')
+    'int main(void){ let_module_init(); return 0; }',{dictionary={c={members=c_members}}})
+eq(output,'from-libc\n17\n','§15.3 native libc: `c.strlen`, `c.puts` and `c.string` over a borrowed C string')
 
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))
