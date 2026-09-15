@@ -81,27 +81,40 @@ local Evaluator
 local Run={}; Run.__index=Run
 function Run.new(program,options)
     return setmetatable({program=program,hosts=(options or {}).hosts or {},
-        summaries={},budget=(options or {}).summary_budget or 256},Run)
+        instances={},budget=(options or {}).summary_budget or 256},Run)
 end
 
-function Run:summary(target,seeded)
-    local parts={}
-    for _,answer in ipairs(seeded) do parts[#parts+1]=Known.key(answer) end
-    local key=target .. '|' .. table.concat(parts,',')
-    local cached=self.summaries[key]
+-- The unit of demand is an *instance*: a belt function together with the answers of the entry
+-- packet it is called with. Its key is exactly that pair, which is also what a call site has
+-- when it decides what to call, so one cache serves both the fold question and emission's
+-- question of which C function a call names.
+function Run:key(target,seeded)
+    local parts={tostring(target)}
+    if seeded then for _,answer in ipairs(seeded) do parts[#parts+1]=Known.key(answer) end end
+    return table.concat(parts,',')
+end
+
+function Run:instance(target,seeded)
+    local key=self:key(target,seeded)
+    local cached=self.instances[key]
     if cached~=nil then return cached or nil end
-    if self.budget<=0 then self.summaries[key]=false; return nil end
-    -- Marked in progress: a recursive cycle must not fold.
-    self.summaries[key]=false; self.budget=self.budget-1
+    if self.budget<=0 then return nil end
+    -- Marked in progress: a cycle must not re-enter the same instance.
+    self.instances[key]=false; self.budget=self.budget-1
     local evaluator=Evaluator.new(self,self.program.functions[target],{parameters=seeded})
     evaluator:analyze()
-    -- The final effect result is Runtime by construction and is not a value obligation.
-    -- A summary is `answered` when every value result has an answer, and `foldable` when
-    -- every one of them is a *constant* and the callee demanded no ordered work. The two are
-    -- different questions: answers replace the uses of a call that still happens, while
-    -- foldability removes the call. An evaluator that produced no results at all has
-    -- answered nothing, and the loop below must not read that as success.
-    local signature=self.program.functions[target].signature
+    self.instances[key]=evaluator
+    return evaluator
+end
+
+-- A summary is a *view* of an instance, derived once: `answered` when every value result has
+-- an answer, `foldable` when every one of them is a constant and the callee demanded no
+-- ordered work. The two are different questions -- answers replace the uses of a call that
+-- still happens, foldability removes the call -- and an instance that produced no results at
+-- all has answered nothing, which the loop must not read as success.
+local function summarize(program,target,evaluator)
+    if evaluator.summary~=nil then return evaluator.summary or nil end
+    local signature=program.functions[target].signature
     local answered,foldable=#evaluator.results==#signature.results,not evaluator.residual
     for i,answer in ipairs(evaluator.results) do
         if signature.results[i]~=B.Effect then
@@ -109,9 +122,14 @@ function Run:summary(target,seeded)
             if not Known.is_known(answer) then foldable=false end
         end
     end
-    local summary=answered and {results=evaluator.results,foldable=foldable} or nil
-    self.summaries[key]=summary or false
-    return summary
+    evaluator.summary=answered and {results=evaluator.results,foldable=foldable} or false
+    return evaluator.summary or nil
+end
+
+function Run:summary(target,seeded)
+    local evaluator=self:instance(target,seeded)
+    if not evaluator then return nil end
+    return summarize(self.program,target,evaluator)
 end
 
 -- Evaluator ------------------------------------------------------------------------

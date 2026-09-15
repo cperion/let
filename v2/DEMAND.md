@@ -446,7 +446,33 @@ being emitted. That is not incidental: it means the unit of emission can become 
 with -- without touching any rule. `Run:summary` already keys its cache by exactly that pair,
 so the instance key exists and is already deduplicated.
 
-The remaining items then stop being separate features:
+They are not just ready for it; emission works this way now. `Emitter:generic_instance(id)` is the
+instance with no information about the packet -- which is what "one function per belt id" always
+was -- and it is what the module interface itself uses. `Emitter:callee_instance` derives a call's
+packet from the caller's own answers: a packet with no constant is the generic instance, one with
+a constant gets an instance of its own, and a self-tail-recursive callee or an exhausted budget
+falls back to the generic one, so every call resolves and the graph terminates. Emission *is* the
+discovery: the roots are emitted first and writing their calls is what makes the rest live, so the
+walk that guessed liveness is gone.
+
+The value this already delivers, measured:
+
+    let scale = let by : Int let x : Int do return by * x end
+    let double = scale 2
+    let r = double(n)                     -- n run-time
+
+emits a specialized instance whose body is `LET_MUL(INT64_C(2), p1_2)`: the known stage is
+inlined rather than passed, which is the point of specializing an ABI.
+
+One thing about it is still open and worth stating exactly, because the rule is supposed to be
+single-voiced. A specialized instance drops a parameter whose *value* it substituted -- asked
+directly, `disposition` answers `constant` for it -- yet the emitted signature still lists it, so
+`let_scale_3_2(int64_t p1_1, int64_t p1_2)` takes a parameter its body never reads. The signature
+and the call site agree with each other (the code is correct, the parameter is merely redundant),
+so something is asking a *different* instance than the one being emitted. That is the next thing
+to pin down, and until it is, this is a missed optimization rather than a wrong program.
+
+The remaining items stop being separate features:
 
 - **ABIs specialized per argument-knownness pattern**: emit one instance per key instead of
   one function per belt id. A parameter whose seeded answer is a constant is then `constant`

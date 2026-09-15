@@ -24,7 +24,8 @@ end
 
 function Emitter.new(options)
     return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
-        names={},helpers={},text=false,stdbool=true,trap=false},Emitter)
+        names={},helpers={},text=false,stdbool=true,trap=false,
+        instances={},pending={},generic={},serial={},self_tail={}},Emitter)
 end
 
 function Emitter:error(message) error('v2 C emission: ' .. message,0) end
@@ -131,7 +132,7 @@ end
 -- Resolve a belt reference to the C expression holding that output.
 function Emitter:ref(block,block_id,position,ref)
     local producer=position-1-ref.distance
-    local fate,answer=self:disposition(self.analysis[self.current_id],self.current,block_id,producer,ref.output)
+    local fate,answer=self:disposition(self.current_instance.analysis,self.current,block_id,producer,ref.output)
     if fate=='constant' then return self:constant(answer) end
     if producer<#block.parameters then return C.Name(self:param(block_id,producer)) end
     return C.Name(self:value(block_id,producer-#block.parameters+1,ref.output))
@@ -163,7 +164,7 @@ function Emitter:instruction(block,block_id,index,instruction)
     local out={}
     -- One question, asked of the same place the body filter and every reference asks.
     local function known(output)
-        return self:disposition(self.analysis[self.current_id],self.current,block_id,position,output)=='constant'
+        return self:disposition(self.current_instance.analysis,self.current,block_id,position,output)=='constant'
     end
     local function declare(output,type_,expr)
         if type_==B.Effect then return false end
@@ -257,11 +258,11 @@ function Emitter:instruction(block,block_id,index,instruction)
             self:ref(block,block_id,position,operation.value))
         declare(0,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
     elseif B.CallFunction:isclassof(operation) then
-        local callee=self.functions[operation.target]
         -- The callee's effect parameter is not part of its C signature.
-        local call=C.Call(C.Name(self:function_name(operation.target)),
-            self:call_arguments(operation.target,block,block_id,position,operation.arguments))
-        local type_,count=self:return_shape(callee.signature.results)
+        local callee=self:callee_instance(operation.target,block,block_id,position,operation.arguments)
+        local call=C.Call(C.Name(callee.name),
+            self:call_arguments(callee,block,block_id,position,operation.arguments))
+        local type_,count=self:return_shape(self.functions[operation.target].signature.results)
         -- A call the evaluator answered but kept still happens, even when every result it
         -- returns is a constant: the answer replaces the *uses*, not the call. Only the
         -- declaration is dropped, never the evaluation.
@@ -306,11 +307,73 @@ function Emitter:instruction(block,block_id,index,instruction)
     return statement_list(out)
 end
 
--- Fate ---------------------------------------------------------------------------------
+-- Instances ----------------------------------------------------------------------------
 --
--- Every consumer below asks the same two questions, so they are answered here and nowhere
--- else: what happens to one output, and does one instruction run at all. Answering them at
--- each use site is how five rules that had to agree came to be written separately.
+-- The unit of emission is an *instance*: a belt function together with the answers of the
+-- entry packet it is called with, which is the same key `Run` caches an analysis under. One
+-- function per belt id was the special case of that where nothing is known about the packet,
+-- so the generic instance is not a fallback bolted on beside specialization -- it is the
+-- instance with no information, and it is what the module interface itself uses.
+
+-- The instance a function has knowing nothing about its entry packet.
+function Emitter:generic_instance(id)
+    local existing=self.generic[id]
+    if existing then return existing end
+    local instance=self:add_instance(id,self.run:instance(id,nil),self.run:key(id,nil),true)
+    self.generic[id]=instance
+    return instance
+end
+
+function Emitter:add_instance(id,analysis,key,generic)
+    local serial=(self.serial[id] or 0)+1
+    self.serial[id]=serial
+    local instance={id=id,belt=self.functions[id],analysis=analysis,key=key,generic=generic,
+        name=generic and self:function_name(id) or (self:function_name(id) .. '_' .. serial)}
+    self.instances[key]=instance
+    self.pending[#self.pending+1]=instance
+    return instance
+end
+
+-- A self tail transfer changes the entry packet in place, so no packet of such a function is
+-- fixed and every call to it uses the generic instance.
+function Emitter:self_tail_recursive(id)
+    local known=self.self_tail[id]
+    if known~=nil then return known end
+    local found=false
+    for _,block in ipairs(self.functions[id].blocks) do
+        if B.TailCall:isclassof(block.exit) and block.exit.target==id then found=true end
+    end
+    self.self_tail[id]=found
+    return found
+end
+
+-- The instance a call names. A packet with no constant is the generic instance; one with a
+-- constant gets an instance of its own, unless the budget is spent or the instance is already
+-- being analysed, in which case the generic one is used and every call still resolves.
+function Emitter:callee_instance(target,block,block_id,position,arguments)
+    local generic=self:generic_instance(target)
+    if self:self_tail_recursive(target) then return generic end
+    local seeded={Known.runtime(B.Effect)}
+    local useful=false
+    for i,ref in ipairs(arguments) do
+        local answer=self.current_instance.analysis:resolve(block,block_id,position,ref)
+        seeded[i+1]=answer
+        if Known.is_known(answer) then useful=true end
+    end
+    if not useful then return generic end
+    return self:specialized_instance(target,seeded) or generic
+end
+
+-- The instance for a packet, if one can be built: nil when the budget is spent or the same
+-- instance is already being analysed, which is how a cycle terminates.
+function Emitter:specialized_instance(id,seeded)
+    local key=self.run:key(id,seeded)
+    local existing=self.instances[key]
+    if existing then return existing end
+    local analysis=self.run:instance(id,seeded)
+    if not analysis then return nil end
+    return self:add_instance(id,analysis,key,false)
+end
 
 -- What a function's body needs, as one set of producer positions and outputs. The demand pass
 -- over its instructions, plus the entry parameters block 1 reads.
@@ -393,20 +456,19 @@ function Emitter:parameter_live(analysis,belt,block_id,index)
     return self:disposition(analysis,belt,block_id,index-1,0)~='dropped'
 end
 
-function Emitter:kept_parameter(belt,index)
-    return self:parameter_live(self.analysis[self.current_id],belt,1,index)
-end
-
 function Emitter:needed_parameter(block_id,index)
-    return self:parameter_live(self.analysis[self.current_id],self.current,block_id,index)
+    return self:parameter_live(self.current_instance.analysis,self.current,block_id,index)
 end
 
 -- The arguments a call passes: belt argument i lands on entry parameter i+1, the effect being
 -- carried separately.
-function Emitter:call_arguments(target,block,block_id,position,refs)
+-- The arguments a call passes, asked of the instance it names: belt argument i lands on entry
+-- parameter i+1, and the effect is carried separately. Signature and call site ask the same
+-- rule of the same instance, so they cannot disagree.
+function Emitter:call_arguments(instance,block,block_id,position,refs)
     local out=L()
     for i,ref in ipairs(refs) do
-        if self:parameter_live(self.analysis[target],self.functions[target],1,i+1) then
+        if self:parameter_live(instance.analysis,instance.belt,1,i+1) then
             out:insert(self:ref(block,block_id,position,ref))
         end
     end
@@ -470,8 +532,9 @@ function Emitter:exit(target_id,block,block_id,exit)
             statements:insert(C.Goto('b1'))
             return C.Block(statements)
         end
-        return C.Return(C.Call(C.Name(self:function_name(exit.target)),
-            self:call_arguments(exit.target,block,block_id,position,exit.arguments)))
+        local callee=self:callee_instance(exit.target,block,block_id,position,exit.arguments)
+        return C.Return(C.Call(C.Name(callee.name),
+            self:call_arguments(callee,block,block_id,position,exit.arguments)))
     elseif B.Trap:isclassof(exit) then
         self.trap=true
         local statements=L()
@@ -498,49 +561,21 @@ function Emitter:function_name(id)
     return 'let_' .. sanitize(name or ('fn_' .. id))
 end
 
-function Emitter:live_functions()
-    local live,work={[1]=true,[2]=true},{1,2}
-    while #work>0 do
-        local id=table.remove(work)
-        local belt=self.program.functions[id]
-        local analysis=self.analysis[id]
-        for block_id in pairs(analysis.live_blocks) do
-            local block=belt.blocks[block_id]
-            local position=#block.parameters+#block.instructions
-            for index,instruction in ipairs(block.instructions) do
-                local at=#block.parameters+index-1
-                local operation=instruction.operation
-                if B.CallFunction:isclassof(operation)
-                    and self:instruction_runs(self.analysis[id],belt,block_id,at,instruction)
-                    and not live[operation.target] then
-                    live[operation.target]=true; work[#work+1]=operation.target
-                end
-            end
-            if B.TailCall:isclassof(block.exit) and not live[block.exit.target] then
-                live[block.exit.target]=true; work[#work+1]=block.exit.target
-            end
-        end
-    end
-    return live
-end
-
-
--- The C parameter list mirrors the entry block's packet, so prototypes and
--- definitions agree on every argument type.
--- A folded function is emitted before `self.current` is set, so the belt to scan is passed
--- in rather than read from the emitter's state.
-function Emitter:function_parameters_for(id,belt)
+-- The signature of an instance, asked through the same rule a call site uses, so the two
+-- cannot disagree about what is passed.
+function Emitter:function_parameters_for(instance)
+    local belt=instance.belt
     local parameters=L()
     for i,parameter in ipairs(belt.blocks[1].parameters) do
-        if self:parameter_live(self.analysis[id],belt,1,i) then
+        if self:parameter_live(instance.analysis,belt,1,i) then
             parameters:insert(C.Parameter(self:ctype(parameter.type),self:param(1,i-1)))
         end
     end
     return parameters
 end
 
-function Emitter:emit_function(id,belt)
-    local analysis=self.analysis[id]
+function Emitter:emit_instance(instance)
+    local belt,analysis=instance.belt,instance.analysis
     -- A fully folded function has no residual work at all, so its body is the constant it
     -- computes. Nothing inside it is walked: no blocks, no labels, no gotos.
     if analysis.folded then
@@ -549,20 +584,21 @@ function Emitter:emit_function(id,belt)
         for i,result in ipairs(belt.signature.results) do
             if result~=B.Effect then values:insert(self:constant(analysis.results[i])) end
         end
-        local external=id==1
-        return C.Function(self:function_name(id),external,external,type_,
-            self:function_parameters_for(id,belt),
+        local external=instance.id==1
+        return C.Function(instance.name,external,external,type_,
+            self:function_parameters_for(instance),
             C.Block(L{C.Return(self:return_value(type_,values))}))
     end
+    self.current_instance=instance
     self.current=belt
-    self.current_id=id
+    self.current_id=instance.id
     self.live=analysis.live_blocks
     self.decision=analysis.decision
     -- Consumer demand is a frontend decision: an unneeded pure producer is never
     -- written out, so the emitted C does not rely on a C compiler to delete it.
     -- Ordered operations always carry a demanded effect output and are therefore kept.
     local result=self:return_shape(belt.signature.results)
-    local parameters=self:function_parameters_for(id,belt)
+    local parameters=self:function_parameters_for(instance)
     local body=L()
     -- Non-entry block parameters are assigned only by edges, so they are declared once.
     -- The entry block's packet is the function's ABI and is never pruned.
@@ -579,15 +615,15 @@ function Emitter:emit_function(id,belt)
         body:insert(C.Label('b' .. block_id))
         for index,instruction in ipairs(block.instructions) do
             local position=#block.parameters+index-1
-            if self:instruction_runs(self.analysis[id],belt,block_id,position,instruction) then
+            if self:instruction_runs(analysis,belt,block_id,position,instruction) then
                 body:insertall(self:instruction(block,block_id,index,instruction))
             end
         end
-        body:insert(self:exit(id,block,block_id,block.exit))
+        body:insert(self:exit(instance.id,block,block_id,block.exit))
         ::continue_block::
     end
-    local external=id==1
-    return C.Function(self:function_name(id),external,external,result,parameters,C.Block(body))
+    local external=instance.id==1
+    return C.Function(instance.name,external,external,result,parameters,C.Block(body))
 end
 
 -- Resources and hosts are foreign code: the emitter declares the symbols it calls, and
@@ -639,15 +675,18 @@ function Emitter:program(program,options)
     self.functions=program.functions
     self.hosts={}
     for _,host in pairs(options.hosts or {}) do self.hosts[host.symbol]=host end
-    -- One shared run so call summaries are computed once and reused across callers.
-    local run=Known.run(program,options)
-    self.analysis={}
-    for id in ipairs(program.functions) do self.analysis[id]=Known.analyze(program,id,{run=run}) end
-    self.live_functions=self:live_functions()
-    -- Emitting functions registers the structs and helper requirements they need.
+    -- One shared run: an instance is analysed once and reused by every call site that asks
+    -- for the same entry packet.
+    self.run=Known.run(program,options)
+    -- The module interface is the root of the instance graph, and emission discovers the rest
+    -- by writing the calls it finds -- which is the same discovery that decides liveness.
+    self:generic_instance(1)
+    self:generic_instance(2)
     local functions=L()
-    for id,belt in ipairs(program.functions) do
-        if self.live_functions[id] then functions:insert(self:emit_function(id,belt)) end
+    local at=1
+    while self.pending[at] do
+        functions:insert(self:emit_instance(self.pending[at]))
+        at=at+1
     end
     local host_declarations=self:host_declarations()
     local helpers=self:helper_declarations()
@@ -659,11 +698,10 @@ function Emitter:program(program,options)
     for _,struct in ipairs(self.structs) do declarations:insert(struct) end
     for _,struct in ipairs(self.results) do declarations:insert(struct) end
     declarations:insertall(host_declarations)
-    for id,belt in ipairs(program.functions) do
-        if self.live_functions[id] then
-            declarations:insert(C.Function(self:function_name(id),id==1,id==1,
-                self:return_shape(belt.signature.results),self:function_parameters_for(id,belt),nil))
-        end
+    for _,instance in ipairs(self.pending) do
+        declarations:insert(C.Function(instance.name,instance.id==1,instance.id==1,
+            self:return_shape(instance.belt.signature.results),
+            self:function_parameters_for(instance),nil))
     end
     declarations:insertall(functions)
     return C.Unit(includes,declarations)
