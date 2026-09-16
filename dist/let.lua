@@ -2481,6 +2481,14 @@ local function gap(span,message) fail(span,'construction not yet implemented: ' 
 -- "That is an ownership error, not a missing lowering" sat directly above a call whose message
 -- began "construction not yet implemented".
 local function refuse(span,message) fail(span,message) end
+-- A third class, for the compiler's own broken invariants: a word value that the resolver should
+-- have resolved, or a build driven without a program builder. It is not a refusal (the language
+-- did not say no) and it is not a gap (nothing is missing) -- it is a bug, and the message should
+-- read like one, so it gets reported instead of worked around. The sites that used `gap` for these
+-- made the *inventory of real gaps* look nine sites larger than it is.
+local function internal(span,message)
+    error(('%s:%d:%d: internal compiler error: %s'):format(span.file,span.line,span.column,message),0)
+end
 local function expect(value,type_,span)
     if not value.type then refuse(span,'word values in data positions') end
     if not value.type:same(type_) then fail(span,'expected ' .. tostring(type_) .. ', got ' .. tostring(value.type)) end
@@ -2840,9 +2848,12 @@ end
 function Context:check(annotation,type_,span)
     if not annotation then return type_ end
     local name=A.Ref:isclassof(annotation) and annotation.name or nil
-    if name and #annotation.arguments>0 then gap(span,'specialized type words') end
+    -- §3: a type word's arguments are type words. Only literals can reach here, because the type
+    -- atom collects them and a name argument is an `Apply` instead, so the program applied a type
+    -- word to a literal.
+    if name and #annotation.arguments>0 then refuse(span,'a type word cannot take a literal argument') end
     local declared=self:constraint_type(annotation)
-    if not declared then gap(span,'type ' .. (name or 'expression')) end
+    if not declared then refuse(span,(name or 'this annotation')..' is not a type word') end
     -- §11.3: a word-typed stage holds a word. Its declared arrow (or runtime terminal) is the
     -- word's signature; the supplied word's remaining signature must match. The stage keeps its
     -- concrete word type, so invocation still works.
@@ -3198,7 +3209,7 @@ function Context:finish(value,span)
 end
 function Context:statements(statements)
     for _,statement in ipairs(statements) do
-        if self.block.exit then gap(statement.span,'unreachable statements') end
+        if self.block.exit then refuse(statement.span,'unreachable statements') end
         statement:build(self)
     end
 end
@@ -3319,7 +3330,7 @@ A.BitAnd.apply=bitwise; A.BitOr.apply=bitwise; A.BitXor.apply=bitwise
 A.ShiftLeft.apply=bitwise; A.ShiftRight.apply=bitwise
 function A.BinaryOp:build(ctx,expression)
     local left=expression.left:build(ctx)
-    if not left.type then gap(expression.left.span,'word values in data positions') end
+    if not left.type then refuse(expression.left.span,'word values in data positions') end
     ctx:pin(left); local right=expression.right:build(ctx)
     ctx:unpin(); return self:apply(ctx,left,right,expression.span)
 end
@@ -3354,7 +3365,7 @@ function A.Specialize:build(ctx)
         return ctx:sum_inject(word.injection.sum,word.injection.index,payload,self.span,self.argument.span)
     end
     local builder=ctx.builder
-    if not builder then gap(self.span,'word specialization requires a program builder') end
+    if not builder then internal(self.span,'word specialization requires a program builder') end
     return builder:specialize(ctx,self)
 end
 -- §11.5: a sum value is a tagged record; injection fills the tag and the active field, and
@@ -3384,7 +3395,7 @@ function A.Move:build(ctx)
     if A.Name:isclassof(self.place) then return ctx:take(self.place.name,self.span) end
     -- §9.2: `move place` may name a subplace. The path must be statically known.
     local root,steps,reason=place_path(self.place)
-    if not root then gap(self.span,reason or 'this move place') end
+    if not root then refuse(self.span,reason or 'this move place') end
     if not ctx:find(root) then refuse(self.span,'moving out of ' .. tostring(root)) end
     return ctx:take_member(root,steps,self.span)
 end
@@ -3415,7 +3426,10 @@ function place_path(node)
         elseif A.Name:isclassof(current) then
             return current.name,steps
         else
-            return nil,nil,'this place form'
+            -- §9.2: a place is a name, a member of one, or a constant index into one, because
+            -- the path has to be known at compile time. `move (a + b)` is the shape that lands
+            -- here, and the reason is stated from the program's side rather than as `this place`.
+            return nil,nil,'a place to move or borrow is a name, a member or a constant index'
         end
     end
 end
@@ -3466,9 +3480,9 @@ function A.Data:build(ctx) return self.value:build(ctx) end
 -- hold runtime words without lambda syntax (§7.1).
 local function chain_value(ctx,chain)
     if #chain.items==0 and A.Data:isclassof(chain.terminal) then return chain.terminal.value:build(ctx) end
-    local builder=ctx.builder; if not builder then gap(chain.span,'word construction without a program builder') end
+    local builder=ctx.builder; if not builder then internal(chain.span,'word construction without a program builder') end
     local template=ctx.resolved.chains[chain]
-    if not template then gap(chain.span,'unresolved word construction') end
+    if not template then internal(chain.span,'unresolved word construction') end
     return builder:instantiate(ctx,{template=template})
 end
 A.Chain.value=chain_value
@@ -3573,7 +3587,7 @@ function A.NamedAggregate:build(ctx)
         member:build(ctx)
         local id=ctx:find(member.name)
         local value=ctx.cells[id].value
-        if value.host then gap(member.span,'stored host words') end
+        if value.host then refuse(member.span,'stored host words') end
         values:insert(value)
         fields[index]={name=member.name,type=value.type,mutable=ctx.fn.bindings[id].mutable}
     end
@@ -3595,7 +3609,7 @@ function Context:ensure_word(record,span,writable)
         end
     end
     local template=self.builder and self.builder.resolved.templates[type_.template]
-    if not template then gap(span,'word value with an unknown template') end
+    if not template then internal(span,'word value with an unknown template') end
     local fields={}
     for i,field in ipairs(type_:record()) do
         fields[i]={name=field.name,type=field.type,mutable=field.mutable,owned=false,retained=true,span=span,
@@ -3713,14 +3727,14 @@ function A.Binding:build(ctx)
     local value
     if (#self.value.items>0 or not A.Data:isclassof(self.value.terminal)) and ctx.builder then
         local definition=ctx.resolved.bindings[self]
-        if not definition then gap(self.span,'unresolved word construction') end
+        if not definition then internal(self.span,'unresolved word construction') end
         value=ctx.builder:instantiate(ctx,definition)
     elseif #self.value.items>0 or not A.Data:isclassof(self.value.terminal) then
-        gap(self.span,'local word construction without a program builder')
+        internal(self.span,'local word construction without a program builder')
     else
         value=self.value.terminal:build(ctx)
     end
-    if value.host then gap(self.span,'stored host words') end
+    if value.host then refuse(self.span,'stored host words') end
     -- A sum type word carries the sum the injections and projections need; remembering it by the
     -- resolved definition keeps it reachable from a word that captured the binding.
     if value.sum and ctx.resolved and ctx.resolved.bindings[self] then
@@ -3768,7 +3782,7 @@ end
 -- at run time, and each level of the path is rebuilt from the leaf up.
 function A.Assign:assign_place(ctx)
     local root,steps=place_path(self.place)
-    if not root then gap(self.span,'this assignment place') end
+    if not root then refuse(self.span,'this assignment place') end
     local id,binding,cell=ctx:binding(root,self.span)
     if not cell.initialized then fail(self.span,'assignment to uninitialized binding ' .. binding.name) end
     ctx:access(id,true,self.span)
@@ -4086,7 +4100,7 @@ function Context:call(expression,tail)
     local values,locks={},{}; self:push()
     for i,argument in ipairs(expression.arguments) do
         local parameter=sig.parameters[i]; local value=argument:build(self)
-        if not value.type then gap(argument.span,'word values in data positions') end
+        if not value.type then refuse(argument.span,'word values in data positions') end
         local access,temporary=parameter.capability:bind_argument(value,B.Transient,function(message) fail(argument.span,message) end)
         if access==B.MutAccess then
             assert(B.Borrow:isclassof(value.type) and value.type.pointee:same(parameter.type),'a mutable stage requires a mutable place')
@@ -4166,7 +4180,7 @@ function A.Chain:build_function(name,options)
     fn.self_visible=true
     return ctx:finish_function(self.terminal.statements):verify_flow(vocabulary.hosts)
 end
-V.Build={Context=Context,expect=expect,fail=fail,gap=gap,refuse=refuse,copy=copy}
+V.Build={Context=Context,expect=expect,fail=fail,gap=gap,refuse=refuse,internal=internal,copy=copy}
 end
 
 
@@ -5591,7 +5605,7 @@ module('let.program', function(require, ...)
 return function(V)
 local A,B,L=V.AST,V.Belt,V.List
 local Build=V.Build; local Context=Build.Context
-local expect,fail,gap,refuse,copy=Build.expect,Build.fail,Build.gap,Build.refuse,Build.copy
+local expect,fail,gap,refuse,internal,copy=Build.expect,Build.fail,Build.gap,Build.refuse,Build.internal,Build.copy
 local Packet=V.Packet
 local Vocabulary=V.Vocabulary
 
@@ -6061,7 +6075,7 @@ function Builder:invoke(ctx,expression,tail)
             for _,candidate in ipairs(self.resolved.templates) do
                 if candidate.id==result_type.template then template=candidate end
             end
-            if not template then gap(expression.span,'unresolved word template ' .. tostring(result_type.template)) end
+            if not template then internal(expression.span,'unresolved word template ' .. tostring(result_type.template)) end
             local fields={}
             for i,field in ipairs(result_type.fields) do
                 fields[i]={name=field.name,type=field.type,mutable=field.mutable,owned=false,retained=false,
@@ -6390,9 +6404,9 @@ function A.Program:build(options)
 end
 
 function A.Word:build(ctx)
-    local builder=ctx.builder; if not builder then gap(self.span,'word values require a program builder') end
+    local builder=ctx.builder; if not builder then internal(self.span,'word values require a program builder') end
     local template=ctx.resolved.chains[self.chain]
-    if not template then gap(self.span,'unresolved word construction') end
+    if not template then internal(self.span,'unresolved word construction') end
     return builder:instantiate(ctx,{template=template})
 end
 end

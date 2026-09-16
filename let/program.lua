@@ -4,7 +4,7 @@
 return function(V)
 local A,B,L=V.AST,V.Belt,V.List
 local Build=V.Build; local Context=Build.Context
-local expect,fail,gap,refuse,copy=Build.expect,Build.fail,Build.gap,Build.refuse,Build.copy
+local expect,fail,gap,refuse,internal,copy=Build.expect,Build.fail,Build.gap,Build.refuse,Build.internal,Build.copy
 local Packet=V.Packet
 local Vocabulary=V.Vocabulary
 
@@ -474,7 +474,7 @@ function Builder:invoke(ctx,expression,tail)
             for _,candidate in ipairs(self.resolved.templates) do
                 if candidate.id==result_type.template then template=candidate end
             end
-            if not template then gap(expression.span,'unresolved word template ' .. tostring(result_type.template)) end
+            if not template then internal(expression.span,'unresolved word template ' .. tostring(result_type.template)) end
             local fields={}
             for i,field in ipairs(result_type.fields) do
                 fields[i]={name=field.name,type=field.type,mutable=field.mutable,owned=false,retained=false,
@@ -803,9 +803,9 @@ function A.Program:build(options)
 end
 
 function A.Word:build(ctx)
-    local builder=ctx.builder; if not builder then gap(self.span,'word values require a program builder') end
+    local builder=ctx.builder; if not builder then internal(self.span,'word values require a program builder') end
     local template=ctx.resolved.chains[self.chain]
-    if not template then gap(self.span,'unresolved word construction') end
+    if not template then internal(self.span,'unresolved word construction') end
     return builder:instantiate(ctx,{template=template})
 end
 end
