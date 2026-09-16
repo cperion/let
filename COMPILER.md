@@ -92,7 +92,9 @@ compared, or turned into an integer -- so it is passed back to C. Owned C memory
 **resource** with a declared C representation: `CAlloc = { destroy = 'free', representation =
 'pointer' }`, so Let destroys it exactly once and there is no `c.free` to call. Only a borrowed
 pointer result declares `ownership = 'borrowed'` and `nullable`; `Vocabulary` checks that those
-describe a pointer result and that a representation is `value` or `pointer`. The declared set is
+describe a pointer result and that a representation is `value` or `pointer`. A declaration may
+also name the argument a result views (`borrows = 1`), which holds the caller's value borrowed
+while the view lives. The declared set is
 `c.strlen`, `c.strcmp`, `c.atoi`, `c.llabs`, `c.getenv`, `c.puts`, `c.putchar`, `c.malloc`,
 `c.memcpy`, `c.memset`, `c.memcmp`, `c.write` and `c.read`. `c.string`/`c.text` cross between
 `Text` and `CString`; `c.text_of` builds a `Text` over a pointer and a length; `c.byte_length`

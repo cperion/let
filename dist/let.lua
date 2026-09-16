@@ -2033,6 +2033,15 @@ function Vocabulary.new(options)
         if host.nullable~=nil then
             assert(type(host.nullable)=='boolean','host nullability must be a boolean')
         end
+        -- A view of an argument: the result points into storage the caller owns, so the caller's
+        -- value must not move or be freed while the view is live. `ownership` says only that Let
+        -- must not free the result, which is why the two are declared separately.
+        if host.borrows~=nil then
+            assert(type(host.borrows)=='number' and host.borrows==math.floor(host.borrows),
+                'a host view must name an argument by number')
+            assert(host.borrows>=1 and host.borrows<=#host.signature.parameters,
+                'a host view must name one of its own arguments')
+        end
         if host.ownership~=nil or host.nullable~=nil then
             local result=host.signature.results[1]
             assert(result==B.CString or result==B.CPointer,
@@ -2473,6 +2482,32 @@ end
 function Context:access(id,writing,span)
     local lock=self.locks[id]
     if lock and (lock.write or (writing and lock.read>0)) then fail(span,'conflicting borrow of ' .. self.fn.bindings[id].name) end
+end
+-- §12.4: a view of a Let value borrows it, and the borrow lasts as long as the scope that made
+-- the view -- which is the binding that holds it in every ordinary case. Moving or writing the
+-- owner while the view is live is then a conflicting borrow. Two things are deliberately not
+-- claimed: a view of a literal or a temporary views storage Let never owned, and a foreign side
+-- that invalidates the bytes is beyond any check.
+function Context:hold_view(value,source,span)
+    local id=source.origin
+    if not id then
+        -- A non-Copy temporary is destroyed at the end of the statement, so a view of it could
+        -- never be used. That is worth naming rather than leaving to the foreign side.
+        if not source.type:copyable() then
+            fail(span,'a view of a temporary cannot outlive it; bind the value first')
+        end
+        return value
+    end
+    self:access(id,false,span)
+    local lock=self.locks[id] or {read=0}
+    self.locks[id]=lock; lock.read=lock.read+1
+    local scope=self.scopes[#self.scopes]
+    local held=scope.views
+    if not held then held={}; scope.views=held end
+    held[#held+1]=id
+    -- The view borrows the same value, so a view of a view is held against the original owner.
+    value.origin=id
+    return value
 end
 function Context:read(name,span)
     local id,binding,cell=self:binding(name,span)
@@ -3036,11 +3071,26 @@ function Context:release(id)
         self:unpin_moved(crossed); self:unpin()
     end
 end
+-- A view's hold ends with the scope that made it, so both scope exits release it: `pop`, which
+-- closes one scope, and `cleanup`, which closes the whole activation before a return or a tail
+-- call. Clearing the list makes the release idempotent, because a cleanup can be followed by the
+-- pops that would otherwise release the same hold twice.
+function Context:release_views(scope)
+    local held=scope.views
+    if not held then return end
+    scope.views=nil
+    for _,id in ipairs(held) do
+        local lock=self.locks[id]
+        if lock then lock.read=lock.read-1 end
+    end
+end
 function Context:pop()
     local scope=self.scopes[#self.scopes]
     if scope.retained then
         for i=#scope.ids,1,-1 do self.cells[scope.ids[i]]=nil end
     else
+        -- A view's hold ends before the cells it holds are released.
+        self:release_views(scope)
         for i=#scope.ids,1,-1 do self:release(scope.ids[i]); self.cells[scope.ids[i]]=nil end
     end
     self.scopes[#self.scopes]=nil
@@ -3048,6 +3098,7 @@ end
 function Context:cleanup()
     for i=#self.scopes,1,-1 do
         if not self.scopes[i].retained then
+            self:release_views(self.scopes[i])
             local ids=self.scopes[i].ids; for j=#ids,1,-1 do self:release(ids[j]) end
         end
     end
@@ -3909,12 +3960,16 @@ local conversions={
     u32={arity=1,from={B.Int},to=B.U32,operator=A.ToU32},
 -- §13.3 Float32 narrows a binary64 to binary32; there is no implicit Float/Float32 conversion.
     f32={arity=1,from={B.Float},to=B.Float32,operator=A.ToF32},
-    cstring={arity=1,from={B.Text},to=B.CString,operator=A.ToCString},
-    ctext={arity=1,from={B.CString},to=B.Text,operator=A.ToText},
+    -- `borrows` names the argument whose storage the result views. The distinction from a host's
+    -- `ownership` is real: `ownership='borrowed'` says Let must not free the result, while
+    -- `borrows=i` says the result is a view of argument i, so argument i must stay put while the
+    -- view is live.
+    cstring={arity=1,from={B.Text},to=B.CString,operator=A.ToCString,borrows=1},
+    ctext={arity=1,from={B.CString},to=B.Text,operator=A.ToText,borrows=1},
     byte_length={arity=1,from={B.Text},to=B.Int,operator=A.TextSize},
     null={arity=1,from='pointer',to=B.Bool,operator=A.IsNull},
     -- A Text view over a pointer and a length; the only conversion that takes two arguments.
-    text_of={arity=2,from='pointer',from2={B.Int},to=B.Text},
+    text_of={arity=2,from='pointer',from2={B.Int},to=B.Text,borrows=1},
 }
 function Context:convert(kind,arguments,span)
     local conversion=conversions[kind]
@@ -3927,6 +3982,7 @@ function Context:convert(kind,arguments,span)
         if type_==B.CString or type_==B.CPointer then return true end
         return B.Named:isclassof(type_) and self.fn.vocabulary:representation(type_.name)=='pointer'
     end
+    local built={}
     local function build(index,accepted)
         local value=arguments[index]:build(self)
         local ok=accepted=='pointer' and is_pointer(value.type)
@@ -3934,6 +3990,7 @@ function Context:convert(kind,arguments,span)
             for _,type_ in ipairs(accepted) do if value.type:same(type_) then ok=true end end
         end
         if not ok then fail(span,'a ' .. kind .. ' conversion is not defined for ' .. tostring(value.type)) end
+        built[index]=value
         return value
     end
     local operation
@@ -3946,6 +4003,10 @@ function Context:convert(kind,arguments,span)
     end
     local result=self:emit(operation,L{conversion.to},span)
     result.mode='copy'
+    -- `borrows` names the argument the result views, so that argument is held for as long as the
+    -- view is. A conversion with no view borrows nothing.
+    local source=conversion.borrows and built[conversion.borrows]
+    if source then return self:hold_view(result,source,span) end
     return result
 end
 function Context:call(expression,tail)
@@ -4001,6 +4062,12 @@ function Context:call(expression,tail)
     for _,lock in ipairs(locks) do local entry=self.locks[lock.id]; if lock.writing then entry.write=false else entry.read=entry.read-1 end end
     for _=1,#values do self:unpin() end
     self:pin(result); self:pop(); self:unpin()
+    -- A host view outlives the call, so its hold is taken in the caller's scope, after the call's
+    -- own scope has released the borrows it made for the arguments.
+    if host.borrows then
+        local source=values[host.borrows]
+        if source then result=self:hold_view(result,source,expression.span) end
+    end
     return result
 end
 function A.Invoke:build(ctx)

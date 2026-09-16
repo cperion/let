@@ -1203,6 +1203,19 @@ is an ordinary dictionary entry with an explicit capability, purity, and ownersh
 such memory is a foreign pointer type, and a `Text` view may be built over a pointer and a
 length, as above, so one call can process a whole frame rather than one element.
 
+A view is a value that points into storage something else owns. When that storage is a Let value,
+the view **holds it borrowed** for as long as the view lives, so moving, freeing or writing the
+owner while the view is live is a conflicting borrow. A vocabulary declares which argument a view
+points into; a `Text` over a pointer and a length, and a borrowed `CString`, both name one. A view
+of a literal or of a temporary points into storage Let never owned, so there is nothing to hold --
+and a view of a non-Copy temporary is rejected outright, because the temporary dies at the end of
+the statement.
+
+Two limits belong to the boundary rather than being gaps to close. A foreign side that
+invalidates the bytes cannot be checked, and a host that writes through a `Read` borrow is
+invisible: the declaration, not the implementation, is what the compiler holds a host to. And the
+hold ends with the scope that made the view, so a view that escapes that scope is no longer held.
+
 
 A program may declare a foreign word in source, with no embedding registration:
 

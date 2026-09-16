@@ -105,6 +105,15 @@ function Vocabulary.new(options)
         if host.nullable~=nil then
             assert(type(host.nullable)=='boolean','host nullability must be a boolean')
         end
+        -- A view of an argument: the result points into storage the caller owns, so the caller's
+        -- value must not move or be freed while the view is live. `ownership` says only that Let
+        -- must not free the result, which is why the two are declared separately.
+        if host.borrows~=nil then
+            assert(type(host.borrows)=='number' and host.borrows==math.floor(host.borrows),
+                'a host view must name an argument by number')
+            assert(host.borrows>=1 and host.borrows<=#host.signature.parameters,
+                'a host view must name one of its own arguments')
+        end
         if host.ownership~=nil or host.nullable~=nil then
             local result=host.signature.results[1]
             assert(result==B.CString or result==B.CPointer,
