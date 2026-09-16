@@ -273,6 +273,33 @@ These are not gaps. The specification fixes no behaviour to implement, or defers
 - Package resolution policy: `let/file.lua` provides a default resolver, but §15.2 leaves the
   lookup to the embedding, so a host with its own layout passes its own resolver.
 
+## What an indexed aggregate costs
+
+A runtime index into an aggregate is lowered by `Context:select_member`, which walks the members
+in order: one equality, one branch, and one load per member, at **every** access site. The cost of
+an access site is therefore linear in the member count, and the cost of a program is linear in
+(access sites × members). Measured on a word reading `members` distinct elements of an inline
+aggregate and keeping each one, in lines of emitted C:
+
+| members | 1 access site | 4 access sites | lines per access site |
+|---------|---------------|----------------|-----------------------|
+| 4       | 154           | 685            | 177                   |
+| 8       | 262           | 1369           | 369                   |
+| 16      | 478           | 2737           | 753                   |
+| 32      | 910           | 5473           | 1521                  |
+
+That is about 48 lines per member per access site, and it is what a large dispatch aggregate --
+an opcode table, a state machine, a VM -- turns into: a real report of one is ~172,000 lines of C
+for a 24 KB binary, because gcc folds thousands of near-identical branch chains away. The compile
+time is real, the code is not, which is why the binary stays small and the problem is easy to miss.
+
+Two ways out, neither taken yet. A `switch` on the index is O(1) lines per access site and the C
+compiler emits a jump table for it, but the belt has no such `Op` (§4.3 fixes the vocabulary), so
+it is a belt addition rather than a local change. Index arithmetic -- if the members are
+homogeneous, load the *i*-th of a uniform layout rather than testing for it -- is O(1) too and is
+what a dispatch table actually wants, but it needs a rule for when members may be treated as an
+array, which is a language question rather than a lowering one.
+
 ## Tests and their limits
 
 `luajit test/all.lua` runs every suite and reports the total check count; that total is
