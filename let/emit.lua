@@ -429,7 +429,18 @@ end
 function Emitter:generic_instance(id)
     local existing=self.generic[id]
     if existing then return existing end
-    local instance=self:add_instance(id,self.run:instance(id,nil),self.run:key(id,nil),true)
+    local analysis=self.run:instance(id,nil)
+    -- Emission asks the analysis what is known at every step, so an instance without one is not
+    -- usable. The analysis answers `nil` only when it cannot compute a summary, and the generic
+    -- instance is what every other call falls back to, so there is nothing to fall back to here --
+    -- it is a compiler bug, not a program that cannot be compiled.
+    -- The analysis answers `nil` when the budget ran out unfolding a recursion that does not
+    -- converge. Emission asks what is known at every step, so a blank analysis -- nothing known -- is
+    -- the honest answer, and the demand pass still decides what to materialize. The generic instance
+    -- is what every other call falls back to, so there is no second option: without it, `emit`
+    -- refuses to build a program whose recursion merely does not terminate.
+    if not analysis then analysis=self.run:blank(id) end
+    local instance=self:add_instance(id,analysis,self.run:key(id,nil),true)
     self.generic[id]=instance
     return instance
 end

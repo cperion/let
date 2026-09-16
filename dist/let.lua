@@ -6575,6 +6575,22 @@ function Run:instance(target,seeded)
     return evaluator
 end
 
+-- An analysis with nothing known, for a function whose summary could not be computed: the budget
+-- ran out unfolding a recursion that does not converge. Emission asks what is known at every step,
+-- so this is the honest answer -- nothing is -- and the demand pass still decides what has to be
+-- materialized, so the emitted function is correct and simply not folded. `results` is empty rather
+-- than nil because a caller asking for a summary reads its length.
+function Run:blank(target)
+    local evaluator=Evaluator.new(self,self.program.functions[target],{parameters=nil})
+    evaluator.results={}
+    -- The rest of what the emitter reads off an analysis. No block can be proved dead without
+    -- answers, so every block stays live and the demand pass alone decides what is materialized.
+    evaluator.live_blocks={}
+    for block_id=1,#self.program.functions[target].blocks do evaluator.live_blocks[block_id]=true end
+    evaluator.folded=false
+    return evaluator
+end
+
 -- A summary is a *view* of an instance, derived once: `answered` when every value result has
 -- an answer, `foldable` when every one of them is a constant and the callee demanded no
 -- ordered work. The two are different questions -- answers replace the uses of a call that
@@ -7750,7 +7766,18 @@ end
 function Emitter:generic_instance(id)
     local existing=self.generic[id]
     if existing then return existing end
-    local instance=self:add_instance(id,self.run:instance(id,nil),self.run:key(id,nil),true)
+    local analysis=self.run:instance(id,nil)
+    -- Emission asks the analysis what is known at every step, so an instance without one is not
+    -- usable. The analysis answers `nil` only when it cannot compute a summary, and the generic
+    -- instance is what every other call falls back to, so there is nothing to fall back to here --
+    -- it is a compiler bug, not a program that cannot be compiled.
+    -- The analysis answers `nil` when the budget ran out unfolding a recursion that does not
+    -- converge. Emission asks what is known at every step, so a blank analysis -- nothing known -- is
+    -- the honest answer, and the demand pass still decides what to materialize. The generic instance
+    -- is what every other call falls back to, so there is no second option: without it, `emit`
+    -- refuses to build a program whose recursion merely does not terminate.
+    if not analysis then analysis=self.run:blank(id) end
+    local instance=self:add_instance(id,analysis,self.run:key(id,nil),true)
     self.generic[id]=instance
     return instance
 end

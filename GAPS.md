@@ -111,17 +111,21 @@ let answer = loop(3)
 ```
 
 `emit.lua:729: attempt to index local 'analysis' (a nil value)`. The chain, measured rather than
-guessed: a self call makes the abstract analysis create an instance per *packet*, the packets do not
-converge, and `Run:instance` runs out of its 256-instance budget and returns `nil` (five exhaustions
-for this twelve-line program). `Emitter:specialized_instance` handles that `nil` -- "which is how a
-cycle terminates" -- by falling back to the generic instance, but `Emitter:generic_instance` does not:
-it memoises *after* recursing, so a re-entrant lookup recomputes and builds an instance whose
-`analysis` is `nil`, and `emit_instance` dereferences it.
+guessed: a self call makes the abstract analysis create an instance per *packet*, a recursion with
+no base case never repeats a packet, and `Run:instance` runs out of its 256-instance budget and
+returns `nil` -- five exhaustions for this twelve-line program. `Emitter:specialized_instance`
+handles that `nil` -- "which is how a cycle terminates" -- by falling back to the generic instance,
+but `Emitter:generic_instance` did not: it built an instance whose `analysis` was `nil`, and
+`emit_instance` dereferenced it.
 
-The elegant fix is the one the compiler already has: `known.lua` carries **loop widening**, which is
-exactly the mechanism that stops a packet from spawning new instances forever, so a recursive call
-should widen to a fixpoint the same way a loop does. The second half is small and independent: an
-instance must never be built without an analysis.
+**Fixed.** The obvious fix -- bound the analysis by *function* rather than by packet, so a recursive
+call answers `nil` and widens -- is wrong, and measuring said so: it cost `fact(5)` its constant and
+took the emitted C from 30 lines to 181, because a recursion that *does* converge folds today and
+should keep doing so. The budget is only reached by a recursion that does not converge, so the
+degradation there is correctly *no folding*: `Run:blank` gives the emitter an analysis that knows
+nothing, every block stays live, and the demand pass still decides what is materialized. `fact(5)`
+still folds to `INT64_C(120)`; the non-converging program now emits. Both are pinned in
+`test/emit.lua`.
 
 **Forward references do not resolve, so mutual recursion is impossible.** `is_even` referring to
 `is_odd` defined below it is `unknown name is_odd`, at top level and inside a body alike. That is what
@@ -129,11 +133,15 @@ forces a real program to nest everything inside one word or into imports -- and 
 two result-type gaps above unreachable, because only mutual recursion would ask for a result the
 terminal's `do : T` could not state.
 
-The elegant fix is another reuse: `resolve.lua` already separates *declaring* a name
-(`Context:definition`, `publish`) from *resolving* a body, so a statement list can declare every
-binding's name before resolving any initialiser, with the existing `ctx.resolving` check keeping "a
-binding is not visible in its own initializer" true. That is a two-phase scope, and it is the shape
-the resolver is already built from.
+**The fix is not the two-phase scope this document first proposed, and finding out why is the useful
+part.** Pre-declaring every name in a statement list makes `let a = b + 1` before `let b = 2`
+resolve, and that program reads `b` before its initializer runs. Forward references are only sound
+for a *deferred* use -- one inside a word body, which runs at invocation -- and not for an immediate
+one in a value initializer. `Context:lookup` would also have to check `ctx.resolving` *before*
+`peek`, because once the name is pre-declared the self-visibility diagnostic stops firing.
+So the change needs the deferred-versus-immediate distinction, which is a question about what the
+language means (`let a = b` against `let a = let ... b ... end`), not a resolver refactor. It belongs
+with the spec open, not in a gap-closing pass.
 
 ### Cause 5 — prelude ordering (1 site)
 
@@ -160,11 +168,16 @@ stated from the program's side, which is what the classifier needs to see.
 
 ## Order I would take them
 
-0. **The two bugs found while starting item 1**, because they come first by measurement rather than by
-   guess: the recursive-call crash (packet widening, which `known.lua` already has for loops, plus
-   never building an instance without an analysis) and forward references (a two-phase statement
-   scope, which the resolver's declare-then-resolve split already implies). Until forward references
-   resolve, mutual recursion is impossible and the two result-type gaps below stay unreachable.
+0. ~~The recursive-call crash.~~ **Fixed**, by letting the analysis answer `nil` and having the
+   emitter degrade to no folding rather than to an instance with no analysis. Testing the obvious
+   fix first is what stopped it: bounding the analysis by function cost `fact(5)` its constant.
+   Pinned in `test/emit.lua`.
+1. **Forward references, with the spec open.** Not the two-phase scope this document first
+   proposed: pre-declaring names makes `let a = b + 1` before `let b = 2` resolve, and that reads
+   `b` before its initializer runs. It needs the deferred-versus-immediate distinction. Until it is
+   decided, mutual recursion stays impossible and Cause 4's two sites stay unreachable.
+2. ~~Cause 4, by deletion.~~ **Withdrawn**: those two sites are not reachable by the shapes that
+   would exercise them, and the inference path is not what keeps them alive.
 1. ~~Cause 4, by deletion.~~ **Withdrawn**: those two sites are not reachable by the shapes that
    would exercise them, and the inference path is not what keeps them alive.
 2. **Cause 3's `two runtime indices`.** Reuses `select_member`; small and self-contained.

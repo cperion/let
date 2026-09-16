@@ -109,6 +109,22 @@ function Run:instance(target,seeded)
     return evaluator
 end
 
+-- An analysis with nothing known, for a function whose summary could not be computed: the budget
+-- ran out unfolding a recursion that does not converge. Emission asks what is known at every step,
+-- so this is the honest answer -- nothing is -- and the demand pass still decides what has to be
+-- materialized, so the emitted function is correct and simply not folded. `results` is empty rather
+-- than nil because a caller asking for a summary reads its length.
+function Run:blank(target)
+    local evaluator=Evaluator.new(self,self.program.functions[target],{parameters=nil})
+    evaluator.results={}
+    -- The rest of what the emitter reads off an analysis. No block can be proved dead without
+    -- answers, so every block stays live and the demand pass alone decides what is materialized.
+    evaluator.live_blocks={}
+    for block_id=1,#self.program.functions[target].blocks do evaluator.live_blocks[block_id]=true end
+    evaluator.folded=false
+    return evaluator
+end
+
 -- A summary is a *view* of an instance, derived once: `answered` when every value result has
 -- an answer, `foldable` when every one of them is a constant and the callee demanded no
 -- ordered work. The two are different questions -- answers replace the uses of a call that

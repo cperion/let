@@ -299,4 +299,30 @@ let y = true or (n != 0);
 check(not shorted:find('if (',1,true),'a decided short-circuit emits no branch')
 check(not shorted:find('ordered_int',1,true)~=nil,'and still evaluates what it was given')
 
+-- A recursion that does not converge cannot be summarised: the analysis unfolds it until its
+-- instance budget runs out, and it used to leave the emitter an instance with no analysis, which
+-- crashed at `analysis.folded`. Emission must degrade to *no folding* instead -- the demand pass
+-- still decides what is materialized -- because the program itself is merely non-terminating, not
+-- uncompilable.
+local nonstop=emitted[[
+let loop = let n : Int do : Int
+    let r = loop(n - 1);
+    return r
+end
+let answer = loop(3)
+]]
+check(nonstop:find('let_loop',1,true)~=nil,'a non-converging recursion still emits its function')
+
+-- And the budget must not be the only bound: a recursion that *does* converge still folds, which is
+-- why bounding the analysis by function (the obvious fix) was the wrong one -- it cost `fact(5)`
+-- its constant and six times the C.
+local folded=emitted[[
+let fact = let n : Int do : Int
+    if n == 0 do return 1 end
+    return n * fact(n - 1)
+end
+let answer = fact(5)
+]]
+check(folded:find('INT64_C(120)',1,true)~=nil,'a converging recursion still folds to its constant')
+
 print(('passed %d demand and folding emission checks'):format(checks))
