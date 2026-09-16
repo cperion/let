@@ -89,11 +89,51 @@ to implement path-sensitivity or to state the restriction as a rule — not to h
 `result type of a word whose only exit is a self tail call` · `the result type of a recursive call must
 be fixed by another return in the same word`
 
-**Elegant fix: deletion.** These exist only because a result type is being *inferred*. The model
-requires a runtime terminal to state its result (`do : T`), and `contract.lua`'s inference is already
-listed as deleted in `TYPES.md` §10 while the file still exists. Requiring the annotation for a
-recursive word removes both sites and retires a mechanism the model says is gone — a fix that reduces
-the compiler's surface rather than adding to it. The most elegant kind.
+**Correction after trying it: these two sites are unreachable in the shapes that matter.** Tried
+against the current compiler, a word whose only exit is `return loop(n - 1)` is accepted, and so is
+`let r = loop(n - 1); return r + 1`, and `contract.lua` already prefers a stated `do : T` over what
+it can infer (its `constraint_type(types, terminal.result)` branch). So the inference path is not
+infer (its `constraint_type(types, terminal.result)` branch). So the inference path is not what keeps
+these alive. What does is reachable only through **mutual** recursion, which a forward reference
+blocks before the result type is ever asked for (see the finding below). Neither site is a deletion
+candidate; the cause is elsewhere.
+
+### Found while starting item 1: two bugs behind these gaps
+
+**A self-recursive word whose result passes through a binding crashes the emitter.**
+
+```let
+let loop = let n : Int do : Int
+    let r = loop(n - 1);
+    return r
+end
+let answer = loop(3)
+```
+
+`emit.lua:729: attempt to index local 'analysis' (a nil value)`. The chain, measured rather than
+guessed: a self call makes the abstract analysis create an instance per *packet*, the packets do not
+converge, and `Run:instance` runs out of its 256-instance budget and returns `nil` (five exhaustions
+for this twelve-line program). `Emitter:specialized_instance` handles that `nil` -- "which is how a
+cycle terminates" -- by falling back to the generic instance, but `Emitter:generic_instance` does not:
+it memoises *after* recursing, so a re-entrant lookup recomputes and builds an instance whose
+`analysis` is `nil`, and `emit_instance` dereferences it.
+
+The elegant fix is the one the compiler already has: `known.lua` carries **loop widening**, which is
+exactly the mechanism that stops a packet from spawning new instances forever, so a recursive call
+should widen to a fixpoint the same way a loop does. The second half is small and independent: an
+instance must never be built without an analysis.
+
+**Forward references do not resolve, so mutual recursion is impossible.** `is_even` referring to
+`is_odd` defined below it is `unknown name is_odd`, at top level and inside a body alike. That is what
+forces a real program to nest everything inside one word or into imports -- and it is what makes the
+two result-type gaps above unreachable, because only mutual recursion would ask for a result the
+terminal's `do : T` could not state.
+
+The elegant fix is another reuse: `resolve.lua` already separates *declaring* a name
+(`Context:definition`, `publish`) from *resolving* a body, so a statement list can declare every
+binding's name before resolving any initialiser, with the existing `ctx.resolving` check keeping "a
+binding is not visible in its own initializer" true. That is a two-phase scope, and it is the shape
+the resolver is already built from.
 
 ### Cause 5 — prelude ordering (1 site)
 
@@ -120,7 +160,13 @@ stated from the program's side, which is what the classifier needs to see.
 
 ## Order I would take them
 
-1. **Cause 4, by deletion.** Two gaps closed, an inference path retired, no new code.
+0. **The two bugs found while starting item 1**, because they come first by measurement rather than by
+   guess: the recursive-call crash (packet widening, which `known.lua` already has for loops, plus
+   never building an instance without an analysis) and forward references (a two-phase statement
+   scope, which the resolver's declare-then-resolve split already implies). Until forward references
+   resolve, mutual recursion is impossible and the two result-type gaps below stay unreachable.
+1. ~~Cause 4, by deletion.~~ **Withdrawn**: those two sites are not reachable by the shapes that
+   would exercise them, and the inference path is not what keeps them alive.
 2. **Cause 3's `two runtime indices`.** Reuses `select_member`; small and self-contained.
 3. **Cause 2's tail write-back.** Extends `written_back`; unblocks stateful continuations, which is
    what a stack machine wants.
