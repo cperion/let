@@ -401,9 +401,29 @@ function Builder:invoke(ctx,expression,tail)
     -- Transient saturation: each argument binds one stage, and the preludes it reaches
     -- run before the next argument is evaluated (§6.2).
     ctx:push(); ctx:retain()
+    -- A stage's argument is built after the fields the word already carries, and a reference is a
+    -- distance from the instruction that carries it -- so an argument that splits the block (a
+    -- runtime index that traps, a branch, a loop) leaves those fields behind, and the call then
+    -- reads whatever now sits at their distance. `Context:call` pins each argument as it builds it
+    -- for the same reason; here what must survive is the *fields*, because the callee is handed
+    -- exactly them. Each is pinned once, and unpinned once it has been handed over.
+    local pinned=L(); local pinned_ids={}
+    local function pin_fields(word)
+        for _,field in ipairs(word.fields) do
+            local value=field.value
+            if value and value.id and not pinned_ids[value.id] then
+                pinned_ids[value.id]=true; pinned:insert(value); ctx:pin(value)
+            end
+        end
+    end
+    local function unpin_fields() for _=1,#pinned do ctx:unpin() end end
     local ok,result=pcall(function()
         local value=callee
-        for _,argument in ipairs(expression.arguments) do value=self:supply(ctx,value,argument,B.Transient) end
+        pin_fields(value.word)
+        for _,argument in ipairs(expression.arguments) do
+            value=self:supply(ctx,value,argument,B.Transient)
+            pin_fields(value.word)
+        end
         local word=clone_word(assert(value.word,'invocation of a saturated data terminal'))
         local layout=self:layout(word.template)
         if word.supplied~=#layout.steps then fail(expression.span,'invocation must exactly saturate remaining stages') end
@@ -448,6 +468,7 @@ function Builder:invoke(ctx,expression,tail)
             end
             ctx:cleanup()
             ctx.block.exit=B.TailCall(target,ctx:ref(ctx.effect),ctx:refs(field_values))
+            unpin_fields()
             return nil
         end
         local callee=self.functions[target]
@@ -467,6 +488,7 @@ function Builder:invoke(ctx,expression,tail)
         for i,field in ipairs(word.fields) do if Packet.written_back(field) then types:insert(field.type) end end
         types:insert(B.Effect)
         local results={ctx:emit(B.CallFunction(target,ctx:ref(ctx.effect),ctx:refs(field_values)),types,expression.span)}
+        unpin_fields()
         ctx.effect=results[#results]
         -- §3.4: an invocation is a specialization atom. A Word-typed result names its template and
         -- supplied count, and its fields are the members of what the callee returned, so the word

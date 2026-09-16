@@ -744,6 +744,22 @@ let shown = print_int(answer.a)
 ]],'int main(void){ let_module_init(); return 0; }')
 check(output:find('trap: index out of range',1,true)~=nil,'§8.4 a trapping runtime index in a struct-returning word')
 
+-- A capturing word invoked with an element read at a runtime index. The read's bounds check
+-- splits the block, so the field the callee is handed -- `base`, captured from the module -- has
+-- to cross that boundary as a value carried by the interface. It was not carried, and the build
+-- failed with `producer was not carried across a control boundary` rather than emitting.
+output=native('capture_element',[[
+let base = 10
+let add_base = let v : Int do : Int return v + base end
+let pick = let index : Int do : Int
+    let cells = { 5, 6, 7 }
+    return add_base(cells[index])
+end
+let answer = pick(runtime_int(1))
+let shown = print_int(answer)
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'16\n','a capturing word called with an element read at a runtime index')
+
 -- §15.3 A host may state the C prototype it calls, and the C vocabulary lives under `c`: its
 -- members take a borrowed `CString` (a `const char*`), and `c.string`/`c.text` are the
 -- explicit crossings between that and Let's `Text`. No shim, and no implicit string conflation.

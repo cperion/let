@@ -1,0 +1,12 @@
+// A word that captures a module binding, invoked with an aggregate element read at a runtime index.
+// The read splits the block -- its bounds check is a branch -- so the callee's captured field has to
+// be carried across that split. It was not, and the build failed with `producer was not carried
+// across a control boundary`: a reference is a distance from the instruction that carries it, so the
+// call was reading whatever now sat at the field's old distance.
+let base = 10
+let add_base = let v : Int do : Int return v + base end
+let pick = let i : Int do : Int
+    let cells = { 5, 6, 7 }
+    return add_base(cells[i])
+end
+let chosen = pick(1)

@@ -54,6 +54,9 @@ local programs={
     {name='fold_variable',result=8},
     {name='borrow_place',result=7},
     {name='mutable_member',result=2},
+    -- A call whose argument splits the block: `cells[i]` traps when the index is out of range, so
+    -- the callee's captured field crosses a boundary on the way to the call.
+    {name='capture_element',result=16},
     -- §6.5 A tail call may borrow a value the word does not own: the word's *prelude* lives in its
     -- bundle rather than in the activation, so the borrow survives the transfer. This was refused
     -- as "tail invocation borrow does not outlive caller cleanup", and the same code with the
