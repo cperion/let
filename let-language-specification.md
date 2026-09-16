@@ -138,7 +138,7 @@ let do end own mut move return if else while switch case and or not true false b
 
 These spellings cannot be used as binding names. `if`, `else`, `while`, `switch`, `case`, `break`, and `continue` are structured control spellings in the language dictionary. They describe inline control regions rather than invoking runtime branch closures. `and`, `or`, and `not` are reserved operator spellings.
 
-The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. `->` is the type arrow and `|` is the type sum; the scanner takes `->` before `-`, and neither is an expression operator (§3.4). Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
+The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. `->` is the type arrow and is never an expression operator; `|` builds a tagged union (`A | B`, §11.5) and is the lowest-precedence expression operator (§3.4). The scanner takes `->` before `-`. Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
 
 ---
 
@@ -169,7 +169,7 @@ annotation          := empty | ":" type_expression
 binding_operator    := "="
 
 terminal            := do_terminal | transfer_value
-do_terminal         := "do" ":" type_expression { SEP }
+do_terminal         := "do" ":" result_type { SEP }
                        { statement { SEP } } "end"
 transfer_value      := expression | "move" place
 
@@ -177,6 +177,8 @@ type_expression     := arrow_type
 arrow_type          := sum_type [ "->" arrow_type ]
 sum_type            := apply_type { "|" apply_type }
 apply_type          := atom_type { atom_type }
+result_type         := result_sum [ "->" result_type ]
+result_sum          := atom_type { "|" atom_type }
 atom_type           := NAME { literal }
                      | record_type
                      | "(" type_expression ")"
@@ -203,7 +205,9 @@ writes a value. A member written `let x : T` is a stage, so the aggregate is a w
 fields -- a constructor and a type; a member written `let x = v` is a prelude, so the aggregate is
 the value. The positional form `{ Int, Text }` reuses the positional aggregate the same way. The
 arrow is unary and right-nested; there is no parameter list and no product type. A runtime terminal
-**must state its result** with `do : T`. A data terminal
+**must state its result** with `do : T`. The result type is parsed as `result_type` -- arrows and `|`,
+but no top-level juxtaposition -- so a terminal body that starts with a name is not swallowed; write
+`do : (List Int)` for an applied result type. A data terminal
 has no written result: its type is the type of its terminal expression, composed from the declared
 stage types. A type application is not a distinct form.
 
@@ -287,11 +291,13 @@ Precedence from highest to lowest is:
 | 7 | `== !=` | non-associative |
 | 8 | `and` | left, short-circuiting |
 | 9 | `or` | left, short-circuiting |
+| 10 | `A \| B` (tagged union) | left |
 
-Postfix invocation is recognized regardless of whitespace. `f(x)` and `f (x)` are identical. Prefix parentheses group an expression.
+Postfix invocation is recognized regardless of whitespace. `f(x)` and `f (x)` are identical. Prefix parentheses group an expression. `|` has the lowest precedence, so `a or b | c` parses as `(a or b) | c`, and it builds a tagged union type word (§11.5).
 
 ~~~text
-expression           := or_expression
+expression           := union_expression
+union_expression     := or_expression { "|" or_expression }
 or_expression        := and_expression { "or" and_expression }
 and_expression       := equality_expression { "and" equality_expression }
 equality_expression  := comparison_expression
@@ -404,8 +410,8 @@ The name of a runtime word is visible inside its terminal `do` body, allowing di
 
 ~~~let
 let factorial =
-    let n
-    do
+    let n : Int
+    do : Int
         if n <= 1 do
             return 1
         end
@@ -421,12 +427,12 @@ A mutual recursion is therefore written as one self-recursive word that carries 
 let step =
     let n : Int
     let parity : Bool
-    do
+    do : Bool
         if n == 0 do return parity end
         return step(n - 1, not parity)
     end
-let even = let n : Int do return step(n, true) end
-let odd = let n : Int do return step(n, false) end
+let even = let n : Int do : Bool return step(n, true) end
+let odd = let n : Int do : Bool return step(n, false) end
 ~~~
 
 ### 4.3 Evaluation order
@@ -482,9 +488,9 @@ Juxtaposition supplies stable bindings without entering a terminal `do`:
 
 ~~~let
 let add =
-    let x
-    let y
-    do
+    let x : Int
+    let y : Int
+    do : Int
         return x + y
     end
 
@@ -510,8 +516,8 @@ If a chain reaches a data terminal, specialization returns that data immediately
 
 ~~~let
 let pair =
-    let left
-    let right
+    let left : Int
+    let right : Int
     { left, right }
 
 let p = pair 10 20
@@ -536,9 +542,9 @@ A read-only borrow cannot silently become persistent state. Non-copyable state m
 
 ~~~let
 let counter =
-    let start
+    let start : Int
     let value mut = start
-    do
+    do : Int
         value = value + 1
         return value
     end
@@ -649,7 +655,7 @@ The callee and every borrowed argument of a tail invocation must outlive the cur
 In a binding terminal, it creates an executable word value:
 
 ~~~let
-let hello = do
+let hello = do : Unit
     print("hello")
 end
 ~~~
@@ -669,7 +675,7 @@ A complete binding chain is also a value in a delimited argument position, so ru
 ~~~let
 map(values,
     let value : Int
-    do
+    do : Int
         return value * value
     end
 )
@@ -922,9 +928,9 @@ Specialization preludes are the direct way to create private owned state:
 
 ~~~let
 let counter =
-    let start
+    let start : Int
     let value mut = start
-    do
+    do : Int
         value = value + 1
         return value
     end
@@ -997,21 +1003,16 @@ Primitive type words are atomic: they await no value. A compound type word is a 
 nominal identity; used as a value it is the constructor.
 
 ~~~let
-let Point =
-    let x : Int
-    let y : Text
-    do : { x : Int, y : Text }
-        return { x, y }
-    end
-
-let p : Point = Point(1, "a")
+let Point = { let x : Int let y : Text }
+let p : Point = Point 1 "a"
 ~~~
 
-`: Point` is the type of `{ x, y }`, nominal to `Point`; `Point(1, "a")` constructs it, and the
-record it builds **carries `Point`'s identity**, so `Point` and another aggregate of the same shape
-are distinct types. A data terminal makes construction a value available at specialization; a `do`
-terminal makes it runtime work, so a smart constructor, factory, or resource constructor needs no
-new form — only the trailing `do type-word` instead of a data type.
+`: Point` is the type of `{ x, y }`, nominal to `Point`. The aggregate is a word awaiting its fields,
+so juxtaposition (`Point 1 "a"`) supplies them and yields the record; the record **carries
+`Point`'s identity**, so `Point` and another aggregate of the same shape are distinct types. A data
+terminal makes construction a value available at specialization; a `do` terminal makes it runtime
+work, so a smart constructor, factory, or resource constructor needs no new form — only the trailing
+`do type-word` instead of a data type.
 
 A type word may be **generic** over other type words. `Type` classifies type words, so a word whose
 stages are `Type` parameters is a type constructor, applied by **juxtaposition** (§3.1):
@@ -1286,11 +1287,11 @@ Let has no language exception channel. A recoverable operation accepts or return
 
 ~~~let
 let checked_divide =
-    let ok
-    let fail
+    let ok : Int -> do Int
+    let fail : Int -> do Int
     let numerator : Int
     let denominator : Int
-    do
+    do : Int
         if denominator == 0 do
             return fail("division by zero")
         end
@@ -1507,7 +1508,7 @@ These language extensions remain explicitly deferred. Note that partial moves *a
   a value or `move place` as a member (§3.3) and confines `mut place` to a call argument (§3.4), so
   a program that tries it is rejected while parsing rather than by the ownership rules;
 - mixed numeric promotion and implicit numeric conversion;
-- generic type parameters (a `Type` word) and reflection beyond the emitted tag;
+- reflection beyond the emitted tag (a type word is a compile-time value; only its tag reaches runtime);
 - first-class runtime type values: a type word used as a value and given a runtime descriptor (§11.4);
 - pattern matching and pattern captures;
 - catchable exceptions;
@@ -1526,7 +1527,7 @@ An extension must state its source semantics explicitly. The features above are 
 An implementation conforms to Let only when all of the following hold:
 
 1. Every program binding is introduced by `let`.
-2. `=` completes a binding; a chain `let` without `=` creates a stage.
+2. `=` completes a binding; a chain `let` without `=` creates a stage, which must declare its type word.
 3. Juxtaposition binds stable stages and never enters `do`.
 4. Postfix `()` alone invokes runtime behavior.
 5. Prelude bindings fire exactly when the preceding stages become satisfied.
@@ -1605,7 +1606,7 @@ Such choices may change size, speed, and embedding policy. They must not change 
 | Word | A value containing remaining stages, stable state, and a terminal meaning |
 | Word type | A word's chain read as unary, right-nested arrows ending in its terminal (§11.1) |
 | Type word | A word built from primitive type words and constructors, usable as a type (§11.2) |
-| Tagged union | An `A \| B` sum, constructed per alternative and eliminated by handler-fold (§11.5) |
+| Tagged union | An `A \| B` sum: `let Opt = Int \| Text`, injected by `Opt.left`/`Opt.right`, projected by `v.tag`/`v.left`, eliminated by `switch` on the tag (§11.5) |
 | Specialization | Persistent stage binding by juxtaposition; never terminal-body invocation |
 | Invocation | Transient saturation followed by entry into runtime `do` |
 | Construction word | Construction-phase word that shapes the enclosing word's control behavior from source expressions and regions |

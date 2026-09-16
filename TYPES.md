@@ -56,15 +56,18 @@ failure).
 ```
 type_expression := arrow_type
 arrow_type      := sum_type [ "->" arrow_type ]        -- unary, right-nested
-sum_type        := atom_type { "|" atom_type }
-atom_type       := NAME { type_argument }              -- type-word application, e.g. List Int
+sum_type        := apply_type { "|" apply_type }       -- tagged union
+apply_type      := atom_type { atom_type }             -- juxtaposition: List Int
+atom_type       := NAME { literal }                    -- a type word, optional C spelling
                  | record_type
                  | "(" type_expression ")"
+                 | "do" type_expression
+result_type     := result_sum [ "->" result_type ]     -- a terminal result: no adjacency
+result_sum      := atom_type { "|" atom_type }
 record_type     := "{" { SEP } "}"
                  | "{" { SEP } named_type_member { { SEP } named_type_member } { SEP } "}"
                  | "{" type_expression { "," type_expression } [ "," ] "}"
 named_type_member := "let" NAME [ "mut" ] ":" type_expression
-type_argument   := literal | "(" type_expression ")"
 ```
 
 A record type uses the **regular aggregate form**: the same braces and `let` members, with a type
@@ -72,13 +75,13 @@ where a value aggregate writes a value. A `let x : T` member is a stage, so the 
 awaiting its fields -- the record's constructor and its type; a `let x = v` member is a prelude, so
 the aggregate is the value. There is no separate `{ x : Int }` notation.
 
-A stage **must** declare its type word and a runtime terminal **must** state its result: `do : T`.
-A data terminal needs no written result (its type is its expression). The chain terminal
-production gains it; control `do` regions (`if`/`while`/`switch`) do not. The declaration makes the
-word's type readable without reading the body, which is what removes inference and types
-self-recursion, mutual recursion and host entries from the declaration alone. A **data** terminal
-needs no written result: its type is the type of the terminal expression, composed from the
-declared stage types (no unknowns, so not inference).
+A stage **must** declare its type word, and a runtime terminal **must** state its result: `do : T`.
+The result is parsed as `result_type` (arrows and `|`, no top-level juxtaposition) so a name-starting
+body is not swallowed; write `do : (List Int)` for an applied result. A data terminal needs no
+written result -- its type is the type of its terminal expression, composed from the declared stage
+types (no unknowns, so not inference). The declaration makes the word's type readable without
+reading the body, which is what removes inference and types self-recursion, mutual recursion and
+host entries from the declaration alone. Control `do` regions (`if`/`while`/`switch`) state nothing.
 
 `extern` keeps its boundary-only C spelling as a distinct argument (`Int "size_t"`), not part of
 the type word.
@@ -88,32 +91,39 @@ the type word.
 Replace `Constraint = (string name, Expr* arguments)`:
 
 ```
-TypeExpr = Ref(string name)                       -- a type word by name
-         | Apply(TypeExpr constructor, TypeExpr argument)
+TypeExpr = Ref(string name, Expr* arguments)      -- a type word by name, optional C spelling
+         | Apply(TypeExpr constructor, TypeExpr argument)   -- `List Int`
          | Arrow(TypeExpr from, TypeExpr to)
-         | Sum(TypeExpr left, TypeExpr right)
+         | Sum(TypeExpr left, TypeExpr right)      -- type position
+         | Do(TypeExpr result)
          | Record(TypeField* fields)
-         | List(TypeExpr* elements)
+         | Tuple(TypeExpr* elements)
          attributes (Source.Span span)
-TypeField = (string name, TypeExpr type, Source.Span span)
+TypeField = (string name, boolean mutable, TypeExpr type, Source.Span span)
+Expr = ... | SumType(TypeExpr left, TypeExpr right)  -- `Int | Text` in value position
 ```
 
 `Binding.constraint`, `Stage.constraint`, `Extern.result`, and `Extern` parameters all carry
-`TypeExpr?`. `Terminal = Data(Expr) | Body(Stmt*, TypeExpr? result)`.
+`TypeExpr?`. `Terminal = Data(Expr) | Body(Stmt*, TypeExpr? result)`. The field keeps the name
+`constraint`; the node it holds is a `TypeExpr`.
 
 ## 5. Belt (`let/belt.lua`)
 
-Add the two forms the type language needs and unify the word shape:
+Add the type forms and the classifier:
 
 ```
-Type = ... | Named(string) | Aggregate(...) | Word(...)
-     | Arrow(Type from, Type to)      -- a stage holding a word; replaces Callable(Signature)
+Type = ... | Named(string) | Aggregate(Field*, boolean, string? name) | Word(...)
+     | Callable(Signature signature)
+     | Arrow(Type from, Type to)      -- a stage holding a word
      | Do(Type result)                -- the runtime terminal modality
      | Sum(Type* alternatives, boolean is_copy)
+     | TypeWord                       -- the compile-time classifier of type words
 ```
 
-`Function.signature` is derived from the declared word type, not stored separately. `Named(name)`
-already gives nominal identity; the `let` binding is the identity.
+`Sum:record()` is the tagged shape (tag field first, then one field per alternative), so the
+existing `Construct`/`LoadField` machinery builds and projects a sum and the C emitter writes it as
+a struct. `Callable` is retained for hosts (not folded into `Arrow`), and `Function.signature` is
+still the belt signature. Nominal identity is `B.Aggregate.name`; `Named` marks resources.
 
 ## 6. Checking
 
@@ -130,21 +140,16 @@ already gives nominal identity; the `let` binding is the identity.
 `Context:constraint` becomes `Context:check(annotation, type_, span)`. The `Copy` / `Executable`
 branches are deleted: `Copy` is a mode and `Executable` is a stage whose type is an `Arrow`.
 
-## 7. Runtime type values
+## 7. Runtime type values (deferred)
 
-A type word may reach runtime; a **data** value never carries its type. The tag belongs to the type
-value:
+First-class runtime type values are **deferred** (specification §18; `code-emit` is deliberately
+skipped): a program that uses a type word as a value is rejected, so nothing escapes to describe.
+`Type` is implemented now as the compile-time classifier (`Belt.TypeWord`), not a runtime
+descriptor.
 
-- primitive → a tag (`uint8_t`);
-- record → a descriptor aggregate;
-- arrow / do → a descriptor of the spine;
-- sum → a tag plus payload descriptor;
-- nominal → a unique id per binding (also breaks recursive descriptors).
-
-Only types that actually escape are emitted; a type used solely in annotations stays erased.
-Binding-time (`Known` vs `Runtime`) decides escape, so no new mechanism is introduced. `Type`
-becomes the ordinary sum type classifying descriptors, and `Type : Type` is fine because
-descriptors are plain data.
+If built, a type word may reach runtime and a **data** value never carries its type; the tag belongs
+to the type value (primitive → tag, record → descriptor aggregate, arrow/do → spine descriptor,
+sum → tag + payload descriptor, nominal → a unique id). Only types that escape are emitted.
 
 ## 8. Sums: tagged unions
 
@@ -196,10 +201,9 @@ semantics are unchanged (the DESIGN.md acceptance rule).
 
 ## 11. Open decisions
 
-1. Do higher-order type parameters need a `Type` word, or are types only nameable and applied?
-   (Generic sums depend on this.)
-2. Descriptor representation and comparison for runtime type values.
-3. Whether to add `switch`-on-tag sugar over the handler-fold of §8.
+1. Descriptor representation and comparison for runtime type values (deferred with `code-emit`).
+2. A generated sum `T.match` handler-fold, and non-Copy sum payloads -- the current elimination is
+   `switch` on the tag, and inactive payloads are zero-filled.
 
-Nominal record identity is **decided and implemented**: a stage aggregate's constructor brands the
-record it builds, so two same-shaped constructors are distinct types (`B.Aggregate.name`).
+Decided and implemented: explicit annotations with no inference; `Type` and generic type words
+applied by juxtaposition; nominal record identity; tagged unions by injection + tag + `switch`.

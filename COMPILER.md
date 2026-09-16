@@ -5,13 +5,14 @@ not an earlier compiler's accepted subset. The full specification was read befor
 this construction step. These implementation boundaries do not redefine Let.
 
 > **Migration note.** The type model is the unified word/type model of [TYPES.md](TYPES.md) and
-> specification §11, and is largely implemented: an annotation is a type word, `do : T` states a
-> terminal's result and is checked, an aggregate of stages is a nominal constructor, a `let`-bound
-> word names a type, and a host-entry type error is a located error rather than a silent skip.
-> Still open: `do : T` and stage annotations are not yet mandatory (`contract.lua` inference remains
-> a fallback), `Copy`/`Executable` remain transitional shape words, and runtime type descriptors and
-> tagged unions are not built. Rows below that mention constraints or inferred stage types describe
-> the pre-migration compiler.
+> specification §11, and is implemented: an annotation is a type word; a stage must declare its type
+> word and a runtime terminal must state its result (`do : T`); no inference remains; an aggregate of
+> stages is a nominal constructor; a `let`-bound word names a type; type words are generic over type
+> words by juxtaposition (`Box Int`); tagged unions are built (`let Opt = Int | Text`, `Opt.left v`,
+> `v.tag`, `switch`); `Copy`/`Executable` are gone; and a host-entry type error is a located error
+> rather than a silent skip. Still deferred: first-class runtime type values (§18), a generated sum
+> `match` handler-fold, and non-Copy sum payloads. Rows below that mention constraints or inferred
+> stage types describe the pre-migration compiler.
 
 ## What is built now
 
@@ -33,14 +34,10 @@ local fn = chain:build_function('example', options)
 local needed, reachable = fn:demands()
 ```
 
-`options.parameters` may supply concrete stage types, including for unannotated
-stages. Otherwise implemented scalar/resource annotations provide them, and
-`let/contract.lua` supplies a type for an unannotated stage whenever its uses force
-one; annotations are not a language requirement. Inference is conservative: an
-ambiguous stage keeps the existing "no type without an argument" outcome rather than
-guessing. `options.result` optionally constrains the result; otherwise reachable
-construction paths establish one result type. Pure infinite-loop path refinement
-and answer-type specialization are not implemented yet.
+A stage must declare its type word and a runtime terminal must state its result: there is no
+inference, and `options.parameters` is gone. `options.result` optionally constrains the result;
+otherwise reachable construction paths establish one result type. Pure infinite-loop path
+refinement and answer-type specialization are not implemented yet.
 
 Resource and host registration is an internal API, not Let syntax:
 
@@ -158,7 +155,7 @@ declaration error.
 | §9.4 | Indexed assignment | Writing through a constant or runtime index updates the selected member, reusing the destination-then-right-hand-side order and the same storage rule as a projected assignment. |
 | §9.4 | Assignment through a projected place | The aggregate lives in a place, so the updated record is stored back into that storage. Replacing the cell's value would put a record where its address belongs. |
 | §15.1 | A `do` terminal is the initialization body | Its return is the namespace, and the module's preludes are still the state the host destroys, so every return inside the body is paired with the state record rather than returned as the state. The body's own locals are activation state in their own scope, destroyed by that return; new owned state in the *namespace* would have no unload path, so it is rejected while a prelude moved into the namespace is allowed. |
-| §15.1 | A module's exported words are host entry points | An entry takes the word's own fields -- the construction it has been through, which the host reads from the namespace the initializer returned -- followed by the stages it still needs. Advancing uses the same protocol a call site uses, so the entry runs whatever preludes lie between those stages: a host supplies stages, not the values a call site would have computed. A parameter is shaped by its stage's capability -- a mutable stage is a place reached through a borrow, an owned stage arrives fresh -- because the entry *is* the contract. A stage whose type only an argument can determine (unannotated, or constrained only by `Copy`) has no entry, since there is no signature to publish, and the builder records why. Once every stage is bound, the entry runs the word's own entry -- the stages it supplied produced exactly that entry's fields -- so one template has one body and the host entry is a wrapper. Entries are roots of emission, and `statistics` reports each one's C name for the host to call. |
+| §15.1 | A module's exported words are host entry points | An entry takes the word's own fields -- the construction it has been through, which the host reads from the namespace the initializer returned -- followed by the stages it still needs. Advancing uses the same protocol a call site uses, so the entry runs whatever preludes lie between those stages: a host supplies stages, not the values a call site would have computed. A parameter is shaped by its stage's capability -- a mutable stage is a place reached through a borrow, an owned stage arrives fresh -- because the entry *is* the contract. A stage whose type is a word type (an `Arrow`) has no entry, since there is no closure ABI to publish; the builder records that deliberate reason in `host_entry_skips`, while a type error is a located error. Once every stage is bound, the entry runs the word's own entry -- the stages it supplied produced exactly that entry's fields -- so one template has one body and the host entry is a wrapper. Entries are roots of emission, and `statistics` reports each one's C name for the host to call. |
 | §15.1 | Module state outlives the initializer | A module-lifetime cell is file-scope storage, because a captured word holds its address beyond the initializer's frame. The state record is built from each prelude's current binding at the return, so a terminal that split the CFG hands over live state rather than a value captured before it ran. |
 | §3.2 | Statement boundaries and juxtaposition | Newlines are never separators: `f(x) g(y)` is one specialization even across a line break, so two expression statements need `;`, while a following `let`, `return` or assignment ends the previous value. A binding whose value swallowed the next statement is diagnosed as "not visible in its own initializer" with the `;` requirement, rather than as an unknown name. |
 | §§4.1–4.2 | Lexical scope, initializer-before-binding, source self name | Scope maps contain binding IDs; nested scopes may shadow; duplicate same-scope bindings fail. A source self name cannot silently fall back to an outer host word. A self name is resolvable inside any nested control block, because a control split carries the defining word and the function under construction with it, and a self call takes the word's result type from the returns the terminal states, so construction order does not decide acceptance. |
@@ -254,14 +251,13 @@ These are not gaps. The specification fixes no behaviour to implement, or defers
   the benchmark's effect loops (`sum_loop`, `resource_loop`, `resource_tail`) are at parity with
   the handwritten reference -- so block instances are deliberately not built. If a workload ever
   does ask, the bounded form is a decidable prefix peeled and the rest left as a loop.
-- Shape constraints written with arguments, pattern matching, exceptions,
-  coroutines, a stable foreign-function ABI, operator overloading and a built-in cyclic
-  collector: all deferred by §18.
-- An argument-determined (`Executable`) stage, and a word-typed value with no call to read its
-  stages from: the word an argument supplies *is* the stage's type, so a generic word with such
-  a stage has no signature to publish. The specialization does have one -- `let divide =
-  checked_divide success failure` offers an entry -- and the host calls that. A generic entry
-  would need an ABI for a word value, which is the closure-layout decision below.
+- Pattern matching, exceptions, coroutines, a stable foreign-function ABI, operator overloading and a
+  built-in cyclic collector: all deferred by §18.
+- A word-typed stage and a word-typed value with no call to read its stages from: a stage holding a
+  word (`let f : Int -> do Int`) has no host ABI, because there is no closure layout to publish, so a
+  generic word with such a stage has no entry. A specialization does -- `let divide = checked_divide
+  success failure` offers an entry -- and the host calls that. A generic entry would need an ABI for a
+  word value, which is the closure-layout decision below.
 - Dynamically selected words: a word value may be stored, passed and invoked (§11.2), but a
   dispatch needs a representation for a value whose word identity is not statically known, and
   §18 defers any mandatory universal aggregate or closure layout.
