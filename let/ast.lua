@@ -8,7 +8,7 @@ module Source {
 }
 module AST {
     Capability = Read | Mut | Own | OwnMut
-    UnaryOp = Negate | Not | BitNot | ToFloat | ToInt | ToCString | ToText | TextSize | IsNull
+    UnaryOp = Negate | Not | BitNot | ToFloat | ToInt | ToU8 | ToU32 | ToCString | ToText | TextSize | IsNull
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight

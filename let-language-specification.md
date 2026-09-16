@@ -814,7 +814,7 @@ Named and positional aggregates have no mandatory header, hash table, metatable,
 
 Every non-copyable value has exactly one owner. The ownership checker is a frontend rule; it does not require reference counts, tracing, hidden retain/release traffic, or runtime borrow objects.
 
-A value's **type** determines whether it is **Copy**. `Bool`, `Int`, Unit, and immutable text literals are Copy. A value containing owned state is non-copyable unless its vocabulary explicitly defines a real copy operation.
+A value's **type** determines whether it is **Copy**. `Bool`, `Int`, `U8`, `U32`, Unit, and immutable text literals are Copy. A value containing owned state is non-copyable unless its vocabulary explicitly defines a real copy operation.
 
 ### 9.2 Bindings and capabilities
 
@@ -995,7 +995,7 @@ of a runtime terminal yields a zero-input word, and `()` runs it.
 A **type word** is a word built from primitive type words and constructors (§3.1):
 
 ~~~text
-type-word := Int | Float | Bool | Unit | Text | CString | CPointer   // atomic, not constructors
+type-word := Int | U8 | U32 | Float | Bool | Unit | Text | CString | CPointer   // atomic, not constructors
            | Type                                                     // the classifier of type words
            | { let field : type-word ... }                           // product, keyed
            or type-word | type-word                                  // tagged union
@@ -1166,7 +1166,7 @@ contract such a word declares:
 
 Three kinds of value exist at that boundary, and none of them is `Text`:
 
-- **A scalar** crosses as itself: `Int`, `Float`, `Bool`, and `Unit` map to a declared C integer
+- **A scalar** crosses as itself: `Int`, `U8`, `U32`, `Float`, `Bool`, and `Unit` map to a declared C integer
   width, `double`, `bool`, and `void`. There is no implicit numeric conversion; the declared
   prototype is authoritative and the value is converted once at the boundary.
 - **A borrowed view** is one of two foreign types. `CString` is a NUL-terminated `const char*`
@@ -1220,7 +1220,7 @@ them and must not weaken them.
 
 ## 13. Scalar semantics
 
-The scalar types are atomic type words (§11.2): `Bool`, `Int`, `Float`, `Unit`, and `Text`. They
+The scalar types are atomic type words (§11.2): `Bool`, `Int`, `U8`, `U32`, `Float`, `Unit`, and `Text`. They
 await no value, and are never constructors; a value of one is written by a literal or a typed
 operation, not by applying the type word.
 
@@ -1255,6 +1255,18 @@ Arithmetic is defined exactly:
 Division or remainder by zero traps. `INT_MIN / -1` wraps to `INT_MIN`; `INT_MIN % -1` is zero. Signed comparisons implement `<`, `<=`, `>`, and `>=`. Bitwise operators accept only Int operands and return Int. A shift count is reduced modulo 64, so no shift is undefined and no shift traps; `<<` keeps the low 64 bits, so shifting out of range wraps.
 
 There are no implicit numeric conversions or promotion rules. Additional numeric vocabularies use distinct type words and explicit conversion words.
+
+The dictionary includes two fixed-width unsigned integers, `U8` and `U32`. Every operation
+computes the mathematical result and then reduces it modulo `2^width`: `+`, `-`, `*`, unary
+`-`, `&`, `|`, `^`, unary `~`, `<<`, `>>`, `/`, and `%` accept two operands of one width and
+produce that width, and `/` and `%` trap on a zero divisor. A shift count is reduced modulo the
+width, and `>>` is logical, because the value is unsigned. Comparisons and `==`/`!=` are
+unsigned. `U8` and `U32` are Copy and are never implicitly converted to or from `Int`.
+
+The crossings are explicit words, like `int` and `float`: `u8 x` and `u32 x` take an Int and
+keep its low 8 or 32 bits. An Int literal is an Int, so a fixed-width constant is written
+`u32(0x6a09e667)` rather than bare. There is no promotion: `x + y` requires both operands to
+have the same width, and mixing an Int with a `U32` is a construction diagnostic.
 
 ### 13.3 Float
 

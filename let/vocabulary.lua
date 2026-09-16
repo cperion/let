@@ -11,11 +11,11 @@ local Vocabulary={}; Vocabulary.__index=Vocabulary
 -- message naming the contract, rather than at whichever consumer happened to read it first.
 -- The atomic type names every program has, in one place, so a consumer that must show them
 -- (the editor's token classification) does not restate which names are types.
-Vocabulary.scalars={'Int','Float','Bool','Unit','Text','CString','CPointer','Type'}
+Vocabulary.scalars={'Int','U8','U32','Float','Bool','Unit','Text','CString','CPointer','Type'}
 
 function Vocabulary.new(options)
     options=options or {}
-    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}
+    local types={Int=B.Int,U8=B.U8,U32=B.U32,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}
     local representations={}
     local destroy={}
     for name,descriptor in pairs(options.resources or {}) do
@@ -53,7 +53,10 @@ function Vocabulary.new(options)
     end
     local function compatible(let_type,kind)
         if kind=='integer' then
-            return let_type==B.Int or (B.Named:isclassof(let_type) and representations[let_type.name]~='pointer')
+            -- A C integer describes Int or a fixed-width integer; the width is the Let type's,
+            -- not the C spelling's, so the spelling is not matched to a width here.
+            return let_type==B.Int or let_type==B.U8 or let_type==B.U32
+                or (B.Named:isclassof(let_type) and representations[let_type.name]~='pointer')
         end
         if kind=='double' or kind=='float' then return let_type==B.Float end
         if kind=='bool' then return let_type==B.Bool end

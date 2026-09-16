@@ -678,7 +678,7 @@ function A.Name:build(ctx)
     local host=ctx.fn.vocabulary:host(self.name); if host then return {host=host} end
     -- The core numeric conversions are ordinary names (§13.3), so a binding or host above
     -- shadows them like any other dictionary entry.
-    if self.name=='float' or self.name=='int' then return {conversion=self.name} end
+    if self.name=='float' or self.name=='int' or self.name=='u8' or self.name=='u32' then return {conversion=self.name} end
     if ctx.fn.vocabulary:type(self.name) then fail(self.span,'constraint word is not a runtime value') end
     fail(self.span,'unknown name ' .. self.name)
 end
@@ -710,18 +710,20 @@ function A.Unary:build(ctx)
     local value=self.operand:build(ctx)
     local type_
     if self.operator==A.Not then type_=B.Bool
-    elseif self.operator==A.BitNot then type_=B.Int
+    elseif self.operator==A.BitNot then type_=(value.type==B.U8 or value.type==B.U32) and value.type or B.Int
     else type_=value.type==B.Float and B.Float or B.Int end
     expect(value,type_,self.span)
     return ctx:emit(B.Unary(self.operator,ctx:ref(value)),L{type_},self.span)
 end
 function A.BinaryOp:apply(ctx,left,right,span)
     if left.type==B.Float then expect(right,B.Float,span)
+    elseif left.type==B.U8 or left.type==B.U32 then expect(right,left.type,span)
     else expect(left,B.Int,span); expect(right,B.Int,span) end
     return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{left.type},span)
 end
 local function comparison(self,ctx,left,right,span)
     if left.type==B.Float then expect(right,B.Float,span)
+    elseif left.type==B.U8 or left.type==B.U32 then expect(right,left.type,span)
     else expect(left,B.Int,span); expect(right,B.Int,span) end
     return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Bool},span)
 end
@@ -737,15 +739,17 @@ local function checked(self,ctx,left,right,span)
         expect(right,B.Float,span)
         return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Float},span)
     end
-    expect(left,B.Int,span); expect(right,B.Int,span)
-    return ctx:ordered(B.CheckedBinary(self,ctx:ref(ctx.effect),ctx:ref(left),ctx:ref(right)),B.Int,span)
+    local type_=(left.type==B.U8 or left.type==B.U32) and left.type or B.Int
+    expect(left,type_,span); expect(right,type_,span)
+    return ctx:ordered(B.CheckedBinary(self,ctx:ref(ctx.effect),ctx:ref(left),ctx:ref(right)),type_,span)
 end
 A.Divide.apply=checked; A.Remainder.apply=checked
 -- `& | ^ << >>` take two Ints and produce an Int. They are pure: no operand and no shift count
 -- can trap, because a count is reduced modulo the width and `<<` keeps the low bits (§13.3).
 local function bitwise(self,ctx,left,right,span)
-    expect(left,B.Int,span); expect(right,B.Int,span)
-    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Int},span)
+    local type_=(left.type==B.U8 or left.type==B.U32) and left.type or B.Int
+    expect(left,type_,span); expect(right,type_,span)
+    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{type_},span)
 end
 A.BitAnd.apply=bitwise; A.BitOr.apply=bitwise; A.BitXor.apply=bitwise
 A.ShiftLeft.apply=bitwise; A.ShiftRight.apply=bitwise
@@ -1448,6 +1452,10 @@ end
 local conversions={
     float={arity=1,from={B.Int},to=B.Float,operator=A.ToFloat},
     int={arity=1,from={B.Float},to=B.Int,operator=A.ToInt},
+-- §13.2 the fixed-width conversions truncate the low bits of an Int; they are the explicit
+-- crossings, so no value changes width implicitly.
+    u8={arity=1,from={B.Int},to=B.U8,operator=A.ToU8},
+    u32={arity=1,from={B.Int},to=B.U32,operator=A.ToU32},
     cstring={arity=1,from={B.Text},to=B.CString,operator=A.ToCString},
     ctext={arity=1,from={B.CString},to=B.Text,operator=A.ToText},
     byte_length={arity=1,from={B.Text},to=B.Int,operator=A.TextSize},

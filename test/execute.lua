@@ -20,12 +20,12 @@ function B.UnitLiteral:execute() return unit end
 -- The pure operators come from the one shared table, so the concrete oracle and the abstract
 -- evaluator cannot disagree about what an operation means (DEMAND.md §3). `Divide` there is
 -- the non-trapping Float one; an Int division is a CheckedBinary and uses `V.Op.checked`.
-function B.Unary:execute(ctx) return V.Op.unary[self.operator](ctx:get(self.operand)) end
-function B.Binary:execute(ctx) return V.Op.binary[self.operator](ctx:get(self.left),ctx:get(self.right)) end
+function B.Unary:execute(ctx) return V.Op.unary[self.operator](ctx:get(self.operand),V.Op.kind(ctx.results[1])) end
+function B.Binary:execute(ctx) return V.Op.binary[self.operator](ctx:get(self.left),ctx:get(self.right),V.Op.kind(ctx.results[1])) end
 function B.CheckedBinary:execute(ctx)
     local a,b=ctx:get(self.left),ctx:get(self.right)
     if b==0 then error('trap: '..(self.operator==A.Divide and 'division' or 'remainder')..' by zero',0) end
-    return V.Op.checked[self.operator](a,b),ctx:get(self.effect)+1
+    return V.Op.checked[self.operator](a,b,V.Op.kind(ctx.results[1])),ctx:get(self.effect)+1
 end
 function B.PureHostCall:execute(ctx)
     local result=assert(ctx.hosts[self.symbol])(unpack(ctx:arguments(self.arguments)))
@@ -94,6 +94,7 @@ function Run.frame(fn,incoming,hosts,program,limit)
             local ctx=setmetatable({block=block,values={},hosts=hosts,program=program,limit=limit},Run)
             for i,value in ipairs(incoming) do ctx.values[i-1]={value} end
             for i,instruction in ipairs(block.instructions) do
+                ctx.results=instruction.results
                 ctx.position=#block.parameters+i-1; ctx.values[ctx.position]={instruction.operation:execute(ctx)}
             end
             ctx.position=#block.parameters+#block.instructions

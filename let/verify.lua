@@ -36,8 +36,13 @@ end
 function B.Unary:verify(ctx)
     local type_=ctx:type(self.operand)
     if self.operator==A.Not then ctx:expect(self.operand,B.Bool); ctx:results(L{B.Bool})
-    elseif self.operator==A.BitNot then ctx:expect(self.operand,B.Int); ctx:results(L{B.Int})
+    elseif self.operator==A.BitNot then
+        local operand=ctx:type(self.operand)
+        assert(operand==B.Int or operand==B.U8 or operand==B.U32,'bitwise requires an integer operand')
+        ctx:results(L{operand})
     elseif self.operator==A.ToFloat then ctx:expect(self.operand,B.Int); ctx:results(L{B.Float})
+    elseif self.operator==A.ToU8 then ctx:expect(self.operand,B.Int); ctx:results(L{B.U8})
+    elseif self.operator==A.ToU32 then ctx:expect(self.operand,B.Int); ctx:results(L{B.U32})
     elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
     elseif self.operator==A.ToCString then ctx:expect(self.operand,B.Text); ctx:results(L{B.CString})
     elseif self.operator==A.ToText then ctx:expect(self.operand,B.CString); ctx:results(L{B.Text})
@@ -62,12 +67,12 @@ end
 function A.BinaryOp:verify(ctx,left,right)
     local type_=ctx:type(left)
     ctx:expect(right,type_)
-    assert(type_==B.Int or type_==B.Float,'arithmetic requires a numeric operand')
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32 or type_==B.Float,'arithmetic requires a numeric operand')
     return type_
 end
 local function compare(_,ctx,left,right)
     local type_=ctx:type(left); ctx:expect(right,type_)
-    assert(type_==B.Int or type_==B.Float,'comparison requires a numeric operand'); return B.Bool
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32 or type_==B.Float,'comparison requires a numeric operand'); return B.Bool
 end
 A.Less.verify=compare; A.LessEqual.verify=compare; A.Greater.verify=compare; A.GreaterEqual.verify=compare
 local function equal_(_,ctx,left,right)
@@ -76,8 +81,12 @@ end
 A.Equal.verify=equal_; A.NotEqual.verify=equal_
 local function boolean_(_,ctx,left,right) ctx:expect(left,B.Bool); ctx:expect(right,B.Bool); return B.Bool end
 A.And.verify=boolean_; A.Or.verify=boolean_
--- `& | ^ << >>` require two Ints and produce an Int.
-local function bits(_,ctx,left,right) ctx:expect(left,B.Int); ctx:expect(right,B.Int); return B.Int end
+-- `& | ^ << >>` require two integers of one width and produce that width.
+local function bits(_,ctx,left,right)
+    local type_=ctx:type(left)
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32,'bitwise requires an integer operand')
+    ctx:expect(right,type_); return type_
+end
 A.BitAnd.verify=bits; A.BitOr.verify=bits; A.BitXor.verify=bits
 A.ShiftLeft.verify=bits; A.ShiftRight.verify=bits
 function B.Binary:verify(ctx)
@@ -87,7 +96,9 @@ function B.Binary:verify(ctx)
 end
 function B.CheckedBinary:verify(ctx)
     assert(self.operator==A.Divide or self.operator==A.Remainder,'unsupported checked operator')
-    ctx:expect(self.left,B.Int); ctx:expect(self.right,B.Int); ctx:ordered(self.effect,L{B.Int})
+    local type_=ctx:type(self.left)
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32,'checked arithmetic requires an integer operand')
+    ctx:expect(self.right,type_); ctx:ordered(self.effect,L{type_})
 end
 function B.HostCall:verify(ctx)
     local host=assert(ctx.hosts[self.symbol],'missing host contract'); local signature=host.signature

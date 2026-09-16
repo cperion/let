@@ -24,10 +24,10 @@ No parameter lists, no products in the type: `Int : Int : do R` is `Int -> (Int 
 A **type word** is a word built from primitives and constructors:
 
 ```
-type-word ::= Int | Float | Bool | Unit | Text | CString | CPointer   -- atomic, not constructors
+type-word ::= Int | U8 | U32 | Float | Bool | Unit | Text | CString | CPointer   -- atomic, not constructors
             | Type                                -- the classifier of type words
             | { let field : type-word ... }      -- product, keyed
-            | type-word | type-word               -- sum (see §8)
+            | type-word or type-word               -- sum (see §8)
             | type-word -> type-word              -- the unary arrow
             | do type-word                        -- the runtime terminal
             | Name                                -- a let-bound type word or constructor
@@ -211,6 +211,10 @@ semantics are unchanged (the DESIGN.md acceptance rule).
    constructors are distinct types; a `let`-bound word names a type.
 9. **[done] Bitwise operators.** `& | ^ ~ << >>` are Int-only across `verify`, `build`, `op`, and
    `emit`, with `LET_SHL`/`let_shr` fixing the shift semantics.
+10. **[done] Fixed-width integers.** `U8` and `U32` are atomic type words (§13.2): Copy, never
+    implicitly converted, and every operation reduces modulo `2^width`. `u8 x`/`u32 x` are the
+    explicit crossings. `Op.kind` is the one place the width of a result type is read, so
+    folding, the interpreter oracle, and the emitted C agree.
 
 ## 10. Deleted
 

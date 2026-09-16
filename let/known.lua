@@ -315,13 +315,13 @@ function Evaluator:instruction(block,block_id,index,instruction)
         if operation.operator==A.ToCString or operation.operator==A.ToText or operation.operator==A.IsNull then
             put(0,Known.runtime(instruction.results[1]))
         elseif Known.is_known(operand) then
-            local value=Op.unary[operation.operator](operand.value)
+            local value=Op.unary[operation.operator](operand.value,Op.kind(instruction.results[1]))
             put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.Binary:isclassof(operation) then
         local arguments=inputs{operation.left,operation.right}
         if all_known(arguments) then
-            local value=Op.binary[operation.operator](arguments[1].value,arguments[2].value)
+            local value=Op.binary[operation.operator](arguments[1].value,arguments[2].value,Op.kind(instruction.results[1]))
             put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.CheckedBinary:isclassof(operation) then
@@ -330,9 +330,9 @@ function Evaluator:instruction(block,block_id,index,instruction)
         -- divisor proves it; anything else keeps the residual checked operation.
         if all_known(arguments) and arguments[2].value~=0 then
             local rule=Op.checked[operation.operator]
-            put(0,Known.value(B.Int,rule(arguments[1].value,arguments[2].value)))
+            put(0,Known.value(B.Int,rule(arguments[1].value,arguments[2].value,Op.kind(instruction.results[1]))))
         else
-            put(0,Known.runtime(B.Int)); self:schedule(operation)
+            put(0,Known.runtime(instruction.results[1])); self:schedule(operation)
         end
         put(1,Known.runtime(B.Effect))
     elseif B.FieldAddress:isclassof(operation) then

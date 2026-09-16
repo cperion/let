@@ -2,7 +2,7 @@
 return function(context)
     context:Define [[
 module C {
-    Type = Void | Bool | I64 | F64 | U64 | U8 | Size
+    Type = Void | Bool | I64 | F64 | U64 | U8 | U32 | Size
          | Pointer(Type pointee) | Named(string name)
     Expr = Integer(number hi, number lo) | Float(number value) | Boolean(boolean value) | String(string value)
          | Name(string name) | Unary(string operator, Expr operand)

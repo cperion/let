@@ -70,6 +70,8 @@ end
 
 function Emitter:ctype(type_)
     if type_==B.Int then return C.I64 end
+    if type_==B.U8 then return C.U8 end
+    if type_==B.U32 then return C.U32 end
     if type_==B.Bool then return C.Bool end
     if type_==B.Unit then return C.U8 end
     if type_==B.Effect then return C.U64 end
@@ -148,7 +150,7 @@ function Emitter:value(belt_id,index,output) return 'v' .. belt_id .. '_' .. ind
 
 function Emitter:constant(answer)
     local type_=answer.type
-    if type_==B.Int then local hi,lo=scalar.limbs(answer.value); return C.Integer(hi,lo) end
+    if type_==B.Int or type_==B.U8 or type_==B.U32 then local hi,lo=scalar.limbs(answer.value); return C.Integer(hi,lo) end
     if type_==B.Float then self.math=true; return C.Float(answer.value) end
     if type_==B.Bool then return C.Boolean(answer.value) end
     if type_==B.Unit then return C.Integer(0,0) end
@@ -222,6 +224,8 @@ function Emitter:instruction(block,block_id,index,instruction)
         local operand=self:arglist(block,block_id,position,{operation.operand})[1]
         if operation.operator==A.Not then declare(0,B.Bool,C.Unary('!',operand))
         elseif operation.operator==A.ToFloat then declare(0,B.Float,C.Cast(self:ctype(B.Float),operand))
+        elseif operation.operator==A.ToU8 then declare(0,B.U8,C.Cast(self:ctype(B.U8),operand))
+        elseif operation.operator==A.ToU32 then declare(0,B.U32,C.Cast(self:ctype(B.U32),operand))
         elseif operation.operator==A.ToInt then
             if declare(0,B.Int,C.Call(C.Name('let_to_int'),L{operand})) then self.helpers.to_int=true end
         elseif operation.operator==A.ToCString then
@@ -233,7 +237,7 @@ function Emitter:instruction(block,block_id,index,instruction)
             declare(0,B.Int,C.Cast(C.I64,C.Field(operand,'size')))
         elseif operation.operator==A.IsNull then
             declare(0,B.Bool,C.Binary('==',operand,C.Integer(0,0)))
-        elseif operation.operator==A.BitNot then declare(0,B.Int,C.Unary('~',operand))
+        elseif operation.operator==A.BitNot then declare(0,instruction.results[1],C.Unary('~',operand))
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
@@ -257,12 +261,20 @@ function Emitter:instruction(block,block_id,index,instruction)
                 negated=false
             end
             declare(0,B.Bool,negated and C.Unary('!',call) or call)
-        elseif arithmetic[operation.operator] then
+        elseif arithmetic[operation.operator] and instruction.results[1]~=B.U8 and instruction.results[1]~=B.U32 then
             local helper=arithmetic[operation.operator]
             self.helpers[helper[1]]=true
             declare(0,B.Int,C.Call(C.Name(helper[2]),L{arguments[1],arguments[2]}))
         elseif operation.operator==A.ShiftLeft or operation.operator==A.ShiftRight then
-            if operation.operator==A.ShiftLeft then
+            local result=instruction.results[1]
+            if result==B.U8 or result==B.U32 then
+                -- The count is reduced modulo the width, and the declared result type truncates.
+                local mask=(result==B.U8) and 7 or 31
+                local shift=operation.operator==A.ShiftLeft and '<<' or '>>'
+                declare(0,result,C.Cast(self:ctype(result),
+                    C.Binary(shift,C.Cast(self:ctype(result),arguments[1]),
+                        C.Binary('&',arguments[2],C.Integer(0,mask)))))
+            elseif operation.operator==A.ShiftLeft then
                 self.helpers.shl=true
                 declare(0,B.Int,C.Call(C.Name('LET_SHL'),L{arguments[1],arguments[2]}))
             else
@@ -278,7 +290,7 @@ function Emitter:instruction(block,block_id,index,instruction)
         if not known(0) then self.helpers[operation.operator==A.Divide and 'div' or 'rem']=true end
         local effect=self:ref(block,block_id,position,operation.effect)
         -- §16.2: a non-zero known divisor proves the check cannot fail, so it is omitted.
-        if declare(0,B.Int,C.Call(C.Name(helper),L{arguments[1],arguments[2]})) then
+        if declare(0,instruction.results[1],C.Call(C.Name(helper),L{arguments[1],arguments[2]})) then
             self.trap=true
             declare(1,B.Effect,C.Binary('+',effect,C.Integer(0,1)))
         else declare(1,B.Effect,effect) end

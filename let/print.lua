@@ -27,6 +27,7 @@ function C.I64:print() return 'int64_t' end
 function C.U64:print() return 'uint64_t' end
 function C.F64:print() return 'double' end
 function C.U8:print() return 'uint8_t' end
+function C.U32:print() return 'uint32_t' end
 function C.Size:print() return 'size_t' end
 function C.Pointer:print() return self.pointee:print() .. '*' end
 function C.Named:print() return self.name end

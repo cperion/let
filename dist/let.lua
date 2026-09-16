@@ -884,7 +884,7 @@ module Source {
 }
 module AST {
     Capability = Read | Mut | Own | OwnMut
-    UnaryOp = Negate | Not | BitNot | ToFloat | ToInt | ToCString | ToText | TextSize | IsNull
+    UnaryOp = Negate | Not | BitNot | ToFloat | ToInt | ToU8 | ToU32 | ToCString | ToText | TextSize | IsNull
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight
@@ -941,7 +941,7 @@ module Belt {
     Destination = Persistent | Transient
     Access = CopyAccess | OwnAccess | ReadAccess | MutAccess
     Field = (string? name, Type type, boolean mutable)
-    Type = Int | Float | Bool | Unit | Text | Effect | CString | CPointer
+    Type = Int | U8 | U32 | Float | Bool | Unit | Text | Effect | CString | CPointer
          | Named(string name) | Address(Type pointee)
          | Borrow(Type pointee, boolean stable)
          | Aggregate(Field* fields, boolean is_copy, string? name)
@@ -1026,6 +1026,9 @@ function B.Sum:same(other)
 end
 function B.Type:copyable() return false end
 function B.Int:copyable() return true end
+-- §13.2 fixed-width integers are Copy values, like Int.
+function B.U8:copyable() return true end
+function B.U32:copyable() return true end
 function B.Float:copyable() return true end
 function B.Bool:copyable() return true end
 function B.Unit:copyable() return true end
@@ -1089,6 +1092,8 @@ local function fields_key(fields)
 end
 function B.Type:key() return tostring(self) end
 function B.Int:key() return 'int' end
+function B.U8:key() return 'u8' end
+function B.U32:key() return 'u32' end
 function B.Float:key() return 'float' end
 function B.Bool:key() return 'bool' end
 function B.Unit:key() return 'unit' end
@@ -1158,7 +1163,7 @@ module('let.c', function(require, ...)
 return function(context)
     context:Define [[
 module C {
-    Type = Void | Bool | I64 | F64 | U64 | U8 | Size
+    Type = Void | Bool | I64 | F64 | U64 | U8 | U32 | Size
          | Pointer(Type pointee) | Named(string name)
     Expr = Integer(number hi, number lo) | Float(number value) | Boolean(boolean value) | String(string value)
          | Name(string name) | Unary(string operator, Expr operand)
@@ -1207,7 +1212,7 @@ local scalar=require('let.scalar')
 
 local Contract={}
 
-local function numeric(type_) return type_==B.Int or type_==B.Float end
+local function numeric(type_) return type_==B.Int or type_==B.Float or type_==B.U8 or type_==B.U32 end
 
 -- The definition a resolved name node refers to, or nil for a literal or an unresolved form.
 local function definition_of(resolved,node)
@@ -1300,6 +1305,8 @@ local function compute(template,resolved,types,environment)
             if operator==A.BitNot then infer(expr.operand,B.Int); return B.Int end
             if operator==A.ToFloat then infer(expr.operand,B.Int); return B.Float end
             if operator==A.ToInt then infer(expr.operand,B.Float); return B.Int end
+            if operator==A.ToU8 then infer(expr.operand,B.Int); return B.U8 end
+            if operator==A.ToU32 then infer(expr.operand,B.Int); return B.U32 end
             -- Negate: the operand has the expression's type.
             local type_=infer(expr.operand,expected)
             if type_ then return type_ end
@@ -1919,11 +1926,11 @@ local Vocabulary={}; Vocabulary.__index=Vocabulary
 -- message naming the contract, rather than at whichever consumer happened to read it first.
 -- The atomic type names every program has, in one place, so a consumer that must show them
 -- (the editor's token classification) does not restate which names are types.
-Vocabulary.scalars={'Int','Float','Bool','Unit','Text','CString','CPointer','Type'}
+Vocabulary.scalars={'Int','U8','U32','Float','Bool','Unit','Text','CString','CPointer','Type'}
 
 function Vocabulary.new(options)
     options=options or {}
-    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}
+    local types={Int=B.Int,U8=B.U8,U32=B.U32,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}
     local representations={}
     local destroy={}
     for name,descriptor in pairs(options.resources or {}) do
@@ -1961,7 +1968,10 @@ function Vocabulary.new(options)
     end
     local function compatible(let_type,kind)
         if kind=='integer' then
-            return let_type==B.Int or (B.Named:isclassof(let_type) and representations[let_type.name]~='pointer')
+            -- A C integer describes Int or a fixed-width integer; the width is the Let type's,
+            -- not the C spelling's, so the spelling is not matched to a width here.
+            return let_type==B.Int or let_type==B.U8 or let_type==B.U32
+                or (B.Named:isclassof(let_type) and representations[let_type.name]~='pointer')
         end
         if kind=='double' or kind=='float' then return let_type==B.Float end
         if kind=='bool' then return let_type==B.Bool end
@@ -3049,7 +3059,7 @@ function A.Name:build(ctx)
     local host=ctx.fn.vocabulary:host(self.name); if host then return {host=host} end
     -- The core numeric conversions are ordinary names (§13.3), so a binding or host above
     -- shadows them like any other dictionary entry.
-    if self.name=='float' or self.name=='int' then return {conversion=self.name} end
+    if self.name=='float' or self.name=='int' or self.name=='u8' or self.name=='u32' then return {conversion=self.name} end
     if ctx.fn.vocabulary:type(self.name) then fail(self.span,'constraint word is not a runtime value') end
     fail(self.span,'unknown name ' .. self.name)
 end
@@ -3081,18 +3091,20 @@ function A.Unary:build(ctx)
     local value=self.operand:build(ctx)
     local type_
     if self.operator==A.Not then type_=B.Bool
-    elseif self.operator==A.BitNot then type_=B.Int
+    elseif self.operator==A.BitNot then type_=(value.type==B.U8 or value.type==B.U32) and value.type or B.Int
     else type_=value.type==B.Float and B.Float or B.Int end
     expect(value,type_,self.span)
     return ctx:emit(B.Unary(self.operator,ctx:ref(value)),L{type_},self.span)
 end
 function A.BinaryOp:apply(ctx,left,right,span)
     if left.type==B.Float then expect(right,B.Float,span)
+    elseif left.type==B.U8 or left.type==B.U32 then expect(right,left.type,span)
     else expect(left,B.Int,span); expect(right,B.Int,span) end
     return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{left.type},span)
 end
 local function comparison(self,ctx,left,right,span)
     if left.type==B.Float then expect(right,B.Float,span)
+    elseif left.type==B.U8 or left.type==B.U32 then expect(right,left.type,span)
     else expect(left,B.Int,span); expect(right,B.Int,span) end
     return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Bool},span)
 end
@@ -3108,15 +3120,17 @@ local function checked(self,ctx,left,right,span)
         expect(right,B.Float,span)
         return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Float},span)
     end
-    expect(left,B.Int,span); expect(right,B.Int,span)
-    return ctx:ordered(B.CheckedBinary(self,ctx:ref(ctx.effect),ctx:ref(left),ctx:ref(right)),B.Int,span)
+    local type_=(left.type==B.U8 or left.type==B.U32) and left.type or B.Int
+    expect(left,type_,span); expect(right,type_,span)
+    return ctx:ordered(B.CheckedBinary(self,ctx:ref(ctx.effect),ctx:ref(left),ctx:ref(right)),type_,span)
 end
 A.Divide.apply=checked; A.Remainder.apply=checked
 -- `& | ^ << >>` take two Ints and produce an Int. They are pure: no operand and no shift count
 -- can trap, because a count is reduced modulo the width and `<<` keeps the low bits (§13.3).
 local function bitwise(self,ctx,left,right,span)
-    expect(left,B.Int,span); expect(right,B.Int,span)
-    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Int},span)
+    local type_=(left.type==B.U8 or left.type==B.U32) and left.type or B.Int
+    expect(left,type_,span); expect(right,type_,span)
+    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{type_},span)
 end
 A.BitAnd.apply=bitwise; A.BitOr.apply=bitwise; A.BitXor.apply=bitwise
 A.ShiftLeft.apply=bitwise; A.ShiftRight.apply=bitwise
@@ -3819,6 +3833,10 @@ end
 local conversions={
     float={arity=1,from={B.Int},to=B.Float,operator=A.ToFloat},
     int={arity=1,from={B.Float},to=B.Int,operator=A.ToInt},
+-- §13.2 the fixed-width conversions truncate the low bits of an Int; they are the explicit
+-- crossings, so no value changes width implicitly.
+    u8={arity=1,from={B.Int},to=B.U8,operator=A.ToU8},
+    u32={arity=1,from={B.Int},to=B.U32,operator=A.ToU32},
     cstring={arity=1,from={B.Text},to=B.CString,operator=A.ToCString},
     ctext={arity=1,from={B.CString},to=B.Text,operator=A.ToText},
     byte_length={arity=1,from={B.Text},to=B.Int,operator=A.TextSize},
@@ -3993,8 +4011,13 @@ end
 function B.Unary:verify(ctx)
     local type_=ctx:type(self.operand)
     if self.operator==A.Not then ctx:expect(self.operand,B.Bool); ctx:results(L{B.Bool})
-    elseif self.operator==A.BitNot then ctx:expect(self.operand,B.Int); ctx:results(L{B.Int})
+    elseif self.operator==A.BitNot then
+        local operand=ctx:type(self.operand)
+        assert(operand==B.Int or operand==B.U8 or operand==B.U32,'bitwise requires an integer operand')
+        ctx:results(L{operand})
     elseif self.operator==A.ToFloat then ctx:expect(self.operand,B.Int); ctx:results(L{B.Float})
+    elseif self.operator==A.ToU8 then ctx:expect(self.operand,B.Int); ctx:results(L{B.U8})
+    elseif self.operator==A.ToU32 then ctx:expect(self.operand,B.Int); ctx:results(L{B.U32})
     elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
     elseif self.operator==A.ToCString then ctx:expect(self.operand,B.Text); ctx:results(L{B.CString})
     elseif self.operator==A.ToText then ctx:expect(self.operand,B.CString); ctx:results(L{B.Text})
@@ -4019,12 +4042,12 @@ end
 function A.BinaryOp:verify(ctx,left,right)
     local type_=ctx:type(left)
     ctx:expect(right,type_)
-    assert(type_==B.Int or type_==B.Float,'arithmetic requires a numeric operand')
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32 or type_==B.Float,'arithmetic requires a numeric operand')
     return type_
 end
 local function compare(_,ctx,left,right)
     local type_=ctx:type(left); ctx:expect(right,type_)
-    assert(type_==B.Int or type_==B.Float,'comparison requires a numeric operand'); return B.Bool
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32 or type_==B.Float,'comparison requires a numeric operand'); return B.Bool
 end
 A.Less.verify=compare; A.LessEqual.verify=compare; A.Greater.verify=compare; A.GreaterEqual.verify=compare
 local function equal_(_,ctx,left,right)
@@ -4033,8 +4056,12 @@ end
 A.Equal.verify=equal_; A.NotEqual.verify=equal_
 local function boolean_(_,ctx,left,right) ctx:expect(left,B.Bool); ctx:expect(right,B.Bool); return B.Bool end
 A.And.verify=boolean_; A.Or.verify=boolean_
--- `& | ^ << >>` require two Ints and produce an Int.
-local function bits(_,ctx,left,right) ctx:expect(left,B.Int); ctx:expect(right,B.Int); return B.Int end
+-- `& | ^ << >>` require two integers of one width and produce that width.
+local function bits(_,ctx,left,right)
+    local type_=ctx:type(left)
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32,'bitwise requires an integer operand')
+    ctx:expect(right,type_); return type_
+end
 A.BitAnd.verify=bits; A.BitOr.verify=bits; A.BitXor.verify=bits
 A.ShiftLeft.verify=bits; A.ShiftRight.verify=bits
 function B.Binary:verify(ctx)
@@ -4044,7 +4071,9 @@ function B.Binary:verify(ctx)
 end
 function B.CheckedBinary:verify(ctx)
     assert(self.operator==A.Divide or self.operator==A.Remainder,'unsupported checked operator')
-    ctx:expect(self.left,B.Int); ctx:expect(self.right,B.Int); ctx:ordered(self.effect,L{B.Int})
+    local type_=ctx:type(self.left)
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32,'checked arithmetic requires an integer operand')
+    ctx:expect(self.right,type_); ctx:ordered(self.effect,L{type_})
 end
 function B.HostCall:verify(ctx)
     local host=assert(ctx.hosts[self.symbol],'missing host contract'); local signature=host.signature
@@ -5292,9 +5321,9 @@ function A.Program:resolve(options)
     -- §11: the primitive type words are ordinary names, not a phase; the vocabulary decides
     -- what a type word means at a boundary.
     local builtins={}
-    for _,name in ipairs{'Bool','Int','Float','Unit','Text','CString','CPointer','Type'} do builtins[name]={type=true} end
+    for _,name in ipairs{'Bool','Int','U8','U32','Float','Unit','Text','CString','CPointer','Type'} do builtins[name]={type=true} end
     -- The core numeric conversions are runtime words (§13.3), shadowable like any binding.
-    for _,name in ipairs{'float','int'} do builtins[name]={phase='runtime'} end
+    for _,name in ipairs{'float','int','u8','u32'} do builtins[name]={phase='runtime'} end
     local outer=dictionary(ctx,nil,builtins)
     outer=dictionary(ctx,outer,options.dictionary or {})
     local resources={}
@@ -6147,10 +6176,18 @@ module('let.op', function(require, ...)
 -- oracle, so folding cannot disagree with execution (DEMAND.md §3). The exact scalar semantics
 -- live in `let/scalar`; this table says which one an operator means.
 return function(V)
-local A=V.AST
+local A,B=V.AST,V.Belt
 local scalar=require('let.scalar')
 
 local Op={}
+
+-- The width a fixed-width integer reduces to, or nil for Int and Float. An operator's meaning is
+-- chosen by this, from the Let type, never by the host's representation of the value.
+function Op.kind(type_)
+    if type_==B.U8 then return 8 end
+    if type_==B.U32 then return 32 end
+    return nil
+end
 
 -- Binary operators over known values. `Divide` here is non-trapping Float division; an Int
 -- division is a `CheckedBinary` and uses `Op.checked`, which traps.
@@ -6168,6 +6205,7 @@ Op.binary={
 Op.unary={
     [A.Negate]=scalar.negate, [A.Not]=function(a) return not a end, [A.BitNot]=scalar.bitnot,
     [A.ToFloat]=scalar.to_float, [A.ToInt]=scalar.to_int,
+    [A.ToU8]=scalar.to_u8, [A.ToU32]=scalar.to_u32,
     [A.TextSize]=scalar.text_size,
     -- `IsNull` is not here: a pointer is not a Let value, so it never folds.
 }
@@ -6499,13 +6537,13 @@ function Evaluator:instruction(block,block_id,index,instruction)
         if operation.operator==A.ToCString or operation.operator==A.ToText or operation.operator==A.IsNull then
             put(0,Known.runtime(instruction.results[1]))
         elseif Known.is_known(operand) then
-            local value=Op.unary[operation.operator](operand.value)
+            local value=Op.unary[operation.operator](operand.value,Op.kind(instruction.results[1]))
             put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.Binary:isclassof(operation) then
         local arguments=inputs{operation.left,operation.right}
         if all_known(arguments) then
-            local value=Op.binary[operation.operator](arguments[1].value,arguments[2].value)
+            local value=Op.binary[operation.operator](arguments[1].value,arguments[2].value,Op.kind(instruction.results[1]))
             put(0,Known.value(instruction.results[1],value))
         else put(0,Known.runtime(instruction.results[1])) end
     elseif B.CheckedBinary:isclassof(operation) then
@@ -6514,9 +6552,9 @@ function Evaluator:instruction(block,block_id,index,instruction)
         -- divisor proves it; anything else keeps the residual checked operation.
         if all_known(arguments) and arguments[2].value~=0 then
             local rule=Op.checked[operation.operator]
-            put(0,Known.value(B.Int,rule(arguments[1].value,arguments[2].value)))
+            put(0,Known.value(B.Int,rule(arguments[1].value,arguments[2].value,Op.kind(instruction.results[1]))))
         else
-            put(0,Known.runtime(B.Int)); self:schedule(operation)
+            put(0,Known.runtime(instruction.results[1])); self:schedule(operation)
         end
         put(1,Known.runtime(B.Effect))
     elseif B.FieldAddress:isclassof(operation) then
@@ -6876,6 +6914,7 @@ function C.I64:print() return 'int64_t' end
 function C.U64:print() return 'uint64_t' end
 function C.F64:print() return 'double' end
 function C.U8:print() return 'uint8_t' end
+function C.U32:print() return 'uint32_t' end
 function C.Size:print() return 'size_t' end
 function C.Pointer:print() return self.pointee:print() .. '*' end
 function C.Named:print() return self.name end
@@ -7095,6 +7134,8 @@ end
 
 function Emitter:ctype(type_)
     if type_==B.Int then return C.I64 end
+    if type_==B.U8 then return C.U8 end
+    if type_==B.U32 then return C.U32 end
     if type_==B.Bool then return C.Bool end
     if type_==B.Unit then return C.U8 end
     if type_==B.Effect then return C.U64 end
@@ -7173,7 +7214,7 @@ function Emitter:value(belt_id,index,output) return 'v' .. belt_id .. '_' .. ind
 
 function Emitter:constant(answer)
     local type_=answer.type
-    if type_==B.Int then local hi,lo=scalar.limbs(answer.value); return C.Integer(hi,lo) end
+    if type_==B.Int or type_==B.U8 or type_==B.U32 then local hi,lo=scalar.limbs(answer.value); return C.Integer(hi,lo) end
     if type_==B.Float then self.math=true; return C.Float(answer.value) end
     if type_==B.Bool then return C.Boolean(answer.value) end
     if type_==B.Unit then return C.Integer(0,0) end
@@ -7247,6 +7288,8 @@ function Emitter:instruction(block,block_id,index,instruction)
         local operand=self:arglist(block,block_id,position,{operation.operand})[1]
         if operation.operator==A.Not then declare(0,B.Bool,C.Unary('!',operand))
         elseif operation.operator==A.ToFloat then declare(0,B.Float,C.Cast(self:ctype(B.Float),operand))
+        elseif operation.operator==A.ToU8 then declare(0,B.U8,C.Cast(self:ctype(B.U8),operand))
+        elseif operation.operator==A.ToU32 then declare(0,B.U32,C.Cast(self:ctype(B.U32),operand))
         elseif operation.operator==A.ToInt then
             if declare(0,B.Int,C.Call(C.Name('let_to_int'),L{operand})) then self.helpers.to_int=true end
         elseif operation.operator==A.ToCString then
@@ -7258,7 +7301,7 @@ function Emitter:instruction(block,block_id,index,instruction)
             declare(0,B.Int,C.Cast(C.I64,C.Field(operand,'size')))
         elseif operation.operator==A.IsNull then
             declare(0,B.Bool,C.Binary('==',operand,C.Integer(0,0)))
-        elseif operation.operator==A.BitNot then declare(0,B.Int,C.Unary('~',operand))
+        elseif operation.operator==A.BitNot then declare(0,instruction.results[1],C.Unary('~',operand))
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
@@ -7282,12 +7325,20 @@ function Emitter:instruction(block,block_id,index,instruction)
                 negated=false
             end
             declare(0,B.Bool,negated and C.Unary('!',call) or call)
-        elseif arithmetic[operation.operator] then
+        elseif arithmetic[operation.operator] and instruction.results[1]~=B.U8 and instruction.results[1]~=B.U32 then
             local helper=arithmetic[operation.operator]
             self.helpers[helper[1]]=true
             declare(0,B.Int,C.Call(C.Name(helper[2]),L{arguments[1],arguments[2]}))
         elseif operation.operator==A.ShiftLeft or operation.operator==A.ShiftRight then
-            if operation.operator==A.ShiftLeft then
+            local result=instruction.results[1]
+            if result==B.U8 or result==B.U32 then
+                -- The count is reduced modulo the width, and the declared result type truncates.
+                local mask=(result==B.U8) and 7 or 31
+                local shift=operation.operator==A.ShiftLeft and '<<' or '>>'
+                declare(0,result,C.Cast(self:ctype(result),
+                    C.Binary(shift,C.Cast(self:ctype(result),arguments[1]),
+                        C.Binary('&',arguments[2],C.Integer(0,mask)))))
+            elseif operation.operator==A.ShiftLeft then
                 self.helpers.shl=true
                 declare(0,B.Int,C.Call(C.Name('LET_SHL'),L{arguments[1],arguments[2]}))
             else
@@ -7303,7 +7354,7 @@ function Emitter:instruction(block,block_id,index,instruction)
         if not known(0) then self.helpers[operation.operator==A.Divide and 'div' or 'rem']=true end
         local effect=self:ref(block,block_id,position,operation.effect)
         -- §16.2: a non-zero known divisor proves the check cannot fail, so it is omitted.
-        if declare(0,B.Int,C.Call(C.Name(helper),L{arguments[1],arguments[2]})) then
+        if declare(0,instruction.results[1],C.Call(C.Name(helper),L{arguments[1],arguments[2]})) then
             self.trap=true
             declare(1,B.Effect,C.Binary('+',effect,C.Integer(0,1)))
         else declare(1,B.Effect,effect) end

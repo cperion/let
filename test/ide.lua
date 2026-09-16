@@ -149,6 +149,13 @@ check(constraint.entry ~= nil, 'a constraint use carries the built-in entry')
 equal(index:classify(constraint).type, 'type', 'a constraint is a type')
 equal(index:definition('symbols.let', constraint_offset), nil, 'a built-in has no declaration')
 
+-- §11.2 a fixed-width integer is an atomic type word, so it paints as a type too.
+local fixed=analysis.analyze('let small : U8 = u8(1)','fixed.let',V.Host.configure({}))
+check(fixed.resolved ~= nil, 'the fixed-width sample resolves')
+local fixed_index=symbols.build(fixed)
+local u8_token=fixed_index:at('fixed.let',fixed.text:find('U8',1,true)-1)
+equal(fixed_index:classify(u8_token).type,'type','a fixed-width type word is a type')
+
 check(index:hover(declaration):find('let outer = 1', 1, true) ~= nil, 'hover shows the source line')
 check(index:hover(index:at('symbols.let', use_offset)):find('let outer = 1', 1, true) ~= nil,
     'hover on a use shows the declaration')

@@ -11,8 +11,10 @@ local read_parameter=B.Parameter(B.Text,A.Read)
 local int_parameter=B.Parameter(B.Int,A.Read)
 local hosts={
     print_int={symbol='print_int',phase='runtime',purity='ordered',signature=B.Signature(L{int_parameter},L{B.Unit})},
+    print_u32={symbol='print_u32',phase='runtime',purity='ordered',signature=B.Signature(L{B.Parameter(B.U32,A.Read)},L{B.Unit})},
     print_bool={symbol='print_bool',phase='runtime',purity='ordered',signature=B.Signature(L{B.Parameter(B.Bool,A.Read)},L{B.Unit})},
     runtime_int={symbol='runtime_int',phase='runtime',purity='pure',signature=B.Signature(L{int_parameter},L{B.Int})},
+    runtime_u32={symbol='runtime_u32',phase='runtime',purity='pure',signature=B.Signature(L{int_parameter},L{B.U32})},
     open={symbol='open',phase='runtime',purity='ordered',signature=B.Signature(L{int_parameter},L{B.Named('Box')})},
     open_buffer={symbol='open_buffer',phase='runtime',purity='ordered',signature=B.Signature(L{int_parameter},L{B.Named('Buffer')})},
     write_byte={symbol='write_byte',phase='runtime',purity='ordered',
@@ -25,6 +27,7 @@ local host_code=[[
 #include <stdio.h>
 #include <stdlib.h>
 int64_t runtime_int(int64_t value){ return value; }
+uint32_t runtime_u32(int64_t value){ return (uint32_t)value; }
 int64_t open(int64_t value){ printf("open:%lld\n",(long long)value); return value; }
 void close(int64_t value){ printf("close:%lld\n",(long long)value); }
 int64_t open_buffer(int64_t n){ printf("open:%lld\n",(long long)n); return 7; }
@@ -33,6 +36,7 @@ void consume_buffer(int64_t buffer){ printf("consume:%lld\n",(long long)buffer);
 void close_buffer(int64_t buffer){ printf("close_buffer:%lld\n",(long long)buffer); }
 void print_bool(bool value){ printf("%d\n",value?1:0); }
 void print_int(int64_t value){ printf("%lld\n",(long long)value); }
+void print_u32(uint32_t value){ printf("%u\n",(unsigned)value); }
 ]]
 -- A host that takes or returns `Text` is compiled in this unit, so its implementation needs
 -- the struct. The generated C declares it only when the program uses Text, so this follows.
@@ -392,6 +396,27 @@ let go = bits(runtime_int(-8), runtime_int(1))
 int main(void){ let_module_init(); return 0; }
 ]])
 eq(output,'0\n-7\n-7\n-16\n-4\n7\n','§13.2 bitwise and shifts use the specified 64-bit semantics')
+-- §13.2 A fixed-width integer wraps in the emitted C too, with a logical `>>` and a shift count
+-- reduced modulo the width.
+output=native('width',[[
+let run =
+    let a : U32
+    let b : U32
+    do : Int
+        print_u32(a + b);
+        print_u32(a - b);
+        print_u32(a * b);
+        print_u32(a << b);
+        print_u32(a >> b);
+        print_u32(~a)
+        return 0
+    end
+
+let go = run(runtime_u32(4294967295), runtime_u32(1))
+]],[[
+int main(void){ let_module_init(); return 0; }
+]])
+eq(output,'0\n4294967294\n4294967295\n4294967294\n2147483647\n0\n','§13.2 fixed-width arithmetic wraps in the emitted C too')
 
 -- §4.2 Self recursion that is not a tail call: the recursive call returns whatever the
 -- word returns, so its result type comes from the word itself.
