@@ -864,5 +864,23 @@ int main(void){ let_module_init(); return 0; }
     resources={Box={destroy='close'},Buffer={destroy='close_buffer'},
         CAlloc=V.libc.resources.CAlloc}})
 eq(output,'5\n','§12.4 a namespaced `extern` adds a member to the `c` namespace')
+-- §12.4 Byte and binary32 buffers: an owned `CAlloc` indexed by a runtime Int, lowered to
+-- emitted C helpers, so no external runtime is linked.
+output=native('buffer',[[
+let run = do : Unit
+    let buffer = c.malloc(16);
+    c.store_byte(buffer, 0, 65);
+    c.store_byte(buffer, 1, 66);
+    c.store_f32(buffer, 4, f32(1.5));
+    print_int(c.load_byte(buffer, 0));
+    print_int(c.load_byte(buffer, 1));
+    print_f32(c.load_f32(buffer, 4))
+end
+let started = run()
+]],[[
+int main(void){ let_module_init(); return 0; }
+]],{dictionary={c={members=V.libc.members}},
+    resources={Box={destroy='close'},Buffer={destroy='close_buffer'},CAlloc=V.libc.resources.CAlloc}})
+eq(output,'65\n66\n1.5\n','an owned buffer is indexed by a runtime Int through emitted helpers')
 
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))

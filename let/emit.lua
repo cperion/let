@@ -377,6 +377,9 @@ function Emitter:instruction(block,block_id,index,instruction)
     elseif B.HostCall:isclassof(operation) or B.PureHostCall:isclassof(operation) then
         local host=self.hosts[operation.symbol] or self:error('missing host contract for ' .. operation.symbol)
         self.used_hosts[host.symbol]=host
+        -- A host may name an emitted helper rather than a C library symbol, so a buffer
+        -- vocabulary needs no external runtime.
+        if host.helper then self.helpers[host.helper]=true end
         local arguments=self:host_arguments(host,self:arglist(block,block_id,position,operation.arguments))
         local call=self:host_result(host,C.Call(C.Name(operation.symbol),statement_list(arguments)))
         local pure=B.PureHostCall:isclassof(operation)
@@ -772,7 +775,8 @@ function Emitter:host_declarations()
     -- Only a host the program actually calls is declared: a vocabulary may be registered for
     -- names a program does not use, and those must not appear in its C.
     for _,host in pairs(self.used_hosts) do
-        if not names[host.symbol] then names[host.symbol]=true; symbols[#symbols+1]=host.symbol end
+        -- A host that names an emitted helper is defined in this unit, not declared as an extern.
+        if not host.helper and not names[host.symbol] then names[host.symbol]=true; symbols[#symbols+1]=host.symbol end
     end
     table.sort(symbols)
     for _,symbol in ipairs(symbols) do
@@ -823,6 +827,14 @@ function Emitter:helper_declarations()
     -- the nearer Int bound, so it needs no effect and can be folded or dropped.
     if self.helpers.to_int then raw('static int64_t let_to_int(double x){if(x!=x)return 0;if(x>=9223372036854775808.0)return INT64_MAX;if(x<-9223372036854775808.0)return INT64_MIN;return (int64_t)x;}') end
     if self.helpers.text_eq then raw('#define LET_TEXT_EQ(a,b) ((a).size==(b).size&&memcmp((a).data,(b).data,(size_t)(a).size)==0)') end
+    -- Byte and binary32 buffers, indexed by a runtime Int. The float loads and stores go through
+    -- `memcpy` so an unaligned or aliased address is still defined behavior.
+    if self.helpers.buffer then
+        raw('static int64_t let_load_byte(void* p,int64_t i){return (int64_t)((uint8_t*)p)[i];}')
+        raw('static void let_store_byte(void* p,int64_t i,int64_t v){((uint8_t*)p)[i]=(uint8_t)v;}')
+        raw('static float let_load_f32(void* p,int64_t i){float f;memcpy(&f,(uint8_t*)p+i,4);return f;}')
+        raw('static void let_store_f32(void* p,int64_t i,float v){memcpy((uint8_t*)p+i,&v,4);}')
+    end
     return declarations
 end
 
@@ -926,7 +938,7 @@ function Emitter:program(program,options)
     local includes=L()
     if self.c_hosts then includes:insert('stddef.h') end
     includes:insert('stdint.h'); includes:insert('stdbool.h')
-    if self.text and (self.helpers.text_eq or self.helpers.text_from_c) then includes:insert('string.h') end
+    if self.helpers.buffer or (self.text and (self.helpers.text_eq or self.helpers.text_from_c)) then includes:insert('string.h') end
     if self.math then includes:insert('math.h') end
     local declarations=L()
     declarations:insertall(helpers)

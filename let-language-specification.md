@@ -1188,6 +1188,15 @@ one reads a length the `Text` already has, the other compares a pointer to the n
 Text view may also be built over a borrowed pointer and a length, so a buffer the C side filled
 becomes a Text without a terminator; that conversion takes two arguments.
 
+A **buffer** is host vocabulary of the same shape as the view above: an owned resource whose C
+representation is a pointer, indexed by a runtime `Int` through named load and store words, so
+the language itself still has no dereference or pointer arithmetic (§18). The vocabulary
+decides element width, bounds behavior, and alignment; the language fixes only that each word
+is an ordinary dictionary entry with an explicit capability, purity, and ownership. A load is
+`ordered` because the bytes behind the pointer can change between calls. A borrowed view of
+such memory is a foreign pointer type, and a `Text` view may be built over a pointer and a
+length, as above, so one call can process a whole frame rather than one element.
+
 
 A program may declare a foreign word in source, with no embedding registration:
 

@@ -294,7 +294,9 @@ This is real native execution, not the interpreter.
 
 The emitted C contains only what the program needs: the module initializer, live word
 entries, the trap hook, and, when used, one shared helper for division, one for remainder,
-and `let_to_int` for the Float narrowing.
+`let_to_int` for the Float narrowing, and the byte/Float32 buffer loads and stores. A host may
+name an emitted helper (`helper = 'buffer'`) instead of a C library symbol, so a buffer
+vocabulary needs no external runtime and is not declared as an `extern`.
 Effects are erased, single results return directly, and wrapping arithmetic is a macro.
 
 `test/aggregate.lua` covers §8.1 named projection, §8.2 positional and nested indexing,

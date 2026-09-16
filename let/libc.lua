@@ -64,6 +64,17 @@ return {
         -- count comes from `c.byte_length`, so no terminator is assumed.
         write=ordered('write',B.Signature(L{int,cstring,int},L{B.Int}),
             {c={params={'int','const void *','size_t'},result='long'}}),
+        -- Byte and binary32 buffers: `CAlloc` is the owned buffer, the index is a runtime Int,
+        -- and the emitter supplies these helpers, so no external runtime is needed. A read is
+        -- ordered because the bytes behind the pointer can change between calls.
+        load_byte=ordered('let_load_byte',B.Signature(L{allocation,int},L{B.Int}),
+            {c={params={'void *','int64_t'},result='int64_t'},helper='buffer'}),
+        store_byte=ordered('let_store_byte',B.Signature(L{allocation,int,int},L{B.Unit}),
+            {c={params={'void *','int64_t','int64_t'},result='void'},helper='buffer'}),
+        load_f32=ordered('let_load_f32',B.Signature(L{allocation,int},L{B.Float32}),
+            {c={params={'void *','int64_t'},result='float'},helper='buffer'}),
+        store_f32=ordered('let_store_f32',B.Signature(L{allocation,int,B.Parameter(B.Float32,A.Read)},L{B.Unit}),
+            {c={params={'void *','int64_t','float'},result='void'},helper='buffer'}),
         read=ordered('read',B.Signature(L{int,allocation,int},L{B.Int}),
             {c={params={'int','void *','size_t'},result='long'}}),
     },
