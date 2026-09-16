@@ -182,10 +182,31 @@ stated from the program's side, which is what the classifier needs to see.
     initializer runs` is -- and the duplicate-binding report is idempotent across the two passes.
     Recursion still works, because §4.2 makes the defining word visible inside its own terminal.
 
-    What remains for mutual recursion to actually build: the builder must allocate a module cell up
-    front rather than where its statement appears, so a forward capture has storage. Until then
-    `Builder:instantiate` refuses with `a word cannot capture X yet: it is declared later, and its
-    storage is not allocated up front`, which is the piece named rather than the crash it produced.
+    What remains for mutual recursion to actually build: a forward capture needs a cell that exists
+    before the statement that initializes it. Working out how gives a narrower route than
+    "pre-allocate module state", and two obstacles worth stating.
+
+    **The route.** A module binding that a word captures is already given *global* storage
+    (`Allocate` uses `C.Global` when the binding is a module cell), and a C global's address is valid
+    from program start -- so the reference is sound before initialization, which is exactly the
+    premise the resolver's rule relies on. What is missing is that the builder cannot *name* that
+    cell yet: it allocates it where its statement appears, and a capture reaches it through the
+    cell's value reference. So the fix is a forward-declared module cell: allocate it before the
+    chain's items resolve, and bind the name to it, so the capture finds storage instead of nothing.
+
+    **Obstacle one: the cell's type must be known before the value is built.** For a general binding
+    it is not -- an unannotated one has no type until its initializer is built. For the case that
+    matters, a *word* binding, it is: a word's belt type follows from its template (`Do` or `Arrow`
+    over it), so a word-to-word forward reference can pre-allocate with a type in hand. That is
+    exactly mutual recursion, which is why the narrow version is worth having.
+
+    **Obstacle two: the cell's C name must be stable.** Names come from instruction position
+    (`v<block>_<index>_c`), which is not known until the cell is emitted. Pre-allocating needs a name
+    derived from the binding instead -- `let_mod_<name>` -- which is a small emitter change but
+    touches every module cell, so it wants the corpus as its net.
+
+    So: feasible, scoped, and not landed here. `Builder:instantiate` refuses with `a word cannot
+    capture X yet: it is declared later, and its storage is not allocated up front` until it is.
 
 
 0. ~~The recursive-call crash.~~ **Fixed**, by letting the analysis answer `nil` and having the
