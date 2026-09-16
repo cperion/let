@@ -156,6 +156,14 @@ local fixed_index=symbols.build(fixed)
 local u8_token=fixed_index:at('fixed.let',fixed.text:find('U8',1,true)-1)
 equal(fixed_index:classify(u8_token).type,'type','a fixed-width type word is a type')
 
+-- §11.5 an `or` between two type words is a union, so each name is a type-word use.
+local union_sample=analysis.analyze('let word = Int or Text','union.let',V.Host.configure({}))
+check(union_sample.resolved ~= nil, 'the union sample resolves')
+local union_index=symbols.build(union_sample)
+local union_use=union_index:at('union.let',union_sample.text:find('Int',1,true)-1)
+equal(union_use.role,'reference','a union alternative is a reference to the type word')
+equal(union_index:definition('union.let',union_sample.text:find('Int',1,true)-1),nil,'a built-in union alternative has no declaration')
+
 check(index:hover(declaration):find('let outer = 1', 1, true) ~= nil, 'hover shows the source line')
 check(index:hover(index:at('symbols.let', use_offset)):find('let outer = 1', 1, true) ~= nil,
     'hover on a use shows the declaration')

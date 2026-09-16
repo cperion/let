@@ -156,8 +156,9 @@ function A.Data:resolve_terminal(ctx,scope) self.value:resolve(ctx,scope) end
 -- A type name written in expression position (an `or` union alternative) resolves as a type-
 -- word use, so the editor can follow it and the builder can read the type it denotes.
 function Context:resolve_type_name(node,scope)
-    local head={span=(node.name_range and node.name_range.start) or node.span}
-    self.type_refs[node]=self:use(scope,node.name,head,'type')
+    -- The Name node itself is the use, so the editor finds a type-word use the same way it
+    -- finds a value use; its span is already the name's.
+    self.type_refs[node]=self:use(scope,node.name,node,'type')
 end
 function A.Ref:resolve(ctx,scope,span)
     -- §11: a type word resolves as an ordinary name. Whether it names a known type word is a
