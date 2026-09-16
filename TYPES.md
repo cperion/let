@@ -170,6 +170,21 @@ rejected. The tag is the runtime discriminator (§7). Generic sums (`Option a`) 
 type-word application of §11.2. A generated `match` handler-fold and non-Copy payloads remain
 future work.
 
+### Union formation moved onto `or`
+
+`|` is the loosest expression operator (§3.4) and cannot also be bitwise OR, which must bind
+tighter than comparison: one token cannot have two precedences. `or` is already the loosest
+left-associative operator, so the union moves onto it. `or` is *disjunction*, and the phase
+decides what disjunction means: `Bool or Bool` short-circuits at runtime (§13.1), while
+`Int or Text` forms the tagged union at construction. This is the phased dictionary doing its
+job, not a second meaning: the operator is one, the phase selects the entry.
+
+Consequences: the grammar in §3 reads `sum_type := apply_type { "or" apply_type }`, and the
+`|` row is removed from the expression precedence table, freeing `|` for bitwise OR. The parser
+no longer coerces `|` operands to type-word `Ref`s; `A.Or:build` dispatches on the operand
+types (Bool versus type words), so the union decision moves from parse time to construction.
+The union is therefore not a distinct AST node; it is an `A.Or` resolved by phase.
+
 ## 9. Migration
 
 Each step keeps `luajit test/all.lua` green, regenerates `dist/let.lua`, and emits identical C where

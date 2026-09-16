@@ -43,10 +43,10 @@ local hosts={
     tick=function(x) log('tick:' .. tonumber(x)); return x end,
     truth=function(x) log('truth:' .. tonumber(x)); return x~=0 end,
     open=function(x) local id=tonumber(x); assert(not alive[id]); alive[id]=true; log('open:' .. id); return id end,
-    peek=function(x) assert(alive[x]); log('peek:' .. x); return x*10LL end,
+    peek=function(x) assert(alive[x]); log('peek:' .. x); return x*10 end,
     consume=function(x) assert(alive[x]); alive[x]=nil; log('consume:' .. x) end,
     drop=function(x) assert(alive[x],'double destruction'); alive[x]=nil; log('drop:' .. x) end,
-    bump=function(x) x.value=x.value+1LL; log('bump') end
+    bump=function(x) x.value=x.value+1; log('bump') end
 }
 local function run(fn,args,trace)
     events,alive={},{}; local result=execute(fn,args,hosts)
@@ -137,12 +137,12 @@ local result_resource=build({local_('a',call('open',i(1))),local_('b',call('open
 eq(run(result_resource,{},'open:1,open:2,drop:1'),2); check(alive[2],'returned owner must survive')
 -- §9.3: external mutable places use ordered loads/stores, not scalar copy-back.
 local mutable=build({discard(call('bump',borrow('x'))),assign('x',op(A.Add,n('x'),i(1))),ret(n('x'))},{stage('x','Int',A.Mut)})
-local address={value=40LL}; eq(run(mutable,{address},'bump'),42); eq(address.value,42)
+local address={value=40}; eq(run(mutable,{address},'bump'),42); eq(address.value,42)
 -- §§11, 13: representations and exact literal boundaries.
 eq(run(build({ret(n('x'))},{stage('x','Int')}),{42}),42)
 eq(run(build({ret(op(A.Equal,A.Text('a\0é',span),A.Text('a\0é',span)))})),true)
-eq(run(build({ret(op(A.Add,i('9223372036854775807'),i(1)))})),-9223372036854775808LL)
-eq(run(build({ret(op(A.Divide,A.Unary(A.Negate,i('9223372036854775808'),span),A.Unary(A.Negate,i(1),span)))})),-9223372036854775808LL)
+eq(run(build({ret(op(A.Add,i('9223372036854775807'),i(1)))})),V.scalar.min)
+eq(run(build({ret(op(A.Divide,A.Unary(A.Negate,i('9223372036854775808'),span),A.Unary(A.Negate,i(1),span)))})),V.scalar.min)
 reject({ret(i('9223372036854775808'))},'out of Int range')
 reject({ret(i('0x_1'))},'invalid integer spelling')
 reject({ret(n('missing'))},'unknown name')

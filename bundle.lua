@@ -17,7 +17,15 @@ for _, name in ipairs{'ffi','bit','jit','debug','io','os','math','string','table
     external[name] = true
 end
 
+-- The two 64-bit backends use the syntax of their own host, so a bundle can carry only one of
+-- them. `let/numeric` is rewritten to require the backend this host can load, which also stops
+-- the collector from following the other one. The bundle is therefore host-specific: run
+-- `luajit bundle.lua` for LuaJIT, `lua bundle.lua` for PUC Lua 5.3+.
+local backend = (type(jit) == 'table') and 'let.numeric_ffi' or 'let.numeric_native'
+local overrides = {['let.numeric'] = ("return require('%s')\n"):format(backend)}
+
 local function source_of(name)
+    if overrides[name] then return overrides[name], name end
     -- The same two spellings `package.path` looks for: a file, or a package directory.
     local stem = name:gsub('%.', '/')
     for _, path in ipairs{stem .. '.lua', stem .. '/init.lua'} do

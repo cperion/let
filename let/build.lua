@@ -5,6 +5,7 @@ local A,B,L=V.AST,V.Belt,V.List
 local Packet=V.Packet
 local Vocabulary=V.Vocabulary
 local literal=require('let.literal')
+local unpack=table.unpack or unpack
 local Context={}; Context.__index=Context
 local function copy(t) local out={}; for k,v in pairs(t) do out[k]=v end; return out end
 local function fail(span,message) error(('%s:%d:%d: %s'):format(span.file,span.line,span.column,message),0) end

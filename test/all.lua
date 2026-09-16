@@ -9,9 +9,16 @@ local suites={
     'test/known.lua','test/import.lua','test/place.lua','test/host_entry.lua',
     'test/native.lua','test/float.lua','test/bundle.lua',
 }
+-- The committed dist/let.lua is the LuaJIT bundle, so `test/bundle.lua` runs only under
+-- LuaJIT; with PUC Lua, `lua bundle.lua` writes that host's own bundle instead.
+if type(jit)~='table' then
+    for index=#suites,1,-1 do if suites[index]=='test/bundle.lua' then table.remove(suites,index) end end
+end
+-- Run each suite with the interpreter running this file, so the suite runs on LuaJIT or PUC Lua.
+local interpreter=arg[-1] or 'luajit'
 local total,failed=0,{}
 for _,suite in ipairs(suites) do
-    local pipe=io.popen(('luajit %s 2>&1'):format(suite))
+    local pipe=io.popen(('%s %s 2>&1'):format(interpreter,suite))
     local output=pipe:read('*a'); pipe:close()
     local count=output:match('passed (%d+)')
     local summary=output:match('passed [^\n]*')

@@ -2,8 +2,8 @@
 local V=require('let'); local B,A=V.Belt,V.AST
 -- Exact scalars come from the same module the abstract evaluator uses, so the concrete
 -- oracle and compile-time folding cannot disagree.
-local ffi=require('ffi')
 local scalar=V.scalar; local unit=scalar.unit
+local unpack=table.unpack or unpack
 -- Test-only driver state: frames nest for ordinary calls and are replaced by tail calls.
 local Run={}; Run.__index=Run
 function Run:get(ref)
@@ -109,7 +109,7 @@ return function(fn,arguments,hosts,limit,program)
     local incoming={0}
     for i,value in ipairs(arguments or {}) do
         local type_=fn.signature.parameters[i+1].type
-        incoming[i+1]=type_==B.Int and ffi.new('int64_t',value) or value
+        incoming[i+1]=type_==B.Int and scalar.int64(value) or value
     end
     local results=Run.frame(fn,incoming,hosts or {},program,limit)
     return results[1],results[#results]

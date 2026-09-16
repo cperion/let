@@ -70,7 +70,9 @@ local function native(name,source,extra_c,extra_options)
     local path=('%s/%s.c'):format(directory,name)
     local file=assert(io.open(path,'w')); file:write(text); file:close()
     local executable=('%s/%s'):format(directory,name)
-    local status=os.execute(('cc -std=c11 -O1 -w -o %s %s > %s/%s.log 2>&1'):format(executable,path,directory,name))
+    -- Lua 5.2+ returns (true,"exit",0) instead of 0, so normalize the status.
+    local executed,_,code=os.execute(('cc -std=c11 -O1 -w -o %s %s > %s/%s.log 2>&1'):format(executable,path,directory,name))
+    local status=(type(executed)=='number') and executed or (executed and 0 or (code or 1))
     if status~=0 then
         local log=io.open(('%s/%s.log'):format(directory,name)); local message=log and log:read('*a') or ''
         if log then log:close() end

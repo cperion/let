@@ -143,7 +143,8 @@ local function compile_and_run(name,unit_text,statistics,main)
     out:write('\nvoid let_trap(char* reason){ (void)reason; __builtin_trap(); }\n')
     out:write(main)
     out:close()
-    local status=os.execute(('cc -std=c11 -O1 -w %s.c -o %s && %s'):format(stem,stem,stem))
+    local executed,_,code=os.execute(('cc -std=c11 -O1 -w %s.c -o %s && %s'):format(stem,stem,stem))
+    local status=(type(executed)=='number') and executed or (executed and 0 or (code or 1))
     return status
 end
 

@@ -106,11 +106,11 @@ end
 eq(host.call('widen',7),3.5,'float(Int) widens explicitly')
 eq(host.call('narrow',3.9),3,'int(Float) truncates toward zero')
 eq(host.call('narrow',-3.9),-3,'and toward zero below zero')
-eq(tostring(host.call('narrow',1e300)),'9223372036854775807LL','int saturates at the upper bound')
-eq(tostring(host.call('narrow',-1e300)),'-9223372036854775808LL','int saturates at the lower bound')
+eq(V.scalar.int_string(host.call('narrow',1e300)),'9223372036854775807','int saturates at the upper bound')
+eq(V.scalar.int_string(host.call('narrow',-1e300)),'-9223372036854775808','int saturates at the lower bound')
 eq(host.call('narrow',0/0),0,'a NaN narrows to zero')
 local converted=host.namespace()
-eq(tostring(converted.fields[3]),'9007199254740993LL','an Int literal keeps 2^53+1 exactly')
+eq(V.scalar.int_string(converted.fields[3]),'9007199254740993','an Int literal keeps 2^53+1 exactly')
 eq(converted.fields[4],9007199254740992.0,'float rounds it to the nearest binary64')
 eq(host.call('shadow'),3,'a lexical binding named float shadows the conversion')
 local juxtaposed=V.parse('let seven = float 7','float.let'):build{}
@@ -171,7 +171,9 @@ int main(void){
 }
 ]])
 out:close()
-local status=os.execute(('cc -std=c11 -O1 -w -lm %s.c -o %s && %s'):format(stem,stem,stem))
+local executed,_,code=os.execute(('cc -std=c11 -O1 -w -lm %s.c -o %s && %s'):format(stem,stem,stem))
+-- Lua 5.2+ returns (true,"exit",0) instead of 0, so normalize the status.
+local status=(type(executed)=='number') and executed or (executed and 0 or (code or 1))
 eq(status,0,'native Float arithmetic, comparisons and IEEE zero division')
 
 print(('passed %d Float checks'):format(checks))

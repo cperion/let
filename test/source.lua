@@ -38,7 +38,7 @@ local body=parse('let f=do : Int let x=1 target.member[index[0]]=x return x end'
 check(#body==3 and A.Index:isclassof(body[2].place))
 local text=parse('let text="é\\u{1f600}\\u{0}\\n"').file.items[1].binding.value.terminal.value
 check(text.value=='é' .. string.char(240,159,152,128,0,10))
-check(run('let example=do : Int return -9223372036854775808 end')==-9223372036854775808LL)
+check(run('let example=do : Int return -9223372036854775808 end')==V.scalar.min)
 -- §3/§11 type expressions: arrow, sum, keyed record, positional record, and the terminal result.
 local arrow=parse('let f : Int -> Int -> Int = do : Int return 1 end').file.items[1].binding.constraint
 check(A.Arrow:isclassof(arrow) and A.Arrow:isclassof(arrow.to) and arrow.from.name=='Int' and arrow.to.to.name=='Int')
