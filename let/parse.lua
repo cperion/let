@@ -275,14 +275,29 @@ end
 -- constructs the record from the supplied stages, so the aggregate is both the type and its
 -- constructor. A `let x = v` member is a prelude and stays in the chain.
 function Parser:aggregate_word(items,span)
-    local members=L()
+    local members,chain=L(),L()
+    -- §8.3: a named member declared `mut` is an *interior mutable place*, which is a fact about
+    -- the record rather than about how the member is supplied. So the qualifier lands on the
+    -- member, and the stage keeps only the ownership question: a `mut` member is supplied like a
+    -- read one, and taking ownership of a non-Copy member is what `own` is for.
     for _,item in ipairs(items) do
-        local name=A.Stage:isclassof(item) and item.name or item.binding.name
-        local at=A.Stage:isclassof(item) and item.span or item.binding.span
+        local stage=A.Stage:isclassof(item)
+        local name=stage and item.name or item.binding.name
+        local at=stage and item.span or item.binding.span
+        local mutable
+        if stage then
+            mutable=item.capability==A.Mut or item.capability==A.OwnMut
+            local supplied=item.capability
+            if supplied==A.Mut then supplied=A.Read elseif supplied==A.OwnMut then supplied=A.Own end
+            chain:insert(A.Stage(item.name,supplied,item.constraint,item.span,item.name_range))
+        else
+            mutable=item.binding.mutable
+            chain:insert(item)
+        end
         local value=A.Data(A.Name(name,at))
-        members:insert(A.Binding(name,false,nil,A.Chain(L(),value,at),at,span_range(at,name)))
+        members:insert(A.Binding(name,mutable,nil,A.Chain(L(),value,at),at,span_range(at,name)))
     end
-    return A.Chain(items,A.Data(A.NamedAggregate(members,true,span)),span)
+    return A.Chain(chain,A.Data(A.NamedAggregate(members,true,span)),span)
 end
 function Parser:named_members()
     local members=L()

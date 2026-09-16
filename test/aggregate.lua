@@ -155,4 +155,35 @@ let rgb = { 1, 2, 3 }
 let r = rgb[7]
 ]],'outside the valid range','a constant out-of-range index is diagnosed')
 
+-- §8.3 A named member declared `mut` is an interior mutable place. It is part of the record's
+-- type, so the record is not Copy, and it stays writable through a `mut` borrow even though
+-- the containing binding need not be -- while a read-only borrow does not grant the write.
+check(result[[
+let Counter = { let at mut : Int let stop : Int }
+let bump = let c mut : Counter do : Int
+    c.at = c.at + 1;
+    return c.at
+end
+let run = do : Int
+    let c mut = Counter 0 4;
+    let first = bump(mut c);
+    let second = bump(mut c);
+    return second
+end
+let answer = run()
+]]==2,'a `mut` member is writable through a mutable borrow')
+check(result[[
+let Counter = { let at mut : Int let stop : Int }
+let run = do : Int
+    let c = Counter 0 4;
+    return c.at
+end
+let answer = run()
+]]==0,'a `mut` member is readable through an immutable binding')
+rejects([[
+let Counter = { let at mut : Int let stop : Int }
+let c = Counter 0 4
+let d = c
+]],'move or a fresh result','a record with a `mut` member is not Copy')
+
 print(('passed %d aggregate/projection checks'):format(checks))

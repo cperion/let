@@ -345,13 +345,22 @@ end
 function Context:word_terminal_type(template,env)
     local terminal=template.source.terminal
     if not (terminal and A.Data:isclassof(terminal) and A.Word:isclassof(terminal.value)) then return nil end
+    -- §8.3: the mutability of a member is declared on the member, so it is read from the record the
+    -- terminal builds rather than from the stage that supplies it. The stage answers the type, and
+    -- the member answers whether it is an interior mutable place.
+    local writable={}
+    local record=terminal.value.chain.terminal
+    if record and A.Data:isclassof(record) and A.NamedAggregate:isclassof(record.value) then
+        for _,member in ipairs(record.value.members) do writable[member.name]=member.mutable end
+    end
     local fields,copy=L(),true
     for _,item in ipairs(terminal.value.chain.items) do
         if A.Stage:isclassof(item) then
             local type_=self:resolve_type_expr(item.constraint,env)
             if not type_ then return nil end
-            fields:insert(B.Field(item.name,type_,false))
-            if not type_:copyable() then copy=false end
+            local mutable=writable[item.name]==true
+            fields:insert(B.Field(item.name,type_,mutable))
+            if mutable or not type_:copyable() then copy=false end
         end
     end
     if #fields==0 then return nil end
