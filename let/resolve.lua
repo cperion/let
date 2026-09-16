@@ -179,6 +179,16 @@ function A.Binding:resolve(ctx,scope)
     local template=ctx:chain(self.value,scope,definition)
     ctx.resolving[self.name]=previous
     definition.template=template
+    -- §11.5: a binding whose value is exactly an import names a namespace value, so
+    -- `codec.JPEG` projects a member of the imported file. The kind stays 'binding', so the
+    -- binding is still captured by a body.
+    if #self.value.items==0 and A.Data:isclassof(self.value.terminal) then
+        local expression=self.value.terminal.value
+        while A.Specialize:isclassof(expression) and not ctx.imports[expression] do expression=expression.word end
+        if A.Specialize:isclassof(expression) and ctx.imports[expression] then
+            definition.module_members=ctx:module_members(ctx.imports[expression])
+        end
+    end
     -- §11.2: a binding whose value is a word value names that word, so an aggregate type and
     -- its constructor share the binding's name for nominal identity.
     local terminal=template.source.terminal
@@ -271,6 +281,12 @@ function A.Project:resolve(ctx,scope)
             ctx.namespace_members[self]=member
             return
         end
+        -- An imported namespace is projected structurally; record the link so the editor can
+        -- follow it, without changing what construction does.
+        if definition and definition.module_members then
+            local member=definition.module_members[self.name]
+            if member then ctx.module_projections[self]=member end
+        end
     end
     self:resolve_read(ctx,scope,self)
 end
@@ -308,10 +324,26 @@ local function dictionary(ctx,parent,entries)
     end
     return scope
 end
+-- The members an imported file exposes as a namespace: its own names when it has no written
+-- terminal, or the members of the record its terminal writes. This is a navigation link, not a
+-- resolution rule, so it is kept apart from the dictionary namespaces A.Project resolves.
+function Context:module_members(chain)
+    local template=self.chains[chain]
+    if not chain.terminal then return template and template.scope.names end
+    if A.Data:isclassof(chain.terminal) and A.NamedAggregate:isclassof(chain.terminal.value) then
+        local members={}
+        for _,binding in ipairs(chain.terminal.value.members) do
+            local definition=self.bindings[binding]
+            if definition then members[binding.name]=definition end
+        end
+        return members
+    end
+end
+
 function A.Program:resolve(options)
     options=options or {}
     local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},type_refs={},scopes={},templates={},
-        imports={},import_words={},importing={},namespace_members={},diagnostics={},unknowns={},resolving={},
+        imports={},import_words={},importing={},namespace_members={},module_projections={},diagnostics={},unknowns={},resolving={},
         import_resolver=options.resolve,file=self.file.span.file},Context)
     -- §11: the primitive type words are ordinary names, not a phase; the vocabulary decides
     -- what a type word means at a boundary.

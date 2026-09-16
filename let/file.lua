@@ -4,10 +4,20 @@
 -- the import site. Where a path is looked up, which extension is assumed, and whether
 -- anything is cached are embedding decisions, so they live here beside the compiler rather
 -- than in the language. A host with its own layout should pass its own resolver instead.
+--
+-- The path search and the bytes are also separate. A host may supply `read`, which turns a
+-- candidate path into text, so an editor can return an unsaved open buffer before the file
+-- on disk. The default reads whatever path the search found.
 return function(options)
     options=options or {}
     local suffix=options.suffix==nil and '.let' or options.suffix
     local roots=options.roots or {}
+    local read=options.read or function(path)
+        local file=io.open(path,'r')
+        if not file then return nil end
+        local text=file:read('*a'); file:close()
+        return text
+    end
     return function(path,from)
         local directory=from and from:match('^(.*)/') or '.'
         local candidates={path}
@@ -19,11 +29,8 @@ return function(options)
         for _,base in ipairs(bases) do
             for _,candidate in ipairs(candidates) do
                 local full=(base=='' and candidate) or (base .. '/' .. candidate)
-                local file=io.open(full,'r')
-                if file then
-                    local text=file:read('*a'); file:close()
-                    return {text=text,file=full}
-                end
+                local text=read(full)
+                if text then return {text=text,file=full} end
             end
         end
         return nil

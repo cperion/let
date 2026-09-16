@@ -50,18 +50,9 @@ return function(V,arg)
     local function compile(input,output,options_path)
         local file=assert(io.open(input,'rb'))
         local text=file:read('*a'); file:close()
-        local options=options_path and dofile(options_path) or {}
-        -- The C vocabulary is a namespace, so it cannot collide with a program's own names;
-        -- an embedding or options file that declares `c` itself wins.
-        local dictionary=options.dictionary or {}
-        if not dictionary.c then dictionary.c={members=V.libc.members} end
-        options.dictionary=dictionary
-        -- The C memory resource is the CLI's, and the embedding's own resources still win.
-        local resources={}
-        for name,descriptor in pairs(V.libc.resources or {}) do resources[name]=descriptor end
-        for name,descriptor in pairs(options.resources or {}) do resources[name]=descriptor end
-        options.resources=resources
-        options.dictionary=dictionary
+        -- One host vocabulary, shared with the language server (let/host.lua), so the CLI and
+        -- the editor agree about what a program can name and how an import is found.
+        local options=V.Host.configure(options_path and dofile(options_path) or {})
         local program,builder=V.parse(text,input):build(options)
         -- This is a host, and it publishes every exported word: §15.1's "the host selects".
         options.entries=options.entries or builder.host_entries

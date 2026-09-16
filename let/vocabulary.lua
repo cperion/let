@@ -9,6 +9,10 @@ local Vocabulary={}; Vocabulary.__index=Vocabulary
 
 -- One validated vocabulary for a program. A descriptor that is malformed fails here, with the
 -- message naming the contract, rather than at whichever consumer happened to read it first.
+-- The atomic type names every program has, in one place, so a consumer that must show them
+-- (the editor's token classification) does not restate which names are types.
+Vocabulary.scalars={'Int','Float','Bool','Unit','Text','CString','CPointer','Type'}
+
 function Vocabulary.new(options)
     options=options or {}
     local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}

@@ -26,6 +26,7 @@ V.Known=require('let.known')(V)
 V.scalar=require('let.scalar')
 V.file_resolver=require('let.file')
 require('let.print')(V)
+V.Host=require('let.host')(V)
 require('let.emit')(V)
 return V
 

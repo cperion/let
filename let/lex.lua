@@ -3,11 +3,23 @@
 return function(V)
 local Source,L=V.Source,V.List
 local Lexer={}; Lexer.__index=Lexer
+-- The reserved spellings (§2.3). One owner: the scanner's keyword set and any consumer that
+-- must offer them (completion) read the same list, so they cannot drift.
+local spellings={'let','do','end','own','mut','move','return','if','else','while','switch',
+    'case','and','or','not','true','false','extern','pure','break','continue'}
 local keywords={}
-for word in ('let do end own mut move return if else while switch case and or not true false extern pure break continue'):gmatch('%S+') do keywords[word]=true end
+for _,word in ipairs(spellings) do keywords[word]=true end
+-- Exposed so a host that must offer the reserved words (completion) reads this list.
+Lexer.spellings=spellings
 local escapes={['\\']='\\',['"']='"',n='\n',r='\r',t='\t'}
 function Lexer.fail(span,message) error(('%s:%d:%d: %s'):format(span.file,span.line,span.column,message),0) end
-function Lexer.new(text,file) return setmetatable({text=text,file=file or '<source>',pos=1,line=1,column=1},Lexer) end
+-- `options.trivia` makes the scanner record the comments it skips, as `{span, stop}` pairs,
+-- in source order. The compiler never asks for them; a host that must show comments can,
+-- without a second definition of the `//` rule.
+function Lexer.new(text,file,options)
+    return setmetatable({text=text,file=file or '<source>',pos=1,line=1,column=1,
+        trivia=options and options.trivia and {}},Lexer)
+end
 function Lexer:span() return Source.Span(self.file,self.line,self.column) end
 function Lexer:char() return self.text:sub(self.pos,self.pos) end
 function Lexer:advance()
@@ -64,7 +76,9 @@ function Lexer:next()
         local c=self:char()
         if c:match('^[ \t\r\n\v\f]$') then self:advance()
         elseif self.text:sub(self.pos,self.pos+1)=='//' then
+            local at=self:span()
             while self:char()~='' and self:char()~='\r' and self:char()~='\n' do self:advance() end
+            if self.trivia then self.trivia[#self.trivia+1]={span=at,stop=self:span()} end
         else break end
     end
     local span,start=self:span(),self.pos; local c=self:char()
