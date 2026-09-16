@@ -1,0 +1,13 @@
+// The same fold with the body arriving through a variable rather than named at the call site.
+let fold = let n : Int let acc0 : Int let body : Int -> do Int do : Int
+    let acc mut = acc0;
+    let i mut = 0;
+    while i < n do
+        acc = body(acc);
+        i = i + 1
+    end
+    return acc
+end
+let add_two = let acc : Int do : Int return acc + 2 end
+let chosen = add_two
+let answer = fold(4, 0, chosen)

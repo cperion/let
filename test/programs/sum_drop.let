@@ -1,0 +1,9 @@
+// §11.5 A sum holding a non-Copy alternative. `Thing` is an opaque resource, so nothing projects
+// into it; the point of the program is that the sum accepts the owned payload, reads its tag, and
+// releases the payload exactly once when the sum dies. The driver counts the releases.
+let Opt = Thing or Int
+let run = do : Int
+    let value = Opt.left make(7);
+    return value.tag
+end
+let answer = run()

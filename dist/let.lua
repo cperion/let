@@ -7410,6 +7410,11 @@ function Emitter:constant(answer)
     if type_==B.Float then self.math=true; return C.Float(answer.value) end
     if type_==B.Bool then return C.Boolean(answer.value) end
     if type_==B.Unit then return C.Integer(0,0) end
+    -- §11.2: a `Type` value is a compile-time handle with no runtime representation. A module's
+    -- state record still has a slot for a type-word binding, so the slot gets the same meaningless
+    -- zero a Unit does -- nothing ever reads it as a value, and the alternative was an error that
+    -- made a module-level `let Opt = Int or Text` impossible.
+    if type_==B.TypeWord then return C.Integer(0,0) end
     if type_==B.Text then return C.Compound(self:ctype(B.Text),L{C.String(answer.value),C.Integer(0,#answer.value)}) end
     if B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) or B.Sum:isclassof(type_) then
         if #answer.value.fields==0 then return C.Integer(0,0) end

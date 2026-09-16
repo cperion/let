@@ -1,0 +1,14 @@
+// §8.3 A named member declared `mut` is an interior mutable place, so the record type can name it
+// and a mutable borrow can write it while the containing binding is not itself the thing written.
+let Counter = { let at mut : Int let stop : Int }
+let bump = let c mut : Counter do : Int
+    c.at = c.at + 1;
+    return c.at
+end
+let run = do : Int
+    let c mut = Counter 0 4;
+    let first = bump(mut c);
+    let second = bump(mut c);
+    return second
+end
+let answer = run()
