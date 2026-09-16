@@ -51,5 +51,16 @@ module AST {
     -- the Ref alternative. Consumers reading `.name`/`.arguments` keep working while the new
     -- alternatives are wired in.
     context.AST.Constraint = context.AST.Ref
+    -- §12.1 The four capabilities are the product of two independent questions: `own` asks who owns
+    -- the value, and `mut` asks whether the place may be written. Both directions live here so no
+    -- consumer re-decodes the enum. One did: `aggregate_word` read `mut` as a fact about a record
+    -- *member* when it was a fact about how a member is *supplied*, and nothing about the enum said
+    -- which question was being asked.
+    local AST=context.AST
+    function AST.capability(own,mutable)
+        return own and (mutable and AST.OwnMut or AST.Own) or (mutable and AST.Mut or AST.Read)
+    end
+    function AST.owns(capability) return capability==AST.Own or capability==AST.OwnMut end
+    function AST.places(capability) return capability==AST.Mut or capability==AST.OwnMut end
 end
 

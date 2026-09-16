@@ -927,6 +927,17 @@ module AST {
     -- the Ref alternative. Consumers reading `.name`/`.arguments` keep working while the new
     -- alternatives are wired in.
     context.AST.Constraint = context.AST.Ref
+    -- §12.1 The four capabilities are the product of two independent questions: `own` asks who owns
+    -- the value, and `mut` asks whether the place may be written. Both directions live here so no
+    -- consumer re-decodes the enum. One did: `aggregate_word` read `mut` as a fact about a record
+    -- *member* when it was a fact about how a member is *supplied*, and nothing about the enum said
+    -- which question was being asked.
+    local AST=context.AST
+    function AST.capability(own,mutable)
+        return own and (mutable and AST.OwnMut or AST.Own) or (mutable and AST.Mut or AST.Read)
+    end
+    function AST.owns(capability) return capability==AST.Own or capability==AST.OwnMut end
+    function AST.places(capability) return capability==AST.Mut or capability==AST.OwnMut end
 end
 
 
@@ -1859,24 +1870,24 @@ end
 -- and the word already owned it or its stage takes ownership.
 function Packet.entry_owned(field)
     if Packet.place(field.type) or field.type:copyable() then return false end
-    return field.owned or field.capability==A.Own or field.capability==A.OwnMut
+    return field.owned or A.owns(field.capability)
 end
 
 -- The type a stage delivers and who owns it. `mut` and `own mut` reach the callee as a place
 -- through a borrow; `own` and `own mut` carry ownership. One rule, so the generic builder and a
 -- host entry cannot disagree about what a stage delivers.
 function Packet.stage_field(capability,name,span,type_)
-    local place=capability==A.Mut or capability==A.OwnMut
-    local owned=not type_:copyable() and (capability==A.Own or capability==A.OwnMut)
+    local place=A.places(capability)
+    local owned=not type_:copyable() and A.owns(capability)
     return Packet.field{name=name,type=place and B.Borrow(type_,false) or type_,
-        mutable=capability==A.Mut or capability==A.OwnMut,owned=owned,retained=false,
+        mutable=A.places(capability),owned=owned,retained=false,
         span=span,capability=capability,external=place or (not owned and not type_:copyable())}
 end
 
 -- The parameter a host entry receives for a stage. The host supplies the value, so there is no
 -- field packet here; the shape and the mode are all that matter.
 function Packet.stage_parameter(ctx,capability,type_,span)
-    local place=capability==A.Mut or capability==A.OwnMut
+    local place=A.places(capability)
     local value=ctx:parameter(place and B.Borrow(type_,false) or type_,A.Read)
     if capability==A.Mut then value.mode='mut'
     elseif capability==A.Own or capability==A.OwnMut then value.mode='fresh' end
@@ -4741,7 +4752,7 @@ function Parser:items()
                 self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at,range)))
             else
                 if not constraint then fail(at,'a stage must declare its type word') end
-                local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
+                local cap=A.capability(own,mutable)
                 items:insert(A.Stage(name,cap,constraint,at,range))
             end
         end
@@ -4772,7 +4783,7 @@ function Parser:extern_parameter()
     local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
     if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
     local constraint=self:accept(':') and self:type_expression() or nil
-    local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
+    local cap=A.capability(own,mutable)
     return A.Stage(name,cap,constraint,span,name_range(token))
 end
 
@@ -4905,7 +4916,7 @@ function Parser:aggregate_word(items,span)
         local at=stage and item.span or item.binding.span
         local mutable
         if stage then
-            mutable=item.capability==A.Mut or item.capability==A.OwnMut
+            mutable=A.places(item.capability)
             local supplied=item.capability
             if supplied==A.Mut then supplied=A.Read elseif supplied==A.OwnMut then supplied=A.Own end
             chain:insert(A.Stage(item.name,supplied,item.constraint,item.span,item.name_range))

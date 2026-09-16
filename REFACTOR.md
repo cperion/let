@@ -1,6 +1,9 @@
 # Refactor plan: one authority per fact
 
-Status: **plan**. No step here changes the language or the specification. Every step removes a
+Status: **in progress.** Steps 1, 2 and 5 are done and pushed; step 3 is done in mechanism with 28
+of its 63 sites classified; step 4 is done in the half that does not change a representation. Two
+steps were corrected by measuring them, and both corrections are recorded below rather than
+quietly applied. No step here changes the language or the specification. Every step removes a
 representation or sharpens an error class; none adds a mechanism.
 
 This document exists because a session of writing *real programs* — an iterator, a state machine, a
@@ -34,21 +37,21 @@ Every step obeys all of these. A step that cannot is the wrong step.
    changes an error class, a test must name the new class.
 6. **`dist/let.lua` regenerated** with `luajit bundle.lua` in the same commit.
 
-Baseline at the time of writing: `luajit test/all.lua` → 912 checks in 20 suites;
-`lua test/all.lua` → 905 in 19.
+Baseline when the plan was written: `luajit test/all.lua` → 912 checks in 20 suites; `lua
+test/all.lua` → 905 in 19. After steps 1, 2, 3, 4-half and 5: **926 in 21** and **919 in 20**.
 
 ## Order
 
 Ordered by (value ÷ risk), and deliberately safety-net first, because the net is what found all of
 this.
 
-| # | Step | Size | Risk |
-| --- | --- | --- | --- |
-| 1 | Real-program corpus | small to start | none (additive) |
-| 2 | Descriptor-field audit | tiny | none |
-| 3 | `refuse` versus `gap` | medium | low (mechanical, per-site judgement) |
-| 4 | Qualifiers read once | medium to large | medium (4 files, ~29 sites) |
-| 5 | `owns`/`borrows` un-overridable | small | low |
+| # | Step | Size | Risk | Status |
+| --- | --- | --- | --- | --- |
+| 1 | Real-program corpus | small to start | none (additive) | **done** (5 programs, 2 refusals) |
+| 2 | Descriptor-field audit | tiny | none | **done** |
+| 3 | `refuse` versus `gap` | medium | low | **mechanism done, 28 of 63 sites classified** |
+| 4 | Qualifiers read once | medium to large | medium | **half done; see the correction** |
+| 5 | `owns`/`borrows` un-overridable | small | low | **done** |
 
 Step 5 was originally first. It is last now because the measurement moved it: see the correction
 below.
@@ -146,6 +149,23 @@ unwieldy: `program.lua` first (16), then `build.lua` (46).
 ---
 
 ## Step 4 — Qualifiers read once
+
+**Correction, measured before starting.** The plan said to carry `own` and `mut` as two bits on
+`Binding` and `Stage` and derive the capability in one function. The first half of that stops short
+of the truth: the enum is not only `A.Stage`'s field, it is also `B.Parameter`'s, and
+`B.Parameter(Type, Capability)` is constructed at 39 sites across `let/` and `test/`. So changing
+the representation means changing the belt and the whole test corpus with it, which is not a step
+to slip into a sequence of small ones.
+
+**What landed instead** is the half that removes the duplication without moving the enum: both
+directions now live in one place, `A.capability(own, mutable)`, `A.owns(capability)` and
+`A.places(capability)` in `ast.lua`, and the sites that decoded the enum by hand use them -- the two
+identical derivations in `parse.lua` and the five in `packet.lua` that asked "is this a place" or
+"does this own". The sites that genuinely distinguish `Mut` from `OwnMut` keep comparing the enum,
+because that is a different question.
+
+**Still to do** is the representation change, and it should be scoped on its own with the corpus in
+place: `B.Parameter`'s field, `libc.lua`'s declarations, and the 39 construction sites.
 
 **Why.** This is the real structural item, and it produced two of the defects above. One qualifier,
 `mut`, is stored in three places and re-derived in about eight:

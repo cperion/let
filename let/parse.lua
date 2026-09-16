@@ -122,7 +122,7 @@ function Parser:items()
                 self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at,range)))
             else
                 if not constraint then fail(at,'a stage must declare its type word') end
-                local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
+                local cap=A.capability(own,mutable)
                 items:insert(A.Stage(name,cap,constraint,at,range))
             end
         end
@@ -153,7 +153,7 @@ function Parser:extern_parameter()
     local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
     if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
     local constraint=self:accept(':') and self:type_expression() or nil
-    local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
+    local cap=A.capability(own,mutable)
     return A.Stage(name,cap,constraint,span,name_range(token))
 end
 
@@ -286,7 +286,7 @@ function Parser:aggregate_word(items,span)
         local at=stage and item.span or item.binding.span
         local mutable
         if stage then
-            mutable=item.capability==A.Mut or item.capability==A.OwnMut
+            mutable=A.places(item.capability)
             local supplied=item.capability
             if supplied==A.Mut then supplied=A.Read elseif supplied==A.OwnMut then supplied=A.Own end
             chain:insert(A.Stage(item.name,supplied,item.constraint,item.span,item.name_range))

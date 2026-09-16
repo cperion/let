@@ -27,24 +27,24 @@ end
 -- and the word already owned it or its stage takes ownership.
 function Packet.entry_owned(field)
     if Packet.place(field.type) or field.type:copyable() then return false end
-    return field.owned or field.capability==A.Own or field.capability==A.OwnMut
+    return field.owned or A.owns(field.capability)
 end
 
 -- The type a stage delivers and who owns it. `mut` and `own mut` reach the callee as a place
 -- through a borrow; `own` and `own mut` carry ownership. One rule, so the generic builder and a
 -- host entry cannot disagree about what a stage delivers.
 function Packet.stage_field(capability,name,span,type_)
-    local place=capability==A.Mut or capability==A.OwnMut
-    local owned=not type_:copyable() and (capability==A.Own or capability==A.OwnMut)
+    local place=A.places(capability)
+    local owned=not type_:copyable() and A.owns(capability)
     return Packet.field{name=name,type=place and B.Borrow(type_,false) or type_,
-        mutable=capability==A.Mut or capability==A.OwnMut,owned=owned,retained=false,
+        mutable=A.places(capability),owned=owned,retained=false,
         span=span,capability=capability,external=place or (not owned and not type_:copyable())}
 end
 
 -- The parameter a host entry receives for a stage. The host supplies the value, so there is no
 -- field packet here; the shape and the mode are all that matter.
 function Packet.stage_parameter(ctx,capability,type_,span)
-    local place=capability==A.Mut or capability==A.OwnMut
+    local place=A.places(capability)
     local value=ctx:parameter(place and B.Borrow(type_,false) or type_,A.Read)
     if capability==A.Mut then value.mode='mut'
     elseif capability==A.Own or capability==A.OwnMut then value.mode='fresh' end
