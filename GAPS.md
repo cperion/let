@@ -168,6 +168,26 @@ stated from the program's side, which is what the classifier needs to see.
 
 ## Order I would take them
 
+0a. ~~The recursive-call crash.~~ **Fixed**.
+0b. **Forward references: the resolver half is done, the builder half is not.** The rule that makes
+    them sound turned out to be two conditions plus a check, and all three are now implemented and
+    tested: a use may reach a pending declaration only from inside a word's body *and* only when the
+    declaration is module-level, whose storage is allocated with the module's state record; and a
+    word that makes such a reference may not itself be invoked while the module is initializing,
+    which is checked after the module resolves because the word's template is not known until its
+    binding does.
+
+    What lands with it: a statement list and a chain now *declare* their names before resolving any
+    of them, so `unknown name` is no longer what an early use reports -- `b is used before its
+    initializer runs` is -- and the duplicate-binding report is idempotent across the two passes.
+    Recursion still works, because §4.2 makes the defining word visible inside its own terminal.
+
+    What remains for mutual recursion to actually build: the builder must allocate a module cell up
+    front rather than where its statement appears, so a forward capture has storage. Until then
+    `Builder:instantiate` refuses with `a word cannot capture X yet: it is declared later, and its
+    storage is not allocated up front`, which is the piece named rather than the crash it produced.
+
+
 0. ~~The recursive-call crash.~~ **Fixed**, by letting the analysis answer `nil` and having the
    emitter degrade to no folding rather than to an instance with no analysis. Testing the obvious
    fix first is what stopped it: bounding the analysis by function cost `fact(5)` its constant.

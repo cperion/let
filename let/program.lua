@@ -115,6 +115,12 @@ function Builder:instantiate(ctx,definition)
     local function captures()
         for _,capture in ipairs(layout.captures) do
             local id=ctx:find(capture.name)
+            -- A word that names a binding declared later in the same sequence is a forward
+            -- reference. The resolver allows it -- the word runs later -- but the builder cannot
+            -- capture it yet, because a module cell is bound where its statement appears rather than
+            -- allocated with the module's state record. Naming that is better than the crash it
+            -- produced, and it is the piece that closes mutual recursion.
+            if not id then refuse(capture.span,'a word cannot capture ' .. capture.name .. ' yet: it is declared later, and its storage is not allocated up front') end
             local binding=ctx.fn.bindings[id]
             local value,borrows
             if binding.address then

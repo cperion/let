@@ -79,5 +79,31 @@ local logical=V.parse('let flag : Bool = true\nlet both = flag or false','logica
 local logical_node=logical.module.names.both.node.value.terminal.value
 check(logical.unions[logical_node]==nil and logical.references[logical_node.left][1].definition==logical.module.names.flag)
 check(#logical.diagnostics==0)
+-- §: a statement list declares its names before resolving them, so a word may name a word defined
+-- below it, which is what mutual recursion needs. The resolver accepts that; the builder cannot
+-- capture a binding whose storage is not allocated yet, and names the piece it is missing rather
+-- than crashing on it.
+local forward=V.parse('let f = let x : Int do : Int return g(x) end\nlet g = let n : Int do : Int return n end\nlet answer = do : Int return f(1) end','forward.let')
+local _,forward_problems=forward:resolve{}
+check(#forward_problems==0,'a word may name a word declared below it')
+local forwarded,forward_error=pcall(function() forward:build{} end)
+check(not forwarded and tostring(forward_error):find('storage is not allocated up front',1,true)~=nil,
+    'the builder names the missing piece instead of crashing')
+
+-- A use that runs *now* cannot reach a binding whose initializer has not run, and the message names
+-- that rather than calling the name unknown.
+local _,early=V.parse('let a = b + 1\nlet b = 2','early.let'):resolve{}
+check(#early==1 and tostring(early[1].message):find('is used before its initializer runs',1,true)~=nil,
+    'a name used before its initializer runs names that cause')
+
+-- A word invoked while the module initializes would run before a binding declared below it exists,
+-- which the resolver accepts and the program-level check refuses.
+local _,eager=V.parse('let f = let x : Int do : Int return g(x) end\nlet first = f(1)\nlet g = let n : Int do : Int return n end','eager.let'):resolve{}
+local refusal=nil
+for _,problem in ipairs(eager) do
+    if tostring(problem.message):find('is invoked while the module initializes',1,true) then refusal=problem end
+end
+check(refusal~=nil and refusal.span.line==2,'a forward-referencing word invoked during initialization is refused')
+
 print(('passed %d lexical/stage contract checks'):format(count))
 

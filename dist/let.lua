@@ -5206,8 +5206,17 @@ function Context:unknown(name,span)
 end
 
 function Context:publish(scope,definition,span)
-    if scope.names[definition.name] then
-        self:problem(span,'duplicate binding ' .. definition.name)
+    local existing=scope.names[definition.name]
+    if existing then
+        -- The declaring pass and the statement that initializes the name both publish it, so the
+        -- same definition arriving twice is the normal case rather than a duplicate.
+        if existing==definition then return end
+        -- Reported once, by whichever pass reaches it first: a duplicate is a fact about the scope,
+        -- not about the pass that noticed.
+        if not definition.duplicate_reported then
+            definition.duplicate_reported=true
+            self:problem(span,'duplicate binding ' .. definition.name)
+        end
         return
     end
     scope.names[definition.name]=definition
@@ -5220,11 +5229,56 @@ function Context:peek(scope,name)
         scope=scope.parent
     end
 end
+-- §: a name is *declared* before the statement that initializes it, so a word that runs later may
+-- name a binding whose initializer has not run -- which is what mutual recursion between two
+-- top-level words needs. The declaration is memoized on its node, because the statement is walked
+-- twice: once to declare, once to initialize.
+function Context:declaration(node,name,kind,scope,span)
+    local existing=self.bindings[node]
+    if existing then return existing end
+    local definition=self:definition(name,kind,node,self.current)
+    -- Module-level storage is allocated with the module's state record, so it exists from the start
+    -- and a later word may capture it by address. An activation binding's cell does not exist until
+    -- its own statement runs, so reaching one early is refused rather than guessed at.
+    if self.declaring_module then definition.module_level=true end
+    definition.pending=true
+    -- Published by the declaring pass, not here: `publish` is idempotent for one definition.
+    return definition
+end
 function Context:lookup(scope,name,span)
     local definition=self:peek(scope,name)
-    if definition then return definition end
-    -- A binding is not visible in its own initializer; name that cause rather than a plain
-    -- unknown name.
+    if definition then
+        -- A binding is not visible in its own initializer. The check is by identity because the
+        -- declaration already exists: names are declared ahead of the statements that initialize
+        -- them, so absence cannot be the signal any more.
+        -- §4.2: the defining word is visible inside its own terminal body, so a recursive call is
+        -- not an early use. Anywhere else it is: `let b = 1` followed by `f(b)` makes `1 f(b)` the
+        -- value, and `b` is not yet visible.
+        if self.resolving[name]==definition then
+            -- §4.2: the defining word is visible inside its own terminal body, so a recursive call is
+            -- not an early use -- and it is not a *forward* reference either, which is why this is
+            -- tested before `pending` rather than inside the branch for it.
+            if not self.in_word then
+                self:problem(span,'a binding is not visible in its own initializer; end the value with ";" if the next statement is separate')
+            end
+        elseif definition.pending then
+            -- A name declared but not yet initialized is reachable only from a word, which runs
+            -- later than the sequence it stands in, and only when its storage is the module's, which
+            -- exists from the start.
+            if self.in_word and definition.module_level then
+                if self.current then
+                    local refs=self.current.forward_refs
+                    if not refs then refs={}; self.current.forward_refs=refs end
+                    refs[definition]=span
+                end
+            else
+                self:problem(span,name .. ' is used before its initializer runs')
+            end
+        end
+        return definition
+    end
+    -- An adjacent expression can continue a value, so `let b = 1` followed by `f(b)` makes `1 f(b)`
+    -- the value and `b` is not yet visible. Name that cause rather than a plain unknown name.
     if self.resolving[name] then
         self:problem(span,'a binding is not visible in its own initializer; end the value with ";" if the next statement is separate')
     else
@@ -5261,9 +5315,15 @@ function Context:use(scope,name,node,access,path)
     end
     return definition
 end
+-- §: a statement list declares its names before resolving any of them, so a word defined
+-- here may name a word defined below it. Whether a *use* may reach a pending declaration
+-- is decided in `lookup`, because only that knows where the use sits.
 function Context:statements(statements,scope)
+    for _,statement in ipairs(statements) do statement:declare(self,scope) end
     for _,statement in ipairs(statements) do statement:resolve(self,scope) end
 end
+-- Most statements declare no name.
+function A.Stmt:declare() end
 function Context:region(statements,parent)
     local scope=self:scope(parent); self:statements(statements,scope); return scope
 end
@@ -5277,11 +5337,25 @@ function Context:chain(chain,outer,self_definition,name)
     local previous=self.current; self.current=template
     local scope=self:scope(outer); template.scope=scope
     template.initial=prepare_range(1,0); template.preparation=template.initial
+    local is_module=name=='<module>'
+    local declaring_module=self.declaring_module
+    self.declaring_module=is_module
+    -- A chain declares its items before resolving them, for the same reason a statement list does: a
+    -- word here may name a word declared below it.
+    for _,item in ipairs(chain.items) do item:declare(self,scope) end
     for index,item in ipairs(chain.items) do item:resolve(self,scope,index) end
+    self.declaring_module=declaring_module
     template.preparation.last=#chain.items; template.preparation=nil
     -- A file chain may have no written terminal: its value is then the named record of its
     -- own prelude bindings, which is exactly the module namespace of §15.1.
-    if chain.terminal then chain.terminal:resolve_terminal(self,scope,outer,self_definition)
+    if chain.terminal then
+        -- A word's body runs at invocation, later than the sequence it stands in, so a use there may
+        -- name a module binding declared below it. The module's own body runs while the module is
+        -- initializing, so it does not get that permission.
+        local in_word=self.in_word
+        self.in_word=in_word or (A.Body:isclassof(chain.terminal) and not is_module)
+        chain.terminal:resolve_terminal(self,scope,outer,self_definition)
+        self.in_word=in_word
     else template.namespace=true end
     self.current=previous; return template
 end
@@ -5350,8 +5424,14 @@ function A.Record:resolve(ctx,scope,span) for _,field in ipairs(self.fields) do 
 function A.Tuple:resolve(ctx,scope,span) for _,element in ipairs(self.elements) do element:resolve(ctx,scope,span) end end
 function A.TypeField:resolve(ctx,scope,span) self.type:resolve(ctx,scope,span) end
 function A.Apply:resolve(ctx,scope,span) self.constructor:resolve(ctx,scope,span); self.argument:resolve(ctx,scope,span) end
+-- §: declaring a name is separate from initializing it, so a statement list can declare every name
+-- before resolving any initializer.
+function A.Binding:declare(ctx,scope)
+    local definition=ctx:declaration(self,self.name,'binding',scope,self.span)
+    ctx:publish(scope,definition,definition.range and definition.range.start or self.span)
+end
 function A.Binding:resolve(ctx,scope)
-    local definition=ctx:definition(self.name,'binding',self,ctx.current)
+    local definition=ctx:declaration(self,self.name,'binding',scope,self.span)
     if self.constraint then self.constraint:resolve(ctx,scope,self.span) end
     -- A value ends at the next statement only when that statement cannot continue it; an
     -- adjacent expression can, so `let b = 1` followed by `f(b)` makes `1 f(b)` the value and
@@ -5378,7 +5458,14 @@ function A.Binding:resolve(ctx,scope)
         local inner=ctx.chains[terminal.value.chain]
         if inner then inner.name=definition.name end
     end
-    ctx:publish(scope,definition,definition.range and definition.range.start or self.span); return definition
+    -- Initialized now, so a later use of the name is no longer a forward reference.
+    definition.pending=nil
+    ctx:publish(scope,definition,definition.range and definition.range.start or self.span)
+    return definition
+end
+function A.Stage:declare(ctx,scope)
+    local stage=ctx:declaration(self,self.name,'stage',scope,self.span)
+    ctx:publish(scope,stage,stage.range and stage.range.start or self.span)
 end
 function A.Stage:resolve(ctx,scope,index)
     local template=ctx.current; template.preparation.last=index-1
@@ -5386,12 +5473,18 @@ function A.Stage:resolve(ctx,scope,index)
     template.steps[#template.steps+1]={stage=self,index=index,prepare=preparation}
     template.preparation=preparation
     if self.constraint then self.constraint:resolve(ctx,scope,self.span) end
-    local stage=ctx:definition(self.name,'stage',self,ctx.current)
+    local stage=ctx:declaration(self,self.name,'stage',scope,self.span)
+    -- A stage's value is supplied by the caller before the body runs, so a use of it is never a
+    -- forward reference and the declaration is not pending once it has been resolved.
+    stage.pending=nil
     ctx:publish(scope,stage,stage.range and stage.range.start or self.span)
 end
+function A.Prelude:declare(ctx,scope) self.binding:declare(ctx,scope) end
 function A.Prelude:resolve(ctx,scope) self.binding:resolve(ctx,scope) end
 -- A foreign declaration's constraints are type names, so resolving them catches an unknown one
 -- here, with a span, rather than in the vocabulary. The word itself is a host descriptor.
+-- An extern names a host rather than a lexical binding, so there is nothing to declare.
+function A.Extern:declare() end
 function A.Extern:resolve(ctx,scope)
     for _,stage in ipairs(self.parameters) do if stage.constraint then stage.constraint:resolve(ctx,scope,stage.span) end end
     if self.result then self.result:resolve(ctx,scope,self.span) end
@@ -5461,7 +5554,17 @@ function A.Specialize:resolve(ctx,scope)
     self.word:resolve(ctx,scope); self.argument:resolve(ctx,scope)
 end
 function A.Invoke:resolve(ctx,scope)
-    self.word:resolve(ctx,scope); for _,argument in ipairs(self.arguments) do argument:resolve(ctx,scope) end
+    -- A word invoked while the module is initializing runs before anything declared below it, so a
+    -- word with a forward reference must not be reached that way. Recorded here and checked at the
+    -- end of the program, because the callee's template is not known until its binding resolves.
+    self.word:resolve(ctx,scope)
+    -- The callee's definition, when the callee is a plain name: `A.Name:resolve` looks it up and
+    -- discards it, and asking `peek` rather than `lookup` keeps an unknown name reported once.
+    local callee=A.Name:isclassof(self.word) and ctx:peek(scope,self.word.name) or nil
+    if callee then
+        if ctx.in_word then callee.invoked_in_word=true else callee.invoked_eagerly=self.span end
+    end
+    for _,argument in ipairs(self.arguments) do argument:resolve(ctx,scope) end
 end
 function A.Word:resolve(ctx,scope) ctx:chain(self.chain,scope) end
 function A.NamedAggregate:resolve(ctx,scope)
@@ -5509,6 +5612,7 @@ end
 function A.Index:resolve(ctx,scope) self:resolve_read(ctx,scope,self) end
 function A.Move:resolve(ctx,scope) self.place:resolve_place(ctx,scope,'move') end
 function A.Borrow:resolve(ctx,scope) self.place:resolve_place(ctx,scope,'mut') end
+function A.Local:declare(ctx,scope) self.binding:declare(ctx,scope) end
 function A.Local:resolve(ctx,scope) self.binding:resolve(ctx,scope) end
 function A.Assign:resolve(ctx,scope)
     self.place:resolve_place(ctx,scope,'write'); self.value:resolve(ctx,scope)
@@ -5587,6 +5691,20 @@ function A.Program:resolve(options)
         for _,template in ipairs(definition.capture_templates or {}) do
             if #template.steps>0 or A.Body:isclassof(template.source.terminal) then
                 definition.captured=true
+            end
+        end
+    end
+    -- §: a forward reference is sound only if the word that makes it is not reached while the module
+    -- is initializing, because the binding it names is initialized later in that same sequence. The
+    -- reference and the eager invocation are recorded apart -- by `lookup` and by `A.Invoke:resolve`
+    -- -- because the word's own template is not known until its binding resolves, so the two can
+    -- only be joined here.
+    for _,definition in ipairs(ctx.definitions) do
+        local template=definition.template
+        if template and template.forward_refs and definition.invoked_eagerly then
+            for other in pairs(template.forward_refs) do
+                ctx:problem(definition.invoked_eagerly,
+                    definition.name .. ' names ' .. other.name .. ', which is initialized after it, and is invoked while the module initializes')
             end
         end
     end
@@ -5716,6 +5834,12 @@ function Builder:instantiate(ctx,definition)
     local function captures()
         for _,capture in ipairs(layout.captures) do
             local id=ctx:find(capture.name)
+            -- A word that names a binding declared later in the same sequence is a forward
+            -- reference. The resolver allows it -- the word runs later -- but the builder cannot
+            -- capture it yet, because a module cell is bound where its statement appears rather than
+            -- allocated with the module's state record. Naming that is better than the crash it
+            -- produced, and it is the piece that closes mutual recursion.
+            if not id then refuse(capture.span,'a word cannot capture ' .. capture.name .. ' yet: it is declared later, and its storage is not allocated up front') end
             local binding=ctx.fn.bindings[id]
             local value,borrows
             if binding.address then
