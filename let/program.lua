@@ -792,7 +792,10 @@ function A.Program:build(options)
     -- A source `extern` becomes an ordinary host descriptor, so it reaches resolution,
     -- construction and emission as one vocabulary.
     V.Extern.merge(self.file,options)
-    local resolved=self:resolve(options)
+    local resolved,diagnostics=self:resolve(options)
+    -- Resolution collects problems so the editor can report them all; compilation still fails
+    -- fast on the first, with the message the resolver has always produced.
+    if #diagnostics>0 then fail(diagnostics[1].span,diagnostics[1].message) end
     local builder=Builder.new(self,resolved,options)
     local program=builder:build()
     builder.program=program

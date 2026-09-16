@@ -43,21 +43,32 @@ check(not ok)
 -- §3.2: an adjacent expression statement continues a binding's value, so it needs ";". The
 -- diagnostic names that cause rather than reporting the binding's own name as unknown.
 local function separator_message(text)
-    local ok,err=pcall(function() V.parse(text,'separator.let'):resolve{} end)
-    return ok,err
+    local _,problems=V.parse(text,'separator.let'):resolve{}
+    for _,problem in ipairs(problems) do
+        if tostring(problem.message):find('end the value with ";"',1,true) then return problem.message end
+    end
+    return nil
 end
-local separated,separator_error=separator_message('let f=let x:Int do : Int return x end\ndo : Unit let b=1\nf(b) return end')
-check(not separated)
-check(tostring(separator_error):find('end the value with ";"',1,true))
-check(separator_message('let f=let x:Int do : Int return x end\ndo : Unit let b=1;\nf(b) return end'))
+check(separator_message('let f=let x:Int do : Int return x end\ndo : Unit let b=1\nf(b) return end')~=nil)
+check(separator_message('let f=let x:Int do : Int return x end\ndo : Unit let b=1;\nf(b) return end')==nil)
 -- §3.3 A resolved declaration carries the range of its name, and a duplicate binding names it.
 local ranged=V.parse('let a : Int = 1\nlet b = let n : Int do : Int return n end','range.let')
 local ranged_names=ranged:resolve()
 check(ranged_names.module.names.a.range.start.line==1 and ranged_names.module.names.a.range.start.column==5)
 local ranged_stage=ranged_names.module.names.b.template.steps[1].stage
 check(ranged_names.bindings[ranged_stage].range.start.line==2 and ranged_names.bindings[ranged_stage].range.start.column==13)
-local duplicate=V.parse('let a : Int = 1\nlet a : Int = 2','duplicate.let')
-local duplicated,duplicate_error=pcall(function() return duplicate:resolve{} end)
+local _,duplicates=V.parse('let a : Int = 1\nlet a : Int = 2','duplicate.let'):resolve{}
+check(#duplicates==1 and duplicates[1].span.line==2 and duplicates[1].span.column==5)
+local duplicated,duplicate_error=pcall(function()
+    V.parse('let a : Int = 1\nlet a : Int = 2','duplicate.let'):build{}
+end)
 check(not duplicated and tostring(duplicate_error):find('duplicate.let:2:5:',1,true))
+-- Resolution collects every problem rather than throwing at the first, and build fails fast.
+local _,tolerant=V.parse('let x : Int = missing\nlet y : Int = also_missing','tolerant.let'):resolve{}
+check(#tolerant==2 and tolerant[1].span.line==1 and tolerant[2].span.line==2)
+local tolerant_built,tolerant_error=pcall(function()
+    V.parse('let x : Int = missing\nlet y : Int = also_missing','tolerant.let'):build{}
+end)
+check(not tolerant_built and tostring(tolerant_error):find('tolerant.let:1:15: unknown name missing',1,true))
 print(('passed %d lexical/stage contract checks'):format(count))
 

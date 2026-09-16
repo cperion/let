@@ -4873,8 +4873,28 @@ function Context:definition(name,kind,node,owner)
     local definition={id=#self.definitions+1,name=name,kind=kind,node=node,owner=owner,range=node and node.name_range}
     self.definitions[definition.id]=definition; self.bindings[node]=definition; return definition
 end
+-- A resolution problem is data, not a thrown error: the editor wants them all, and `build`
+-- turns the first back into the fail-fast error the compiler has always reported.
+function Context:problem(span,message)
+    self.diagnostics[#self.diagnostics+1]={span=span,message=message}
+end
+
+-- An unresolved name still gets a definition so the walk can continue. It is not added to
+-- `definitions`, so no later pass mistakes it for a declared binding.
+function Context:unknown(name,span)
+    local definition=self.unknowns[name]
+    if not definition then
+        definition={name=name,kind='unknown',unknown=true}
+        self.unknowns[name]=definition
+    end
+    return definition
+end
+
 function Context:publish(scope,definition,span)
-    if scope.names[definition.name] then fail(span,'duplicate binding ' .. definition.name) end
+    if scope.names[definition.name] then
+        self:problem(span,'duplicate binding ' .. definition.name)
+        return
+    end
     scope.names[definition.name]=definition
 end
 -- A lookup that reports absence instead of failing, for a form that may name a value or a
@@ -4887,8 +4907,15 @@ function Context:peek(scope,name)
 end
 function Context:lookup(scope,name,span)
     local definition=self:peek(scope,name)
-    if not definition then fail(span,'unknown name ' .. name) end
-    return definition
+    if definition then return definition end
+    -- A binding is not visible in its own initializer; name that cause rather than a plain
+    -- unknown name.
+    if self.resolving[name] then
+        self:problem(span,'a binding is not visible in its own initializer; end the value with ";" if the next statement is separate')
+    else
+        self:problem(span,'unknown name ' .. name)
+    end
+    return self:unknown(name,span)
 end
 function Context:use(scope,name,node,access,path)
     local definition=self:lookup(scope,name,node.span)
@@ -4901,19 +4928,21 @@ function Context:use(scope,name,node,access,path)
     occurrences[#occurrences+1]=use
     -- A nested constructor's free input must also be available to its containing
     -- delayed construction/body. Stop at the defining template or a self link.
-    local template=self.current
-    while template and template~=definition.owner and definition.kind~='dictionary' and definition.kind~='namespace' do
-        if template.self==definition then break end
-        -- Crossing a template boundary is not yet a capture: §10.1 is about a *word body*
-        -- reaching out, and a binding initializer is not a word. Which enclosing templates
-        -- are words is only known once they are fully resolved, so record and decide later.
-        local seen=definition.capture_templates
-        if not seen then seen={}; definition.capture_templates=seen end
-        seen[#seen+1]=template
-        if not template.capture_set[definition.id] then
-            template.capture_set[definition.id]=true; template.captures[#template.captures+1]=definition
+    if not definition.unknown then
+        local template=self.current
+        while template and template~=definition.owner and definition.kind~='dictionary' and definition.kind~='namespace' do
+            if template.self==definition then break end
+            -- Crossing a template boundary is not yet a capture: §10.1 is about a *word body*
+            -- reaching out, and a binding initializer is not a word. Which enclosing templates
+            -- are words is only known once they are fully resolved, so record and decide later.
+            local seen=definition.capture_templates
+            if not seen then seen={}; definition.capture_templates=seen end
+            seen[#seen+1]=template
+            if not template.capture_set[definition.id] then
+                template.capture_set[definition.id]=true; template.captures[#template.captures+1]=definition
+            end
+            template.capture_uses[#template.capture_uses+1]=use; template=template.parent
         end
-        template.capture_uses[#template.capture_uses+1]=use; template=template.parent
     end
     return definition
 end
@@ -4947,16 +4976,29 @@ end
 -- namespace is the result. Where a path is looked up is the embedding's business.
 function Context:import_file(node,scope)
     local path=node.argument.value
-    if not self.import_resolver then fail(node.span,'no import resolver is configured') end
+    if not self.import_resolver then
+        self:problem(node.span,'no import resolver is configured')
+        return
+    end
     local loaded=self.import_resolver(path,self.file)
     if not loaded or not loaded.text or not loaded.file then
-        fail(node.argument.span,'cannot resolve import ' .. path)
+        self:problem(node.argument.span,'cannot resolve import ' .. path)
+        return
     end
-    if self.importing[loaded.file] then fail(node.span,'import cycle through ' .. loaded.file) end
+    if self.importing[loaded.file] then
+        self:problem(node.span,'import cycle through ' .. loaded.file)
+        return
+    end
     self.importing[loaded.file]=true
-    local file=V.parse(loaded.text,loaded.file).file
-    self:chain(file,scope,nil,loaded.file)
-    self.imports[node]=file
+    local ok,program=pcall(V.parse,loaded.text,loaded.file)
+    if not ok then
+        local detail=tostring(program):match(':%d+:%d+: (.*)$') or tostring(program)
+        self:problem(node.span,'imported file: ' .. detail)
+        self.importing[loaded.file]=nil
+        return
+    end
+    self:chain(program.file,scope,nil,loaded.file)
+    self.imports[node]=program.file
     self.importing[loaded.file]=nil
 end
 function A.Body:resolve_terminal(ctx,scope,outer,self_definition)
@@ -4992,13 +5034,10 @@ function A.Binding:resolve(ctx,scope)
     -- A value ends at the next statement only when that statement cannot continue it; an
     -- adjacent expression can, so `let b = 1` followed by `f(b)` makes `1 f(b)` the value and
     -- then `b` is not yet visible. Name that cause instead of reporting the name as unknown.
-    local ok,template=pcall(ctx.chain,ctx,self.value,scope,definition)
-    if not ok then
-        if tostring(template):find('unknown name '..self.name,1,true) then
-            fail(self.span,'a binding is not visible in its own initializer; end the value with ";" if the next statement is separate')
-        end
-        error(template,0)
-    end
+    local previous=ctx.resolving[self.name]
+    ctx.resolving[self.name]=definition
+    local template=ctx:chain(self.value,scope,definition)
+    ctx.resolving[self.name]=previous
     definition.template=template
     -- §11.2: a binding whose value is a word value names that word, so an aggregate type and
     -- its constructor share the binding's name for nominal identity.
@@ -5045,7 +5084,8 @@ function A.Specialize:resolve(ctx,scope)
         local entry=definition and definition.kind=='dictionary' and definition.node
         if entry and entry.phase=='construction' then
             if not A.Text:isclassof(self.argument) then
-                fail(self.argument.span,'an import path must be a constant Text')
+                ctx:problem(self.argument.span,'an import path must be a constant Text')
+                self.word:resolve(ctx,scope); self.argument:resolve(ctx,scope); return
             end
             ctx.import_words[self.word]=true
             ctx:import_file(self,scope)
@@ -5065,7 +5105,7 @@ end
 function A.PositionalAggregate:resolve(ctx,scope)
     for _,chain in ipairs(self.elements) do ctx:chain(chain,scope) end
 end
-function A.Expr:resolve_place() fail(self.span,'expression is not a place') end
+function A.Expr:resolve_place(ctx,scope) ctx:problem(self.span,'expression is not a place') end
 function A.Name:resolve_place(ctx,scope,access,path) ctx:use(scope,self.name,self,access,path or self) end
 function A.Project:resolve_place(ctx,scope,access,path) self.base:resolve_place(ctx,scope,access,path or self) end
 function A.Index:resolve_place(ctx,scope,access,path)
@@ -5084,7 +5124,10 @@ function A.Project:resolve(ctx,scope)
         local definition=ctx:peek(scope,self.base.name)
         if definition and definition.kind=='namespace' then
             local member=definition.members[self.name]
-            if not member then fail(self.span,'no ' .. self.name .. ' in ' .. self.base.name) end
+            if not member then
+                ctx:problem(self.span,'no ' .. self.name .. ' in ' .. self.base.name)
+                return
+            end
             ctx.namespace_members[self]=member
             return
         end
@@ -5128,7 +5171,8 @@ end
 function A.Program:resolve(options)
     options=options or {}
     local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},type_refs={},scopes={},templates={},
-        imports={},import_words={},importing={},namespace_members={},import_resolver=options.resolve,file=self.file.span.file},Context)
+        imports={},import_words={},importing={},namespace_members={},diagnostics={},unknowns={},resolving={},
+        import_resolver=options.resolve,file=self.file.span.file},Context)
     -- §11: the primitive type words are ordinary names, not a phase; the vocabulary decides
     -- what a type word means at a boundary.
     local builtins={}
@@ -5158,7 +5202,7 @@ function A.Program:resolve(options)
             end
         end
     end
-    return ctx
+    return ctx,ctx.diagnostics
 end
 end
 
@@ -5961,7 +6005,10 @@ function A.Program:build(options)
     -- A source `extern` becomes an ordinary host descriptor, so it reaches resolution,
     -- construction and emission as one vocabulary.
     V.Extern.merge(self.file,options)
-    local resolved=self:resolve(options)
+    local resolved,diagnostics=self:resolve(options)
+    -- Resolution collects problems so the editor can report them all; compilation still fails
+    -- fast on the first, with the message the resolver has always produced.
+    if #diagnostics>0 then fail(diagnostics[1].span,diagnostics[1].message) end
     local builder=Builder.new(self,resolved,options)
     local program=builder:build()
     builder.program=program
