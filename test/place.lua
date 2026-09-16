@@ -56,7 +56,7 @@ end
 -- place, and moving afterwards transfers the resource out of it.
 events={}
 run[[
-let example = do
+let example = do : Unit
     let buffer mut = open_buffer(1024);
     write_byte(mut buffer, 0, 42);
     consume_buffer(move buffer)
@@ -72,11 +72,11 @@ events={}
 eq(run[[
 let consume =
     let buffer own : Buffer
-    do
+    do : Int
         let bytes = buffer_size(buffer);
         return bytes
     end
-let main = do
+let main = do : Int
     let first = open_buffer(16);
     let left = consume(move first);
     return left
@@ -92,11 +92,11 @@ eq(run[[
 let use =
     let n : Int
     let buf = open_buffer(n)
-    do
+    do : Int
         let bytes = buffer_size(buf);
         return bytes
     end
-let main = do
+let main = do : Int
     let r = use(16);
     return r
 end
@@ -106,22 +106,22 @@ eq(table.concat(events,','),'open:16,close:16','and is destroyed once, by the en
 
 -- §6.3 A mutable stage writes the caller's place, so the change is visible afterwards.
 eq(run[[
-let bump = let counter mut : Int let by : Int do counter = counter + by; return counter end
-let f = do let n mut = 40; let r = bump(mut n, 2); return r + n end
+let bump = let counter mut : Int let by : Int do : Int counter = counter + by; return counter end
+let f = do : Int let n mut = 40; let r = bump(mut n, 2); return r + n end
 let r = f()
 ]],84,'§6.3 the callee writes the caller place')
 
 eq(run[[
-let take = let p mut : Int do p = p + 5; return p end
-let f = do let n mut = 37; let r = take(mut n); return r + n end
+let take = let p mut : Int do : Int p = p + 5; return p end
+let f = do : Int let n mut = 37; let r = take(mut n); return r + n end
 let r = f()
 ]],84,'an address-taken Copy local round-trips through memory')
 
 -- §9.3 Any subplace can be lent, not only a whole binding: a member of an aggregate is
 -- reached by a field address, so the callee writes the owner's field.
 eq(run[[
-let bump = let p mut : Int let by : Int do p = p + by; return p end
-let f = do
+let bump = let p mut : Int let by : Int do : Int p = p + by; return p end
+let f = do : Int
     let a mut = { let x = 1 let y = 2 };
     let r = bump(mut a.x, 40);
     return a.x + r
@@ -129,8 +129,8 @@ end
 let r = f()
 ]],82,'§9.3 a mutable borrow of a projected member')
 eq(run[[
-let bump = let p mut : Int let by : Int do p = p + by; return p end
-let f = do
+let bump = let p mut : Int let by : Int do : Int p = p + by; return p end
+let f = do : Int
     let a mut = { 1, 2 };
     let r = bump(mut a[0], 40);
     return a[0] + r
@@ -138,8 +138,8 @@ end
 let r = f()
 ]],82,'§9.3 a mutable borrow of a constant index')
 eq(run[[
-let bump = let p mut : Int let by : Int do p = p + by; return p end
-let f = do
+let bump = let p mut : Int let by : Int do : Int p = p + by; return p end
+let f = do : Int
     let a mut = { let b = { let c = 1 } };
     let r = bump(mut a.b.c, 40);
     return a.b.c + r
@@ -150,8 +150,8 @@ let r = f()
 -- §9.4 Assignment through a projected member of a place writes the owner's storage rather
 -- than replacing the place's address with a record.
 eq(run[[
-let touch = let box mut let n : Int do return n end
-let f = do
+let touch = let box mut : { let x : Int let y : Int } let n : Int do : Int return n end
+let f = do : Int
     let a mut = { let x = 1 let y = 2 };
     let r = touch(mut a, 5);
     a.x = 9;
@@ -164,7 +164,7 @@ let r = f()
 -- members as the source wrote, so the selection costs one comparison per member, and the
 -- members must share a type because the selection's result is one value.
 eq(run[[
-let f = do
+let f = do : Int
     let values = { 10, 20, 30 };
     let total mut = 0;
     let i mut = 0;
@@ -178,7 +178,7 @@ let r = f()
 ]],60,'§8.4 a runtime index reads the selected member')
 
 eq(run[[
-let f = do
+let f = do : Int
     let values = { 10, 20, 30 };
     let i mut = 2;
     return values[i]
@@ -189,7 +189,7 @@ let r = f()
 -- §9.4 Indexed assignment writes the selected member, and the out-of-range case traps
 -- rather than being silently ignored.
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { 1, 2, 3 };
     let i mut = 0;
     while i < 3 do
@@ -201,7 +201,7 @@ end
 let r = f()
 ]],60,'§9.4 indexed assignment through a runtime index')
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { 1, 2 };
     a[0] = 9;
     return a[0] + a[1]
@@ -210,7 +210,7 @@ let r = f()
 ]],11,'§9.4 indexed assignment through a constant index')
 
 local trapped=select(2,pcall(run,[[
-let f = do
+let f = do : Int
     let a mut = { 1, 2 };
     let i mut = 5;
     a[i] = 9;
@@ -222,15 +222,15 @@ check(tostring(trapped):find('index out of range'),'§8.4 an out-of-range index 
 
 -- A runtime index needs one member type, because the selection produces one value.
 rejects([[
-let f = do let v = { 1, "a" }; let i mut = 0; return v[i] end
+let f = do : Int let v = { 1, "a" }; let i mut = 0; return v[i] end
 let r = f()
 ]],'needs members of one type','§8.4 a runtime index over mixed members is rejected')
 
 -- §9.3 A runtime index in a borrowed path selects a place rather than a value, so the
 -- selection joins field addresses and the members must share one type.
 eq(run[[
-let bump = let p mut : Int let by : Int do p = p + by; return p end
-let f = do
+let bump = let p mut : Int let by : Int do : Int p = p + by; return p end
+let f = do : Int
     let a mut = { 1, 2, 3 };
     let i mut = 0;
     while i < 3 do
@@ -242,8 +242,8 @@ end
 let r = f()
 ]],9,'§9.3 a mutable borrow through a runtime index')
 rejects([[
-let bump = let p mut : Int let by : Int do p = p + by; return p end
-let f = do
+let bump = let p mut : Int let by : Int do : Int p = p + by; return p end
+let f = do : Int
     let a mut = { 1, true };
     let i mut = 0;
     let r = bump(mut a[i], 1);
@@ -255,7 +255,7 @@ let r = f()
 -- §9.4 Assignment to a path rebuilds each level of it, so a nested place is writable and
 -- every sibling keeps its value.
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { let b mut = { let c mut = 1 let d = 2 } };
     a.b.c = 3;
     return a.b.c
@@ -263,7 +263,7 @@ end
 let r = f()
 ]],3,'§9.4 assignment to a nested member')
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { let b = { let c = 1 } let d = 5 };
     a.b.c = 9;
     return a.b.c + a.d
@@ -271,7 +271,7 @@ end
 let r = f()
 ]],14,'§9.4 a nested write preserves its siblings')
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { let b mut = { 0, 0 } };
     let i mut = 0;
     while i < 2 do
@@ -286,7 +286,7 @@ let r = f()
 -- §8.3 A member declared mut is interior mutable state, so the whole path into it is
 -- writable even though the root binding is not mut.
 eq(run[[
-let f = do
+let f = do : Int
     let a = { let b = { let c mut = 1 } };
     a.b.c = 7;
     return a.b.c
@@ -294,7 +294,7 @@ end
 let r = f()
 ]],7,'§8.3 interior mutability reaches through a nested path')
 rejects([[
-let f = do
+let f = do : Int
     let a = { let b = { let c = 1 } };
     a.b.c = 7;
     return a.b.c
@@ -305,7 +305,7 @@ let r = f()
 -- place, so a runtime index may appear in the middle of an assignment path. The suffix after
 -- it is resolved against the member's type, which must therefore be one type.
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { { 1, 2 }, { 3, 4 } };
     let i = 1;
     a[i][1] = 9;
@@ -314,7 +314,7 @@ end
 let r = f()
 ]],11,'§9.4 assignment through a runtime index in the middle of a path')
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { let p mut = { let b mut = 1 let c = 2 } let q mut = { let b mut = 10 let c = 20 } };
     let i = 1;
     a[i].b = 40;
@@ -323,7 +323,7 @@ end
 let r = f()
 ]],43,'§9.4 mid-path runtime index on a named member')
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { let p mut = { let b mut = { let c mut = 1 } } let q mut = { let b mut = { let c mut = 5 } } };
     let i = 1;
     a[i].b.c = 7;
@@ -332,7 +332,7 @@ end
 let r = f()
 ]],8,'§9.4 mid-path runtime index with a nested suffix')
 rejects([[
-let f = do
+let f = do : Int
     let a mut = { { 1, 2 }, { 3, 4 } };
     let i = 0;
     let j = 1;
@@ -345,7 +345,7 @@ let r = f()
 -- §9.2 A Copy value owns no state to remove, so `move` of a Copy place is a copy: the
 -- place stays initialized and the value is indistinguishable from a read.
 eq(run[[
-let f = do
+let f = do : Int
     let x = 42;
     let y = move x;
     return x + y - 41
@@ -353,7 +353,7 @@ end
 let r = f()
 ]],43,'§9.2 moving a Copy binding leaves it initialized')
 eq(run[[
-let f = do
+let f = do : Int
     let a = { let b = 42 let c = 5 };
     let y = move a.b;
     return a.b + y - 41
@@ -361,7 +361,7 @@ end
 let r = f()
 ]],43,'§9.2 moving a Copy member leaves the aggregate whole')
 eq(run[[
-let f = do
+let f = do : Int
     let a = { 10, 20 };
     let y = move a[0];
     return a[0] + y
@@ -369,8 +369,8 @@ end
 let r = f()
 ]],20,'§9.2 moving a Copy positional element')
 eq(run[[
-let twice = let n : Int do return n + n end
-let f = do
+let twice = let n : Int do : Int return n + n end
+let f = do : Int
     let x = 3;
     return twice(move x)
 end
@@ -381,8 +381,8 @@ let r = f()
 -- ownership: the value is still there afterwards, and the caller releases it once.
 events={} ; live={}
 eq(run[[
-let touch = let b : Buffer do return 0 end
-let f = do
+let touch = let b : Buffer do : Int return 0 end
+let f = do : Int
     let b = open_buffer(1);
     let n = touch(b);
     consume_buffer(move b);
@@ -393,7 +393,7 @@ let r = f()
 eq(table.concat(events,','),'open:1,consume:1',
     '§9.2 the argument survives the borrow and stays the caller\'s to release')
 eq(run[[
-let f = do
+let f = do : Int
     let b = open_buffer(4);
     let n = buffer_size(b);
     return n
@@ -405,7 +405,7 @@ let r = f()
 -- return destroys them rather than leaving them in the word's retained state scope.
 events={} ; live={}
 eq(run[[
-let f = do
+let f = do : Int
     let b = open_buffer(2);
     return 0
 end
@@ -416,11 +416,11 @@ eq(table.concat(events,','),'open:2,close:2','§9.2 the local is released exactl
 -- §6.5 A tail invocation retires this activation, so it can neither borrow an argument for
 -- the call nor hand the callee a borrow of a local. Both are ownership errors, not gaps.
 rejects([[
-let f = do return buffer_size(open_buffer(3)) end
+let f = do : Int return buffer_size(open_buffer(3)) end
 let r = f()
 ]],'cannot borrow an argument for the call','§6.5 a tail call cannot borrow a temporary')
 rejects([[
-let f = do
+let f = do : Int
     let b = open_buffer(3);
     return buffer_size(b)
 end
@@ -432,7 +432,7 @@ let r = f()
 -- same way conditional destruction of a whole binding is guarded (§6.5).
 events={}
 eq(run[[
-let f = do
+let f = do : Int
     let a = { let b = open_buffer(1) let c = open_buffer(2) };
     let k = 1;
     if k == 1 do
@@ -449,7 +449,7 @@ eq(table.concat(events,','),'open:1,open:2,close:1,close:2',
 -- turn a conditional move into a leak.
 events={}
 eq(run[[
-let f = do
+let f = do : Int
     let a = { let b = open_buffer(1) let c = open_buffer(2) };
     let k = 2;
     if k == 1 do
@@ -466,7 +466,7 @@ eq(table.concat(events,','),'open:1,open:2,close:2,close:1',
 -- one is still there.
 events={}
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { let b = open_buffer(1) let c = open_buffer(2) };
     let k = 2;
     if k == 1 do
@@ -480,7 +480,7 @@ let r = f()
 eq(table.concat(events,','),'open:1,open:2,open:9,close:1,close:2,close:9',
     '§9.4 a possibly-moved old value is released once, and only when it is still there')
 rejects([[
-let f = do
+let f = do : Int
     let a = { let b = open_buffer(1) let c = open_buffer(2) };
     let k = 1;
     if k == 1 do
@@ -496,7 +496,7 @@ let r = f()
 -- destroyed at the discard, and the aggregate is left with a hole it no longer releases.
 events={}
 eq(run[[
-let f = do
+let f = do : Int
     let a = { let b = open_buffer(1) let c = open_buffer(2) };
     move a.b
     return 0
@@ -510,7 +510,7 @@ eq(table.concat(events,','),'open:1,open:2,close:1,close:2',
 -- dynamic for a backedge to carry the hole, and the body's own move then reads a place that
 -- is only *maybe* initialized. That is an analysis limit, not an illegal program.
 rejects([[
-let f = do
+let f = do : Int
     let a mut = { let b = open_buffer(1) let c = 2 };
     let i mut = 0;
     while i < 2 do
@@ -529,7 +529,7 @@ let r = f()
 -- whichever binding owns it when it goes out of scope.
 events={}
 eq(run[[
-let f = do
+let f = do : Int
     let a = { let b = open_buffer(1) let c = open_buffer(2) };
     let moved = move a.b;
     return 0
@@ -538,7 +538,7 @@ let r = f()
 ]],0,'§9.2 moving a subplace out of an aggregate')
 eq(table.concat(events,','),'open:1,open:2,close:1,close:2','§9.2 a moved subplace is released exactly once, by its new owner')
 eq(run[[
-let f = do
+let f = do : Int
     let a = { let b = open_buffer(1) let c = 5 };
     let moved = move a.b;
     return a.c
@@ -547,7 +547,7 @@ let r = f()
 ]],5,'§9.2 a partially moved aggregate keeps its other subplaces')
 
 rejects([[
-let f = do
+let f = do : Int
     let a = { let b = open_buffer(1) let c = open_buffer(2) };
     let moved = move a.b;
     return a.b
@@ -557,7 +557,7 @@ let r = f()
 
 -- Moving or handing out the aggregate as a value would consume a subplace that has no value.
 rejects([[
-let f = do
+let f = do : Int
     let a = { let b = open_buffer(1) let c = open_buffer(2) };
     let moved = move a.b;
     let whole = move a;
@@ -566,7 +566,7 @@ end
 let r = f()
 ]],'partially initialized aggregate','§9.2 moving a partially initialized aggregate is rejected')
 rejects([[
-let f = do
+let f = do : Int
     let a = { let p = { let b = open_buffer(1) let c = 5 } };
     let moved = move a.p.b;
     return a.p
@@ -576,7 +576,7 @@ let r = f()
 
 -- A deep read only names the subplace it reads, so a sibling inside the same record is fine.
 eq(run[[
-let f = do
+let f = do : Int
     let a = { let p = { let b = open_buffer(1) let c = 5 } };
     let moved = move a.p.b;
     return a.p.c
@@ -588,7 +588,7 @@ let r = f()
 -- released with the value that replaces it.
 events={}
 eq(run[[
-let f = do
+let f = do : Int
     let a mut = { let b = open_buffer(1) let c = open_buffer(2) };
     let moved = move a.b;
     a.b = open_buffer(9);
@@ -601,7 +601,7 @@ eq(table.concat(events,','),'open:1,open:2,open:9,close:1,close:2,close:9','§9.
 -- A positional element moves the same way, but the path must be statically known.
 events={}
 eq(run[[
-let f = do
+let f = do : Int
     let a = { open_buffer(1), open_buffer(2) };
     let moved = move a[0];
     return 0
@@ -610,7 +610,7 @@ let r = f()
 ]],0,'§9.2 a constant index moves one element')
 eq(table.concat(events,','),'open:1,open:2,close:1,close:2','§9.2 an element moved by index is released once')
 rejects([[
-let f = do
+let f = do : Int
     let a = { open_buffer(1), open_buffer(2) };
     let i = 0;
     let moved = move a[i];
@@ -622,17 +622,17 @@ let r = f()
 -- §6.5 A tail transfer retires the activation, so a borrow of one of its places cannot be
 -- passed: the callee would outlive the storage.
 rejects([[ 
-let take = let p mut : Int do p = p + 5; return p end
-let f = do let n mut = 37; return take(mut n) end
+let take = let p mut : Int do : Int p = p + 5; return p end
+let f = do : Int let n mut = 37; return take(mut n) end
 let r = f()
 ]],'tail invocation borrow does not outlive caller cleanup','§6.5 a tail call cannot pass a caller-owned place')
 
 -- §10.1 A non-escaping word captures an owned binding as a borrow, so the two share state
 -- and mutation through the capture is visible to the owner.
 eq(run[[
-let counter = let start : Int let v mut = start do v = v + 1; return v end
+let counter = let start : Int let v mut = start do : Int v = v + 1; return v end
 let c = counter 0
-let f = do let r = c(); return r end
+let f = do : Int let r = c(); return r end
 let a = f()
 let b = f()
 let d = c()
@@ -640,10 +640,10 @@ let d = c()
 
 -- The capture is a borrow of the *owner*, so it cannot leave the activation that owns it.
 rejects([[ 
-let make = do
-    let counter = let start : Int let v mut = start do v = v + 1; return v end
+let make = do : do Int
+    let counter = let start : Int let v mut = start do : Int v = v + 1; return v end
     let c = counter 0
-    let f = do let r = c(); return r end
+    let f = do : Int let r = c(); return r end
     return move f
 end
 let g = make()
@@ -651,10 +651,10 @@ let g = make()
 
 -- A capture used only inside its own activation is fine.
 eq(run[[
-let make = do
-    let counter = let start : Int let v mut = start do v = v + 1; return v end
+let make = do : Int
+    let counter = let start : Int let v mut = start do : Int v = v + 1; return v end
     let c = counter 0
-    let f = do let r = c(); return r end
+    let f = do : Int let r = c(); return r end
     let r = f();
     return r + f()
 end
@@ -664,21 +664,21 @@ let g = make()
 -- §9.2 Only a mutable binding can be lent mutably, and only a borrowed place may be passed
 -- to a mutable stage.
 rejects([[
-let take = let p mut : Int do p = p + 1; return p end
-let f = do let n = 1; return take(mut n) end
+let take = let p mut : Int do : Int p = p + 1; return p end
+let f = do : Int let n = 1; return take(mut n) end
 let r = f()
 ]],'mutable borrow requires a mutable binding','an immutable binding cannot be lent mutably')
 rejects([[
-let take = let p mut : Int do p = p + 1; return p end
-let f = do let n mut = 1; return take(n) end
+let take = let p mut : Int do : Int p = p + 1; return p end
+let f = do : Int let n mut = 1; return take(n) end
 let r = f()
 ]],'mutable stage requires mut place','a mutable stage refuses a plain value')
 
 -- The address is what makes it a place: the emitted C declares a local and takes its
 -- address, and the load/store go through it.
 local text=emitted[[
-let bump = let p mut : Int let by : Int do p = p + by; return p end
-let f = do let n mut = 40; let r = bump(mut n, 2); return r end
+let bump = let p mut : Int let by : Int do : Int p = p + by; return p end
+let f = do : Int let n mut = 40; let r = bump(mut n, 2); return r end
 let r = f()
 ]]
 check(text:find('(&v',1,true)~=nil,'an address-taken local is a C local whose address is taken')
@@ -688,7 +688,7 @@ check(text:find('(*p1_1) =',1,true)~=nil,'the callee writes through that pointer
 -- Taking an address must not turn *other* mutable state into memory: a word's mutable
 -- prelude is not borrowed, so it stays SSA and still folds.
 local folded=emitted([[
-let counter = let start : Int let v mut = start do v = v + 1; return v end
+let counter = let start : Int let v mut = start do : Int v = v + 1; return v end
 let c = counter 0
 let a = c()
 let b = c()

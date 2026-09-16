@@ -23,7 +23,7 @@ end
 -- A loop whose trip count is decidable and whose body is pure is enumerated, so the loop
 -- disappears and its result is a constant.
 local text=emitted[[
-let run = do
+let run = do : Int
     let bias = 7
     let total mut = 0
     let i mut = 0
@@ -42,7 +42,7 @@ check(text:find('INT64_C(42)',1,true)~=nil,'the loop folds to its final value')
 -- A loop whose bound is only known at run time cannot be enumerated, so it is emitted and
 -- analyzed with widening instead.
 text=emitted[[
-let run = do
+let run = do : Int
     let bias = 7
     let total mut = 0
     let i mut = 0
@@ -62,7 +62,7 @@ check(text:find('LET_ADD',1,true)~=nil,'the varying part is still computed')
 -- Soundness: an induction variable must widen, not be mistaken for a constant. The check
 -- is execution, because a wrong constant would still look plausible in the C.
 eq(result[[
-let run = do
+let run = do : Int
     let i mut = 0;
     while i < 4 do
         i = i + 1
@@ -73,7 +73,7 @@ let answer = run()
 ]],4,'an induction variable widens to a runtime value')
 
 eq(result[[
-let run = do
+let run = do : Int
     let i mut = 0;
     let acc mut = 0;
     while i < 4 do
@@ -88,7 +88,7 @@ let answer = run()
 -- A value that is invariant only inside the loop stays known there, but a value that
 -- varies must not leak a constant out of the loop.
 eq(result[[
-let run = do
+let run = do : Int
     let base = 5;
     let i mut = 0;
     let seen mut = 0;
@@ -103,7 +103,7 @@ let answer = run()
 
 -- Nested loops must settle rather than iterate forever, and must still be correct.
 eq(result[[
-let run = do
+let run = do : Int
     let outer mut = 0;
     let total mut = 0;
     while outer < 3 do
@@ -121,7 +121,7 @@ let answer = run()
 
 -- A loop whose condition is known false never runs; its body must not become a constant.
 eq(result[[
-let run = do
+let run = do : Int
     let i mut = 0;
     let acc mut = 7;
     while i > 100 do

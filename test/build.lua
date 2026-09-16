@@ -14,7 +14,7 @@ local function discard(value) return A.Discard(value,span) end
 local function data(value) return A.Chain(L(),A.Data(value),span) end
 local function local_(name,value,mutable) return A.Local(A.Binding(name,mutable or false,nil,data(value),span),span) end
 local function assign(name,value) return A.Assign(n(name),value,span) end
-local function stage(name,type_,cap) return A.Stage(name,cap or A.Read,type_ and A.Constraint(type_,L()) or nil,span) end
+local function stage(name,type_,cap) return A.Stage(name,cap or A.Read,type_ and A.Constraint(type_,L(),span) or nil,span) end
 local function if_(condition,yes,no) return A.If(condition,L(yes),L(no or {}),span) end
 local function while_(condition,body) return A.While(condition,L(body),span) end
 local function move(name) return A.Move(n(name),span) end
@@ -35,7 +35,7 @@ local options={resources={Box={destroy='drop'}},hosts={
     overlap=host('overlap',B.Unit,{p(B.Int,A.Mut),p(B.Int)})
 }}
 local function build(statements,stages,opts)
-    return A.Chain(L(stages or {}),A.Body(L(statements)),span):build_function('fixture',opts or options)
+    return A.Chain(L(stages or {}),A.Body(L(statements),nil),span):build_function('fixture',opts or options)
 end
 local events,alive={},{}
 local function log(text) events[#events+1]=text end
@@ -139,7 +139,7 @@ eq(run(result_resource,{},'open:1,open:2,drop:1'),2); check(alive[2],'returned o
 local mutable=build({discard(call('bump',borrow('x'))),assign('x',op(A.Add,n('x'),i(1))),ret(n('x'))},{stage('x','Int',A.Mut)})
 local address={value=40LL}; eq(run(mutable,{address},'bump'),42); eq(address.value,42)
 -- §§11, 13: representations and exact literal boundaries.
-eq(run(build({ret(n('x'))},{stage('x')},{parameters={B.Int}}),{42}),42)
+eq(run(build({ret(n('x'))},{stage('x','Int')}),{42}),42)
 eq(run(build({ret(op(A.Equal,A.Text('a\0é',span),A.Text('a\0é',span)))})),true)
 eq(run(build({ret(op(A.Add,i('9223372036854775807'),i(1)))})),-9223372036854775808LL)
 eq(run(build({ret(op(A.Divide,A.Unary(A.Negate,i('9223372036854775808'),span),A.Unary(A.Negate,i(1),span)))})),-9223372036854775808LL)
@@ -161,7 +161,7 @@ reject({A.Break(span)},'break outside a loop')
 reject({A.Continue(span)},'continue outside a loop')
 reject({switch(i(1),{case({i(1)},{ret(i(1))}),case({i('0x1')},{ret(i(2))})})},'duplicate case')
 local prelude=A.Prelude(A.Binding('p',false,nil,data(call('tick',i(1))),span))
-ok,err=pcall(function() A.Chain(L{stage('a','Int'),prelude,stage('b','Int')},A.Body(L{ret(i(42))}),span):build_function('staged',options) end)
+ok,err=pcall(function() A.Chain(L{stage('a','Int'),prelude,stage('b','Int')},A.Body(L{ret(i(42))},nil),span):build_function('staged',options) end)
 check(not ok and tostring(err):find('preludes must run between arguments'),'§6.2 forbids lowering a prelude into an all-arguments-bound terminal')
 local shadow_options={hosts={fixture=options.hosts.tick}}
 reject({ret(call('fixture',i(1)))},'source%-word invocation',{},shadow_options)
@@ -178,5 +178,13 @@ local bad=B.Function('bad',B.Signature(L{effect},L{B.Int,B.Effect}),L{B.Block(L{
 ok,err=pcall(function() bad:verify_flow(options.hosts) end)
 check(not ok and tostring(err):find('effect chain bypasses'),'cannot bypass an ordered producer at return')
 check(not package.loaded['let.infer'] and not package.loaded['let.evaluate'] and not package.loaded['let.codegen'],'builder must be independent of the current compiler')
+-- §11.1/§11.5 belt types: the unary arrow, the terminal modality, and the tagged union.
+local arrow=B.Arrow(B.Int,B.Int)
+check(arrow:same(B.Arrow(B.Int,B.Int)) and not arrow:same(B.Arrow(B.Int,B.Float)) and not arrow:copyable())
+check(arrow:key()=='int->int')
+check(B.Do(B.Int):same(B.Do(B.Int)) and B.Do(B.Int):key()=='do(int)')
+local sum=B.Sum(L{B.Int,B.Text},true)
+check(sum:same(B.Sum(L{B.Int,B.Text},true)) and not sum:same(B.Sum(L{B.Int,B.Text},false)))
+check(sum:copyable() and sum:key()=='S(int|text)')
 print(('passed %d specification-grounded build checks'):format(checks))
 

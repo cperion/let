@@ -32,7 +32,7 @@ local program,builder=build[[
 let multiply =
     let x : Int
     let y : Int
-    do
+    do : Int
         return x * y
     end
 let double = multiply 2
@@ -50,7 +50,7 @@ check(type(field(builder.module_order,'pending',ns))=='table','a saturated word 
 -- Invoking a partial word must not change it: a second call site still sees the
 -- unsupplied receiver and supplies its own transient stages.
 program,builder=build[[
-let multiply = let x : Int let y : Int do return x * y end
+let multiply = let x : Int let y : Int do : Int return x * y end
 let first = multiply(6, 7)
 let second = multiply(3, 4)
 ]]
@@ -64,7 +64,7 @@ let affine =
     let scale : Int
     let bias : Int
     let twice_bias = bias * 2
-    do
+    do : Int
         return scale + twice_bias
     end
 let configured = affine 10 16
@@ -76,10 +76,10 @@ eq(field(builder.module_order,'result',ns),42,'prelude value is stable state')
 -- §20 Argument/prelude order: prelude between stages fires before the next argument.
 program,builder=build[[
 let staged =
-    let first
+    let first : Text
     let prelude = mark("prelude")
-    let second
-    do
+    let second : Text
+    do : Unit
         return {}
     end
 let result = staged(mark("first"), mark("second"))
@@ -105,7 +105,7 @@ eq(p.fields[2],20,'positional data terminal, second element')
 -- preludes stay the module's own state rather than becoming the namespace.
 program,builder=build[[
 let first = mark("a")
-do
+do : { let answer : Int }
     return { let answer = 42 }
 end
 ]]
@@ -119,7 +119,7 @@ local box_host={open={symbol='open',phase='runtime',purity='ordered',
 local ok,err=pcall(function()
     build([[
 let first = open(1)
-do
+do : { let fresh : Box }
     return { let fresh = open(9) }
 end
 ]],{hosts=box_host,resources={Box={destroy='close'}}})
@@ -129,7 +129,7 @@ check(not ok and tostring(err):find('may not construct new owned state'),
 ok,err=pcall(function()
     build([[
 let first = open(1)
-do
+do : { let shown : Box }
     return { let shown = move first }
 end
 ]],{hosts=box_host,resources={Box={destroy='close'}}})
@@ -141,8 +141,8 @@ check(ok,'§15.1 a do terminal may move an owned prelude into its namespace')
 -- the callee returned, so it can be specialized and then invoked like any other.
 program,builder=build[[
 let adder = let x : Int
-            do return x end
-let make = do return adder end
+            do : Int return x end
+let make = do : Int -> do Int return adder end
 let specialized = make() 7
 let answer = specialized()
 ]]
@@ -154,7 +154,7 @@ program,builder=build[[
 let counter =
     let start : Int
     let value mut = start
-    do
+    do : Int
         value = value + 1
         return value
     end
@@ -173,7 +173,7 @@ eq(field(builder.module_order,'third',ns),101,'independent specializations own d
 program,builder=build[[
 let countdown =
     let n : Int
-    do
+    do : Int
         if n == 0 do
             return 0
         end
@@ -187,7 +187,7 @@ eq(field(builder.module_order,'answer',ns),0,'tail self recursion is bounded')
 -- A self-call built before the return that fixes the result type still gets its type: the
 -- contract computes the result from the returns, including a mutable local and a capture.
 program,builder=build[[
-let from_local = let depth : Int do
+let from_local = let depth : Int do : Int
     let acc mut = 0
     if depth > 0 do
         let jumped = from_local(depth - 1)
@@ -201,7 +201,7 @@ eq(field(builder.module_order,'a',ns),0,'a mutable local fixes a self-call resul
 
 program,builder=build[[
 let base = 7
-let from_capture = let n : Int do
+let from_capture = let n : Int do : Int
     if n > 0 do
         let jumped = from_capture(n - 1)
     end
@@ -215,7 +215,7 @@ eq(field(builder.module_order,'b',ns),7,'a capture fixes a self-call result type
 -- A record result is a type too, so a self-call whose fixing return builds one still gets a
 -- result type.
 program,builder=build[[
-let shape = do
+let shape = do : { let a : Int let b : Int }
     let first = shape()
     return { let a = 1 let b = 2 }
 end
@@ -224,28 +224,28 @@ let r = shape()
 check(has_entry(builder,'shape'),'a record result fixes a self-call result type')
 
 -- A host parameter can describe a record, and its members then type the stages they name.
-local pair=B.Aggregate(L{B.Field('a',B.Int,false),B.Field('b',B.Int,false)},true)
+local pair=B.Aggregate(L{B.Field('a',B.Int,false),B.Field('b',B.Int,false)},true,nil)
 local pair_host={symbol='take_pair',phase='runtime',purity='ordered',
     signature=B.Signature(L{B.Parameter(pair,A.Read)},L{B.Unit})}
 program,builder=build([[
-let fill = let x do
+let fill = let x : Int do : Int
     take_pair({ let a = x let b = 0 })
     return 0
 end
 ]],{hosts={take_pair=pair_host}})
 check(has_entry(builder,'fill'),'a record host parameter types the member a stage supplies')
 
--- §11.2 `Executable` is a shape, not a type: the word an argument supplies is the stage's
--- type. The continuation idiom passes two words and invokes the selected one.
+-- §11.1 a word-typed stage: the word an argument supplies must match the stage's declared
+-- arrow signature. The continuation idiom passes two words and invokes the selected one.
 program,builder=build[[
-let success = let value : Int do return value end
-let failure = let code : Int do return -code end
+let success = let value : Int do : Int return value end
+let failure = let code : Int do : Int return -code end
 let checked_divide =
-    let ok : Executable
-    let bad : Executable
+    let ok : Int -> do Int
+    let bad : Int -> do Int
     let numerator : Int
     let denominator : Int
-    do
+    do : Int
         if denominator == 0 do
             return bad(1)
         else
@@ -257,20 +257,43 @@ let good = divide(84, 2)
 let bad = divide(1, 0)
 ]]
 ns=module_namespace(program)
-eq(field(builder.module_order,'good',ns),42,'an Executable stage resolves to the word the argument supplies')
+eq(field(builder.module_order,'good',ns),42,'a word-typed stage resolves to the word the argument supplies')
 eq(field(builder.module_order,'bad',ns),-1,'and reaches the word the other branch selects')
-check(builder.host_entry_skips.checked_divide~=nil,'an Executable stage leaves the word without a host entry')
+check(builder.host_entry_skips.checked_divide~=nil,'a word-typed stage leaves the word without a host entry')
 check(tostring(builder.host_entry_skips.checked_divide):find('no type without an argument',1,true)~=nil,'and records why')
 -- The generic word cannot offer an ABI, but the specialization can: its stage is already
 -- the concrete word, so the host calls that instead.
-check(has_entry(builder,'divide'),'the specialization of an Executable stage has an entry')
+check(has_entry(builder,'divide'),'the specialization of a word-typed stage has an entry')
 
 -- The supplied value must be an executable word, with a `do` terminal.
 local function rejects(source)
     local ok=pcall(build,source)
     check(not ok,'expected a rejection: '..source)
 end
-rejects('let apply = let f : Executable do return f(1) end\nlet y = apply(3)')
-rejects('let apply = let f : Executable do return f(1) end\nlet data = let n : Int; n + 1\nlet y = apply(data)')
+rejects('let apply = let f : Int -> do Int do : Int return f(1) end\nlet y = apply(3)')
+rejects('let apply = let f : Int -> do Int do : Int return f(1) end\nlet data = let n : Int; n + 1\nlet y = apply(data)')
 
+-- §11.3: a declared `do : T` is authoritative and checked against every return.
+local _,declared_builder=build('let f = do : Int return 1 end')
+check(has_entry(declared_builder,'f'),'a declared Int result is published')
+rejects('let f = do : Text return 1 end')
+-- §11.2: a structural type word (a record) is accepted at a binding by the vocabulary.
+local _,record_word=build('let f = do : Int\n    let pair : { let x : Int } = { let x = 1 }\n    return pair.x\nend')
+check(has_entry(record_word,'f'),'a record type word is accepted at a binding')
+-- §11.2: a stage aggregate is a constructor word that publishes.
+local _,ctor=build('let Point = { let x : Int let y : Int }')
+check(has_entry(ctor,'Point'),'a stage aggregate publishes as a constructor')
+-- §11.2: a `let`-bound word names a type; `: Point` denotes its terminal result.
+local _,named=build('let f = do : Int\n    let Point = { let x : Int let y : Int }\n    let p : Point = Point 1 2;\n    return p.x\nend')
+check(has_entry(named,'f'),'a let-bound word names a type inside a body')
+-- §11.2: nominal identity -- a constructed value carries its constructor's name.
+local _,nominal_ok=build('let f = do : Int\n    let P = { let x : Int }\n    let p : P = P 1;\n    return p.x\nend')
+check(has_entry(nominal_ok,'f'),'a value matches its own nominal type')
+rejects('let f = do : Int\n    let P = { let x : Int }\n    let Q = { let x : Int }\n    let p : Q = P 1;\n    return p.x\nend')
+-- §11.2: a type word is generic over other type words, applied by juxtaposition (`T Int`).
+local ok_generic=pcall(function()
+    build('let Box = let elem : Type { let value : elem }\nlet bi : Box Int = { let value = 5 }')
+end)
+check(ok_generic,'a generic type word applied by juxtaposition instantiates')
+rejects('let Box = let elem : Type { let value : elem }\nlet bt : Box Int = { let value = "x" }')
 print(('passed %d program construction checks'):format(count))

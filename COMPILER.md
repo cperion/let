@@ -4,13 +4,22 @@ The authoritative input is [the Let specification](let-language-specification.md
 not an earlier compiler's accepted subset. The full specification was read before
 this construction step. These implementation boundaries do not redefine Let.
 
+> **Migration note.** The type model is the unified word/type model of [TYPES.md](TYPES.md) and
+> specification §11, and is largely implemented: an annotation is a type word, `do : T` states a
+> terminal's result and is checked, an aggregate of stages is a nominal constructor, a `let`-bound
+> word names a type, and a host-entry type error is a located error rather than a silent skip.
+> Still open: `do : T` and stage annotations are not yet mandatory (`contract.lua` inference remains
+> a fallback), `Copy`/`Executable` remain transitional shape words, and runtime type descriptors and
+> tagged unions are not built. Rows below that mention constraints or inferred stage types describe
+> the pre-migration compiler.
+
 ## What is built now
 
 `AST.Chain:build_function(name, options)` builds the **terminal body** of a runtime
 word with already-bound stages. It returns an immutable `Belt.Function`, checked
 by `verify_flow`. `V.parse(text, file)` independently parses source into the AST;
 neither parsing nor construction depends on `let.*`. The parser preserves stage
-preludes, word-valued arguments/returns, aggregates, constraints and projected places
+preludes, word-valued arguments/returns, aggregates, type annotations and projected places
 without claiming that all of them can already be lowered. It validates UTF-8 and
 Text escapes, preserves exact integer spelling until sign-sensitive checking, and rounds
 Float spelling once, in `let/literal.lua`, for every consumer.

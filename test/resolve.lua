@@ -9,8 +9,8 @@ let factory=
     let seed:Int
     let value mut=seed
     let step:Int
-    do
-        let callback=do value=value+step return bias end
+    do : Int
+        let callback=do : Int value=value+step return bias end
         if step==0 do return callback() end
         return factory(seed,step-1)
     end
@@ -28,7 +28,7 @@ for _,use in ipairs(callback.capture_uses) do if use.access=='write' and use.def
 check(writes)
 local self_name=program.file.items[3].binding.value.terminal.statements[3].value.word
 check(resolved.references[self_name][1].definition==factory and plan.self==factory)
-local shadow=V.parse('let f=let x:Int do let x=x+1 return x end','shadow.let')
+local shadow=V.parse('let f=let x:Int do : Int let x=x+1 return x end','shadow.let')
 local names=shadow:resolve(); local f=names.module.names.f.template
 check(f.scope.names.x~=f.body_scope.names.x)
 check(require('test.execute')(shadow.file.items[1].binding.value:build_function('f'),{41},{})==42)
@@ -46,9 +46,9 @@ local function separator_message(text)
     local ok,err=pcall(function() V.parse(text,'separator.let'):resolve{} end)
     return ok,err
 end
-local separated,separator_error=separator_message('let f=let x:Int do return x end\ndo let b=1\nf(b) return end')
+local separated,separator_error=separator_message('let f=let x:Int do : Int return x end\ndo : Unit let b=1\nf(b) return end')
 check(not separated)
 check(tostring(separator_error):find('end the value with ";"',1,true))
-check(separator_message('let f=let x:Int do return x end\ndo let b=1;\nf(b) return end'))
+check(separator_message('let f=let x:Int do : Int return x end\ndo : Unit let b=1;\nf(b) return end'))
 print(('passed %d lexical/stage contract checks'):format(count))
 

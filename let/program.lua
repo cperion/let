@@ -29,7 +29,7 @@ function Builder:layout(template)
     for index,item in ipairs(template.source.items) do
         if A.Stage:isclassof(item) then
             items[index]={kind='stage',name=item.name,capability=item.capability,constraint=item.constraint,span=item.span,
-                definition=self.resolved.bindings[item],inferred=contract.stages[self.resolved.bindings[item]]}
+                definition=self.resolved.bindings[item]}
         elseif A.Prelude:isclassof(item) then
             local binding=item.binding
             items[index]={kind='prelude',name=binding.name,mutable=binding.mutable,span=binding.span,definition=self.resolved.bindings[binding]}
@@ -186,7 +186,7 @@ function Builder:advance(ctx,value,supplied,span,destination,complete)
     local mut=item.capability==A.Mut
     -- A mutable stage is a place, so what its constraint describes is the place's contents,
     -- not the borrow that reaches them.
-    local type_=ctx:constraint(item.constraint,mut and supplied.type.pointee or supplied.type,span)
+    local type_=ctx:check(item.constraint,mut and supplied.type.pointee or supplied.type,span)
     if type_ then
         if mut then expect({type=supplied.type.pointee,origin=supplied.origin},type_,span)
         else expect(supplied,type_,span) end
@@ -234,7 +234,17 @@ end
 function Builder:terminal_value(ctx,template)
     local terminal=template.source.terminal
     if terminal==nil then return self:namespace_record(ctx,template) end
-    if A.Data:isclassof(terminal) then return terminal.value:build(ctx) end
+    if A.Data:isclassof(terminal) then
+        -- §11.2: an aggregate of stages is a constructor, so the record it builds carries the
+        -- constructor's binding name as its nominal identity.
+        local previous=ctx.nominal_constructor
+        if A.NamedAggregate:isclassof(terminal.value) and terminal.value.nominal then
+            ctx.nominal_constructor=template.name
+        end
+        local value=terminal.value:build(ctx)
+        ctx.nominal_constructor=previous
+        return value
+    end
     return nil
 end
 
@@ -663,10 +673,9 @@ function Builder:host_entry(name,value,span)
         local item=layout.steps[i].item
         -- A declared type is the contract; otherwise the terminal body may force one. A
         -- `Copy` stage whose forced type is not copyable cannot be published.
-        local type_=resolve:constraint_type(item.constraint) or item.inferred
-        if type_ and item.constraint and item.constraint.name=='Copy' and not type_:copyable() then
-            type_=nil
-        end
+        local type_=resolve:constraint_type(item.constraint)
+        -- §15.1: a word-typed stage has no host ABI (no closure layout), so it publishes no entry.
+        if type_ and (B.Arrow:isclassof(type_) or B.Do:isclassof(type_) or type_==B.TypeWord) then type_=nil end
         if not type_ then
             return nil,'stage ' .. tostring(item.name) .. ' has no type without an argument'
         end
@@ -754,13 +763,18 @@ function Builder:build()
             -- entry is skipped and the reason recorded.
             local before=#self.functions
             local ok,entry,reason=pcall(self.host_entry,self,export.name,export.value,export.span)
-            if ok and entry then self.host_entries[#self.host_entries+1]=entry
+            if not ok then
+                -- An error while offering the entry is a program error -- a type mismatch, an
+                -- ownership violation -- not a missing ABI. Surface it rather than skipping.
+                error(entry,0)
+            end
+            if entry then self.host_entries[#self.host_entries+1]=entry
             else
-                -- A failed entry may already have interned the functions it built on the way down,
-                -- so both the function slots and the cache entries naming them are dropped.
+                -- A deliberate no-entry: the word is legal but offers no ABI (a word-typed stage,
+                -- an argument-determined stage). Record the reason for tooling.
                 for i=before+1,#self.functions do self.functions[i]=nil end
                 for key,id in pairs(self.entries) do if id>before then self.entries[key]=nil end end
-                self.host_entry_skips[export.name]= ok and reason or tostring(entry):gsub('^.*: ','')
+                self.host_entry_skips[export.name]=reason
             end
         end
     end

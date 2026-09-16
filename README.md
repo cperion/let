@@ -55,9 +55,13 @@ structural boundaries; use `;` where adjacent expressions would otherwise run
 together (`f(x); g(y)`, not `f(x) g(y)`). Assignment remains `name = value`.
 
 Structured control keeps its familiar spelling. Continuation words handle alternative
-outcomes without forcing callback plumbing into every statement: a stage constrained only by
-`Executable` takes the type of the word an argument supplies, so the callee is selected at the
-call site. See [`examples/continuations.let`](examples/continuations.let).
+outcomes without forcing callback plumbing into every statement: a stage whose type is a word
+type takes whatever word an argument supplies, so the callee is selected at the call site. See
+[`examples/continuations.let`](examples/continuations.let).
+
+Types are words. A word's type is its chain read as unary, right-nested arrows ending in its
+terminal; `:` annotates a binder with a type word; and `do : T` states a runtime terminal's
+result. See [TYPES.md](TYPES.md) and §11 of the specification.
 
 ## Run
 

@@ -30,7 +30,7 @@ end
 
 -- §5 An exported word whose stages are all still open takes one parameter per stage.
 local host=build[[
-let add = let a : Int let b : Int do return a + b end
+let add = let a : Int let b : Int do : Int return a + b end
 ]]
 check(host.entries.add~=nil,'a two-stage word has a host entry')
 eq(host.entries.add.bundle,0,'with no fields in front')
@@ -44,7 +44,7 @@ let between =
     let n : Int
     let step = n - 1;
     let total : Int
-    do return total + step
+    do : Int return total + step
 end
 ]]
 eq(host.entries.between.bundle,0,'a word with a prelude between stages has no fields yet')
@@ -63,7 +63,7 @@ eq(calls,1,'the host entry calls the word entry rather than copying its body')
 -- the initializer returned rather than conjuring it: that value is what the entry expects first.
 host=build[[
 let factor = 6;
-let scale = let x : Int do return x * factor end
+let scale = let x : Int do : Int return x * factor end
 ]]
 eq(host.entries.scale.bundle,1,'a capture is a field the host passes')
 eq(host.entries.scale.stages,1,'and the open stage follows it')
@@ -74,7 +74,7 @@ eq(host.call('scale',7,6),42,'the capture arrives as the first argument')
 -- writes through it.
 local holder={value=0}
 host=build[[
-let bump = let counter mut : Int let by : Int do counter = counter + by; return counter end
+let bump = let counter mut : Int let by : Int do : Int counter = counter + by; return counter end
 ]]
 eq(host.entries.bump.stages,2,'a mutable stage is one parameter')
 eq(host.call('bump',holder,5),5,'the entry writes through the place it was given')
@@ -82,69 +82,32 @@ eq(holder.value,5,'and the write is visible to the host')
 
 -- §5 A word with no stages left is still invokable, and its terminal is what the entry runs.
 host=build[[
-let fixed = let value : Int do return value + 1 end
+let fixed = let value : Int do : Int return value + 1 end
 let applied = fixed 41
 ]]
 check(host.entries.applied~=nil,'an already-applied word still has an entry')
 eq(host.entries.applied.stages,0,'with nothing left to supply')
 eq(host.call('applied',41),42,'and its terminal runs on the field the host passed')
 
--- A stage whose type only an argument can determine -- unannotated, or `Copy` -- cannot be a host
--- entry, because the host has no argument to learn it from. The word is still legal; it simply
--- has no entry, and the builder says why.
-host=build[[
-let generic = let anything do return anything end
-]]
-check(host.entries.generic==nil,'a stage without a type has no host entry')
-check(host.builder.host_entry_skips.generic~=nil,'and the builder records why')
-
--- §6.3 Annotations are not required. A stage whose uses force exactly one type still has an
--- interface: when the host supplies no argument, the terminal body is where the type comes
--- from. The inference only fills in what construction would already enforce.
-host=build[[
-let forced = let x do return x + 1 end
-]]
-eq(host.entries.forced.stages,1,'a stage forced by its operand still has an entry')
-eq(host.call('forced',41),42,'and the entry computes with the inferred type')
-
-host=build[[
-let copy = let x : Copy do return x < 5 end
-]]
-check(host.entries.copy~=nil,'a Copy stage whose body forces Int still has an entry')
-eq(host.call('copy',1),true,'and compares as the inferred Int')
-
--- Ambiguity is not guessed at: two stages constrained only against each other have no type
--- the source forces, so the word keeps its no-entry behaviour.
-host=build[[
-let mixed = let x let y do return x + y end
-]]
-check(host.entries.mixed==nil,'two stages with no other constraint still have no entry')
-
--- A host stage declares the type it requires, so an argument to it is typed even when the
--- callee's own body never names a literal.
-host=build([[
-let consumes = let x do mark(x); return 0 end
-]],{hosts={mark={symbol='mark',phase='runtime',purity='ordered',
+-- §11.3 A stage declares its type word; there is no inference and no unannotated stage. A word
+-- with one is a program error, not a legal word with no entry.
+local function rejects(source,options)
+    local ok=pcall(function() V.parse(source,'entry.let'):build(options or {}) end)
+    check(not ok,'a stage without a type word is rejected: '..source)
+end
+rejects('let generic = let anything do return anything end')
+rejects('let forced = let x do return x + 1 end')
+rejects('let copy = let x do return x < 5 end')
+rejects('let mixed = let x let y do return x + y end')
+rejects([[let consumes = let x do mark(x); return 0 end]],{hosts={mark={symbol='mark',phase='runtime',purity='ordered',
     signature=B.Signature(L{B.Parameter(B.Int,A.Read)},L{B.Unit})}}})
-check(host.entries.consumes~=nil,'a stage typed by a host parameter still has an entry')
-
--- A word-valued callee's stages type its arguments too, so a chain of unannotated stages
--- still reaches one interface.
-host=build[[
-let inc = let x do return x + 1 end
-let twice = let y do return inc(inc(y)) end
-]]
-check(host.entries.twice~=nil,'a stage typed through a word callee has an entry')
--- The callee is a capture, so the entry takes it in front of the stage; the point here is
--- that the stage has a type at all, which is what inference supplies.
-eq(host.entries.twice.bundle,1,'the word callee arrives as the capture field')
-eq(host.entries.twice.stages,1,'and the stage typed through it is the one open stage')
+rejects('let inc = let x do return x + 1 end\nlet twice = let y do return inc(inc(y)) end')
 
 
 -- The host can only call an entry that was written out, so an entry is a root of emission: it
 -- has no caller inside the belt, and without this nothing would make it live.
 host=build[[
-let add = let a : Int let b : Int do return a + b end
+let add = let a : Int let b : Int do : Int return a + b end
 ]]
 local statistics={}
 local unit=host.program:emit{hosts={},entries=host.builder.host_entries,statistics=statistics}
@@ -161,7 +124,7 @@ local shipped='/tmp/let_host_shipped'
 os.execute('rm -rf '..shipped..' && mkdir -p '..shipped)
 os.execute(('cp dist/let.lua %s/let.lua'):format(shipped))
 local input=assert(io.open(shipped..'/demo.let','wb'))
-input:write('let twice = let n : Int do return n * 2 end\nlet answer = twice(21)\n')
+input:write('let twice = let n : Int do : Int return n * 2 end\nlet answer = twice(21)\n')
 input:close()
 os.execute(('cd %s && luajit let.lua demo.let demo.c'):format(shipped))
 local emitted=assert(io.open(shipped..'/demo.c','rb')):read('*a')
@@ -185,8 +148,8 @@ local function compile_and_run(name,unit_text,statistics,main)
 end
 
 local native_host=build[[
-let add = let a : Int let b : Int do return a + b end
-let bump = let counter mut : Int let by : Int do counter = counter + by; return counter end
+let add = let a : Int let b : Int do : Int return a + b end
+let bump = let counter mut : Int let by : Int do : Int counter = counter + by; return counter end
 ]]
 local native_statistics={}
 local native_text=V.print(native_host.program:emit{hosts={},entries=native_host.builder.host_entries,

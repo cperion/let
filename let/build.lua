@@ -162,7 +162,7 @@ function Context:take_member(name,steps,span)
     end
     local at=binding.type
     for _,index in ipairs(indices) do
-        at=at.fields[index+1].type
+        at=at:record()[index+1].type
         value=self:emit(B.LoadField(self:ref(value),index),L{at},span)
     end
     -- §9.2: a Copy member owns no state to remove either, so the path stays initialized.
@@ -188,41 +188,173 @@ end
 function Context:validate_ownership(type_,span)
     if B.Named:isclassof(type_) then self:resource(type_,span)
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
-        for _,field in ipairs(type_.fields) do self:validate_ownership(field.type,span) end
+        for _,field in ipairs(type_:record()) do self:validate_ownership(field.type,span) end
     end
 end
--- The concrete belt type a constraint names, or nil when the constraint describes a shape
--- (`Copy`, `Executable`) rather than one type. A caller that only needs the type -- a host
--- entry, an inferred stage -- asks here instead of going through `constraint`, which
--- reports a shape it cannot bind to a type.
+-- The concrete belt type a type word names. Primitives and registered types come from the
+-- vocabulary; a `let`-bound word is a type word too, and denotes the type of its terminal result
+-- (§11.2). An unknown name names no type and returns nil.
+-- §11.3: lower a declared type word to a belt type. A `Ref` is a vocabulary type or a
+-- `let`-bound word; an `Apply` is a type word applied to type words by juxtaposition (`List Int`).
 function Context:constraint_type(annotation)
-    if not annotation then return nil end
-    return self.fn.vocabulary:type(annotation.name)
+    return self:resolve_type_expr(annotation,{})
 end
-function Context:constraint(annotation,type_,span)
+function Context:resolve_type_expr(node,env)
+    if not node then return nil end
+    if A.Ref:isclassof(node) then
+        if env[node.name] then return env[node.name] end
+        local type_=self.fn.vocabulary:resolve_type(node)
+        if type_ then return type_ end
+        return self:bound_type(node,env)
+    end
+    -- §11.5: a sum type literal (`Int | Text`) names its alternatives as expressions.
+    if A.Name:isclassof(node) then
+        if env[node.name] then return env[node.name] end
+        return self.fn.vocabulary.types[node.name]
+    end
+    -- §11.2: a generic type word applied to type words by juxtaposition. The word's stages must
+    -- be `Type` parameters; each argument is substituted and the terminal is evaluated as a type.
+    if A.Apply:isclassof(node) then
+        local args={}; local base=node
+        while A.Apply:isclassof(base) do table.insert(args,1,base.argument); base=base.constructor end
+        if not A.Ref:isclassof(base) then return nil end
+        local definition=self.resolved and self.resolved.type_refs[base]
+        local template=definition and definition.template
+        if not (template and self.builder) then return nil end
+        local layout=self.builder:layout(template)
+        if #layout.steps~=#args then return nil end
+        local bound={}
+        for i,step in ipairs(layout.steps) do
+            if self.fn.vocabulary:resolve_type(step.item.constraint)~=B.TypeWord then return nil end
+            local argument=self:resolve_type_expr(args[i],env)
+            if not argument then return nil end
+            bound[step.item.name]=argument
+        end
+        return self:word_terminal_type(template,bound)
+    end
+    if A.Arrow:isclassof(node) then
+        local from,to=self:resolve_type_expr(node.from,env),self:resolve_type_expr(node.to,env)
+        if not (from and to) then return nil end
+        return B.Arrow(from,to)
+    end
+    if A.Do:isclassof(node) then
+        local result=self:resolve_type_expr(node.result,env)
+        if not result then return nil end
+        return B.Do(result)
+    end
+    if A.Sum:isclassof(node) or A.SumType:isclassof(node) then
+        local nodes={}; self:flatten_sum(node,nodes)
+        local alternatives,copy=L(),true
+        for _,element in ipairs(nodes) do
+            local type_=self:resolve_type_expr(element,env)
+            if not type_ then return nil end
+            alternatives:insert(type_); if not type_:copyable() then copy=false end
+        end
+        return B.Sum(alternatives,copy)
+    end
+    if A.Record:isclassof(node) then
+        local fields,complete=L(),true
+        for _,field in ipairs(node.fields) do
+            local type_=self:resolve_type_expr(field.type,env)
+            if not type_ then complete=false else fields:insert(B.Field(field.name,type_,field.mutable)) end
+        end
+        if not complete then return nil end
+        local copy=true
+        for _,field in ipairs(fields) do if field.mutable or not field.type:copyable() then copy=false end end
+        return B.Aggregate(fields,copy,nil)
+    end
+    if A.Tuple:isclassof(node) then
+        local fields,complete=L(),true
+        for _,element in ipairs(node.elements) do
+            local type_=self:resolve_type_expr(element,env)
+            if not type_ then complete=false else fields:insert(B.Field(nil,type_,false)) end
+        end
+        if not complete then return nil end
+        local copy=true
+        for _,field in ipairs(fields) do if not field.type:copyable() then copy=false end end
+        return B.Aggregate(fields,copy,nil)
+    end
+    return nil
+end
+function Context:flatten_sum(node,into)
+    if A.Sum:isclassof(node) or A.SumType:isclassof(node) then self:flatten_sum(node.left,into); self:flatten_sum(node.right,into)
+    else into[#into+1]=node end
+end
+-- §11.2: a `let`-bound word as a type denotes its terminal result type.
+function Context:bound_type(node,env)
+    local definition=self.resolved and self.resolved.type_refs[node]
+    local template=definition and definition.template
+    local terminal=template and template.source.terminal
+    if terminal and A.Data:isclassof(terminal) then
+        local value=terminal.value
+        if A.Word:isclassof(value) then
+            local inner=self.resolved.chains[value.chain]
+            if inner then template=inner end
+        elseif A.SumType:isclassof(value) or A.Sum:isclassof(value) then
+            return self:resolve_type_expr(value,env or {})
+        end
+    end
+    if template and V.Contract then
+        return V.Contract.template(template,self.resolved,self.fn.vocabulary.types).result
+    end
+    return nil
+end
+-- The type a type word's terminal denotes: a stage aggregate is the record of its stages, with
+-- the type parameters substituted.
+function Context:word_terminal_type(template,env)
+    local terminal=template.source.terminal
+    if not (terminal and A.Data:isclassof(terminal) and A.Word:isclassof(terminal.value)) then return nil end
+    local fields,copy=L(),true
+    for _,item in ipairs(terminal.value.chain.items) do
+        if A.Stage:isclassof(item) then
+            local type_=self:resolve_type_expr(item.constraint,env)
+            if not type_ then return nil end
+            fields:insert(B.Field(item.name,type_,false))
+            if not type_:copyable() then copy=false end
+        end
+    end
+    if #fields==0 then return nil end
+    return B.Aggregate(fields,copy,nil)
+end
+function Context:check(annotation,type_,span)
     if not annotation then return type_ end
-    if #annotation.arguments>0 then gap(span,'specialized constraint words') end
-    if self:find(annotation.name) or self.fn.vocabulary:host(annotation.name) or (self.fn.self_visible and annotation.name==self.fn.name) then
-        fail(span,'constraint name is shadowed by a runtime binding')
-    end
-    if annotation.name=='Copy' and type_ then
-        if not type_:copyable() then fail(span,'constraint Copy is not satisfied') end; return type_
-    end
-    -- §11.2 `Executable` is a shape, not a type: the word an argument supplies *is* the type.
-    -- An entry that has no argument yet therefore has no type to bind, and returns nil so the
-    -- caller can say so (a host entry skips; advancement gets the type from the argument).
-    if annotation.name=='Executable' then
+    local name=A.Ref:isclassof(annotation) and annotation.name or nil
+    if name and #annotation.arguments>0 then gap(span,'specialized type words') end
+    local declared=self:constraint_type(annotation)
+    if not declared then gap(span,'type ' .. (name or 'expression')) end
+    -- §11.3: a word-typed stage holds a word. Its declared arrow (or runtime terminal) is the
+    -- word's signature; the supplied word's remaining signature must match. The stage keeps its
+    -- concrete word type, so invocation still works.
+    if B.Arrow:isclassof(declared) or B.Do:isclassof(declared) then
         if not type_ then return nil end
-        if not B.Word:isclassof(type_) then fail(span,'Executable requires an executable word') end
-        local template=self.resolved and self.resolved.templates[type_.template]
-        if template and not A.Body:isclassof(template.source.terminal) then
-            fail(span,'Executable requires a do terminal')
+        if not B.Word:isclassof(type_) then fail(span,'a word-typed stage needs a word') end
+        local actual=self:word_signature(type_)
+        if not (actual and actual:same(declared)) then
+            fail(span,'word signature mismatch: expected ' .. tostring(declared) .. ', got ' .. tostring(actual))
         end
         return type_
     end
-    local declared=self:constraint_type(annotation)
-    if not declared then gap(span,'constraint ' .. annotation.name) end
     if type_ then expect({type=type_},declared,span) end; return declared
+end
+-- The signature of a word value: its remaining stages as unary arrows, ending in its terminal.
+-- This is what a word-typed stage's declaration is checked against (§11.1).
+function Context:word_signature(type_)
+    local builder=self.builder
+    if not builder then return nil end
+    local template=builder.resolved.templates[type_.template]
+    if not template then return nil end
+    local layout=builder:layout(template)
+    local tail
+    if A.Body:isclassof(template.source.terminal) then tail=B.Do(layout.contract.result or B.Unit)
+    else tail=layout.contract.result end
+    if not tail then return nil end
+    for i=#layout.steps,type_.supplied+1,-1 do
+        local item=layout.steps[i].item
+        local stage_type=self:constraint_type(item.constraint)
+        if not stage_type then return nil end
+        tail=B.Arrow(stage_type,tail)
+    end
+    return tail
 end
 function Context:bind(name,value,mutable,owned,external,address,span)
     local scope=self.scopes[#self.scopes]
@@ -403,8 +535,8 @@ function Context:destroy(value,span,moved,prefix)
     elseif B.Named:isclassof(type_) then
         self:ordered(B.Destroy(self:ref(self.effect),self:ref(value),self:resource(type_,span).destroy),nil,span)
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
-        for index=#type_.fields,1,-1 do
-            local field=type_.fields[index]
+        for index=#type_:record(),1,-1 do
+            local field=type_:record()[index]
             local key=(prefix and prefix~='') and (prefix .. '.' .. (index-1)) or tostring(index-1)
             local state=moved and moved[key]
             if field.type:owns() and state~=true then
@@ -524,7 +656,10 @@ function Context:finish_function(body,extra)
     local blocks=self:blocks()
     return B.Function(self.fn.name,B.Signature(blocks[1].parameters,results),blocks)
 end
-function A.Expr:build() gap(self.span,'this expression form') end
+function A.Expr:build(ctx)
+    if A.SumType:isclassof(self) then return A.Sum.build(self,ctx) end
+    gap(self.span,'this expression form')
+end
 function A.Expr:tail(ctx) ctx:finish(self:build(ctx),self.span) end
 function A.Stmt:build() gap(self.span,'this statement form') end
 function A.Name:build(ctx)
@@ -537,7 +672,7 @@ function A.Name:build(ctx)
     -- The core numeric conversions are ordinary names (§13.3), so a binding or host above
     -- shadows them like any other dictionary entry.
     if self.name=='float' or self.name=='int' then return {conversion=self.name} end
-    if ctx.fn.vocabulary:type(self.name) or self.name=='Copy' or self.name=='Executable' then fail(self.span,'constraint word is not a runtime value') end
+    if ctx.fn.vocabulary:type(self.name) then fail(self.span,'constraint word is not a runtime value') end
     fail(self.span,'unknown name ' .. self.name)
 end
 function A.Integer:build(ctx)
@@ -547,6 +682,18 @@ end
 function A.Float:build(ctx) return ctx:emit(B.FloatLiteral(self.spelling),L{B.Float},self.span) end
 function A.Boolean:build(ctx) return ctx:boolean(self.value,self.span) end
 function A.Unit:build(ctx) return ctx:emit(B.UnitLiteral,L{B.Unit},self.span) end
+-- §11.5: a sum type word. Its value is a compile-time handle carrying the sum type; a module
+-- may carry it in state, and annotations and injections read the handle.
+function A.Sum:build(ctx)
+    local sum=ctx:resolve_type_expr(self,{})
+    if not sum then gap(self.span,'a sum type needs type words') end
+    local value=ctx:emit(B.Construct(L(),false),L{B.TypeWord},self.span)
+    value.sum=sum
+    value.mode='fresh'
+    return value
+end
+-- §11.5: the same sum type in expression position (`let Opt = Int | Text`).
+function A.SumType:build(ctx) return A.Sum.build(self,ctx) end
 function A.Text:build(ctx) return ctx:emit(B.TextLiteral(self.value),L{B.Text},self.span) end
 function A.Unary:build(ctx)
     if self.operator==A.Negate and A.Integer:isclassof(self.operand) then
@@ -607,9 +754,54 @@ end
 A.And.build=short; A.Or.build=short
 function A.Binary:build(ctx) return self.operator:build(ctx,self) end
 function A.Specialize:build(ctx)
+    -- §11.5: `T.left v` injects `v` into the sum type `T`. The member `T.left` builds an
+    -- injection handle, not a runtime word.
+    local word=self.word:build(ctx)
+    if word and word.injection then
+        local payload=self.argument:build(ctx)
+        if not payload.type then gap(self.argument.span,'a word value in a sum injection') end
+        return ctx:sum_inject(word.injection.sum,word.injection.index,payload,self.span,self.argument.span)
+    end
     local builder=ctx.builder
     if not builder then gap(self.span,'word specialization requires a program builder') end
     return builder:specialize(ctx,self)
+end
+-- §11.5: a sum value is a tagged record; injection fills the tag and the active field, and
+-- zero-fills the inactive ones.
+function Context:sum_inject(sum,index,payload,span,payload_span)
+    local fields=sum:record()
+    expect(payload,fields[index+2].type,payload_span or span)
+    local values=L()
+    for i,field in ipairs(fields) do
+        if i==1 then values:insert(self:emit(B.IntegerLiteral(tostring(index)),L{B.Int},span))
+        elseif i==index+2 then values:insert(payload)
+        else
+            local zero=self:zero_value(field.type,span)
+            if not zero then fail(span,'a sum alternative must be Copy (zero-fillable)') end
+            values:insert(zero)
+        end
+    end
+    local result=self:emit(B.Construct(self:refs(values),sum:copyable()),L{sum},span)
+    result.mode='fresh'
+    return result
+end
+-- A zero value for a Copy type, used to fill the inactive fields of a sum.
+function Context:zero_value(type_,span)
+    if type_==B.Int then return self:emit(B.IntegerLiteral('0'),L{B.Int},span) end
+    if type_==B.Bool then return self:boolean(false,span) end
+    if type_==B.Float then return self:emit(B.FloatLiteral('0.0'),L{B.Float},span) end
+    if type_==B.Text then return self:emit(B.TextLiteral(''),L{B.Text},span) end
+    if type_==B.Unit then return self:emit(B.UnitLiteral,L{B.Unit},span) end
+    if B.Aggregate:isclassof(type_) or B.Sum:isclassof(type_) then
+        local values=L()
+        for _,field in ipairs(type_:record()) do
+            local zero=self:zero_value(field.type,span)
+            if not zero then return nil end
+            values:insert(zero)
+        end
+        return self:emit(B.Construct(self:refs(values),type_:copyable()),L{type_},span)
+    end
+    return nil
 end
 local place_path
 function A.Move:build(ctx)
@@ -678,7 +870,7 @@ function A.Borrow:build(ctx)
             else
                 -- A runtime index in a borrowed path selects a *place*, so the selection joins
                 -- field addresses rather than values, and its members must share a type.
-                local fields=type_.fields
+                local fields=type_:record()
                 local key=step.expression:build(ctx); expect(key,B.Int,step.span)
                 local element=fields[1].type
                 local borrowed=B.Borrow(element,stable)
@@ -708,6 +900,10 @@ A.Chain.value=chain_value
 -- type and mutability, so the record's own type states its shape: projection, interior
 -- assignment and word-member invocation all read it from there (§8, §10.3, §11.3).
 function Context:construct_record(values,fields,span)
+    -- §11.2: a stage aggregate's constructor brands the record it builds, so a value carries the
+    -- constructor's identity and two same-shaped constructors are distinct types.
+    local nominal=self.nominal_constructor
+    self.nominal_constructor=nil
     local declared,copy=L(),true
     for i,field in ipairs(fields) do
         declared:insert(B.Field(field.name,field.type,field.mutable))
@@ -724,13 +920,13 @@ function Context:construct_record(values,fields,span)
             end
         end
     end
-    local result=self:emit(B.Construct(self:refs(values),copy),L{B.Aggregate(declared,copy)},span)
+    local result=self:emit(B.Construct(self:refs(values),copy),L{B.Aggregate(declared,copy,nominal)},span)
     result.mode='fresh'
     return result
 end
 
 function Context:record_field(record,name,span)
-    local fields=record.fields
+    local fields=record:record()
     if not fields then fail(span,'this value has no members') end
     for index,field in ipairs(fields) do if field.name==name then return index,field end end
     fail(span,'no member ' .. name)
@@ -741,7 +937,7 @@ end
 -- what the selection means. `span` locates a non-aggregate failure (some callers blame the
 -- whole path) and `message` is theirs because each place form names itself.
 function Context:member_step(type_,step,span,message)
-    local fields=type_.fields
+    local fields=type_:record()
     if not fields then fail(span,message) end
     local index
     if step.name then
@@ -817,7 +1013,7 @@ end
 function Context:ensure_word(record,span,writable)
     local type_=record.type
     if not B.Word:isclassof(type_) then return nil end
-    for _,field in ipairs(type_.fields) do
+    for _,field in ipairs(type_:record()) do
         if field.mutable and not writable then
             gap(span,'invoking a word with mutable state through a read-only view')
         end
@@ -825,7 +1021,7 @@ function Context:ensure_word(record,span,writable)
     local template=self.builder and self.builder.resolved.templates[type_.template]
     if not template then gap(span,'word value with an unknown template') end
     local fields={}
-    for i,field in ipairs(type_.fields) do
+    for i,field in ipairs(type_:record()) do
         fields[i]={name=field.name,type=field.type,mutable=field.mutable,owned=false,retained=true,span=span,
             value=self:emit(B.LoadField(self:ref(record),i-1),L{field.type},span)}
     end
@@ -846,6 +1042,18 @@ function A.Project:build(ctx)
         if member.conversion then return {conversion=member.conversion} end
         if member.signature then return {host=member} end
         gap(self.span,'a namespace member here is not a runtime word')
+    end
+    -- §11.5: a member of a sum type word is an injection (`left`/`right`/`f<i>`).
+    if A.Name:isclassof(self.base) then
+        local id=ctx:find(self.base.name)
+        local base=id and ctx.cells[id].value
+        if base and base.sum then
+            if self.name=='tag' then fail(self.span,'a sum tag is read from a value, not a type word') end
+            for index,field in ipairs(base.sum:record()) do
+                if field.name==self.name then return {injection={sum=base.sum,index=index-2}} end
+            end
+            fail(self.span,'no sum member ' .. self.name)
+        end
     end
     local root,steps=place_path(self)
     local id=root and ctx:find(root)
@@ -897,7 +1105,7 @@ function A.Index:build(ctx)
         ctx.intermediate=true; base=self.base:build(ctx); ctx.intermediate=nil
     end
     if base.host then gap(self.span,'indexing requires a value') end
-    local fields=base.type.fields
+    local fields=base.type:record()
     if not fields then fail(self.span,'indexing requires an aggregate value') end
     local index=static
     if index then
@@ -931,7 +1139,7 @@ function A.Binding:build(ctx)
         value=self.value.terminal:build(ctx)
     end
     if value.host then gap(self.span,'stored host words') end
-    ctx:constraint(self.constraint,value.type,self.span); ctx:accept_owned(value,self.span)
+    ctx:check(self.constraint,value.type,self.span); ctx:accept_owned(value,self.span)
     ctx:validate_ownership(value.type,self.span)
     local definition=ctx.resolved and ctx.resolved.bindings[self]
     -- A binding becomes a place when its address is asked for, and also when a nested word
@@ -997,7 +1205,7 @@ function A.Assign:assign_place(ctx)
     -- indexes, which is what makes each load and store below well typed.
     local suffix,levels,leaf={}, {},type_
     if dynamic>0 then
-        local members=records[dynamic].type.fields
+        local members=records[dynamic].type:record()
         leaf=ctx:member_type(members,self.span)
         for i=dynamic+1,#steps do
             local step=steps[i]
@@ -1045,7 +1253,7 @@ function A.Assign:assign_place(ctx)
             chain[1]=parent
         end
         for i=1,#suffix do
-            chain[i+1]=c:emit(B.LoadField(c:ref(chain[i]),suffix[i]),L{levels[i].fields[suffix[i]+1].type},self.span)
+            chain[i+1]=c:emit(B.LoadField(c:ref(chain[i]),suffix[i]),L{levels[i]:record()[suffix[i]+1].type},self.span)
         end
         -- The value being replaced is the member itself when the path stops at the index,
         -- and the last level the suffix reached otherwise. Releasing the container instead
@@ -1088,7 +1296,7 @@ function A.Assign:assign_place(ctx)
     if dynamic==0 then
         updated=replace(ctx,positions[#steps],value)
     else
-        updated=ctx:select_member(key,parent.type.fields,records[1].type,self.span,
+        updated=ctx:select_member(key,parent.type:record(),records[1].type,self.span,
             function(c,at) return replace(c,at,value) end)
     end
     if updated then
@@ -1324,7 +1532,7 @@ end
 -- entry deliver the same shape and ownership for `mut` and `own mut`.
 -- and a host entry deliver the same shape and ownership for `mut` and `own mut`.
 function A.Stage:bind_parameter(ctx,index,options)
-    local type_=ctx:constraint(self.constraint,options.parameters and options.parameters[index],self.span)
+    local type_=ctx:check(self.constraint,nil,self.span)
     if not type_ then gap(self.span,'stage type inference from uses; supply a concrete parameter type') end
     if self.capability==A.Mut and not type_:copyable() then gap(self.span,'mutable borrowed resource stages') end
     ctx:validate_ownership(type_,self.span)

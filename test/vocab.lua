@@ -56,5 +56,17 @@ local selection=A.Switch(subject,L{arm},L(),span)
 check(selection.subject==subject and #selection.cases==1,'AST keeps source-level switch structure')
 local c=C.Unit(L{'stdint.h'},L{C.Function('answer',false,true,C.I64,L(),C.Block(L{C.Return(C.Integer(0,42))}))})
 check(#c.declarations==1,'C output vocabulary constructs independently')
+-- §11.2: declared type words lower to belt types.
+local vocab=V.Vocabulary.new({resources={Box={destroy='drop'}}})
+local function tref(name) return A.Ref(name,L(),span) end
+check(vocab:resolve_type(tref('Int'))==B.Int,'a primitive type word lowers')
+check(B.Named:isclassof(vocab:resolve_type(tref('Box'))),'a resource type word lowers')
+check(vocab:resolve_type(tref('Nope'))==nil,'an unknown type word does not lower')
+local lowered=vocab:resolve_type(A.Arrow(tref('Int'),tref('Text'),span))
+check(B.Arrow:isclassof(lowered) and lowered.from==B.Int and lowered.to==B.Text,'an arrow type word lowers')
+local union=vocab:resolve_type(A.Sum(A.Sum(tref('Int'),tref('Text'),span),tref('Bool'),span))
+check(B.Sum:isclassof(union) and #union.alternatives==3,'a tagged union flattens its alternatives')
+local record=vocab:resolve_type(A.Record(L{A.TypeField('x',false,tref('Int'),span)},span))
+check(B.Aggregate:isclassof(record) and record.fields[1].name=='x','a keyed record type lowers')
 print(('passed %d vocabulary/numbering checks'):format(checks))
 

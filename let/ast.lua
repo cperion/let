@@ -11,14 +11,19 @@ module AST {
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or
-    Constraint = (string name, Expr* arguments)
+    TypeExpr = Ref(string name, Expr* arguments) | Apply(TypeExpr constructor, TypeExpr argument)
+             | Arrow(TypeExpr from, TypeExpr to) | Sum(TypeExpr left, TypeExpr right)
+             | Do(TypeExpr result)
+             | Record(TypeField* fields) | Tuple(TypeExpr* elements)
+         attributes (Source.Span span)
+    TypeField = (string name, boolean mutable, TypeExpr type, Source.Span span)
     Program = (Chain file)
-    Binding = (string name, boolean mutable, Constraint? constraint, Chain value, Source.Span span)
+    Binding = (string name, boolean mutable, TypeExpr? constraint, Chain value, Source.Span span)
     Chain = (Item* items, Terminal? terminal, Source.Span span)
-    Item = Stage(string name, Capability capability, Constraint? constraint, Source.Span span)
+    Item = Stage(string name, Capability capability, TypeExpr? constraint, Source.Span span)
          | Prelude(Binding binding)
-         | Extern(string name, boolean pure, string? symbol, Stage* parameters, Constraint? result, Source.Span span)
-    Terminal = Data(Expr value) | Body(Stmt* statements)
+         | Extern(string name, boolean pure, string? symbol, Stage* parameters, TypeExpr? result, Source.Span span)
+    Terminal = Data(Expr value) | Body(Stmt* statements, TypeExpr? result)
     Expr = Name(string name) | Integer(string spelling) | Float(string spelling) | Boolean(boolean value)
          | Text(string value) | Unit
          | Unary(UnaryOp operator, Expr operand)
@@ -26,9 +31,10 @@ module AST {
          | Specialize(Expr word, Expr argument)
          | Invoke(Expr word, Expr* arguments)
          | Word(Chain chain)
-         | NamedAggregate(Binding* members) | PositionalAggregate(Chain* elements)
+         | NamedAggregate(Binding* members, boolean nominal) | PositionalAggregate(Chain* elements)
          | Project(Expr base, string name) | Index(Expr base, Expr index)
          | Move(Expr place) | Borrow(Expr place)
+         | SumType(TypeExpr left, TypeExpr right)
          attributes (Source.Span span)
     Stmt = Local(Binding binding) | Assign(Expr place, Expr value)
          | Return(Expr? value) | Discard(Expr value)
@@ -40,5 +46,9 @@ module AST {
     Case = (Expr* labels, Stmt* body, Source.Span span)
 }
     ]]
+    -- Migration alias (§11): an annotation names a type word, so the former Constraint node is
+    -- the Ref alternative. Consumers reading `.name`/`.arguments` keep working while the new
+    -- alternatives are wired in.
+    context.AST.Constraint = context.AST.Ref
 end
 

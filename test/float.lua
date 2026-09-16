@@ -42,12 +42,12 @@ eq(namespace.fields[5],6.02e23,'an upper-case exponent')
 
 -- §13.3 Arithmetic returns Float and never traps on zero: it is IEEE, not Int.
 host=build[[
-let add = let x : Float do return x + 1.5 end
-let sub = let x : Float do return x - 2.0 end
-let mul = let x : Float do return x * 3.0 end
-let div = let x : Float do return x / 2.0 end
-let neg = let x : Float do return -x end
-let byzero = let x : Float do return 1.0 / x end
+let add = let x : Float do : Float return x + 1.5 end
+let sub = let x : Float do : Float return x - 2.0 end
+let mul = let x : Float do : Float return x * 3.0 end
+let div = let x : Float do : Float return x / 2.0 end
+let neg = let x : Float do : Float return -x end
+let byzero = let x : Float do : Float return 1.0 / x end
 ]]
 eq(host.call('add',1.0),2.5,'Float addition')
 eq(host.call('sub',5.0),3.0,'Float subtraction')
@@ -60,12 +60,12 @@ eq(host.call('byzero',-0.0),-1/0,'and keeps the sign of zero')
 -- §13.3 Comparisons and equality follow IEEE: NaN is unequal to everything, and signed
 -- zero is equal to zero.
 host=build[[
-let less = let x : Float do return x < 1.0 end
-let leq = let x : Float do return x <= 1.0 end
-let equal = let x : Float do return x == 1.0 end
-let unequal = let x : Float do return x != 1.0 end
-let selfeq = let x : Float do return x == x end
-let zero = let x : Float do return x == 0.0 end
+let less = let x : Float do : Bool return x < 1.0 end
+let leq = let x : Float do : Bool return x <= 1.0 end
+let equal = let x : Float do : Bool return x == 1.0 end
+let unequal = let x : Float do : Bool return x != 1.0 end
+let selfeq = let x : Float do : Bool return x == x end
+let zero = let x : Float do : Bool return x == 0.0 end
 ]]
 eq(host.call('less',0.5),true,'Float less-than')
 eq(host.call('less',1.5),false,'Float less-than is false above')
@@ -86,7 +86,7 @@ rejects('let x = 1 + 1.0')
 rejects('let x = 1.0 + 1')
 rejects('let x = 1.0 % 2.0')
 -- A word body is built when it is invoked, so the mix is reached by applying it.
-rejects('let f = let y : Int do return y * 2.0 end\nlet x = f(3)')
+rejects('let f = let y : Int do : Int return y * 2.0 end\nlet x = f(3)')
 rejects('let x = float(1.5)')
 rejects('let x = int(1)')
 rejects('let x = float(1, 2)')
@@ -94,12 +94,12 @@ rejects('let x = float(1, 2)')
 -- §13.3 The core conversions are ordinary names: `float` widens and `int` narrows, both pure
 -- and total. `int` truncates toward zero, saturates at the Int bounds and maps NaN to zero.
 host=build[[
-let widen = let n : Int do return float(n) * 0.5 end
-let narrow = let x : Float do return int(x) end
+let widen = let n : Int do : Float return float(n) * 0.5 end
+let narrow = let x : Float do : Int return int(x) end
 let big = 9007199254740993
 let rounded = float(big)
-let shadow = do
-    let float = let n : Int do return n + 1 end
+let shadow = do : Int
+    let float = let n : Int do : Int return n + 1 end
     return float(2)
 end
 ]]
@@ -130,17 +130,17 @@ end
 
 -- Native execution: the emitted C must agree with the interpreter down to the IEEE cases.
 local native=[[
-let area = let r : Float do return r * r * 3.0 end
-let neg = let x : Float do return -x end
-let lt = let x : Float do return x < 2.0 end
-let scale = let x : Float do return x * 2.0 end
-let half = let x : Float do return x / 2.0 end
-let divzero = let x : Float do return x / 0.0 end
+let area = let r : Float do : Float return r * r * 3.0 end
+let neg = let x : Float do : Float return -x end
+let lt = let x : Float do : Bool return x < 2.0 end
+let scale = let x : Float do : Float return x * 2.0 end
+let half = let x : Float do : Float return x / 2.0 end
+let divzero = let x : Float do : Float return x / 0.0 end
 let nan = 0.0 / 0.0
 let inf = 1.0 / 0.0
-let widen = let n : Int do return float(n) * 0.5 end
-let narrow = let x : Float do return int(x) end
-let sat = let x : Float do return int(x) end
+let widen = let n : Int do : Float return float(n) * 0.5 end
+let narrow = let x : Float do : Int return int(x) end
+let sat = let x : Float do : Int return int(x) end
 ]]
 local program,builder=V.parse(native,'float_native.let'):build{}
 program:verify_flow{}

@@ -3,7 +3,7 @@
 -- site, an entry and the verifier cannot disagree about a descriptor, and no phase rebuilds the
 -- base type table.
 return function(V)
-local B=V.Belt
+local A,B,L=V.AST,V.Belt,V.List
 
 local Vocabulary={}; Vocabulary.__index=Vocabulary
 
@@ -11,7 +11,7 @@ local Vocabulary={}; Vocabulary.__index=Vocabulary
 -- message naming the contract, rather than at whichever consumer happened to read it first.
 function Vocabulary.new(options)
     options=options or {}
-    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer}
+    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}
     local representations={}
     local destroy={}
     for name,descriptor in pairs(options.resources or {}) do
@@ -134,6 +134,65 @@ function Vocabulary:type(name) return self.types[name] end
 function Vocabulary:host(name) return self.hosts[name] end
 function Vocabulary:destructor(name) return self.destroy[name] end
 function Vocabulary:representation(name) return self.representations[name] end
+
+-- §11.2: lower a declared type word to its belt type. `nil` means this boundary does not know
+-- the name yet -- either an unknown primitive or a `let`-bound type word, which becomes visible
+-- when types-as-words resolution lands. Arrow, sum, and record are structural and lower here.
+local function flatten_sum(node,into)
+    if A.Sum:isclassof(node) then flatten_sum(node.left,into); flatten_sum(node.right,into)
+    else into[#into+1]=node end
+end
+local function lower(self,node)
+    if not node then return nil end
+    if A.Ref:isclassof(node) then
+        if #node.arguments>0 then return nil end
+        return self.types[node.name]
+    end
+    if A.Arrow:isclassof(node) then
+        local from,to=lower(self,node.from),lower(self,node.to)
+        if not (from and to) then return nil end
+        return B.Arrow(from,to)
+    end
+    if A.Do:isclassof(node) then
+        local result=lower(self,node.result)
+        if not result then return nil end
+        return B.Do(result)
+    end
+    if A.Sum:isclassof(node) then
+        local nodes={}; flatten_sum(node,nodes); local alternatives=L(); local copy=true
+        for _,element in ipairs(nodes) do
+            local type_=lower(self,element); if not type_ then return nil end
+            alternatives:insert(type_); if not type_:copyable() then copy=false end
+        end
+        return B.Sum(alternatives,copy)
+    end
+    if A.Record:isclassof(node) then
+        local fields,complete=L(),true
+        for _,field in ipairs(node.fields) do
+            local type_=lower(self,field.type)
+            if not type_ then complete=false else fields:insert(B.Field(field.name,type_,field.mutable)) end
+        end
+        if not complete then return nil end
+        local copy=true
+        for _,field in ipairs(fields) do if field.mutable or not field.type:copyable() then copy=false end end
+        return B.Aggregate(fields,copy,nil)
+    end
+    if A.Tuple:isclassof(node) then
+        local fields,complete=L(),true
+        for _,element in ipairs(node.elements) do
+            local type_=lower(self,element)
+            if not type_ then complete=false else fields:insert(B.Field(nil,type_,false)) end
+        end
+        if not complete then return nil end
+        local copy=true
+        for _,field in ipairs(fields) do if not field.type:copyable() then copy=false end end
+        return B.Aggregate(fields,copy,nil)
+    end
+    -- A type-word application (e.g. `List Int`) needs a type constructor, which is not yet a
+    -- value; it lowers to nothing until types-as-words lands.
+    return nil
+end
+function Vocabulary:resolve_type(node) return lower(self,node) end
 
 return Vocabulary
 end

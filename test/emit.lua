@@ -41,7 +41,7 @@ local function foldable(source) return #definitions(emitted(source))==0 end
 -- Demand ---------------------------------------------------------------------------
 
 local text=emitted[[
-let f = do
+let f = do : Int
     emit(1);
     let dead = 41 * 1000;
     let also_dead = 7 - 3;
@@ -64,7 +64,7 @@ check(ordered[2]:find('INT64_C(3)',1,true)~=nil,'second ordered call keeps its a
 -- header/body/exit interfaces carry in-scope bindings across every backedge.
 -- A run-time bound keeps a real loop, so the loop packet still exists to be pruned.
 text=emitted[[
-let g = do
+let g = do : Int
     let unused = 99;
     let counter mut = 0;
     while counter < pure_calc(3) do
@@ -80,7 +80,7 @@ check(text:find('goto',1,true)~=nil,'a run-time bound keeps the loop')
 
 -- A decidable loop with a pure body and no demanded result leaves nothing behind at all.
 local folded=emitted[[
-let g = do
+let g = do : Int
     let counter mut = 0;
     while counter < 3 do
         counter = counter + 1
@@ -95,7 +95,7 @@ check(#definitions(folded)==0,'an enumerated loop emits no callee function')
 -- Folding: pure ------------------------------------------------------------------
 
 check(foldable[[
-let f = do
+let f = do : Int
     let folded = 6 * 7;
     return folded
 end
@@ -103,7 +103,7 @@ let r = f()
 ]],'pure arithmetic folds, so the entry is never emitted')
 
 text=emitted[[
-let f = do
+let f = do : Int
     let kept mut = 0;
     if 1 == 2 do kept = 1 end
     return kept
@@ -117,7 +117,7 @@ check(not text:find('if (',1,true),'a known condition removes the branch entirel
 -- failure stays. A known zero divisor must remain observable rather than become a
 -- compile-time diagnostic.
 check(foldable[[
-let f = do
+let f = do : Int
     let quotient = 6 / 2;
     let remainder = -7 % 2;
     return quotient + remainder
@@ -126,7 +126,7 @@ let r = f()
 ]],'§16.2 known non-zero divisor folds and omits the check')
 
 text=emitted[[
-let f = do
+let f = do : Int
     return 1 / 0
 end
 let r = f()
@@ -136,7 +136,7 @@ check(text:find('let_div',1,true)~=nil,'a known zero divisor keeps a residual tr
 text=emitted[[
 let f =
     let n : Int
-    do
+    do : Int
         return n / 2
     end
 let r = f(pure_calc(1))
@@ -146,9 +146,9 @@ check(text:find('let_div',1,true)~=nil,'an unknown-during-analysis divisor keeps
 -- Folding: cross-function ---------------------------------------------------------
 
 local program=V.parse([[
-let multiply = let x : Int let y : Int do return x * y end
+let multiply = let x : Int let y : Int do : Int return x * y end
 let pending = multiply 6 7
-let counter = let start : Int let value mut = start do value = value + 1; return value end
+let counter = let start : Int let value mut = start do : Int value = value + 1; return value end
 let errors = counter 0
 let a = pending()
 let first = errors()
@@ -164,14 +164,14 @@ check(full:find('INT64_C(1)',1,true)~=nil and full:find('INT64_C(2)',1,true)~=ni
 -- Folding must stop where it cannot be justified. A pure host is never executed by the
 -- compiler, so its result stays a runtime value and the callee keeps a real entry.
 text=emitted[[
-let multiply = let x : Int let y : Int do return x * y end
+let multiply = let x : Int let y : Int do : Int return x * y end
 let a = multiply(pure_calc(1), 7)
 ]]
 check(#definitions(text)>=1,'a runtime-argument call still emits its entry')
 check(text:find('pure_calc(',1,true)~=nil,'a demanded pure host call stays in the C')
 
 local effectful=V.parse([[
-let noisy = let x : Int do print_mark(x); return x end
+let noisy = let x : Int do : Int print_mark(x); return x end
 let r = noisy(5)
 ]],'effect.let'):build{hosts={print_mark={symbol='print_mark',phase='runtime',purity='ordered',
     signature=B.Signature(L{read},L{B.Unit})}}}
@@ -195,7 +195,7 @@ local function body(text,name)
 end
 
 local partial=emitted[[
-let f = let n : Int do
+let f = let n : Int do : Int
     let bag = { let factor = 6 let runtime = n };
     return bag.factor
 end
@@ -208,7 +208,7 @@ check(partial:find('%.f%d')==nil,'and no projection is emitted')
 -- Reading the run-time member still is a projection, and the record is still what carries
 -- the two members, so the construction stays.
 local through=emitted[[
-let f = let n : Int do
+let f = let n : Int do : Int
     let bag = { let factor = 6 let runtime = n };
     return bag.runtime
 end
@@ -219,7 +219,7 @@ check(body(through,'let_f_3'):find('%.f%d')~=nil,'a run-time member is still pro
 -- Returning the whole record keeps it a value: the caller observes every member, so nothing
 -- about it may be substituted in place of the record.
 check(#definitions(emitted[[
-let f = let n : Int do
+let f = let n : Int do : { let known : Int let runtime : Int }
     let bag = { let known = 1 let runtime = n };
     return bag
 end
@@ -230,7 +230,7 @@ let r = f(ordered_int(2))
 -- like any other. A member the callee never reads therefore cannot hold the call back: this
 -- folds even though its second stage is run-time.
 check(#definitions(emitted[[
-let ignore = let used : Int let unused : Int do return used end
+let ignore = let used : Int let unused : Int do : Int return used end
 let n = ordered_int(3)
 let r = ignore(7, n)
 ]])==0,'an unread run-time argument does not stop a call folding')
@@ -239,7 +239,7 @@ let r = ignore(7, n)
 -- still replace the uses, so the call is evaluated as a statement -- never declared and never
 -- dropped, which is what "folded" and "known" have to be told apart for.
 local noisy=emitted[[
-let noisy = let n : Int do
+let noisy = let n : Int do : Int
     let bag = { let factor = 6 let runtime = n };
     emit(bag.factor);
     return bag.factor
@@ -258,7 +258,7 @@ check(noisy:find('emit(INT64_C(6))',1,true)~=nil,'its known member is inlined at
 -- passes one argument fewer. The scan is local to the first block, because anything read
 -- elsewhere is copied there by an edge, which is itself a reference.
 local specialized=emitted[[
-let noisy = let used : Int let unused : Int do
+let noisy = let used : Int let unused : Int do : Int
     emit(used);
     return used
 end
@@ -278,7 +278,7 @@ check(specialized:find('ordered_int(INT64_C(3))',1,true)~=nil,'the dropped argum
 -- when its fate is `value` -- `constant` means every use is the constant, `dropped` means
 -- nothing reads it, and neither belongs in a signature.
 local specialized=emitted[[
-let scale = let by : Int let x : Int do return by * x end
+let scale = let by : Int let x : Int do : Int return by * x end
 let double = scale 2
 let n = ordered_int(3)
 let r = double(n)

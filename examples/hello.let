@@ -1,3 +1,3 @@
-let main = do
+let main = do : Unit
     c.puts(c.string("hello, world"))
 end

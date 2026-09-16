@@ -89,6 +89,8 @@ function Emitter:ctype(type_)
         if #type_.fields==0 then return C.U8 end
         return C.Named(self:register_struct(type_.fields))
     end
+    if B.Sum:isclassof(type_) then return C.Named(self:register_struct(type_:record())) end
+    if type_==B.TypeWord then return C.U8 end
     self:error('no representation for ' .. tostring(type_))
 end
 
@@ -151,7 +153,7 @@ function Emitter:constant(answer)
     if type_==B.Bool then return C.Boolean(answer.value) end
     if type_==B.Unit then return C.Integer(0,0) end
     if type_==B.Text then return C.Compound(self:ctype(B.Text),L{C.String(answer.value),C.Integer(0,#answer.value)}) end
-    if B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) then
+    if B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) or B.Sum:isclassof(type_) then
         if #answer.value.fields==0 then return C.Integer(0,0) end
         local fields=L()
         for _,field in ipairs(answer.value.fields) do fields:insert(self:constant(field)) end

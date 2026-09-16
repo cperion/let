@@ -99,6 +99,7 @@ function Context:import_file(node,scope)
 end
 function A.Body:resolve_terminal(ctx,scope,outer,self_definition)
     local template=ctx.current; template.self=self_definition
+    if self.result then self.result:resolve(ctx,scope,template.source.span) end
     -- Self is a fallback behind stage/prelude names, ahead of outer declarations.
     -- It is never published into initializer/prelude scopes.
     local self_scope=ctx:scope(outer)
@@ -108,13 +109,21 @@ function A.Body:resolve_terminal(ctx,scope,outer,self_definition)
     template.body_scope=ctx:region(self.statements,bindings)
 end
 function A.Data:resolve_terminal(ctx,scope) self.value:resolve(ctx,scope) end
-function A.Constraint:resolve(ctx,scope,span)
-    -- Phase/shape checking follows lexical resolution. Arguments can name semantic
-    -- descriptions of stages; being a runtime binding does not itself reject them.
-    local head={span=span}; ctx:use(scope,self.name,head,'constraint')
-    ctx.constraints[self]=ctx.references[head][1]
+function A.Ref:resolve(ctx,scope,span)
+    -- §11: a type word resolves as an ordinary name. Whether it names a known type word is a
+    -- vocabulary question, answered when the annotation is checked, not here.
+    local head={span=span}; local definition=ctx:use(scope,self.name,head,'type')
+    ctx.type_refs[self]=definition
     for _,argument in ipairs(self.arguments) do argument:resolve(ctx,scope) end
 end
+-- §11 type words: an arrow, sum, record, or tuple resolves its type words; a plain name is Ref.
+function A.Arrow:resolve(ctx,scope,span) self.from:resolve(ctx,scope,span); self.to:resolve(ctx,scope,span) end
+function A.Sum:resolve(ctx,scope,span) self.left:resolve(ctx,scope,span); self.right:resolve(ctx,scope,span) end
+function A.Do:resolve(ctx,scope,span) self.result:resolve(ctx,scope,span) end
+function A.Record:resolve(ctx,scope,span) for _,field in ipairs(self.fields) do field:resolve(ctx,scope,span) end end
+function A.Tuple:resolve(ctx,scope,span) for _,element in ipairs(self.elements) do element:resolve(ctx,scope,span) end end
+function A.TypeField:resolve(ctx,scope,span) self.type:resolve(ctx,scope,span) end
+function A.Apply:resolve(ctx,scope,span) self.constructor:resolve(ctx,scope,span); self.argument:resolve(ctx,scope,span) end
 function A.Binding:resolve(ctx,scope)
     local definition=ctx:definition(self.name,'binding',self,ctx.current)
     if self.constraint then self.constraint:resolve(ctx,scope,self.span) end
@@ -129,6 +138,13 @@ function A.Binding:resolve(ctx,scope)
         error(template,0)
     end
     definition.template=template
+    -- §11.2: a binding whose value is a word value names that word, so an aggregate type and
+    -- its constructor share the binding's name for nominal identity.
+    local terminal=template.source.terminal
+    if A.Data:isclassof(terminal) and A.Word:isclassof(terminal.value) then
+        local inner=ctx.chains[terminal.value.chain]
+        if inner then inner.name=definition.name end
+    end
     ctx:publish(scope,definition,self.span); return definition
 end
 function A.Stage:resolve(ctx,scope,index)
@@ -146,7 +162,11 @@ function A.Extern:resolve(ctx,scope)
     for _,stage in ipairs(self.parameters) do if stage.constraint then stage.constraint:resolve(ctx,scope,stage.span) end end
     if self.result then self.result:resolve(ctx,scope,self.span) end
 end
-function A.Expr:resolve() error('missing lexical resolver for expression',0) end
+function A.Expr:resolve(ctx,scope)
+    -- §11.5: a sum type literal is an Expr alternative without its own resolver method.
+    if A.SumType:isclassof(self) then self.left:resolve(ctx,scope); self.right:resolve(ctx,scope); return end
+    error('missing lexical resolver for expression',0)
+end
 function A.Integer:resolve() end
 function A.Float:resolve() end
 function A.Boolean:resolve() end
@@ -244,16 +264,18 @@ local function dictionary(ctx,parent,entries)
 end
 function A.Program:resolve(options)
     options=options or {}
-    local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},constraints={},scopes={},templates={},
+    local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},type_refs={},scopes={},templates={},
         imports={},import_words={},importing={},namespace_members={},import_resolver=options.resolve,file=self.file.span.file},Context)
+    -- §11: the primitive type words are ordinary names, not a phase; the vocabulary decides
+    -- what a type word means at a boundary.
     local builtins={}
-    for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable','CString','CPointer'} do builtins[name]={phase='constraint'} end
+    for _,name in ipairs{'Bool','Int','Float','Unit','Text','CString','CPointer','Type'} do builtins[name]={type=true} end
     -- The core numeric conversions are runtime words (§13.3), shadowable like any binding.
     for _,name in ipairs{'float','int'} do builtins[name]={phase='runtime'} end
     local outer=dictionary(ctx,nil,builtins)
     outer=dictionary(ctx,outer,options.dictionary or {})
     local resources={}
-    for name,descriptor in pairs(options.resources or {}) do resources[name]={phase='constraint',resource=descriptor} end
+    for name,descriptor in pairs(options.resources or {}) do resources[name]={resource=descriptor} end
     outer=dictionary(ctx,outer,resources)
     outer=dictionary(ctx,outer,options.hosts or {})
     -- Construction-phase entries are dictionary names, not reserved words.

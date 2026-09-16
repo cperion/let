@@ -54,7 +54,7 @@ files['configure.let']='let codec = import "codec.let" 21\nlet r = codec.encode'
 eq(run('configure.let'),42,'a configurable file is specialized at the import site')
 
 -- A file that exposes words is projected and invoked like any aggregate (§8.3, §6).
-files['math.let']='let add = let x : Int let y : Int do return x + y end\nlet negate = let x : Int do return -x end'
+files['math.let']='let add = let x : Int let y : Int do : Int return x + y end\nlet negate = let x : Int do : Int return -x end'
 files['usemath.let']='let m = import "math.let"\nlet r = m.add(40, 2) + m.negate(7)'
 eq(run('usemath.let'),35,'word members of an imported namespace are invoked normally')
 
@@ -67,13 +67,13 @@ eq(table.concat(events,','),'open:1,open:2','two imports are two independent ins
 
 -- An owned resource enters the namespace by being moved into it, and the namespace owns it
 -- for as long as the binding lives: inside a body that is the body's scope.
-files['body.let']='let run = do\n    let res = import "res.let" 7;\n    return 0\nend\nlet r = run()'
+files['body.let']='let run = do : Int\n    let res = import "res.let" 7;\n    return 0\nend\nlet r = run()'
 events={}
 run('body.let')
 eq(table.concat(events,','),'open:7,close:7','a namespace owned by a local is destroyed once, at scope exit')
 
 -- A `do` terminal makes the file an executable word, which the importer invokes explicitly.
-files['word.let']='let base : Int\ndo\n    return base + 1\nend'
+files['word.let']='let base : Int\ndo : Int\n    return base + 1\nend'
 files['useword.let']='let w = import "word.let" 41\nlet r = w()'
 eq(run('useword.let'),42,'a do-terminal file yields a word the importer invokes')
 

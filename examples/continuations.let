@@ -1,13 +1,13 @@
 // Supply policies by juxtaposition; invoke them only on the selected path.
-let success = let value : Int do return value end
-let failure = let code : Int do return -code end
+let success = let value : Int do : Int return value end
+let failure = let code : Int do : Int return -code end
 
 let checked_divide =
-    let ok : Executable
-    let bad : Executable
+    let ok : Int -> do Int
+    let bad : Int -> do Int
     let numerator : Int
     let denominator : Int
-    do
+    do : Int
         if denominator == 0 do
             return bad(1)
         else
@@ -16,5 +16,5 @@ let checked_divide =
     end
 
 let divide = checked_divide success failure
-let answer = do return divide(84, 2) end
+let answer = do : Int return divide(84, 2) end
 

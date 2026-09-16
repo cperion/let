@@ -28,8 +28,8 @@ local function definition_of(resolved,node)
     return use and use.definition
 end
 
--- The concrete belt type a constraint names. `Copy` and `Executable` describe a shape, not a
--- type, so they name none; the builder reports that separately.
+-- The concrete belt type a declared type word names. An unknown name names none; the builder
+-- reports that separately.
 local function constraint_type(types,constraint)
     if not constraint then return nil end
     return types[constraint.name]
@@ -50,19 +50,8 @@ end
 local memo=setmetatable({},{__mode='k'})
 
 local function compute(template,resolved,types,environment)
-    local inferred={}      -- stage definition -> Belt.Type, or false once two uses disagree
     local initializer={}   -- binding definition -> its initializer Chain
     local stated,returns,conflict=nil,0,false
-
-    -- A stage is recorded only once, and only toward one type. A disagreement is a program the
-    -- builder will reject anyway, so it just means "no usable type here".
-    local function record(definition,type_)
-        if not definition or not type_ then return nil end
-        local was=inferred[definition]
-        if was==nil then inferred[definition]=type_; return type_ end
-        if was==false or not was:same(type_) then inferred[definition]=false; return nil end
-        return type_
-    end
 
     local function infer_binding(binding)
         -- An initializer fixes the binding's type whether or not it is mutable: assignment
@@ -87,7 +76,7 @@ local function compute(template,resolved,types,environment)
     local function callee_stage(callee,contract,index)
         local step=callee.steps[index]
         if not step then return nil end
-        return constraint_type(types,step.stage.constraint) or contract.stages[resolved.bindings[step.stage]]
+        return constraint_type(types,step.stage.constraint)
     end
 
     -- The type of `expr`, recording a forced type on any stage name it reaches. `expected` is
@@ -103,9 +92,8 @@ local function compute(template,resolved,types,environment)
             local definition=definition_of(resolved,expr)
             if not definition then return nil end
             if definition.kind=='stage' then
-                if expected then return record(definition,expected) end
-                local known=inferred[definition]
-                return known~=false and known or nil
+                -- §11.3: a stage's type is its declared type word; there is no inference.
+                return constraint_type(types,definition.node and definition.node.constraint)
             end
             -- A capture's type comes from the packet the entry was handed, not from this body.
             local captured=environment[definition]
@@ -160,7 +148,7 @@ local function compute(template,resolved,types,environment)
                 end
             end
             if not complete then return nil end
-            return B.Aggregate(declared,copy)
+            return B.Aggregate(declared,copy,nil)
         end
         if A.NamedAggregate:isclassof(expr) then
             local wanted=expected and expected:record()
@@ -176,7 +164,7 @@ local function compute(template,resolved,types,environment)
                 end
             end
             if not complete then return nil end
-            return B.Aggregate(declared,copy)
+            return B.Aggregate(declared,copy,nil)
         end
         if A.Project:isclassof(expr) then
             local base=infer(expr.base,nil)
@@ -273,7 +261,6 @@ local function compute(template,resolved,types,environment)
                 -- constrains a stage `x` once `y` is typed.
                 local place_type=A.Name:isclassof(statement.place) and infer(statement.place,nil) or nil
                 local type_=infer(statement.value,place_type)
-                if A.Name:isclassof(statement.place) then record(definition_of(resolved,statement.place),type_) end
             elseif A.Return:isclassof(statement) then
                 returned(statement)
             elseif A.Discard:isclassof(statement) then
@@ -311,13 +298,26 @@ local function compute(template,resolved,types,environment)
     if A.Body:isclassof(terminal) then
         statements(terminal.statements)
         result=conflict and nil or (returns==0 and B.Unit or stated)
+        -- §11.3: a declared `do : T` states the result; it drives callee typing and, through
+        -- the entry, is checked against every return. Only a name-form type word is lowered
+        -- here; the structural forms arrive with the vocabulary in the build step.
+        if terminal.result then
+            local declared=constraint_type(types,terminal.result)
+            if declared then result=declared end
+        end
     elseif A.Data:isclassof(terminal) then
-        infer(terminal.value,nil)
+        -- §11.2: a data terminal's type is the type of its terminal expression. That is the
+        -- word's result, which is what a `let`-bound word named as a type denotes.
+        result=infer(terminal.value,nil)
+        -- An aggregate of stages is a constructor: its record carries the constructor's
+        -- binding name, so the type is nominal and matches the values the constructor builds.
+        if result and A.NamedAggregate:isclassof(terminal.value) and terminal.value.nominal then
+            local fields=result:record()
+            if fields then result=B.Aggregate(fields,result:copyable(),template.name) end
+        end
     end
 
-    local stages={}
-    for definition,type_ in pairs(inferred) do if type_ then stages[definition]=type_ end end
-    return {stages=stages,result=result}
+    return {stages={},result=result}
 end
 
 -- A template's contract. `environment` maps a binding to the type the entry packet gave it, so

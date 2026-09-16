@@ -55,13 +55,13 @@ let r = nested[1][0]
 -- §8.3 Projection never invokes, and works inside a callee that captured the aggregate.
 eq(result[[
 let service = { let value = 40 let name = 2 }
-let show = do return service.value + service.name end
+let show = do : Int return service.value + service.name end
 let r = show()
 ]],42,'§8.3 projection through a capture')
 
 -- §8.3 A member declared mut stays writable through an immutable owning binding.
 eq(result[[
-let f = do
+let f = do : Int
     let record = { let value mut = 0 let label = 1 };
     record.value = 5;
     return record.value + record.label
@@ -69,7 +69,7 @@ end
 let r = f()
 ]],6,'§8.3 interior mutable member')
 eq(result[[
-let f = do
+let f = do : Int
     let record mut = { let value = 0 let label = 1 };
     record.value = 5;
     return record.value + record.label
@@ -77,14 +77,14 @@ end
 let r = f()
 ]],6,'§8.3 member of a mutable record')
 rejects([[
-let f = do let record = { let value = 0 }; record.value = 5; return record.value end
+let f = do : Int let record = { let value = 0 }; record.value = 5; return record.value end
 let r = f()
 ]],'immutable member','§8.3 immutable member is rejected')
 
 -- §8.5 An aggregate owns its members and destroys them in reverse initialization order.
 events={}
 run[[
-let f = do
+let f = do : Int
     let pair = { let first = open(1) let second = open(2) };
     return 0
 end
@@ -94,7 +94,7 @@ eq(table.concat(events,','),'open:1,open:2,close:2,close:1','§8.5 reverse membe
 
 events={}
 run[[
-let f = do
+let f = do : Int
     let outer = { let inner = { open(1), open(2) } let second = open(3) };
     return 0
 end
@@ -104,7 +104,7 @@ eq(table.concat(events,','),'open:1,open:2,open:3,close:3,close:2,close:1','§8.
 
 events={}
 run[[
-let f = do
+let f = do : Int
     let pair = { let first = open(1) let second = open(2) };
     let moved = move pair;
     return 0
@@ -115,7 +115,7 @@ eq(table.concat(events,','),'open:1,open:2,close:2,close:1','§8.5 a moved aggre
 
 -- §8.5 An aggregate containing owned state is not Copy.
 rejects([[
-let f = do
+let f = do : Int
     let pair = { open(1) };
     let alias = pair;
     return 0
@@ -127,14 +127,14 @@ let r = f()
 -- invocation runs it. The word is rebuilt from the record, so it works through a capture.
 eq(result[[
 let arithmetic = {
-    let add = let x : Int let y : Int do return x + y end
-    let negate = let x : Int do return -x end
+    let add = let x : Int let y : Int do : Int return x + y end
+    let negate = let x : Int do : Int return -x end
 }
-let show = do return arithmetic.add(40, 2) + arithmetic.negate(7) end
+let show = do : Int return arithmetic.add(40, 2) + arithmetic.negate(7) end
 let r = show()
 ]],35,'§17.3 projected word invocation through a capture')
 eq(result[[
-let arithmetic = { let add = let x : Int let y : Int do return x + y end }
+let arithmetic = { let add = let x : Int let y : Int do : Int return x + y end }
 let r = arithmetic.add(40, 2)
 ]],42,'§17.3 projected word invocation at module level')
 
@@ -143,7 +143,7 @@ let r = arithmetic.add(40, 2)
 -- trap and the mixed-member diagnostic).
 eq(result[[
 let rgb = { 1, 2, 3 }
-let f = do let i = 1; return rgb[i] end
+let f = do : Int let i = 1; return rgb[i] end
 let r = f()
 ]],2,'§8.4 a runtime index reads the selected member')
 rejects([[

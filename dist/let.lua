@@ -886,14 +886,19 @@ module AST {
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or
-    Constraint = (string name, Expr* arguments)
+    TypeExpr = Ref(string name, Expr* arguments) | Apply(TypeExpr constructor, TypeExpr argument)
+             | Arrow(TypeExpr from, TypeExpr to) | Sum(TypeExpr left, TypeExpr right)
+             | Do(TypeExpr result)
+             | Record(TypeField* fields) | Tuple(TypeExpr* elements)
+         attributes (Source.Span span)
+    TypeField = (string name, boolean mutable, TypeExpr type, Source.Span span)
     Program = (Chain file)
-    Binding = (string name, boolean mutable, Constraint? constraint, Chain value, Source.Span span)
+    Binding = (string name, boolean mutable, TypeExpr? constraint, Chain value, Source.Span span)
     Chain = (Item* items, Terminal? terminal, Source.Span span)
-    Item = Stage(string name, Capability capability, Constraint? constraint, Source.Span span)
+    Item = Stage(string name, Capability capability, TypeExpr? constraint, Source.Span span)
          | Prelude(Binding binding)
-         | Extern(string name, boolean pure, string? symbol, Stage* parameters, Constraint? result, Source.Span span)
-    Terminal = Data(Expr value) | Body(Stmt* statements)
+         | Extern(string name, boolean pure, string? symbol, Stage* parameters, TypeExpr? result, Source.Span span)
+    Terminal = Data(Expr value) | Body(Stmt* statements, TypeExpr? result)
     Expr = Name(string name) | Integer(string spelling) | Float(string spelling) | Boolean(boolean value)
          | Text(string value) | Unit
          | Unary(UnaryOp operator, Expr operand)
@@ -901,9 +906,10 @@ module AST {
          | Specialize(Expr word, Expr argument)
          | Invoke(Expr word, Expr* arguments)
          | Word(Chain chain)
-         | NamedAggregate(Binding* members) | PositionalAggregate(Chain* elements)
+         | NamedAggregate(Binding* members, boolean nominal) | PositionalAggregate(Chain* elements)
          | Project(Expr base, string name) | Index(Expr base, Expr index)
          | Move(Expr place) | Borrow(Expr place)
+         | SumType(TypeExpr left, TypeExpr right)
          attributes (Source.Span span)
     Stmt = Local(Binding binding) | Assign(Expr place, Expr value)
          | Return(Expr? value) | Discard(Expr value)
@@ -915,6 +921,10 @@ module AST {
     Case = (Expr* labels, Stmt* body, Source.Span span)
 }
     ]]
+    -- Migration alias (§11): an annotation names a type word, so the former Constraint node is
+    -- the Ref alternative. Consumers reading `.name`/`.arguments` keep working while the new
+    -- alternatives are wired in.
+    context.AST.Constraint = context.AST.Ref
 end
 
 
@@ -932,9 +942,12 @@ module Belt {
     Type = Int | Float | Bool | Unit | Text | Effect | CString | CPointer
          | Named(string name) | Address(Type pointee)
          | Borrow(Type pointee, boolean stable)
-         | Aggregate(Field* fields, boolean is_copy)
+         | Aggregate(Field* fields, boolean is_copy, string? name)
          | Word(number template, number supplied, Field* fields, boolean is_copy)
          | Callable(Signature signature)
+         | Arrow(Type from, Type to) | Do(Type result)
+         | Sum(Type* alternatives, boolean is_copy)
+         | TypeWord
     Parameter = (Type type, AST.Capability capability)
     Signature = (Parameter* parameters, Type* results)
     Ref = (number distance, number output)
@@ -968,6 +981,7 @@ module Belt {
     ]]
 
     local B=context.Belt
+    local L=require('terralist')
     -- Type semantics belong to the belt vocabulary, not to one consumer: construction,
     -- verification, demand analysis and emission all ask these questions.
 function B.Type:same(other) return self==other end
@@ -985,11 +999,28 @@ function B.Borrow:same(other)
     return B.Borrow:isclassof(other) and self.stable==other.stable and self.pointee:same(other.pointee)
 end
 function B.Aggregate:same(other)
-    return B.Aggregate:isclassof(other) and self.is_copy==other.is_copy and fields_same(self.fields,other.fields)
+    return B.Aggregate:isclassof(other) and self.name==other.name
+        and self.is_copy==other.is_copy and fields_same(self.fields,other.fields)
 end
 function B.Word:same(other)
     return B.Word:isclassof(other) and self.template==other.template and self.supplied==other.supplied
         and self.is_copy==other.is_copy and fields_same(self.fields,other.fields)
+end
+-- §11.1: a word's type is a unary spine of arrows ending in its terminal. `Arrow` is one unary
+-- step, `Do` is the runtime terminal modality, and `Sum` is a tagged union (§11.5).
+function B.Arrow:same(other)
+    return B.Arrow:isclassof(other) and self.from:same(other.from) and self.to:same(other.to)
+end
+function B.Do:same(other)
+    return B.Do:isclassof(other) and self.result:same(other.result)
+end
+function B.Sum:same(other)
+    if not B.Sum:isclassof(other) or self.is_copy~=other.is_copy then return false end
+    if #self.alternatives~=#other.alternatives then return false end
+    for i,alternative in ipairs(self.alternatives) do
+        if not alternative:same(other.alternatives[i]) then return false end
+    end
+    return true
 end
 function B.Type:copyable() return false end
 function B.Int:copyable() return true end
@@ -1005,9 +1036,43 @@ function B.CPointer:copyable() return true end
 -- no mutable member. Both facts are recorded in the type, because member types alone
 -- cannot express a declared mutable member.
 function B.Aggregate:copyable() return self.is_copy end
+-- A word type promises no copyability by itself: the word a stage holds may carry owned or
+-- mutable state, so an Arrow and a Do thunk are conservatively non-copyable. A tagged union is
+-- Copy exactly when every alternative is (and no alternative is mutable).
+function B.Arrow:copyable() return false end
+function B.Do:copyable() return false end
+function B.Sum:copyable() return self.is_copy end
+-- §11.5: a sum is represented as a tagged record -- the tag first, then one field per
+-- alternative. The existing Construct/LoadField machinery then builds and projects it, and
+-- `switch` on the tag eliminates it. `left`/`right` name a binary sum; more alternatives are
+-- `f1`, `f2`, ....
+local function sum_fields(alternatives)
+    local L=require('terralist')
+    local fields=L{B.Field('tag',B.Int,false)}
+    for i,alternative in ipairs(alternatives) do
+        local name
+        if #alternatives==2 and i==1 then name='left'
+        elseif #alternatives==2 and i==2 then name='right'
+        else name='f' .. i end
+        fields:insert(B.Field(name,alternative,false))
+    end
+    return fields
+end
+function B.Sum:record() return sum_fields(self.alternatives) end
+-- §11.2: a `Type` value is a type word itself. It is a compile-time value: copyable, with no
+-- runtime representation, and it never appears in an emitted signature.
+function B.TypeWord:copyable() return true end
+function B.TypeWord:key() return 'typeword' end
+-- A type word is a compile-time value with no data; it has an empty shape and a one-byte
+-- representation so a module may carry a type alias in its state without a special case.
+function B.TypeWord:record() return L() end
 
 -- Word records and aggregates are both ordered fields; only words carry a template.
-function B.Type:record() return nil end
+function B.Type:record()
+    -- §11.5: a sum is a tagged record -- tag first, then one field per alternative.
+    if B.Sum:isclassof(self) then return sum_fields(self.alternatives) end
+    return nil
+end
 function B.Aggregate:record() return self.fields end
 function B.Word:record() return self.fields end
 function B.Word:copyable() return self.is_copy end
@@ -1032,11 +1097,20 @@ function B.Effect:key() return 'effect' end
 function B.Named:key() return 'named('..self.name..')' end
 function B.Address:key() return '&'..self.pointee:key() end
 function B.Borrow:key() return (self.stable and '&~' or '~')..self.pointee:key() end
-function B.Aggregate:key() return (self.is_copy and 'A' or 'a')..'('..fields_key(self.fields)..')' end
+function B.Aggregate:key() return (self.name and ('N'..self.name) or (self.is_copy and 'A' or 'a'))..'('..fields_key(self.fields)..')' end
 function B.Word:key()
     return 'W'..self.template..'/'..self.supplied..(self.is_copy and '+' or '-')..'('..fields_key(self.fields)..')'
 end
 function B.Field:key() return (self.name or '')..':'..self.type:key()..(self.mutable and '*' or '') end
+function B.Arrow:key() return self.from:key()..'->'..self.to:key() end
+function B.Do:key() return 'do('..self.result:key()..')' end
+-- §11.5: a sum is a tagged record: the tag field, then one field per alternative.
+function B.Sum:key()
+    local parts={}
+    for _,alternative in ipairs(self.alternatives) do parts[#parts+1]=alternative:key() end
+    return (self.is_copy and 'S' or 's')..'('..table.concat(parts,'|')..')'
+end
+function B.Sum:owns() return false end
 
 -- §8.5, §10.1: ownership is a property of the type, not of one consumer. An address owns what
 -- it points at, a borrow never owns, and a record owns when any member does. These are facts
@@ -1140,8 +1214,8 @@ local function definition_of(resolved,node)
     return use and use.definition
 end
 
--- The concrete belt type a constraint names. `Copy` and `Executable` describe a shape, not a
--- type, so they name none; the builder reports that separately.
+-- The concrete belt type a declared type word names. An unknown name names none; the builder
+-- reports that separately.
 local function constraint_type(types,constraint)
     if not constraint then return nil end
     return types[constraint.name]
@@ -1162,19 +1236,8 @@ end
 local memo=setmetatable({},{__mode='k'})
 
 local function compute(template,resolved,types,environment)
-    local inferred={}      -- stage definition -> Belt.Type, or false once two uses disagree
     local initializer={}   -- binding definition -> its initializer Chain
     local stated,returns,conflict=nil,0,false
-
-    -- A stage is recorded only once, and only toward one type. A disagreement is a program the
-    -- builder will reject anyway, so it just means "no usable type here".
-    local function record(definition,type_)
-        if not definition or not type_ then return nil end
-        local was=inferred[definition]
-        if was==nil then inferred[definition]=type_; return type_ end
-        if was==false or not was:same(type_) then inferred[definition]=false; return nil end
-        return type_
-    end
 
     local function infer_binding(binding)
         -- An initializer fixes the binding's type whether or not it is mutable: assignment
@@ -1199,7 +1262,7 @@ local function compute(template,resolved,types,environment)
     local function callee_stage(callee,contract,index)
         local step=callee.steps[index]
         if not step then return nil end
-        return constraint_type(types,step.stage.constraint) or contract.stages[resolved.bindings[step.stage]]
+        return constraint_type(types,step.stage.constraint)
     end
 
     -- The type of `expr`, recording a forced type on any stage name it reaches. `expected` is
@@ -1215,9 +1278,8 @@ local function compute(template,resolved,types,environment)
             local definition=definition_of(resolved,expr)
             if not definition then return nil end
             if definition.kind=='stage' then
-                if expected then return record(definition,expected) end
-                local known=inferred[definition]
-                return known~=false and known or nil
+                -- §11.3: a stage's type is its declared type word; there is no inference.
+                return constraint_type(types,definition.node and definition.node.constraint)
             end
             -- A capture's type comes from the packet the entry was handed, not from this body.
             local captured=environment[definition]
@@ -1272,7 +1334,7 @@ local function compute(template,resolved,types,environment)
                 end
             end
             if not complete then return nil end
-            return B.Aggregate(declared,copy)
+            return B.Aggregate(declared,copy,nil)
         end
         if A.NamedAggregate:isclassof(expr) then
             local wanted=expected and expected:record()
@@ -1288,7 +1350,7 @@ local function compute(template,resolved,types,environment)
                 end
             end
             if not complete then return nil end
-            return B.Aggregate(declared,copy)
+            return B.Aggregate(declared,copy,nil)
         end
         if A.Project:isclassof(expr) then
             local base=infer(expr.base,nil)
@@ -1385,7 +1447,6 @@ local function compute(template,resolved,types,environment)
                 -- constrains a stage `x` once `y` is typed.
                 local place_type=A.Name:isclassof(statement.place) and infer(statement.place,nil) or nil
                 local type_=infer(statement.value,place_type)
-                if A.Name:isclassof(statement.place) then record(definition_of(resolved,statement.place),type_) end
             elseif A.Return:isclassof(statement) then
                 returned(statement)
             elseif A.Discard:isclassof(statement) then
@@ -1423,13 +1484,26 @@ local function compute(template,resolved,types,environment)
     if A.Body:isclassof(terminal) then
         statements(terminal.statements)
         result=conflict and nil or (returns==0 and B.Unit or stated)
+        -- §11.3: a declared `do : T` states the result; it drives callee typing and, through
+        -- the entry, is checked against every return. Only a name-form type word is lowered
+        -- here; the structural forms arrive with the vocabulary in the build step.
+        if terminal.result then
+            local declared=constraint_type(types,terminal.result)
+            if declared then result=declared end
+        end
     elseif A.Data:isclassof(terminal) then
-        infer(terminal.value,nil)
+        -- §11.2: a data terminal's type is the type of its terminal expression. That is the
+        -- word's result, which is what a `let`-bound word named as a type denotes.
+        result=infer(terminal.value,nil)
+        -- An aggregate of stages is a constructor: its record carries the constructor's
+        -- binding name, so the type is nominal and matches the values the constructor builds.
+        if result and A.NamedAggregate:isclassof(terminal.value) and terminal.value.nominal then
+            local fields=result:record()
+            if fields then result=B.Aggregate(fields,result:copyable(),template.name) end
+        end
     end
 
-    local stages={}
-    for definition,type_ in pairs(inferred) do if type_ then stages[definition]=type_ end end
-    return {stages=stages,result=result}
+    return {stages={},result=result}
 end
 
 -- A template's contract. `environment` maps a binding to the type the entry packet gave it, so
@@ -1692,7 +1766,7 @@ module('let.vocabulary', function(require, ...)
 -- site, an entry and the verifier cannot disagree about a descriptor, and no phase rebuilds the
 -- base type table.
 return function(V)
-local B=V.Belt
+local A,B,L=V.AST,V.Belt,V.List
 
 local Vocabulary={}; Vocabulary.__index=Vocabulary
 
@@ -1700,7 +1774,7 @@ local Vocabulary={}; Vocabulary.__index=Vocabulary
 -- message naming the contract, rather than at whichever consumer happened to read it first.
 function Vocabulary.new(options)
     options=options or {}
-    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer}
+    local types={Int=B.Int,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}
     local representations={}
     local destroy={}
     for name,descriptor in pairs(options.resources or {}) do
@@ -1823,6 +1897,65 @@ function Vocabulary:type(name) return self.types[name] end
 function Vocabulary:host(name) return self.hosts[name] end
 function Vocabulary:destructor(name) return self.destroy[name] end
 function Vocabulary:representation(name) return self.representations[name] end
+
+-- §11.2: lower a declared type word to its belt type. `nil` means this boundary does not know
+-- the name yet -- either an unknown primitive or a `let`-bound type word, which becomes visible
+-- when types-as-words resolution lands. Arrow, sum, and record are structural and lower here.
+local function flatten_sum(node,into)
+    if A.Sum:isclassof(node) then flatten_sum(node.left,into); flatten_sum(node.right,into)
+    else into[#into+1]=node end
+end
+local function lower(self,node)
+    if not node then return nil end
+    if A.Ref:isclassof(node) then
+        if #node.arguments>0 then return nil end
+        return self.types[node.name]
+    end
+    if A.Arrow:isclassof(node) then
+        local from,to=lower(self,node.from),lower(self,node.to)
+        if not (from and to) then return nil end
+        return B.Arrow(from,to)
+    end
+    if A.Do:isclassof(node) then
+        local result=lower(self,node.result)
+        if not result then return nil end
+        return B.Do(result)
+    end
+    if A.Sum:isclassof(node) then
+        local nodes={}; flatten_sum(node,nodes); local alternatives=L(); local copy=true
+        for _,element in ipairs(nodes) do
+            local type_=lower(self,element); if not type_ then return nil end
+            alternatives:insert(type_); if not type_:copyable() then copy=false end
+        end
+        return B.Sum(alternatives,copy)
+    end
+    if A.Record:isclassof(node) then
+        local fields,complete=L(),true
+        for _,field in ipairs(node.fields) do
+            local type_=lower(self,field.type)
+            if not type_ then complete=false else fields:insert(B.Field(field.name,type_,field.mutable)) end
+        end
+        if not complete then return nil end
+        local copy=true
+        for _,field in ipairs(fields) do if field.mutable or not field.type:copyable() then copy=false end end
+        return B.Aggregate(fields,copy,nil)
+    end
+    if A.Tuple:isclassof(node) then
+        local fields,complete=L(),true
+        for _,element in ipairs(node.elements) do
+            local type_=lower(self,element)
+            if not type_ then complete=false else fields:insert(B.Field(nil,type_,false)) end
+        end
+        if not complete then return nil end
+        local copy=true
+        for _,field in ipairs(fields) do if not field.type:copyable() then copy=false end end
+        return B.Aggregate(fields,copy,nil)
+    end
+    -- A type-word application (e.g. `List Int`) needs a type constructor, which is not yet a
+    -- value; it lowers to nothing until types-as-words lands.
+    return nil
+end
+function Vocabulary:resolve_type(node) return lower(self,node) end
 
 return Vocabulary
 end
@@ -2251,7 +2384,7 @@ function Context:take_member(name,steps,span)
     end
     local at=binding.type
     for _,index in ipairs(indices) do
-        at=at.fields[index+1].type
+        at=at:record()[index+1].type
         value=self:emit(B.LoadField(self:ref(value),index),L{at},span)
     end
     -- §9.2: a Copy member owns no state to remove either, so the path stays initialized.
@@ -2277,41 +2410,173 @@ end
 function Context:validate_ownership(type_,span)
     if B.Named:isclassof(type_) then self:resource(type_,span)
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
-        for _,field in ipairs(type_.fields) do self:validate_ownership(field.type,span) end
+        for _,field in ipairs(type_:record()) do self:validate_ownership(field.type,span) end
     end
 end
--- The concrete belt type a constraint names, or nil when the constraint describes a shape
--- (`Copy`, `Executable`) rather than one type. A caller that only needs the type -- a host
--- entry, an inferred stage -- asks here instead of going through `constraint`, which
--- reports a shape it cannot bind to a type.
+-- The concrete belt type a type word names. Primitives and registered types come from the
+-- vocabulary; a `let`-bound word is a type word too, and denotes the type of its terminal result
+-- (§11.2). An unknown name names no type and returns nil.
+-- §11.3: lower a declared type word to a belt type. A `Ref` is a vocabulary type or a
+-- `let`-bound word; an `Apply` is a type word applied to type words by juxtaposition (`List Int`).
 function Context:constraint_type(annotation)
-    if not annotation then return nil end
-    return self.fn.vocabulary:type(annotation.name)
+    return self:resolve_type_expr(annotation,{})
 end
-function Context:constraint(annotation,type_,span)
+function Context:resolve_type_expr(node,env)
+    if not node then return nil end
+    if A.Ref:isclassof(node) then
+        if env[node.name] then return env[node.name] end
+        local type_=self.fn.vocabulary:resolve_type(node)
+        if type_ then return type_ end
+        return self:bound_type(node,env)
+    end
+    -- §11.5: a sum type literal (`Int | Text`) names its alternatives as expressions.
+    if A.Name:isclassof(node) then
+        if env[node.name] then return env[node.name] end
+        return self.fn.vocabulary.types[node.name]
+    end
+    -- §11.2: a generic type word applied to type words by juxtaposition. The word's stages must
+    -- be `Type` parameters; each argument is substituted and the terminal is evaluated as a type.
+    if A.Apply:isclassof(node) then
+        local args={}; local base=node
+        while A.Apply:isclassof(base) do table.insert(args,1,base.argument); base=base.constructor end
+        if not A.Ref:isclassof(base) then return nil end
+        local definition=self.resolved and self.resolved.type_refs[base]
+        local template=definition and definition.template
+        if not (template and self.builder) then return nil end
+        local layout=self.builder:layout(template)
+        if #layout.steps~=#args then return nil end
+        local bound={}
+        for i,step in ipairs(layout.steps) do
+            if self.fn.vocabulary:resolve_type(step.item.constraint)~=B.TypeWord then return nil end
+            local argument=self:resolve_type_expr(args[i],env)
+            if not argument then return nil end
+            bound[step.item.name]=argument
+        end
+        return self:word_terminal_type(template,bound)
+    end
+    if A.Arrow:isclassof(node) then
+        local from,to=self:resolve_type_expr(node.from,env),self:resolve_type_expr(node.to,env)
+        if not (from and to) then return nil end
+        return B.Arrow(from,to)
+    end
+    if A.Do:isclassof(node) then
+        local result=self:resolve_type_expr(node.result,env)
+        if not result then return nil end
+        return B.Do(result)
+    end
+    if A.Sum:isclassof(node) or A.SumType:isclassof(node) then
+        local nodes={}; self:flatten_sum(node,nodes)
+        local alternatives,copy=L(),true
+        for _,element in ipairs(nodes) do
+            local type_=self:resolve_type_expr(element,env)
+            if not type_ then return nil end
+            alternatives:insert(type_); if not type_:copyable() then copy=false end
+        end
+        return B.Sum(alternatives,copy)
+    end
+    if A.Record:isclassof(node) then
+        local fields,complete=L(),true
+        for _,field in ipairs(node.fields) do
+            local type_=self:resolve_type_expr(field.type,env)
+            if not type_ then complete=false else fields:insert(B.Field(field.name,type_,field.mutable)) end
+        end
+        if not complete then return nil end
+        local copy=true
+        for _,field in ipairs(fields) do if field.mutable or not field.type:copyable() then copy=false end end
+        return B.Aggregate(fields,copy,nil)
+    end
+    if A.Tuple:isclassof(node) then
+        local fields,complete=L(),true
+        for _,element in ipairs(node.elements) do
+            local type_=self:resolve_type_expr(element,env)
+            if not type_ then complete=false else fields:insert(B.Field(nil,type_,false)) end
+        end
+        if not complete then return nil end
+        local copy=true
+        for _,field in ipairs(fields) do if not field.type:copyable() then copy=false end end
+        return B.Aggregate(fields,copy,nil)
+    end
+    return nil
+end
+function Context:flatten_sum(node,into)
+    if A.Sum:isclassof(node) or A.SumType:isclassof(node) then self:flatten_sum(node.left,into); self:flatten_sum(node.right,into)
+    else into[#into+1]=node end
+end
+-- §11.2: a `let`-bound word as a type denotes its terminal result type.
+function Context:bound_type(node,env)
+    local definition=self.resolved and self.resolved.type_refs[node]
+    local template=definition and definition.template
+    local terminal=template and template.source.terminal
+    if terminal and A.Data:isclassof(terminal) then
+        local value=terminal.value
+        if A.Word:isclassof(value) then
+            local inner=self.resolved.chains[value.chain]
+            if inner then template=inner end
+        elseif A.SumType:isclassof(value) or A.Sum:isclassof(value) then
+            return self:resolve_type_expr(value,env or {})
+        end
+    end
+    if template and V.Contract then
+        return V.Contract.template(template,self.resolved,self.fn.vocabulary.types).result
+    end
+    return nil
+end
+-- The type a type word's terminal denotes: a stage aggregate is the record of its stages, with
+-- the type parameters substituted.
+function Context:word_terminal_type(template,env)
+    local terminal=template.source.terminal
+    if not (terminal and A.Data:isclassof(terminal) and A.Word:isclassof(terminal.value)) then return nil end
+    local fields,copy=L(),true
+    for _,item in ipairs(terminal.value.chain.items) do
+        if A.Stage:isclassof(item) then
+            local type_=self:resolve_type_expr(item.constraint,env)
+            if not type_ then return nil end
+            fields:insert(B.Field(item.name,type_,false))
+            if not type_:copyable() then copy=false end
+        end
+    end
+    if #fields==0 then return nil end
+    return B.Aggregate(fields,copy,nil)
+end
+function Context:check(annotation,type_,span)
     if not annotation then return type_ end
-    if #annotation.arguments>0 then gap(span,'specialized constraint words') end
-    if self:find(annotation.name) or self.fn.vocabulary:host(annotation.name) or (self.fn.self_visible and annotation.name==self.fn.name) then
-        fail(span,'constraint name is shadowed by a runtime binding')
-    end
-    if annotation.name=='Copy' and type_ then
-        if not type_:copyable() then fail(span,'constraint Copy is not satisfied') end; return type_
-    end
-    -- §11.2 `Executable` is a shape, not a type: the word an argument supplies *is* the type.
-    -- An entry that has no argument yet therefore has no type to bind, and returns nil so the
-    -- caller can say so (a host entry skips; advancement gets the type from the argument).
-    if annotation.name=='Executable' then
+    local name=A.Ref:isclassof(annotation) and annotation.name or nil
+    if name and #annotation.arguments>0 then gap(span,'specialized type words') end
+    local declared=self:constraint_type(annotation)
+    if not declared then gap(span,'type ' .. (name or 'expression')) end
+    -- §11.3: a word-typed stage holds a word. Its declared arrow (or runtime terminal) is the
+    -- word's signature; the supplied word's remaining signature must match. The stage keeps its
+    -- concrete word type, so invocation still works.
+    if B.Arrow:isclassof(declared) or B.Do:isclassof(declared) then
         if not type_ then return nil end
-        if not B.Word:isclassof(type_) then fail(span,'Executable requires an executable word') end
-        local template=self.resolved and self.resolved.templates[type_.template]
-        if template and not A.Body:isclassof(template.source.terminal) then
-            fail(span,'Executable requires a do terminal')
+        if not B.Word:isclassof(type_) then fail(span,'a word-typed stage needs a word') end
+        local actual=self:word_signature(type_)
+        if not (actual and actual:same(declared)) then
+            fail(span,'word signature mismatch: expected ' .. tostring(declared) .. ', got ' .. tostring(actual))
         end
         return type_
     end
-    local declared=self:constraint_type(annotation)
-    if not declared then gap(span,'constraint ' .. annotation.name) end
     if type_ then expect({type=type_},declared,span) end; return declared
+end
+-- The signature of a word value: its remaining stages as unary arrows, ending in its terminal.
+-- This is what a word-typed stage's declaration is checked against (§11.1).
+function Context:word_signature(type_)
+    local builder=self.builder
+    if not builder then return nil end
+    local template=builder.resolved.templates[type_.template]
+    if not template then return nil end
+    local layout=builder:layout(template)
+    local tail
+    if A.Body:isclassof(template.source.terminal) then tail=B.Do(layout.contract.result or B.Unit)
+    else tail=layout.contract.result end
+    if not tail then return nil end
+    for i=#layout.steps,type_.supplied+1,-1 do
+        local item=layout.steps[i].item
+        local stage_type=self:constraint_type(item.constraint)
+        if not stage_type then return nil end
+        tail=B.Arrow(stage_type,tail)
+    end
+    return tail
 end
 function Context:bind(name,value,mutable,owned,external,address,span)
     local scope=self.scopes[#self.scopes]
@@ -2492,8 +2757,8 @@ function Context:destroy(value,span,moved,prefix)
     elseif B.Named:isclassof(type_) then
         self:ordered(B.Destroy(self:ref(self.effect),self:ref(value),self:resource(type_,span).destroy),nil,span)
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
-        for index=#type_.fields,1,-1 do
-            local field=type_.fields[index]
+        for index=#type_:record(),1,-1 do
+            local field=type_:record()[index]
             local key=(prefix and prefix~='') and (prefix .. '.' .. (index-1)) or tostring(index-1)
             local state=moved and moved[key]
             if field.type:owns() and state~=true then
@@ -2613,7 +2878,10 @@ function Context:finish_function(body,extra)
     local blocks=self:blocks()
     return B.Function(self.fn.name,B.Signature(blocks[1].parameters,results),blocks)
 end
-function A.Expr:build() gap(self.span,'this expression form') end
+function A.Expr:build(ctx)
+    if A.SumType:isclassof(self) then return A.Sum.build(self,ctx) end
+    gap(self.span,'this expression form')
+end
 function A.Expr:tail(ctx) ctx:finish(self:build(ctx),self.span) end
 function A.Stmt:build() gap(self.span,'this statement form') end
 function A.Name:build(ctx)
@@ -2626,7 +2894,7 @@ function A.Name:build(ctx)
     -- The core numeric conversions are ordinary names (§13.3), so a binding or host above
     -- shadows them like any other dictionary entry.
     if self.name=='float' or self.name=='int' then return {conversion=self.name} end
-    if ctx.fn.vocabulary:type(self.name) or self.name=='Copy' or self.name=='Executable' then fail(self.span,'constraint word is not a runtime value') end
+    if ctx.fn.vocabulary:type(self.name) then fail(self.span,'constraint word is not a runtime value') end
     fail(self.span,'unknown name ' .. self.name)
 end
 function A.Integer:build(ctx)
@@ -2636,6 +2904,18 @@ end
 function A.Float:build(ctx) return ctx:emit(B.FloatLiteral(self.spelling),L{B.Float},self.span) end
 function A.Boolean:build(ctx) return ctx:boolean(self.value,self.span) end
 function A.Unit:build(ctx) return ctx:emit(B.UnitLiteral,L{B.Unit},self.span) end
+-- §11.5: a sum type word. Its value is a compile-time handle carrying the sum type; a module
+-- may carry it in state, and annotations and injections read the handle.
+function A.Sum:build(ctx)
+    local sum=ctx:resolve_type_expr(self,{})
+    if not sum then gap(self.span,'a sum type needs type words') end
+    local value=ctx:emit(B.Construct(L(),false),L{B.TypeWord},self.span)
+    value.sum=sum
+    value.mode='fresh'
+    return value
+end
+-- §11.5: the same sum type in expression position (`let Opt = Int | Text`).
+function A.SumType:build(ctx) return A.Sum.build(self,ctx) end
 function A.Text:build(ctx) return ctx:emit(B.TextLiteral(self.value),L{B.Text},self.span) end
 function A.Unary:build(ctx)
     if self.operator==A.Negate and A.Integer:isclassof(self.operand) then
@@ -2696,9 +2976,54 @@ end
 A.And.build=short; A.Or.build=short
 function A.Binary:build(ctx) return self.operator:build(ctx,self) end
 function A.Specialize:build(ctx)
+    -- §11.5: `T.left v` injects `v` into the sum type `T`. The member `T.left` builds an
+    -- injection handle, not a runtime word.
+    local word=self.word:build(ctx)
+    if word and word.injection then
+        local payload=self.argument:build(ctx)
+        if not payload.type then gap(self.argument.span,'a word value in a sum injection') end
+        return ctx:sum_inject(word.injection.sum,word.injection.index,payload,self.span,self.argument.span)
+    end
     local builder=ctx.builder
     if not builder then gap(self.span,'word specialization requires a program builder') end
     return builder:specialize(ctx,self)
+end
+-- §11.5: a sum value is a tagged record; injection fills the tag and the active field, and
+-- zero-fills the inactive ones.
+function Context:sum_inject(sum,index,payload,span,payload_span)
+    local fields=sum:record()
+    expect(payload,fields[index+2].type,payload_span or span)
+    local values=L()
+    for i,field in ipairs(fields) do
+        if i==1 then values:insert(self:emit(B.IntegerLiteral(tostring(index)),L{B.Int},span))
+        elseif i==index+2 then values:insert(payload)
+        else
+            local zero=self:zero_value(field.type,span)
+            if not zero then fail(span,'a sum alternative must be Copy (zero-fillable)') end
+            values:insert(zero)
+        end
+    end
+    local result=self:emit(B.Construct(self:refs(values),sum:copyable()),L{sum},span)
+    result.mode='fresh'
+    return result
+end
+-- A zero value for a Copy type, used to fill the inactive fields of a sum.
+function Context:zero_value(type_,span)
+    if type_==B.Int then return self:emit(B.IntegerLiteral('0'),L{B.Int},span) end
+    if type_==B.Bool then return self:boolean(false,span) end
+    if type_==B.Float then return self:emit(B.FloatLiteral('0.0'),L{B.Float},span) end
+    if type_==B.Text then return self:emit(B.TextLiteral(''),L{B.Text},span) end
+    if type_==B.Unit then return self:emit(B.UnitLiteral,L{B.Unit},span) end
+    if B.Aggregate:isclassof(type_) or B.Sum:isclassof(type_) then
+        local values=L()
+        for _,field in ipairs(type_:record()) do
+            local zero=self:zero_value(field.type,span)
+            if not zero then return nil end
+            values:insert(zero)
+        end
+        return self:emit(B.Construct(self:refs(values),type_:copyable()),L{type_},span)
+    end
+    return nil
 end
 local place_path
 function A.Move:build(ctx)
@@ -2767,7 +3092,7 @@ function A.Borrow:build(ctx)
             else
                 -- A runtime index in a borrowed path selects a *place*, so the selection joins
                 -- field addresses rather than values, and its members must share a type.
-                local fields=type_.fields
+                local fields=type_:record()
                 local key=step.expression:build(ctx); expect(key,B.Int,step.span)
                 local element=fields[1].type
                 local borrowed=B.Borrow(element,stable)
@@ -2797,6 +3122,10 @@ A.Chain.value=chain_value
 -- type and mutability, so the record's own type states its shape: projection, interior
 -- assignment and word-member invocation all read it from there (§8, §10.3, §11.3).
 function Context:construct_record(values,fields,span)
+    -- §11.2: a stage aggregate's constructor brands the record it builds, so a value carries the
+    -- constructor's identity and two same-shaped constructors are distinct types.
+    local nominal=self.nominal_constructor
+    self.nominal_constructor=nil
     local declared,copy=L(),true
     for i,field in ipairs(fields) do
         declared:insert(B.Field(field.name,field.type,field.mutable))
@@ -2813,13 +3142,13 @@ function Context:construct_record(values,fields,span)
             end
         end
     end
-    local result=self:emit(B.Construct(self:refs(values),copy),L{B.Aggregate(declared,copy)},span)
+    local result=self:emit(B.Construct(self:refs(values),copy),L{B.Aggregate(declared,copy,nominal)},span)
     result.mode='fresh'
     return result
 end
 
 function Context:record_field(record,name,span)
-    local fields=record.fields
+    local fields=record:record()
     if not fields then fail(span,'this value has no members') end
     for index,field in ipairs(fields) do if field.name==name then return index,field end end
     fail(span,'no member ' .. name)
@@ -2830,7 +3159,7 @@ end
 -- what the selection means. `span` locates a non-aggregate failure (some callers blame the
 -- whole path) and `message` is theirs because each place form names itself.
 function Context:member_step(type_,step,span,message)
-    local fields=type_.fields
+    local fields=type_:record()
     if not fields then fail(span,message) end
     local index
     if step.name then
@@ -2906,7 +3235,7 @@ end
 function Context:ensure_word(record,span,writable)
     local type_=record.type
     if not B.Word:isclassof(type_) then return nil end
-    for _,field in ipairs(type_.fields) do
+    for _,field in ipairs(type_:record()) do
         if field.mutable and not writable then
             gap(span,'invoking a word with mutable state through a read-only view')
         end
@@ -2914,7 +3243,7 @@ function Context:ensure_word(record,span,writable)
     local template=self.builder and self.builder.resolved.templates[type_.template]
     if not template then gap(span,'word value with an unknown template') end
     local fields={}
-    for i,field in ipairs(type_.fields) do
+    for i,field in ipairs(type_:record()) do
         fields[i]={name=field.name,type=field.type,mutable=field.mutable,owned=false,retained=true,span=span,
             value=self:emit(B.LoadField(self:ref(record),i-1),L{field.type},span)}
     end
@@ -2935,6 +3264,18 @@ function A.Project:build(ctx)
         if member.conversion then return {conversion=member.conversion} end
         if member.signature then return {host=member} end
         gap(self.span,'a namespace member here is not a runtime word')
+    end
+    -- §11.5: a member of a sum type word is an injection (`left`/`right`/`f<i>`).
+    if A.Name:isclassof(self.base) then
+        local id=ctx:find(self.base.name)
+        local base=id and ctx.cells[id].value
+        if base and base.sum then
+            if self.name=='tag' then fail(self.span,'a sum tag is read from a value, not a type word') end
+            for index,field in ipairs(base.sum:record()) do
+                if field.name==self.name then return {injection={sum=base.sum,index=index-2}} end
+            end
+            fail(self.span,'no sum member ' .. self.name)
+        end
     end
     local root,steps=place_path(self)
     local id=root and ctx:find(root)
@@ -2986,7 +3327,7 @@ function A.Index:build(ctx)
         ctx.intermediate=true; base=self.base:build(ctx); ctx.intermediate=nil
     end
     if base.host then gap(self.span,'indexing requires a value') end
-    local fields=base.type.fields
+    local fields=base.type:record()
     if not fields then fail(self.span,'indexing requires an aggregate value') end
     local index=static
     if index then
@@ -3020,7 +3361,7 @@ function A.Binding:build(ctx)
         value=self.value.terminal:build(ctx)
     end
     if value.host then gap(self.span,'stored host words') end
-    ctx:constraint(self.constraint,value.type,self.span); ctx:accept_owned(value,self.span)
+    ctx:check(self.constraint,value.type,self.span); ctx:accept_owned(value,self.span)
     ctx:validate_ownership(value.type,self.span)
     local definition=ctx.resolved and ctx.resolved.bindings[self]
     -- A binding becomes a place when its address is asked for, and also when a nested word
@@ -3086,7 +3427,7 @@ function A.Assign:assign_place(ctx)
     -- indexes, which is what makes each load and store below well typed.
     local suffix,levels,leaf={}, {},type_
     if dynamic>0 then
-        local members=records[dynamic].type.fields
+        local members=records[dynamic].type:record()
         leaf=ctx:member_type(members,self.span)
         for i=dynamic+1,#steps do
             local step=steps[i]
@@ -3134,7 +3475,7 @@ function A.Assign:assign_place(ctx)
             chain[1]=parent
         end
         for i=1,#suffix do
-            chain[i+1]=c:emit(B.LoadField(c:ref(chain[i]),suffix[i]),L{levels[i].fields[suffix[i]+1].type},self.span)
+            chain[i+1]=c:emit(B.LoadField(c:ref(chain[i]),suffix[i]),L{levels[i]:record()[suffix[i]+1].type},self.span)
         end
         -- The value being replaced is the member itself when the path stops at the index,
         -- and the last level the suffix reached otherwise. Releasing the container instead
@@ -3177,7 +3518,7 @@ function A.Assign:assign_place(ctx)
     if dynamic==0 then
         updated=replace(ctx,positions[#steps],value)
     else
-        updated=ctx:select_member(key,parent.type.fields,records[1].type,self.span,
+        updated=ctx:select_member(key,parent.type:record(),records[1].type,self.span,
             function(c,at) return replace(c,at,value) end)
     end
     if updated then
@@ -3413,7 +3754,7 @@ end
 -- entry deliver the same shape and ownership for `mut` and `own mut`.
 -- and a host entry deliver the same shape and ownership for `mut` and `own mut`.
 function A.Stage:bind_parameter(ctx,index,options)
-    local type_=ctx:constraint(self.constraint,options.parameters and options.parameters[index],self.span)
+    local type_=ctx:check(self.constraint,nil,self.span)
     if not type_ then gap(self.span,'stage type inference from uses; supply a concrete parameter type') end
     if self.capability==A.Mut and not type_:copyable() then gap(self.span,'mutable borrowed resource stages') end
     ctx:validate_ownership(type_,self.span)
@@ -3848,8 +4189,8 @@ function Lexer:next()
         return Source.Token('integer',spelling,nil,span)
     end
     local two=rest:sub(1,2)
-    if two=='==' or two=='!=' or two=='<=' or two=='>=' then self:advance(); self:advance(); return Source.Token(two,two,nil,span) end
-    if c:match('^[=;(),{}%[%].:+*/%%<>%-]$') then self:advance(); return Source.Token(c,c,nil,span) end
+    if two=='==' or two=='!=' or two=='<=' or two=='>=' or two=='->' then self:advance(); self:advance(); return Source.Token(two,two,nil,span) end
+    if c:match('^[=;(),{}%[%].:+*/%%<>%-|]$') then self:advance(); return Source.Token(c,c,nil,span) end
     local bad=self:advance(); Lexer.fail(span,'unexpected character ' .. string.format('%q',bad))
 end
 function Lexer:scan()
@@ -3897,25 +4238,72 @@ function Parser:assignment_ahead()
         else return self.tokens[at].kind=='=' end
     end
 end
-function Parser:constraint()
+-- A record type member is a stage: `let x : T`.
+-- §3 type expressions. Arrow and sum bind outside the name+arguments atom; a record is either
+-- keyed (`{ x : Int }`) or positional (`{ Int, Text }`). The name+arguments atom keeps the
+-- existing annotation shape, so a plain `Int` or `List Int` lowers unchanged.
+function Parser:type_expression() return self:arrow_type() end
+function Parser:arrow_type()
+    local left=self:sum_type()
+    if self:accept('->') then local span=self:token().span; return A.Arrow(left,self:arrow_type(),span) end
+    return left
+end
+function Parser:sum_type()
+    local left=self:apply_type()
+    while self:accept('|') do local span=self:token().span; left=A.Sum(left,self:apply_type(),span) end
+    return left
+end
+-- §3.1: type-word application is **juxtaposition**, the same operation that specializes a value
+-- word: `List Int` applies `List` to the type word `Int`. It is not invocation -- a type word's
+-- terminal is data, so `List(Int)` would be invocation of data (§6.1).
+function Parser:apply_type()
+    local left=self:atom_type()
+    while self:is('name') or self:is('(') do left=A.Apply(left,self:atom_type(),left.span) end
+    return left
+end
+function Parser:atom_type()
+    if self:accept('(') then local inner=self:type_expression(); self:expect(')'); return inner end
+    if self:is('{') then return self:record_type() end
+    -- §11.1: a runtime terminal type, written `do T`, is the codomain of a word type.
+    local do_=self:accept('do')
+    if do_ then return A.Do(self:type_expression(),do_.span) end
+    -- A type word by name, with an optional literal C spelling (`Int "int"`).
     local name=self:expect('name'); local arguments=L()
-    while true do
-        if self:is('name') then local token=self:take(); arguments:insert(A.Name(token.spelling,token.span))
-        elseif self:is('integer') or self:is('text') or self:is('true') or self:is('false') then arguments:insert(self:atom())
-        elseif self:accept('(') then
-            local span=self:token().span; local nested=self:constraint(); self:expect(')')
-            local value=A.Name(nested.name,span)
-            for _,argument in ipairs(nested.arguments) do value=A.Specialize(value,argument,span) end
-            arguments:insert(value)
-        else break end
+    while self:is('integer') or self:is('text') or self:is('true') or self:is('false') do arguments:insert(self:atom()) end
+    return A.Ref(name.spelling,arguments,name.span)
+end
+-- §3.3/§11.2: a record type is the regular aggregate form -- the same braces and `let` members,
+-- with a member's type where a value aggregate writes a value. `let x : T` is a stage, so the
+-- aggregate is a word awaiting its fields (a constructor and its type); `let x = v` is a value.
+function Parser:record_type()
+    local span=self:expect('{').span
+    self:separators()
+    if self:accept('}') then return A.Record(L(),span) end
+    if self:is('let') then
+        local fields=L()
+        repeat
+            self:expect('let')
+            local name=self:expect('name')
+            local mutable=self:accept('mut')~=nil
+            if not self:accept(':') then fail(name.span,'a record type member needs : type') end
+            fields:insert(A.TypeField(name.spelling,mutable,self:type_expression(),name.span))
+            self:separators()
+        until not self:is('let')
+        self:expect('}'); return A.Record(fields,span)
     end
-    return A.Constraint(name.spelling,arguments)
+    local elements=L()
+    while true do
+        elements:insert(self:type_expression())
+        if not self:accept(',') then break end
+        if self:is('}') then break end
+    end
+    self:expect('}'); return A.Tuple(elements,span)
 end
 function Parser:header()
     local span=self:expect('let').span; local name=self:expect('name').spelling
     local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
     if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
-    local constraint=self:accept(':') and self:constraint() or nil
+    local constraint=self:accept(':') and self:type_expression() or nil
     return name,own,mutable,constraint,span
 end
 function Parser:binding()
@@ -3936,6 +4324,7 @@ function Parser:items()
                 if own then fail(at,'own is only valid on an unsatisfied stage') end
                 self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at)))
             else
+                if not constraint then fail(at,'a stage must declare its type word') end
                 local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
                 items:insert(A.Stage(name,cap,constraint,at))
             end
@@ -3959,14 +4348,14 @@ function Parser:extern_item()
         repeat parameters:insert(self:extern_parameter()) until not self:accept(',')
     end
     self:expect(')')
-    local result=self:accept(':') and self:constraint() or nil
+    local result=self:accept(':') and self:type_expression() or nil
     return A.Extern(name,pure,symbol,parameters,result,span)
 end
 function Parser:extern_parameter()
     local span=self:token().span; local name=self:expect('name').spelling
     local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
     if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
-    local constraint=self:accept(':') and self:constraint() or nil
+    local constraint=self:accept(':') and self:type_expression() or nil
     local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
     return A.Stage(name,cap,constraint,span)
 end
@@ -3977,7 +4366,7 @@ function Parser:chain(optional_terminal)
     local span=self:token().span
     local items=self:items()
     local terminal
-    if self:is('do') then terminal=A.Body(self:body())
+    if self:is('do') then terminal=A.Body(self:body(true))
     elseif optional_terminal and self:is('eof') then terminal=nil
     else terminal=A.Data(self:transfer()) end
     return A.Chain(items,terminal,span)
@@ -3995,8 +4384,27 @@ function Parser:region(stops)
     end
     return statements
 end
-function Parser:body()
-    self:expect('do'); local body=self:region({['end']=true}); self:expect('end'); return body
+function Parser:body(require_result)
+    local span=self:expect('do').span
+    -- §3.1: a runtime terminal must state its result. Its result type is parsed without top-level
+    -- juxtaposition, because the body follows immediately and may start with a name; write
+    -- `do : (List Int)` for an applied result type.
+    local result=self:accept(':') and self:result_type() or nil
+    if require_result and not result then fail(span,'a runtime terminal must state its result with do : T') end
+    local body=self:region({['end']=true}); self:expect('end'); return body,result
+end
+-- A result type: names, arrows, sums, records and `do` -- but no bare adjacency, so a terminal's
+-- body cannot be swallowed by a type-word application.
+function Parser:result_type() return self:result_arrow() end
+function Parser:result_arrow()
+    local left=self:result_sum()
+    if self:accept('->') then local span=self:token().span; return A.Arrow(left,self:result_arrow(),span) end
+    return left
+end
+function Parser:result_sum()
+    local left=self:atom_type()
+    while self:accept('|') do local span=self:token().span; left=A.Sum(left,self:atom_type(),span) end
+    return left
 end
 function Parser:conditional(span)
     local condition=self:expression(); self:expect('do')
@@ -4052,7 +4460,7 @@ function Parser:statement()
     if self:accept('break') then return A.Break(token.span) end
     if self:accept('continue') then return A.Continue(token.span) end
     if self:accept('switch') then return self:selection(token.span) end
-    if self:accept('while') then local condition=self:expression(); return A.While(condition,self:body(),token.span) end
+    if self:accept('while') then local condition=self:expression(); return A.While(condition,self:body(false),token.span) end
     -- §7.3 makes any expression a statement, and §9.2 admits `move place` as an
     -- expression. A leading `move` is otherwise recognized only where a transfer
     -- value is expected, so `move a.x` as a statement would be read as a
@@ -4065,6 +4473,19 @@ function Parser:statement()
         local place=self:place(); self:expect('='); self:separators(); return A.Assign(place,self:value(),token.span)
     end
     return A.Discard(self:expression(),token.span)
+end
+-- §11.2: an aggregate whose members are stages is a word that awaits its fields. Its terminal
+-- constructs the record from the supplied stages, so the aggregate is both the type and its
+-- constructor. A `let x = v` member is a prelude and stays in the chain.
+function Parser:aggregate_word(items,span)
+    local members=L()
+    for _,item in ipairs(items) do
+        local name=A.Stage:isclassof(item) and item.name or item.binding.name
+        local at=A.Stage:isclassof(item) and item.span or item.binding.span
+        local value=A.Data(A.Name(name,at))
+        members:insert(A.Binding(name,false,nil,A.Chain(L(),value,at),at))
+    end
+    return A.Chain(items,A.Data(A.NamedAggregate(members,true,span)),span)
 end
 function Parser:named_members()
     local members=L()
@@ -4079,12 +4500,26 @@ function Parser:aggregate()
     else
         local named_error
         if self:is('let') then
-            -- A positional element can itself be a chain beginning with a prelude.
-            -- Prefer a complete named aggregate; otherwise parse a binding-value list.
-            -- Memoized nested aggregates prevent exponential re-parsing.
+            -- §3.3: the regular aggregate form. Members are preludes (`let x = v`) or stages
+            -- (`let x : T`). All preludes is a data value; any stage makes the aggregate a word
+            -- -- a constructor awaiting its fields, which is also how a record type is written.
             local trial=setmetatable({tokens=self.tokens,pos=self.pos,aggregates=self.aggregates},Parser)
-            local ok,members=pcall(function() return trial:named_members() end)
-            if ok then self.pos=trial.pos; value=A.NamedAggregate(members,span) else named_error=members end
+            local ok,items=pcall(function()
+                local parsed=trial:items()
+                trial:expect('}')
+                return parsed
+            end)
+            if ok then
+                self.pos=trial.pos
+                local staged=false
+                for _,item in ipairs(items) do if A.Stage:isclassof(item) then staged=true end end
+                if staged then value=A.Word(self:aggregate_word(items,span),span)
+                else
+                    local members=L()
+                    for _,item in ipairs(items) do members:insert(item.binding) end
+                    value=A.NamedAggregate(members,false,span)
+                end
+            else named_error=items end
         end
         if not value then
             self.pos=body
@@ -4146,6 +4581,7 @@ function Parser:prefix()
     return value
 end
 local operators={
+    ['|']={0,A.Sum},
     ['or']={1,A.Or},['and']={2,A.And},
     ['==']={3,A.Equal},['!=']={3,A.NotEqual},
     ['<']={4,A.Less},['<=']={4,A.LessEqual},['>']={4,A.Greater},['>=']={4,A.GreaterEqual},
@@ -4153,12 +4589,22 @@ local operators={
     ['*']={6,A.Multiply},['/']={6,A.Divide},['%']={6,A.Remainder}
 }
 function Parser:expression(minimum)
-    minimum=minimum or 1; local left=self:prefix(); local used={}
+    minimum=minimum or 0; local left=self:prefix(); local used={}
     while true do
         local token=self:token(); local op=operators[token.kind]
         if not op or op[1]<minimum then return left end
         if (op[1]==3 or op[1]==4) and used[op[1]] then fail(token.span,'chained comparison is invalid') end
-        used[op[1]]=true; self:take(); left=A.Binary(op[2],left,self:expression(op[1]+1),token.span)
+        used[op[1]]=true; self:take()
+        local right=self:expression(op[1]+1)
+        -- §11.5: `A | B` is a sum type, a word-level operator, not an arithmetic one. Its
+        -- operands are type words; an expression-position name becomes a type-word `Ref`.
+        if op[2]==A.Sum then
+            local function as_type(node)
+                if A.Name:isclassof(node) then return A.Ref(node.name,L(),node.span) end
+                return node
+            end
+            left=A.SumType(as_type(left),as_type(right),token.span)
+        else left=A.Binary(op[2],left,right,token.span) end
     end
 end
 function Parser:transfer()
@@ -4184,13 +4630,21 @@ function A.Index:check_literals() self.base:check_literals(); self.index:check_l
 function A.Move:check_literals() self.place:check_literals() end
 function A.Borrow:check_literals() self.place:check_literals() end
 function A.Constraint:check_literals() visit(self.arguments) end
+function A.Arrow:check_literals() self.from:check_literals(); self.to:check_literals() end
+function A.Sum:check_literals() self.left:check_literals(); self.right:check_literals() end
+function A.SumType:check_literals() self.left:check_literals(); self.right:check_literals() end
+function A.Do:check_literals() self.result:check_literals() end
+function A.Record:check_literals() visit(self.fields) end
+function A.Tuple:check_literals() visit(self.elements) end
+function A.TypeField:check_literals() self.type:check_literals() end
+function A.Apply:check_literals() self.constructor:check_literals(); self.argument:check_literals() end
 function A.Binding:check_literals() if self.constraint then self.constraint:check_literals() end; self.value:check_literals() end
 function A.Stage:check_literals() if self.constraint then self.constraint:check_literals() end end
 function A.Prelude:check_literals() self.binding:check_literals() end
 function A.Extern:check_literals() visit(self.parameters); if self.result then self.result:check_literals() end end
 function A.Chain:check_literals() visit(self.items); if self.terminal then self.terminal:check_literals() end end
 function A.Data:check_literals() self.value:check_literals() end
-function A.Body:check_literals() visit(self.statements) end
+function A.Body:check_literals() visit(self.statements); if self.result then self.result:check_literals() end end
 function A.Local:check_literals() self.binding:check_literals() end
 function A.Assign:check_literals() self.place:check_literals(); self.value:check_literals() end
 function A.Return:check_literals() if self.value then self.value:check_literals() end end
@@ -4360,6 +4814,7 @@ function Context:import_file(node,scope)
 end
 function A.Body:resolve_terminal(ctx,scope,outer,self_definition)
     local template=ctx.current; template.self=self_definition
+    if self.result then self.result:resolve(ctx,scope,template.source.span) end
     -- Self is a fallback behind stage/prelude names, ahead of outer declarations.
     -- It is never published into initializer/prelude scopes.
     local self_scope=ctx:scope(outer)
@@ -4369,13 +4824,21 @@ function A.Body:resolve_terminal(ctx,scope,outer,self_definition)
     template.body_scope=ctx:region(self.statements,bindings)
 end
 function A.Data:resolve_terminal(ctx,scope) self.value:resolve(ctx,scope) end
-function A.Constraint:resolve(ctx,scope,span)
-    -- Phase/shape checking follows lexical resolution. Arguments can name semantic
-    -- descriptions of stages; being a runtime binding does not itself reject them.
-    local head={span=span}; ctx:use(scope,self.name,head,'constraint')
-    ctx.constraints[self]=ctx.references[head][1]
+function A.Ref:resolve(ctx,scope,span)
+    -- §11: a type word resolves as an ordinary name. Whether it names a known type word is a
+    -- vocabulary question, answered when the annotation is checked, not here.
+    local head={span=span}; local definition=ctx:use(scope,self.name,head,'type')
+    ctx.type_refs[self]=definition
     for _,argument in ipairs(self.arguments) do argument:resolve(ctx,scope) end
 end
+-- §11 type words: an arrow, sum, record, or tuple resolves its type words; a plain name is Ref.
+function A.Arrow:resolve(ctx,scope,span) self.from:resolve(ctx,scope,span); self.to:resolve(ctx,scope,span) end
+function A.Sum:resolve(ctx,scope,span) self.left:resolve(ctx,scope,span); self.right:resolve(ctx,scope,span) end
+function A.Do:resolve(ctx,scope,span) self.result:resolve(ctx,scope,span) end
+function A.Record:resolve(ctx,scope,span) for _,field in ipairs(self.fields) do field:resolve(ctx,scope,span) end end
+function A.Tuple:resolve(ctx,scope,span) for _,element in ipairs(self.elements) do element:resolve(ctx,scope,span) end end
+function A.TypeField:resolve(ctx,scope,span) self.type:resolve(ctx,scope,span) end
+function A.Apply:resolve(ctx,scope,span) self.constructor:resolve(ctx,scope,span); self.argument:resolve(ctx,scope,span) end
 function A.Binding:resolve(ctx,scope)
     local definition=ctx:definition(self.name,'binding',self,ctx.current)
     if self.constraint then self.constraint:resolve(ctx,scope,self.span) end
@@ -4390,6 +4853,13 @@ function A.Binding:resolve(ctx,scope)
         error(template,0)
     end
     definition.template=template
+    -- §11.2: a binding whose value is a word value names that word, so an aggregate type and
+    -- its constructor share the binding's name for nominal identity.
+    local terminal=template.source.terminal
+    if A.Data:isclassof(terminal) and A.Word:isclassof(terminal.value) then
+        local inner=ctx.chains[terminal.value.chain]
+        if inner then inner.name=definition.name end
+    end
     ctx:publish(scope,definition,self.span); return definition
 end
 function A.Stage:resolve(ctx,scope,index)
@@ -4407,7 +4877,11 @@ function A.Extern:resolve(ctx,scope)
     for _,stage in ipairs(self.parameters) do if stage.constraint then stage.constraint:resolve(ctx,scope,stage.span) end end
     if self.result then self.result:resolve(ctx,scope,self.span) end
 end
-function A.Expr:resolve() error('missing lexical resolver for expression',0) end
+function A.Expr:resolve(ctx,scope)
+    -- §11.5: a sum type literal is an Expr alternative without its own resolver method.
+    if A.SumType:isclassof(self) then self.left:resolve(ctx,scope); self.right:resolve(ctx,scope); return end
+    error('missing lexical resolver for expression',0)
+end
 function A.Integer:resolve() end
 function A.Float:resolve() end
 function A.Boolean:resolve() end
@@ -4505,16 +4979,18 @@ local function dictionary(ctx,parent,entries)
 end
 function A.Program:resolve(options)
     options=options or {}
-    local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},constraints={},scopes={},templates={},
+    local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},type_refs={},scopes={},templates={},
         imports={},import_words={},importing={},namespace_members={},import_resolver=options.resolve,file=self.file.span.file},Context)
+    -- §11: the primitive type words are ordinary names, not a phase; the vocabulary decides
+    -- what a type word means at a boundary.
     local builtins={}
-    for _,name in ipairs{'Bool','Int','Float','Unit','Text','Copy','Executable','CString','CPointer'} do builtins[name]={phase='constraint'} end
+    for _,name in ipairs{'Bool','Int','Float','Unit','Text','CString','CPointer','Type'} do builtins[name]={type=true} end
     -- The core numeric conversions are runtime words (§13.3), shadowable like any binding.
     for _,name in ipairs{'float','int'} do builtins[name]={phase='runtime'} end
     local outer=dictionary(ctx,nil,builtins)
     outer=dictionary(ctx,outer,options.dictionary or {})
     local resources={}
-    for name,descriptor in pairs(options.resources or {}) do resources[name]={phase='constraint',resource=descriptor} end
+    for name,descriptor in pairs(options.resources or {}) do resources[name]={resource=descriptor} end
     outer=dictionary(ctx,outer,resources)
     outer=dictionary(ctx,outer,options.hosts or {})
     -- Construction-phase entries are dictionary names, not reserved words.
@@ -4574,7 +5050,7 @@ function Builder:layout(template)
     for index,item in ipairs(template.source.items) do
         if A.Stage:isclassof(item) then
             items[index]={kind='stage',name=item.name,capability=item.capability,constraint=item.constraint,span=item.span,
-                definition=self.resolved.bindings[item],inferred=contract.stages[self.resolved.bindings[item]]}
+                definition=self.resolved.bindings[item]}
         elseif A.Prelude:isclassof(item) then
             local binding=item.binding
             items[index]={kind='prelude',name=binding.name,mutable=binding.mutable,span=binding.span,definition=self.resolved.bindings[binding]}
@@ -4731,7 +5207,7 @@ function Builder:advance(ctx,value,supplied,span,destination,complete)
     local mut=item.capability==A.Mut
     -- A mutable stage is a place, so what its constraint describes is the place's contents,
     -- not the borrow that reaches them.
-    local type_=ctx:constraint(item.constraint,mut and supplied.type.pointee or supplied.type,span)
+    local type_=ctx:check(item.constraint,mut and supplied.type.pointee or supplied.type,span)
     if type_ then
         if mut then expect({type=supplied.type.pointee,origin=supplied.origin},type_,span)
         else expect(supplied,type_,span) end
@@ -4779,7 +5255,17 @@ end
 function Builder:terminal_value(ctx,template)
     local terminal=template.source.terminal
     if terminal==nil then return self:namespace_record(ctx,template) end
-    if A.Data:isclassof(terminal) then return terminal.value:build(ctx) end
+    if A.Data:isclassof(terminal) then
+        -- §11.2: an aggregate of stages is a constructor, so the record it builds carries the
+        -- constructor's binding name as its nominal identity.
+        local previous=ctx.nominal_constructor
+        if A.NamedAggregate:isclassof(terminal.value) and terminal.value.nominal then
+            ctx.nominal_constructor=template.name
+        end
+        local value=terminal.value:build(ctx)
+        ctx.nominal_constructor=previous
+        return value
+    end
     return nil
 end
 
@@ -5208,10 +5694,9 @@ function Builder:host_entry(name,value,span)
         local item=layout.steps[i].item
         -- A declared type is the contract; otherwise the terminal body may force one. A
         -- `Copy` stage whose forced type is not copyable cannot be published.
-        local type_=resolve:constraint_type(item.constraint) or item.inferred
-        if type_ and item.constraint and item.constraint.name=='Copy' and not type_:copyable() then
-            type_=nil
-        end
+        local type_=resolve:constraint_type(item.constraint)
+        -- §15.1: a word-typed stage has no host ABI (no closure layout), so it publishes no entry.
+        if type_ and (B.Arrow:isclassof(type_) or B.Do:isclassof(type_) or type_==B.TypeWord) then type_=nil end
         if not type_ then
             return nil,'stage ' .. tostring(item.name) .. ' has no type without an argument'
         end
@@ -5299,13 +5784,18 @@ function Builder:build()
             -- entry is skipped and the reason recorded.
             local before=#self.functions
             local ok,entry,reason=pcall(self.host_entry,self,export.name,export.value,export.span)
-            if ok and entry then self.host_entries[#self.host_entries+1]=entry
+            if not ok then
+                -- An error while offering the entry is a program error -- a type mismatch, an
+                -- ownership violation -- not a missing ABI. Surface it rather than skipping.
+                error(entry,0)
+            end
+            if entry then self.host_entries[#self.host_entries+1]=entry
             else
-                -- A failed entry may already have interned the functions it built on the way down,
-                -- so both the function slots and the cache entries naming them are dropped.
+                -- A deliberate no-entry: the word is legal but offers no ABI (a word-typed stage,
+                -- an argument-determined stage). Record the reason for tooling.
                 for i=before+1,#self.functions do self.functions[i]=nil end
                 for key,id in pairs(self.entries) do if id>before then self.entries[key]=nil end end
-                self.host_entry_skips[export.name]= ok and reason or tostring(entry):gsub('^.*: ','')
+                self.host_entry_skips[export.name]=reason
             end
         end
     end
@@ -6259,6 +6749,8 @@ function Emitter:ctype(type_)
         if #type_.fields==0 then return C.U8 end
         return C.Named(self:register_struct(type_.fields))
     end
+    if B.Sum:isclassof(type_) then return C.Named(self:register_struct(type_:record())) end
+    if type_==B.TypeWord then return C.U8 end
     self:error('no representation for ' .. tostring(type_))
 end
 
@@ -6321,7 +6813,7 @@ function Emitter:constant(answer)
     if type_==B.Bool then return C.Boolean(answer.value) end
     if type_==B.Unit then return C.Integer(0,0) end
     if type_==B.Text then return C.Compound(self:ctype(B.Text),L{C.String(answer.value),C.Integer(0,#answer.value)}) end
-    if B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) then
+    if B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) or B.Sum:isclassof(type_) then
         if #answer.value.fields==0 then return C.Integer(0,0) end
         local fields=L()
         for _,field in ipairs(answer.value.fields) do fields:insert(self:constant(field)) end

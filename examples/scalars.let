@@ -1,7 +1,7 @@
 // Exported runtime words have scalar stage annotations.
 let fibonacci =
     let n : Int
-    do
+    do : Int
         let i mut = 0
         let a mut = 0
         let b mut = 1
@@ -17,8 +17,8 @@ let fibonacci =
 let multiply =
     let x : Int
     let y : Int
-    do return x * y end
+    do : Int return x * y end
 
 let double = multiply 2
-let answer = do return double(21) end
+let answer = do : Int return double(21) end
 

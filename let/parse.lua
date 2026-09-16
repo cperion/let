@@ -30,25 +30,72 @@ function Parser:assignment_ahead()
         else return self.tokens[at].kind=='=' end
     end
 end
-function Parser:constraint()
+-- A record type member is a stage: `let x : T`.
+-- §3 type expressions. Arrow and sum bind outside the name+arguments atom; a record is either
+-- keyed (`{ x : Int }`) or positional (`{ Int, Text }`). The name+arguments atom keeps the
+-- existing annotation shape, so a plain `Int` or `List Int` lowers unchanged.
+function Parser:type_expression() return self:arrow_type() end
+function Parser:arrow_type()
+    local left=self:sum_type()
+    if self:accept('->') then local span=self:token().span; return A.Arrow(left,self:arrow_type(),span) end
+    return left
+end
+function Parser:sum_type()
+    local left=self:apply_type()
+    while self:accept('|') do local span=self:token().span; left=A.Sum(left,self:apply_type(),span) end
+    return left
+end
+-- §3.1: type-word application is **juxtaposition**, the same operation that specializes a value
+-- word: `List Int` applies `List` to the type word `Int`. It is not invocation -- a type word's
+-- terminal is data, so `List(Int)` would be invocation of data (§6.1).
+function Parser:apply_type()
+    local left=self:atom_type()
+    while self:is('name') or self:is('(') do left=A.Apply(left,self:atom_type(),left.span) end
+    return left
+end
+function Parser:atom_type()
+    if self:accept('(') then local inner=self:type_expression(); self:expect(')'); return inner end
+    if self:is('{') then return self:record_type() end
+    -- §11.1: a runtime terminal type, written `do T`, is the codomain of a word type.
+    local do_=self:accept('do')
+    if do_ then return A.Do(self:type_expression(),do_.span) end
+    -- A type word by name, with an optional literal C spelling (`Int "int"`).
     local name=self:expect('name'); local arguments=L()
-    while true do
-        if self:is('name') then local token=self:take(); arguments:insert(A.Name(token.spelling,token.span))
-        elseif self:is('integer') or self:is('text') or self:is('true') or self:is('false') then arguments:insert(self:atom())
-        elseif self:accept('(') then
-            local span=self:token().span; local nested=self:constraint(); self:expect(')')
-            local value=A.Name(nested.name,span)
-            for _,argument in ipairs(nested.arguments) do value=A.Specialize(value,argument,span) end
-            arguments:insert(value)
-        else break end
+    while self:is('integer') or self:is('text') or self:is('true') or self:is('false') do arguments:insert(self:atom()) end
+    return A.Ref(name.spelling,arguments,name.span)
+end
+-- §3.3/§11.2: a record type is the regular aggregate form -- the same braces and `let` members,
+-- with a member's type where a value aggregate writes a value. `let x : T` is a stage, so the
+-- aggregate is a word awaiting its fields (a constructor and its type); `let x = v` is a value.
+function Parser:record_type()
+    local span=self:expect('{').span
+    self:separators()
+    if self:accept('}') then return A.Record(L(),span) end
+    if self:is('let') then
+        local fields=L()
+        repeat
+            self:expect('let')
+            local name=self:expect('name')
+            local mutable=self:accept('mut')~=nil
+            if not self:accept(':') then fail(name.span,'a record type member needs : type') end
+            fields:insert(A.TypeField(name.spelling,mutable,self:type_expression(),name.span))
+            self:separators()
+        until not self:is('let')
+        self:expect('}'); return A.Record(fields,span)
     end
-    return A.Constraint(name.spelling,arguments)
+    local elements=L()
+    while true do
+        elements:insert(self:type_expression())
+        if not self:accept(',') then break end
+        if self:is('}') then break end
+    end
+    self:expect('}'); return A.Tuple(elements,span)
 end
 function Parser:header()
     local span=self:expect('let').span; local name=self:expect('name').spelling
     local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
     if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
-    local constraint=self:accept(':') and self:constraint() or nil
+    local constraint=self:accept(':') and self:type_expression() or nil
     return name,own,mutable,constraint,span
 end
 function Parser:binding()
@@ -69,6 +116,7 @@ function Parser:items()
                 if own then fail(at,'own is only valid on an unsatisfied stage') end
                 self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at)))
             else
+                if not constraint then fail(at,'a stage must declare its type word') end
                 local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
                 items:insert(A.Stage(name,cap,constraint,at))
             end
@@ -92,14 +140,14 @@ function Parser:extern_item()
         repeat parameters:insert(self:extern_parameter()) until not self:accept(',')
     end
     self:expect(')')
-    local result=self:accept(':') and self:constraint() or nil
+    local result=self:accept(':') and self:type_expression() or nil
     return A.Extern(name,pure,symbol,parameters,result,span)
 end
 function Parser:extern_parameter()
     local span=self:token().span; local name=self:expect('name').spelling
     local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
     if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
-    local constraint=self:accept(':') and self:constraint() or nil
+    local constraint=self:accept(':') and self:type_expression() or nil
     local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
     return A.Stage(name,cap,constraint,span)
 end
@@ -110,7 +158,7 @@ function Parser:chain(optional_terminal)
     local span=self:token().span
     local items=self:items()
     local terminal
-    if self:is('do') then terminal=A.Body(self:body())
+    if self:is('do') then terminal=A.Body(self:body(true))
     elseif optional_terminal and self:is('eof') then terminal=nil
     else terminal=A.Data(self:transfer()) end
     return A.Chain(items,terminal,span)
@@ -128,8 +176,27 @@ function Parser:region(stops)
     end
     return statements
 end
-function Parser:body()
-    self:expect('do'); local body=self:region({['end']=true}); self:expect('end'); return body
+function Parser:body(require_result)
+    local span=self:expect('do').span
+    -- §3.1: a runtime terminal must state its result. Its result type is parsed without top-level
+    -- juxtaposition, because the body follows immediately and may start with a name; write
+    -- `do : (List Int)` for an applied result type.
+    local result=self:accept(':') and self:result_type() or nil
+    if require_result and not result then fail(span,'a runtime terminal must state its result with do : T') end
+    local body=self:region({['end']=true}); self:expect('end'); return body,result
+end
+-- A result type: names, arrows, sums, records and `do` -- but no bare adjacency, so a terminal's
+-- body cannot be swallowed by a type-word application.
+function Parser:result_type() return self:result_arrow() end
+function Parser:result_arrow()
+    local left=self:result_sum()
+    if self:accept('->') then local span=self:token().span; return A.Arrow(left,self:result_arrow(),span) end
+    return left
+end
+function Parser:result_sum()
+    local left=self:atom_type()
+    while self:accept('|') do local span=self:token().span; left=A.Sum(left,self:atom_type(),span) end
+    return left
 end
 function Parser:conditional(span)
     local condition=self:expression(); self:expect('do')
@@ -185,7 +252,7 @@ function Parser:statement()
     if self:accept('break') then return A.Break(token.span) end
     if self:accept('continue') then return A.Continue(token.span) end
     if self:accept('switch') then return self:selection(token.span) end
-    if self:accept('while') then local condition=self:expression(); return A.While(condition,self:body(),token.span) end
+    if self:accept('while') then local condition=self:expression(); return A.While(condition,self:body(false),token.span) end
     -- §7.3 makes any expression a statement, and §9.2 admits `move place` as an
     -- expression. A leading `move` is otherwise recognized only where a transfer
     -- value is expected, so `move a.x` as a statement would be read as a
@@ -198,6 +265,19 @@ function Parser:statement()
         local place=self:place(); self:expect('='); self:separators(); return A.Assign(place,self:value(),token.span)
     end
     return A.Discard(self:expression(),token.span)
+end
+-- §11.2: an aggregate whose members are stages is a word that awaits its fields. Its terminal
+-- constructs the record from the supplied stages, so the aggregate is both the type and its
+-- constructor. A `let x = v` member is a prelude and stays in the chain.
+function Parser:aggregate_word(items,span)
+    local members=L()
+    for _,item in ipairs(items) do
+        local name=A.Stage:isclassof(item) and item.name or item.binding.name
+        local at=A.Stage:isclassof(item) and item.span or item.binding.span
+        local value=A.Data(A.Name(name,at))
+        members:insert(A.Binding(name,false,nil,A.Chain(L(),value,at),at))
+    end
+    return A.Chain(items,A.Data(A.NamedAggregate(members,true,span)),span)
 end
 function Parser:named_members()
     local members=L()
@@ -212,12 +292,26 @@ function Parser:aggregate()
     else
         local named_error
         if self:is('let') then
-            -- A positional element can itself be a chain beginning with a prelude.
-            -- Prefer a complete named aggregate; otherwise parse a binding-value list.
-            -- Memoized nested aggregates prevent exponential re-parsing.
+            -- §3.3: the regular aggregate form. Members are preludes (`let x = v`) or stages
+            -- (`let x : T`). All preludes is a data value; any stage makes the aggregate a word
+            -- -- a constructor awaiting its fields, which is also how a record type is written.
             local trial=setmetatable({tokens=self.tokens,pos=self.pos,aggregates=self.aggregates},Parser)
-            local ok,members=pcall(function() return trial:named_members() end)
-            if ok then self.pos=trial.pos; value=A.NamedAggregate(members,span) else named_error=members end
+            local ok,items=pcall(function()
+                local parsed=trial:items()
+                trial:expect('}')
+                return parsed
+            end)
+            if ok then
+                self.pos=trial.pos
+                local staged=false
+                for _,item in ipairs(items) do if A.Stage:isclassof(item) then staged=true end end
+                if staged then value=A.Word(self:aggregate_word(items,span),span)
+                else
+                    local members=L()
+                    for _,item in ipairs(items) do members:insert(item.binding) end
+                    value=A.NamedAggregate(members,false,span)
+                end
+            else named_error=items end
         end
         if not value then
             self.pos=body
@@ -279,6 +373,7 @@ function Parser:prefix()
     return value
 end
 local operators={
+    ['|']={0,A.Sum},
     ['or']={1,A.Or},['and']={2,A.And},
     ['==']={3,A.Equal},['!=']={3,A.NotEqual},
     ['<']={4,A.Less},['<=']={4,A.LessEqual},['>']={4,A.Greater},['>=']={4,A.GreaterEqual},
@@ -286,12 +381,22 @@ local operators={
     ['*']={6,A.Multiply},['/']={6,A.Divide},['%']={6,A.Remainder}
 }
 function Parser:expression(minimum)
-    minimum=minimum or 1; local left=self:prefix(); local used={}
+    minimum=minimum or 0; local left=self:prefix(); local used={}
     while true do
         local token=self:token(); local op=operators[token.kind]
         if not op or op[1]<minimum then return left end
         if (op[1]==3 or op[1]==4) and used[op[1]] then fail(token.span,'chained comparison is invalid') end
-        used[op[1]]=true; self:take(); left=A.Binary(op[2],left,self:expression(op[1]+1),token.span)
+        used[op[1]]=true; self:take()
+        local right=self:expression(op[1]+1)
+        -- §11.5: `A | B` is a sum type, a word-level operator, not an arithmetic one. Its
+        -- operands are type words; an expression-position name becomes a type-word `Ref`.
+        if op[2]==A.Sum then
+            local function as_type(node)
+                if A.Name:isclassof(node) then return A.Ref(node.name,L(),node.span) end
+                return node
+            end
+            left=A.SumType(as_type(left),as_type(right),token.span)
+        else left=A.Binary(op[2],left,right,token.span) end
     end
 end
 function Parser:transfer()
@@ -317,13 +422,21 @@ function A.Index:check_literals() self.base:check_literals(); self.index:check_l
 function A.Move:check_literals() self.place:check_literals() end
 function A.Borrow:check_literals() self.place:check_literals() end
 function A.Constraint:check_literals() visit(self.arguments) end
+function A.Arrow:check_literals() self.from:check_literals(); self.to:check_literals() end
+function A.Sum:check_literals() self.left:check_literals(); self.right:check_literals() end
+function A.SumType:check_literals() self.left:check_literals(); self.right:check_literals() end
+function A.Do:check_literals() self.result:check_literals() end
+function A.Record:check_literals() visit(self.fields) end
+function A.Tuple:check_literals() visit(self.elements) end
+function A.TypeField:check_literals() self.type:check_literals() end
+function A.Apply:check_literals() self.constructor:check_literals(); self.argument:check_literals() end
 function A.Binding:check_literals() if self.constraint then self.constraint:check_literals() end; self.value:check_literals() end
 function A.Stage:check_literals() if self.constraint then self.constraint:check_literals() end end
 function A.Prelude:check_literals() self.binding:check_literals() end
 function A.Extern:check_literals() visit(self.parameters); if self.result then self.result:check_literals() end end
 function A.Chain:check_literals() visit(self.items); if self.terminal then self.terminal:check_literals() end end
 function A.Data:check_literals() self.value:check_literals() end
-function A.Body:check_literals() visit(self.statements) end
+function A.Body:check_literals() visit(self.statements); if self.result then self.result:check_literals() end end
 function A.Local:check_literals() self.binding:check_literals() end
 function A.Assign:check_literals() self.place:check_literals(); self.value:check_literals() end
 function A.Return:check_literals() if self.value then self.value:check_literals() end end

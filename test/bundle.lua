@@ -11,7 +11,7 @@ local function eq(actual,expected,message)
     checks=checks+1
 end
 
-local source='let answer = 6 * 7\nlet show = do return answer end\nlet shown = show()\n'
+local source='let answer = 6 * 7\nlet show = do : Int return answer end\nlet shown = show()\n'
 local function emit(api)
     local program=api.parse(source,'bundle.let'):build{}
     program:verify_flow{}
@@ -53,7 +53,7 @@ os.execute('rm -rf '..directory..' && mkdir -p '..directory)
 os.execute(('cp dist/let.lua %s/let.lua'):format(directory))
 local standalone=directory..'/demo.let'
 local handle=assert(io.open(standalone,'wb'))
-handle:write('let twice = let n : Int do return n * 2 end\nlet answer = twice(21)\n')
+handle:write('let twice = let n : Int do : Int return n * 2 end\nlet answer = twice(21)\n')
 handle:close()
 os.execute(('cd %s && luajit let.lua demo.let demo.c'):format(directory))
 local emitted=assert(io.open(directory..'/demo.c','rb')):read('*a')
@@ -65,7 +65,7 @@ check(emitted:find('INT64_C(42)',1,true)~=nil,
 -- executable with no C host and no options file.
 local hello=directory..'/hello.let'
 local handle=assert(io.open(hello,'wb'))
-handle:write('let main = do c.puts(c.string("hello from let")) end\n')
+handle:write('let main = do : Unit c.puts(c.string("hello from let")) end\n')
 handle:close()
 os.execute(('cd %s && luajit let.lua hello.let hello.c'):format(directory))
 os.execute(('cc -std=c11 -O1 -o %s/hello %s/hello.c'):format(directory,directory))

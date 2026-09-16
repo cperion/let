@@ -2,7 +2,7 @@
 
 **Version:** 0.8 — whitespace-independent syntax, juxtaposition specialization, compact structured control, and file chains with imports
 
-**Scope:** source syntax, source semantics, ownership, constraints, construction vocabulary, and embedding behavior
+**Scope:** source syntax, source semantics, ownership, types, construction vocabulary, and embedding behavior
 
 **Status:** Let language specification under active development
 
@@ -57,7 +57,7 @@ A **word** is a value containing:
 - zero or more remaining binding stages;
 - any stable state already attached by specialization;
 - a terminal meaning, which is either data or executable `do` behavior;
-- a phase: runtime, construction, or constraint.
+- a phase: runtime or construction; a type word is an ordinary value (§11).
 
 A bare runtime word is a value. It does not execute:
 
@@ -138,7 +138,7 @@ let do end own mut move return if else while switch case and or not true false b
 
 These spellings cannot be used as binding names. `if`, `else`, `while`, `switch`, `case`, `break`, and `continue` are structured control spellings in the language dictionary. They describe inline control regions rather than invoking runtime branch closures. `and`, `or`, and `not` are reserved operator spellings.
 
-The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
+The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. `->` is the type arrow and `|` is the type sum; the scanner takes `->` before `-`, and neither is an expression operator (§3.4). Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
 
 ---
 
@@ -158,28 +158,54 @@ top_binding         := "let" NAME completed_qualifiers annotation
 binding_value       := { chain_item { SEP } } terminal
 chain_item          := binding_stage | prelude_binding
 
-binding_stage       := "let" NAME stage_qualifiers annotation
+binding_stage       := "let" NAME stage_qualifiers stage_annotation
 prelude_binding     := "let" NAME completed_qualifiers annotation
                        binding_operator { SEP } binding_value
 
 stage_qualifiers    := empty | "mut" | "own" | "own" "mut"
 completed_qualifiers:= empty | "mut"
-annotation          := empty | ":" constraint_expression
+stage_annotation    := ":" type_expression
+annotation          := empty | ":" type_expression
 binding_operator    := "="
 
-terminal            := do_block | transfer_value
+terminal            := do_terminal | transfer_value
+do_terminal         := "do" ":" type_expression { SEP }
+                       { statement { SEP } } "end"
 transfer_value      := expression | "move" place
 
-constraint_expression
-                    := NAME { constraint_argument }
-constraint_argument := NAME | literal | "(" constraint_expression ")"
+type_expression     := arrow_type
+arrow_type          := sum_type [ "->" arrow_type ]
+sum_type            := apply_type { "|" apply_type }
+apply_type          := atom_type { atom_type }
+atom_type           := NAME { literal }
+                     | record_type
+                     | "(" type_expression ")"
+                     | "do" type_expression
+record_type         := "{" { SEP } "}"
+                     | "{" { SEP } named_type_member
+                         { { SEP } named_type_member } { SEP } "}"
+                     | "{" type_expression { "," type_expression } [ "," ] "}"
+named_type_member   := "let" NAME [ "mut" ] ":" type_expression
 ~~~
 
 Qualifier order is canonical: `own mut`. `mut own` is invalid. An initialized binding cannot carry `own`; its initializer already supplies the value owned by the new binding.
 
-A chain item without `=` is an unsatisfied stage. A completed binding inside a chain is a prelude binding. There is no `let ... end` construct.
+A chain item without `=` is an unsatisfied stage. A completed binding inside a chain is a prelude binding. There is no `let ... end` construct. A stage **must** declare its type word, and a runtime terminal **must** state its result: neither has a term to read a type from.
 
-The right-hand side ends when its terminal form ends. `do ... end` and `{ ... }` are explicitly delimited. A simple terminal expression ends at a comma, closing delimiter, semicolon, or a structural keyword that cannot continue that expression. A following assignment place and `=` also establish a statement boundary. No separator is required between ordinary binding stages or before `do`. If a constraint application and a data terminal would run together, use `;` to delimit them.
+The right-hand side ends when its terminal form ends. `do ... end` and `{ ... }` are explicitly delimited. A simple terminal expression ends at a comma, closing delimiter, semicolon, or a structural keyword that cannot continue that expression. A following assignment place and `=` also establish a statement boundary. No separator is required between ordinary binding stages or before `do`. If a type application and a data terminal would run together, use `;` to delimit them.
+
+A `type_expression` names a **type word** (§11). `List Int` applies a type word to another by
+**juxtaposition** -- the same stable-specialization operation as a value word, never invocation;
+`A -> B` is the unary arrow, `A | B` is a tagged union, and `{ let x : Int let y : Text }` is a
+record type. A record type uses the **regular aggregate form**
+(§3.3): the same braces and the same `let` members, with a member's type where a value aggregate
+writes a value. A member written `let x : T` is a stage, so the aggregate is a word awaiting its
+fields -- a constructor and a type; a member written `let x = v` is a prelude, so the aggregate is
+the value. The positional form `{ Int, Text }` reuses the positional aggregate the same way. The
+arrow is unary and right-nested; there is no parameter list and no product type. A runtime terminal
+**must state its result** with `do : T`. A data terminal
+has no written result: its type is the type of its terminal expression, composed from the declared
+stage types. A type application is not a distinct form.
 
 ### 3.2 Runtime bodies
 
@@ -776,7 +802,7 @@ Named and positional aggregates have no mandatory header, hash table, metatable,
 
 Every non-copyable value has exactly one owner. The ownership checker is a frontend rule; it does not require reference counts, tracing, hidden retain/release traffic, or runtime borrow objects.
 
-A value's vocabulary declares whether it is **Copy**. `Bool`, `Int`, Unit, and immutable text literals are Copy. A value containing owned state is non-copyable unless its vocabulary explicitly defines a real copy operation.
+A value's **type** determines whether it is **Copy**. `Bool`, `Int`, Unit, and immutable text literals are Copy. A value containing owned state is non-copyable unless its vocabulary explicitly defines a real copy operation.
 
 ### 9.2 Bindings and capabilities
 
@@ -922,59 +948,147 @@ Any representation of captured state must preserve the rules above. Let does not
 
 ---
 
-## 11. Constraints: typing by words
+## 11. Types: the word is the type
 
-### 11.1 Constraint phase
+### 11.1 The type of a word
 
-A constraint is a word in the **constraint phase**. An annotation applies such a word to the semantic description of a binding:
+A word is a chain of items whose last item is the terminal (§3.1). Its type is that chain read as
+unary, right-nested arrows:
+
+~~~text
+WordType := T "->" WordType       // one stage: a unary function
+          | T                     // data terminal
+          | "do" T                // runtime terminal
+~~~
+
+`Int : Int : do R` denotes `Int -> (Int -> do R)`. There is no parameter list and no product type:
+juxtaposition applies one unary step at a time, and `()` eliminates the runtime terminal. A word's
+type is therefore a syntactic fact about its chain, never something discovered from its body.
 
 ~~~let
-let add =
+let multiply =
     let x : Int
     let y : Int
-    do
-        return x + y
+    do : Int
+        return x * y
     end
 ~~~
 
-Constraint expressions use the same stable-specialization idea as ordinary words:
+`multiply` has type `Int -> (Int -> do Int)`. Juxtaposition drops one domain element
+(`multiply 2` has type `Int -> do Int`). Saturation of a data terminal yields its value; saturation
+of a runtime terminal yields a zero-input word, and `()` runs it.
+
+### 11.2 Type words
+
+A **type word** is a word built from primitive type words and constructors (§3.1):
 
 ~~~text
-constraint_expression := NAME { specialization_argument }
+type-word := Int | Float | Bool | Unit | Text | CString | CPointer   // atomic, not constructors
+           | Type                                                     // the classifier of type words
+           | { let field : type-word ... }                           // product, keyed
+           | type-word | type-word                                   // tagged union
+           | type-word -> type-word                                  // unary arrow
+           | do type-word                                            // runtime terminal
+           | Name
 ~~~
 
-They are evaluated by the frontend, never invoked as runtime code merely because they appear after `:`.
+Primitive type words are atomic: they await no value. A compound type word is a **constructor**. A
+`let`-bound word used as a type denotes the type of its terminal result, under that binding's
+nominal identity; used as a value it is the constructor.
 
-### 11.2 What a constraint proves
+~~~let
+let Point =
+    let x : Int
+    let y : Text
+    do : { x : Int, y : Text }
+        return { x, y }
+    end
 
-A constraint may inspect the frontend-known semantic shape of a value and either accept it or issue a construction diagnostic. It may constrain representation, available vocabulary, Copy status, aggregate members, or executable stages. It does not by itself create a runtime tag, object header, vtable, or dynamic test.
+let p : Point = Point(1, "a")
+~~~
 
-The language dictionary includes these constraints:
+`: Point` is the type of `{ x, y }`, nominal to `Point`; `Point(1, "a")` constructs it, and the
+record it builds **carries `Point`'s identity**, so `Point` and another aggregate of the same shape
+are distinct types. A data terminal makes construction a value available at specialization; a `do`
+terminal makes it runtime work, so a smart constructor, factory, or resource constructor needs no
+new form — only the trailing `do type-word` instead of a data type.
 
-| Constraint | Accepted meaning |
+A type word may be **generic** over other type words. `Type` classifies type words, so a word whose
+stages are `Type` parameters is a type constructor, applied by **juxtaposition** (§3.1):
+
+~~~let
+let Box = let elem : Type { let value : elem }
+let bi : Box Int = { let value = 5 }
+~~~
+
+`Box : Type -> Type`, and `Box Int` applies it — substituting `Int` for `elem` and evaluating the
+terminal to the record `{ let value : Int }`. Type-word application is construction-time and
+erased; a type parameter is never a runtime value, and `Box(Int)` would be invocation, which a type
+word cannot do (its terminal is data).
+
+### 11.3 Explicit typing
+
+An annotation is a declaration; type checking proves it consistent with use. `: W` requires `W` to
+be a compile-time-known type word, and denotes the type of `W`'s terminal result.
+
+- A stage `let x : T` is the domain element `T ->`; every argument supplied for it and every use of
+  `x` is checked against `T`.
+- A runtime terminal `do : R` is checked against every `return`.
+- A data terminal's type is the type of its terminal expression, composed from the declared stage
+  types; there are no unknowns to solve, so this is not inference.
+- `copy`, `own`, `mut`, and `own mut` are a stage's capabilities and are part of its type. `Copy` is
+  the `copy` capability, not a separate form.
+- A stage whose type is a `WordType` holds a word. That is the requirement the former `Executable`
+  named, and it needs no separate word.
+
+A stage **must declare its type word** and a runtime terminal **must state its result** with `do : R`:
+neither has a term to read a type from. A binding whose initializer carries a type needs no
+annotation: a literal has its primitive type, a word application has the word's declared result,
+and a constructor application has the constructor's type. An annotation is available on any binder
+as an assertion. Reading a type off a term is not inference: no type unknown is solved; the term's
+type is simply its form.
+
+Let does not solve type variables, and an ambiguous operation is a compile-time error rather than a
+resolved type. Every concrete operation must have a statically resolved representation and primitive
+meaning before runtime. Types are erased after checking. Nominal identity is the binding: two
+`let`-bound type words are distinct even with the same shape.
+
+### 11.4 Runtime type values
+
+A type word may reach runtime as a value. Its representation is a **descriptor**:
+
+| Type word | Descriptor |
 | --- | --- |
-| `Bool` | Boolean |
-| `Int` | Signed 64-bit integer |
-| `Unit` | Empty aggregate `{}` |
-| `Text` | Immutable UTF-8 text value |
-| `Copy` | A value that may be duplicated with its defined value semantics |
-| `Executable` | A word whose eventual terminal is runtime `do` |
+| primitive | a small tag |
+| record | an aggregate of member descriptors |
+| arrow, `do` | a descriptor of the spine |
+| tagged union | a tag and a payload descriptor |
+| nominal | a unique id, which also breaks a recursive descriptor |
 
-`Executable` alone does not promise a particular remaining-stage count or result. An invocation imposes those additional structural requirements, which must be resolved statically for the concrete word use.
+A descriptor is emitted only for a type word that escapes to runtime; a type word used only in
+annotations is erased. A data value never carries its type, so no tag is added to ordinary values:
+the tag belongs to the type value. `Type` is the ordinary tagged union that classifies type words,
+so `Type` is itself a type word and `Type : Type` is not paradoxical.
 
-An executable word has no implicit Bool, Int, Text, address, or display value. It can be stored, specialized, passed, projected, moved when stateful, and invoked; any other observation requires explicit vocabulary.
+This describes the permitted representation, not a built feature: **first-class runtime type values
+are deferred (§18)**, and a program that uses a type word as a value is rejected until they land.
 
-Named shape constraints are structural: required member names and their nested constraints must be present; additional members are allowed. Positional shape constraints require the declared arity. A later library may provide the surface vocabulary for constructing such constraints.
+### 11.5 Tagged unions
 
-### 11.3 Static boundary
+`A | B` is a tagged union, named by a `let` whose value is the sum: `let Opt = Int | Text`. A sum
+type is a word with derived members, and a value carries a **tag** and the active alternative's
+payload.
 
-Every concrete operation must have a statically resolved representation and primitive meaning. Annotations and vocabulary choices that determine those meanings are settled before runtime execution. If a required constraint cannot be proved, the program has a compile-time error.
+- `Opt.left v` and `Opt.right v` are the **injections**, one per alternative, applied by
+  juxtaposition (§3.1).
+- `v.tag` is the tag (an Int); `v.left` / `v.right` project the active payload.
+- `switch v.tag do case 0 … case 1 … end` eliminates the union, so no pattern-matching syntax is
+  needed.
 
-Unannotated bindings are legal when their meaning follows from the initializer and uses. Let does not require nominal class declarations or a universal type-inference subsystem. Generic behavior is expressed by words whose constraints accept more than one semantic shape; each concrete specialization or invocation must satisfy its applicable constraints statically. This does not introduce an implicit runtime type-dispatch layer.
+A sum is Copy exactly when every alternative is Copy; the inactive payloads are zero-filled, so a
+non-Copy alternative is rejected. The runtime tag of §11.4 is the discriminator.
 
-Constraints are erased by default after they have done this work. A runtime predicate or tag test exists only when the program explicitly asks for runtime vocabulary that performs one.
-
-An explicit tagged runtime representation may be supplied by vocabulary. It is not an implicit tag added to every Let value.
+---
 
 ---
 
@@ -985,14 +1099,14 @@ An explicit tagged runtime representation may be supplied by vocabulary. It is n
 Names ultimately resolve to lexical bindings or dictionary entries. A dictionary entry declares:
 
 - its name;
-- its phase: runtime, construction, or constraint;
-- its ordered binding stages, with qualifiers and optional constraints;
-- its terminal meaning: data, runtime `do`, construction behavior, or constraint behavior;
+- its phase: runtime or construction;
+- its ordered binding stages, with qualifiers and optional type annotations;
+- its terminal meaning: data, runtime `do`, or construction behavior;
 - whether its behavior is `pure` or `ordered`.
 
 These are semantic properties, not a prescribed record layout or registration API.
 
-The phase is part of the entry. A construction or constraint word cannot accidentally be retained as a runtime call, and a runtime word cannot execute inside the frontend merely because its arguments happen to be known.
+The phase is part of the entry. A construction word cannot accidentally be retained as a runtime call, and a runtime word cannot execute inside the frontend merely because its arguments happen to be known. A type word is not a phase: it is an ordinary value, evaluated where an annotation demands one.
 
 ### 12.2 Purity is deliberately small
 
@@ -1076,7 +1190,7 @@ extern pure strlen (text : CString) : Int
 
 `extern` is followed by an optional `pure` (the default is `ordered`), the word's name, an
 optional quoted C symbol when it differs from the name, the ordered stages in parentheses with
-the usual capability and `:` constraint, and the result after `:` -- which defaults to Unit. The
+the usual capability and `:` annotation, and the result after `:` -- which defaults to Unit. The
 C prototype is derived from the Let types: `Int` is `int64_t`, `Float` `double`, `Bool` `bool`,
 `Unit` `void`, `CString` `const char*`, `CPointer` `void*`, and a resource its declared
 representation. Where a C type differs from that default -- a C `int` or `size_t`, say -- the type
@@ -1098,6 +1212,10 @@ them and must not weaken them.
 ---
 
 ## 13. Scalar semantics
+
+The scalar types are atomic type words (§11.2): `Bool`, `Int`, `Float`, `Unit`, and `Text`. They
+await no value, and are never constructors; a value of one is written by a literal or a typed
+operation, not by applying the type word.
 
 ### 13.1 Unit and Bool
 
@@ -1125,7 +1243,7 @@ Arithmetic is defined exactly:
 
 Division or remainder by zero traps. `INT_MIN / -1` wraps to `INT_MIN`; `INT_MIN % -1` is zero. Signed comparisons implement `<`, `<=`, `>`, and `>=`.
 
-There are no implicit numeric conversions or promotion rules. Additional numeric vocabularies use distinct constraints and explicit conversion words.
+There are no implicit numeric conversions or promotion rules. Additional numeric vocabularies use distinct type words and explicit conversion words.
 
 ### 13.3 Float
 
@@ -1156,7 +1274,7 @@ A Text literal denotes an immutable, module-lifetime UTF-8 byte sequence with a 
 
 ### 13.6 Primitive spelling
 
-The operator spellings in §3.4 resolve to language dictionary entries. They are not user-overloadable. Host I/O, allocation, buffers, arenas, and opaque handles are ordinary named vocabulary with explicit constraints, ownership behavior, and purity metadata.
+The operator spellings in §3.4 resolve to language dictionary entries. They are not user-overloadable. Host I/O, allocation, buffers, arenas, and opaque handles are ordinary named vocabulary with explicit type annotations, ownership behavior, and purity metadata.
 
 ---
 
@@ -1195,7 +1313,7 @@ A trap is reserved for an operation whose contract was violated and for which th
 
 A trap immediately leaves Let execution through the embedding host's trap hook. Let code cannot catch or resume it, and normal Let destructors are not run after the trap. No exception object or stack-unwinding mechanism is implied. A host may terminate the Let execution context or process and reclaim its storage as one unit. An operation that must recover, release selected resources, or continue execution must expose that outcome through ordinary values or continuation words instead of trapping.
 
-Compile-time syntax, name, constraint, phase, ownership, and saturation failures are diagnostics, not runtime traps.
+Compile-time syntax, name, type, phase, ownership, and saturation failures are diagnostics, not runtime traps.
 
 ---
 
@@ -1211,7 +1329,10 @@ Top-level data and specialized words live until module unload. Their owned state
 
 A module's namespace may hold words. Each is a **host entry point**: invoking one supplies the stages the word still needs, and the entry runs whatever preludes lie between those stages, since the host supplies stages rather than the values a call site would have computed. The word's own fields -- the state it already carries, which is the construction it has been through -- come from the namespace the initializer returned.
 
-A word whose remaining stage has no type of its own -- an unannotated stage, or one constrained only by `Copy` -- has no entry point, because there is no signature for the host to satisfy. The word remains legal; it is simply not callable from outside.
+A word whose remaining stage has no host representation -- a stage whose type is a `WordType`, since
+no closure ABI exists (§18) -- has no entry point. Every value-typed stage declares its type, so any
+other word is callable from outside; the word with a word-typed stage remains legal, it is simply
+not callable.
 
 ### 15.2 File chains and imports
 
@@ -1252,7 +1373,7 @@ A file that imports itself, directly or transitively, is a construction cycle an
 
 ### 15.3 Host vocabulary contract
 
-A host-provided word must declare its name, phase, ordered stages and their qualifiers and constraints, result constraint, and purity. Its supplied behavior must satisfy those declarations.
+A host-provided word must declare its name, phase, ordered stages and their qualifiers and types, result type, and purity. Its supplied behavior must satisfy those declarations.
 
 How the host registers or implements that behavior is outside the language specification. The declared phase and source semantics do not depend on that interface.
 
@@ -1260,7 +1381,7 @@ An ownership-taking host stage becomes owner on successful entry. A borrowing st
 
 ### 15.4 No prescribed object ABI
 
-This specification fixes source behavior, not an in-memory object model or calling convention. Any representation must satisfy the static requirements of §11.3 and preserve the same constraints, evaluation order, and ownership transfers.
+This specification fixes source behavior, not an in-memory object model or calling convention. Any representation must satisfy the static requirements of §11.3 and preserve the same annotations, evaluation order, and ownership transfers.
 
 ---
 
@@ -1274,8 +1395,9 @@ A conforming implementation rejects at least:
 | --- | --- |
 | Invalid UTF-8, escape, integer or Float spelling, or out-of-range literal | scanning/parsing |
 | Unknown name or duplicate name in one scope | binding |
-| Wrong-phase use of runtime, construction, or constraint word | construction |
+| Wrong-phase use of a runtime or construction word | construction |
 | Invalid qualifier order or `own` on a completed binding | parsing/elaboration |
+| A stage without a type word, or a runtime terminal without a result | parsing |
 | Unsatisfied stage in a runtime body | elaboration |
 | `return` outside a runtime `do` body | elaboration |
 | Too few/many invocation arguments or invocation of data | elaboration |
@@ -1285,7 +1407,7 @@ A conforming implementation rejects at least:
 | Escape of a borrowed capture | ownership |
 | Tail invocation borrowing state destroyed by caller cleanup | ownership |
 | Assignment to an immutable place | ownership |
-| Unproved constraint or unresolved concrete operation representation | constraints |
+| Type mismatch against a declaration, or unresolved concrete operation representation | typing |
 | Mixed named and positional aggregate members | parsing |
 | Duplicate named aggregate member | binding |
 | Chained comparison or assignment expression | parsing |
@@ -1306,7 +1428,7 @@ Only genuinely runtime information needs a runtime check: positional bounds, zer
 let multiply =
     let x : Int
     let y : Int
-    do
+    do : Int
         return x * y
     end
 
@@ -1327,7 +1449,7 @@ let affine =
     let scale : Int
     let bias : Int
     let twice_bias = bias * 2
-    do
+    do : Int
         return scale + twice_bias
     end
 
@@ -1344,11 +1466,11 @@ let arithmetic = {
     let add =
         let x : Int
         let y : Int
-        do return x + y end
+        do : Int return x + y end
 
     let negate =
         let x : Int
-        do return -x end
+        do : Int return -x end
 }
 
 let result = arithmetic.add(40, 2)
@@ -1361,8 +1483,8 @@ Projection returns `add`; the following `()` invokes it. There is no receiver ar
 The following assumes host vocabulary `open_buffer`, `write_byte`, and `consume_buffer` with their declared capabilities:
 
 ~~~let
-let example = do
-    let buffer mut = open_buffer(1024);
+let example = do : Unit
+    let buffer mut : Buffer = open_buffer(1024);
     write_byte(mut buffer, 0, 42);
     consume_buffer(move buffer)
     // buffer is now uninitialized
@@ -1385,7 +1507,8 @@ These language extensions remain explicitly deferred. Note that partial moves *a
   a value or `move place` as a member (§3.3) and confines `mut place` to a call argument (§3.4), so
   a program that tries it is rejected while parsing rather than by the ownership rules;
 - mixed numeric promotion and implicit numeric conversion;
-- dynamic constraint tests and reflection;
+- generic type parameters (a `Type` word) and reflection beyond the emitted tag;
+- first-class runtime type values: a type word used as a value and given a runtime descriptor (§11.4);
 - pattern matching and pattern captures;
 - catchable exceptions;
 - coroutines, async suspension, and generators;
@@ -1415,7 +1538,7 @@ An implementation conforms to Let only when all of the following hold:
 11. Non-copyable values have one owner and transfer only through a visible move or fresh result.
 12. Mutable borrows are transient and cannot escape.
 13. Destruction on normal and explicit recoverable exits is deterministic and reverse ordered.
-14. Constraints run in the frontend and add no implicit runtime tags.
+14. Annotations are declarations checked against use; a type word is erased unless it escapes, and a data value never carries its type.
 15. Every dictionary primitive truthfully declares `pure` or `ordered`.
 
 These obligations define language conformance. Passing the language tests alone does not establish machine conformance.
@@ -1441,10 +1564,10 @@ Prelude and invocation order use this definition:
 
 ~~~let
 let staged =
-    let first
-    let prelude = mark("prelude")
-    let second
-    do
+    let first : Int
+    let prelude : Int = mark("prelude")
+    let second : Int
+    do : Unit
         return {}
     end
 
@@ -1480,6 +1603,9 @@ Such choices may change size, speed, and embedding policy. They must not change 
 | Binding stage | An uninitialized `let` in a binding chain, awaiting one supplied meaning |
 | Prelude | A completed `let` between stages; it runs when execution reaches it |
 | Word | A value containing remaining stages, stable state, and a terminal meaning |
+| Word type | A word's chain read as unary, right-nested arrows ending in its terminal (§11.1) |
+| Type word | A word built from primitive type words and constructors, usable as a type (§11.2) |
+| Tagged union | An `A \| B` sum, constructed per alternative and eliminated by handler-fold (§11.5) |
 | Specialization | Persistent stage binding by juxtaposition; never terminal-body invocation |
 | Invocation | Transient saturation followed by entry into runtime `do` |
 | Construction word | Construction-phase word that shapes the enclosing word's control behavior from source expressions and regions |
