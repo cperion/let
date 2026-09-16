@@ -1132,7 +1132,65 @@ function B.Sum:key()
     for _,alternative in ipairs(self.alternatives) do parts[#parts+1]=alternative:key() end
     return (self.is_copy and 'S' or 's')..'('..table.concat(parts,'|')..')'
 end
--- A sum owns when any alternative owns, and the rule lives with the other type rules below, so
+-- How a type is written where a person reads it: a message names what was expected and what
+-- arrived. `key` above answers the same question for caching, where brevity and injectivity
+-- matter more than spelling. Here the source spelling is used wherever Let has one, and an
+-- explicit name where it has not -- a place, a borrow and a word are never written in a type
+-- annotation, so they say what they are instead of dumping the fields they are made of.
+-- `test/belt.lua` makes every constructor answer for itself, as it does for ownership, so a type
+-- added later cannot arrive without a spelling.
+local spelling
+function B.Type:spelling() return 'a type' end
+function B.TypeWord:spelling() return 'Type' end
+function B.Named:spelling() return self.name end
+function B.Address:spelling() return '&'..spelling(self.pointee) end
+-- A borrow is stable when the place it reaches cannot move under it; `key` spells the two the
+-- same way, so a message and a cache key agree about which is which.
+function B.Borrow:spelling() return (self.stable and '&~' or '~')..spelling(self.pointee) end
+function B.Aggregate:spelling()
+    -- A record that has a name *is* that name, which is what an annotation would have written.
+    if self.name then return self.name end
+    -- A record *type* is written `{ let a : Int }`. An aggregate *value* is written `{ 5, 6 }`,
+    -- and the type of one has its members' types with no names, so it is written the way its
+    -- value is, which is what an annotation of it would have said.
+    local positional=true
+    for _,field in ipairs(self.fields) do if field.name then positional=false end end
+    local parts={}
+    for _,field in ipairs(self.fields) do
+        if positional then parts[#parts+1]=spelling(field.type)
+        else
+            parts[#parts+1]=('let %s%s : %s'):format(field.name or '_',field.mutable and ' mut' or '',spelling(field.type))
+        end
+    end
+    return '{ '..table.concat(parts,positional and ', ' or ' ')..' }'
+end
+-- A word is not written in a type annotation: its stages are. So this says that a word arrived --
+-- which is the fact a mismatch message needs -- and a message that wants the template's name
+-- (`fold`) needs the builder, which is the only thing holding the templates.
+function B.Word:spelling() return 'a word' end
+function B.Callable:spelling() return spelling(self.signature) end
+function B.Arrow:spelling() return spelling(self.from)..' -> '..spelling(self.to) end
+function B.Do:spelling() return 'do '..spelling(self.result) end
+function B.Sum:spelling()
+    local parts={}
+    for _,alternative in ipairs(self.alternatives) do parts[#parts+1]=spelling(alternative) end
+    return table.concat(parts,' or ')
+end
+function B.Signature:spelling()
+    local parameters={}
+    for _,parameter in ipairs(self.parameters) do parameters[#parameters+1]=spelling(parameter.type) end
+    local results={}
+    for _,result in ipairs(self.results) do results[#results+1]=spelling(result) end
+    return '('..table.concat(parameters,', ')..') -> '..table.concat(results,', ')
+end
+-- The scalars, the effect and the type word write themselves: what they are called is what they
+-- are spelled. Assigned in a loop so the list reads as the one place these names live.
+for _,name in ipairs{'Int','U8','U32','Float','Float32','Bool','Unit','Text','CString','CPointer','Effect'} do
+    local written=name
+    B[name].spelling=function() return written end
+end
+spelling=function(type_) return type_:spelling() end
+
 -- a nested sum is answered by the same code as a top-level one.
 
 -- §8.5, §10.1: ownership is a property of the type, not of one consumer. An address owns what
@@ -2580,7 +2638,7 @@ local function internal(span,message)
 end
 local function expect(value,type_,span)
     if not value.type then refuse(span,'word values in data positions') end
-    if not value.type:same(type_) then fail(span,'expected ' .. tostring(type_) .. ', got ' .. tostring(value.type)) end
+    if not value.type:same(type_) then fail(span,'expected ' .. type_:spelling() .. ', got ' .. value.type:spelling()) end
 end
 function Context:value(type_)
     self.fn.next_value=self.fn.next_value+1; return {id=self.fn.next_value,type=type_}
@@ -2778,7 +2836,7 @@ function Context:take_member(name,steps,span)
 end
 function Context:resource(type_,span)
     local destroy=B.Named:isclassof(type_) and self.fn.vocabulary:destructor(type_.name)
-    if not destroy then refuse(span,'ownership representation for ' .. tostring(type_)) end
+    if not destroy then refuse(span,'ownership representation for ' .. type_:spelling()) end
     return {destroy=destroy}
 end
 
@@ -2951,7 +3009,7 @@ function Context:check(annotation,type_,span)
         if not B.Word:isclassof(type_) then fail(span,'a word-typed stage needs a word') end
         local actual=self:word_signature(type_)
         if not (actual and actual:same(declared)) then
-            fail(span,'word signature mismatch: expected ' .. tostring(declared) .. ', got ' .. tostring(actual))
+            fail(span,'word signature mismatch: expected ' .. declared:spelling() .. ', got ' .. actual:spelling())
         end
         return type_
     end
@@ -3208,7 +3266,7 @@ function Context:destroy(value,span,moved,prefix)
             end
         end
     else
-        refuse(span,'destruction of ' .. tostring(type_))
+        refuse(span,'destruction of ' .. type_:spelling())
     end
 end
 function Context:release(id)

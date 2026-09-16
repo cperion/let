@@ -26,7 +26,7 @@ local function internal(span,message)
 end
 local function expect(value,type_,span)
     if not value.type then refuse(span,'word values in data positions') end
-    if not value.type:same(type_) then fail(span,'expected ' .. tostring(type_) .. ', got ' .. tostring(value.type)) end
+    if not value.type:same(type_) then fail(span,'expected ' .. type_:spelling() .. ', got ' .. value.type:spelling()) end
 end
 function Context:value(type_)
     self.fn.next_value=self.fn.next_value+1; return {id=self.fn.next_value,type=type_}
@@ -224,7 +224,7 @@ function Context:take_member(name,steps,span)
 end
 function Context:resource(type_,span)
     local destroy=B.Named:isclassof(type_) and self.fn.vocabulary:destructor(type_.name)
-    if not destroy then refuse(span,'ownership representation for ' .. tostring(type_)) end
+    if not destroy then refuse(span,'ownership representation for ' .. type_:spelling()) end
     return {destroy=destroy}
 end
 
@@ -397,7 +397,7 @@ function Context:check(annotation,type_,span)
         if not B.Word:isclassof(type_) then fail(span,'a word-typed stage needs a word') end
         local actual=self:word_signature(type_)
         if not (actual and actual:same(declared)) then
-            fail(span,'word signature mismatch: expected ' .. tostring(declared) .. ', got ' .. tostring(actual))
+            fail(span,'word signature mismatch: expected ' .. declared:spelling() .. ', got ' .. actual:spelling())
         end
         return type_
     end
@@ -654,7 +654,7 @@ function Context:destroy(value,span,moved,prefix)
             end
         end
     else
-        refuse(span,'destruction of ' .. tostring(type_))
+        refuse(span,'destruction of ' .. type_:spelling())
     end
 end
 function Context:release(id)

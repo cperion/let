@@ -100,4 +100,35 @@ eq(variant.AggregateMutable:copyable(),false,'a mutable member makes an aggregat
 eq(samples.Sum:copyable(),true,'a sum of Copy alternatives is Copy')
 eq(variant.SumOwned:copyable(),false,'a sum with a non-Copy alternative is not Copy')
 
+-- A message names the type that was expected and the type that arrived, so every constructor has
+-- to answer for how it is written -- the source spelling wherever Let has one, and an explicit
+-- name where it has not. This is the same guard as ownership above: the constructor list is the
+-- definition's own, so a constructor that inherits the fallback instead of stating its spelling
+-- fails here rather than printing a dump into someone's error message.
+-- Asked of the samples above, one per constructor, whose completeness the guard over them already
+-- proves. It has to be the instance: the class library copies a method down to the classes, so a
+-- class's raw `spelling` is the fallback even when the constructor has answered for itself.
+local fallback=B.Type.spelling
+local unspelled={}
+for name,sample in pairs(samples) do if sample.spelling==fallback then unspelled[#unspelled+1]=name end end
+table.sort(unspelled)
+eq(#unspelled,0,'every Belt.Type constructor spells itself; inheriting the fallback: '..table.concat(unspelled,', '))
+
+eq(B.Int:spelling(),'Int','a scalar spells as its own name')
+eq(B.Named('CAlloc'):spelling(),'CAlloc','a named type spells as its name')
+eq(B.Aggregate(L{field('a',B.Int)},true,'P'):spelling(),'P','a named record spells as its name')
+eq(B.Aggregate(L{field('a',B.Int),field('b',B.Int,true)},false,nil):spelling(),
+    '{ let a : Int let b mut : Int }','a record type spells as its members, with `mut` where declared')
+eq(B.Aggregate(L{B.Field(nil,B.Int,false),B.Field(nil,B.Text,false)},false,nil):spelling(),
+    '{ Int, Text }','an aggregate value spells positionally, as its value is written')
+eq(B.Arrow(B.Int,B.Do(B.Unit)):spelling(),'Int -> do Unit','an arrow and a terminal spell as an annotation does')
+eq(B.Sum(L{B.Named('A'),B.Named('B')},true):spelling(),'A or B','a union spells with the word that forms it')
+eq(B.Borrow(B.Int,false):spelling(),'~Int','a borrow this activation must outlive')
+eq(B.Borrow(B.Int,true):spelling(),'&~Int','and one it need not, as `key` distinguishes the two')
+eq(B.Address(B.Int):spelling(),'&Int','a place')
+eq(B.Word(1,1,L{field('a',B.Int)},false):spelling(),'a word','a word says what it is: its stages are not an annotation')
+check(B.Word(1,1,L{},false):spelling():find('Belt%.')==nil,'and it never dumps its fields')
+eq(B.Callable(B.Signature(L{B.Parameter(B.Int,V.AST.Read)},L{B.Unit})):spelling(),'(Int) -> Unit',
+    'a signature spells as its parameters and its result')
+
 print(('passed %d belt type checks'):format(checks))
