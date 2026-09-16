@@ -12,9 +12,11 @@ local int_parameter=B.Parameter(B.Int,A.Read)
 local hosts={
     print_int={symbol='print_int',phase='runtime',purity='ordered',signature=B.Signature(L{int_parameter},L{B.Unit})},
     print_u32={symbol='print_u32',phase='runtime',purity='ordered',signature=B.Signature(L{B.Parameter(B.U32,A.Read)},L{B.Unit})},
+    print_f32={symbol='print_f32',phase='runtime',purity='ordered',signature=B.Signature(L{B.Parameter(B.Float32,A.Read)},L{B.Unit})},
     print_bool={symbol='print_bool',phase='runtime',purity='ordered',signature=B.Signature(L{B.Parameter(B.Bool,A.Read)},L{B.Unit})},
     runtime_int={symbol='runtime_int',phase='runtime',purity='pure',signature=B.Signature(L{int_parameter},L{B.Int})},
     runtime_u32={symbol='runtime_u32',phase='runtime',purity='pure',signature=B.Signature(L{int_parameter},L{B.U32})},
+    runtime_f32={symbol='runtime_f32',phase='runtime',purity='pure',signature=B.Signature(L{B.Parameter(B.Float,A.Read)},L{B.Float32})},
     open={symbol='open',phase='runtime',purity='ordered',signature=B.Signature(L{int_parameter},L{B.Named('Box')})},
     open_buffer={symbol='open_buffer',phase='runtime',purity='ordered',signature=B.Signature(L{int_parameter},L{B.Named('Buffer')})},
     write_byte={symbol='write_byte',phase='runtime',purity='ordered',
@@ -28,6 +30,7 @@ local host_code=[[
 #include <stdlib.h>
 int64_t runtime_int(int64_t value){ return value; }
 uint32_t runtime_u32(int64_t value){ return (uint32_t)value; }
+float runtime_f32(double value){ return (float)value; }
 int64_t open(int64_t value){ printf("open:%lld\n",(long long)value); return value; }
 void close(int64_t value){ printf("close:%lld\n",(long long)value); }
 int64_t open_buffer(int64_t n){ printf("open:%lld\n",(long long)n); return 7; }
@@ -37,6 +40,7 @@ void close_buffer(int64_t buffer){ printf("close_buffer:%lld\n",(long long)buffe
 void print_bool(bool value){ printf("%d\n",value?1:0); }
 void print_int(int64_t value){ printf("%lld\n",(long long)value); }
 void print_u32(uint32_t value){ printf("%u\n",(unsigned)value); }
+void print_f32(float value){ printf("%.9g\n",(double)value); }
 ]]
 -- A host that takes or returns `Text` is compiled in this unit, so its implementation needs
 -- the struct. The generated C declares it only when the program uses Text, so this follows.
@@ -417,6 +421,22 @@ let go = run(runtime_u32(4294967295), runtime_u32(1))
 int main(void){ let_module_init(); return 0; }
 ]])
 eq(output,'0\n4294967294\n4294967295\n4294967294\n2147483647\n0\n','§13.2 fixed-width arithmetic wraps in the emitted C too')
+-- §13.3 A Float32 operation is computed and rounded in binary32, in the emitted C as well.
+output,path=native('float32',[[
+let compute =
+    let a : Float32
+    let b : Float32
+    do : Int
+        print_f32(a + b);
+        print_f32(a / b)
+        return 0
+    end
+
+let go = compute(runtime_f32(0.1), runtime_f32(0.2))
+]],[[
+int main(void){ let_module_init(); return 0; }
+]])
+eq(output,'0.300000012\n0.5\n','§13.3 Float32 arithmetic is binary32 and rounds after each operation')
 
 -- §4.2 Self recursion that is not a tail call: the recursive call returns whatever the
 -- word returns, so its result type comes from the word itself.

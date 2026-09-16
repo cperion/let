@@ -76,7 +76,7 @@ puts = {
 
 `signature` is the Let contract the frontend checks; `c` states the C ABI where it differs from
 the Let type's default spelling. The Let types map to C directly -- `CString` is `const char*`,
-`Int` `int64_t`, `U8` `uint8_t`, `U32` `uint32_t`, `Float` `double`, `Bool` `bool`, `Unit` `void`, `Text` a `{data,size}` struct --
+`Int` `int64_t`, `U8` `uint8_t`, `U32` `uint32_t`, `Float` `double`, `Float32` `float`, `Bool` `bool`, `Unit` `void`, `Text` a `{data,size}` struct --
 so `c` is needed only for an integer of another width (`int`, `size_t`, `long long`), which the
 emitter casts. The emitted C declares `extern int puts(const char*);` and calls it directly.
 

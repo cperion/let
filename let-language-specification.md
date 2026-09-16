@@ -814,7 +814,7 @@ Named and positional aggregates have no mandatory header, hash table, metatable,
 
 Every non-copyable value has exactly one owner. The ownership checker is a frontend rule; it does not require reference counts, tracing, hidden retain/release traffic, or runtime borrow objects.
 
-A value's **type** determines whether it is **Copy**. `Bool`, `Int`, `U8`, `U32`, Unit, and immutable text literals are Copy. A value containing owned state is non-copyable unless its vocabulary explicitly defines a real copy operation.
+A value's **type** determines whether it is **Copy**. `Bool`, `Int`, `U8`, `U32`, `Float`, `Float32`, Unit, and immutable text literals are Copy. A value containing owned state is non-copyable unless its vocabulary explicitly defines a real copy operation.
 
 ### 9.2 Bindings and capabilities
 
@@ -995,7 +995,7 @@ of a runtime terminal yields a zero-input word, and `()` runs it.
 A **type word** is a word built from primitive type words and constructors (§3.1):
 
 ~~~text
-type-word := Int | U8 | U32 | Float | Bool | Unit | Text | CString | CPointer   // atomic, not constructors
+type-word := Int | U8 | U32 | Float | Float32 | Bool | Unit | Text | CString | CPointer   // atomic, not constructors
            | Type                                                     // the classifier of type words
            | { let field : type-word ... }                           // product, keyed
            or type-word | type-word                                  // tagged union
@@ -1166,7 +1166,7 @@ contract such a word declares:
 
 Three kinds of value exist at that boundary, and none of them is `Text`:
 
-- **A scalar** crosses as itself: `Int`, `U8`, `U32`, `Float`, `Bool`, and `Unit` map to a declared C integer
+- **A scalar** crosses as itself: `Int`, `U8`, `U32`, `Float`, `Float32`, `Bool`, and `Unit` map to a declared C integer
   width, `double`, `bool`, and `void`. There is no implicit numeric conversion; the declared
   prototype is authoritative and the value is converted once at the boundary.
 - **A borrowed view** is one of two foreign types. `CString` is a NUL-terminated `const char*`
@@ -1220,7 +1220,7 @@ them and must not weaken them.
 
 ## 13. Scalar semantics
 
-The scalar types are atomic type words (§11.2): `Bool`, `Int`, `U8`, `U32`, `Float`, `Unit`, and `Text`. They
+The scalar types are atomic type words (§11.2): `Bool`, `Int`, `U8`, `U32`, `Float`, `Float32`, `Unit`, and `Text`. They
 await no value, and are never constructors; a value of one is written by a literal or a typed
 operation, not by applying the type word.
 
@@ -1284,6 +1284,13 @@ nearest, ties to even, and is total. `int x` converts a Float to an Int by trunc
 zero; a NaN converts to zero, and a value at or beyond an Int bound converts to that bound.
 Both are pure, take one argument, and are ordinary names a lexical binding or host may
 shadow. Other numeric vocabularies convert with explicit vocabulary (§13.2, §13.6).
+
+The dictionary includes `Float32`, an IEEE 754 binary32 value. Its `+`, `-`, `*`, and `/`
+accept two `Float32` operands and return `Float32`, and each operation rounds its result to
+binary32, so a `Float32` computation is not the binary64 one; division by zero does not trap.
+Unary `-`, the relational operators, and `==`/`!=` follow the same IEEE rules as `Float`.
+`Float32` is Copy and is never implicitly converted to or from `Float`; the explicit word
+`f32 x` narrows a `Float` to the nearest binary32, ties to even.
 
 ### 13.4 Equality
 

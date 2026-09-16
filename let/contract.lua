@@ -19,7 +19,7 @@ local scalar=require('let.scalar')
 
 local Contract={}
 
-local function numeric(type_) return type_==B.Int or type_==B.Float or type_==B.U8 or type_==B.U32 end
+local function numeric(type_) return type_==B.Int or type_==B.Float or type_==B.Float32 or type_==B.U8 or type_==B.U32 end
 
 -- The definition a resolved name node refers to, or nil for a literal or an unresolved form.
 local function definition_of(resolved,node)
@@ -114,6 +114,7 @@ local function compute(template,resolved,types,environment)
             if operator==A.ToInt then infer(expr.operand,B.Float); return B.Int end
             if operator==A.ToU8 then infer(expr.operand,B.Int); return B.U8 end
             if operator==A.ToU32 then infer(expr.operand,B.Int); return B.U32 end
+            if operator==A.ToF32 then infer(expr.operand,B.Float); return B.Float32 end
             -- Negate: the operand has the expression's type.
             local type_=infer(expr.operand,expected)
             if type_ then return type_ end

@@ -53,4 +53,13 @@ check(truth('u32(4294967295) > u32(0)'),'U32 comparison is unsigned')
 check(truth('u32(7) == u32(7)'),'U32 equality')
 check(not truth('u8(255) == u8(254)'),'U8 inequality')
 
-print(('passed %d fixed-width integer checks'):format(checks))
+-- Float32 (§13.3) is a binary32: every operation rounds back to binary32, and the conversion
+-- from a Float rounds to nearest, ties to even. It is not the binary64 result.
+eq(string.format('%.0f',eval('f32(16777217.0)')),'16777216','2^24+1 is not representable in binary32')
+check(eval('f32(0.1) + f32(0.2)') ~= 0.1 + 0.2,'Float32 addition rounds to binary32')
+check(eval('f32(1.0) / f32(3.0)') == V.scalar.to_f32(1.0/3.0),'Float32 division rounds to binary32')
+check(eval('-f32(1.5)') == -1.5,'Float32 negation')
+check(truth('f32(1.0) < f32(2.0)'),'Float32 comparison')
+check(truth('f32(2.0) == f32(2.0)') and not truth('f32(1.0) == f32(2.0)'),'Float32 equality')
+
+print(('passed %d fixed-width and Float32 checks'):format(checks))

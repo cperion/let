@@ -76,6 +76,7 @@ function Emitter:ctype(type_)
     if type_==B.Unit then return C.U8 end
     if type_==B.Effect then return C.U64 end
     if type_==B.Float then self.math=true; return C.F64 end
+    if type_==B.Float32 then self.math=true; return C.F32 end
     if type_==B.Text then self.text=true; return C.Named('struct let_text') end
     if type_==B.CString then return C.Pointer(C.Named('const char')) end
     if type_==B.CPointer then return C.Pointer(C.Named('void')) end
@@ -151,6 +152,7 @@ function Emitter:value(belt_id,index,output) return 'v' .. belt_id .. '_' .. ind
 function Emitter:constant(answer)
     local type_=answer.type
     if type_==B.Int or type_==B.U8 or type_==B.U32 then local hi,lo=scalar.limbs(answer.value); return C.Integer(hi,lo) end
+    if type_==B.Float32 then self.math=true; return C.Cast(C.F32,C.Float(answer.value)) end
     if type_==B.Float then self.math=true; return C.Float(answer.value) end
     if type_==B.Bool then return C.Boolean(answer.value) end
     if type_==B.Unit then return C.Integer(0,0) end
@@ -226,6 +228,7 @@ function Emitter:instruction(block,block_id,index,instruction)
         elseif operation.operator==A.ToFloat then declare(0,B.Float,C.Cast(self:ctype(B.Float),operand))
         elseif operation.operator==A.ToU8 then declare(0,B.U8,C.Cast(self:ctype(B.U8),operand))
         elseif operation.operator==A.ToU32 then declare(0,B.U32,C.Cast(self:ctype(B.U32),operand))
+        elseif operation.operator==A.ToF32 then declare(0,B.Float32,C.Cast(self:ctype(B.Float32),operand))
         elseif operation.operator==A.ToInt then
             if declare(0,B.Int,C.Call(C.Name('let_to_int'),L{operand})) then self.helpers.to_int=true end
         elseif operation.operator==A.ToCString then
@@ -238,13 +241,13 @@ function Emitter:instruction(block,block_id,index,instruction)
         elseif operation.operator==A.IsNull then
             declare(0,B.Bool,C.Binary('==',operand,C.Integer(0,0)))
         elseif operation.operator==A.BitNot then declare(0,instruction.results[1],C.Unary('~',operand))
-        elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
+        elseif instruction.results[1]==B.Float or instruction.results[1]==B.Float32 then declare(0,instruction.results[1],C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
         local arguments=self:arglist(block,block_id,position,{operation.left,operation.right})
         local _,type_=block:resolve(position,operation.left)
         if known(0) then return statement_list(out) end
-        if type_==B.Float then
+        if type_==B.Float or type_==B.Float32 then
             self.math=true
             declare(0,instruction.results[1],C.Binary(symbolic[operation.operator],arguments[1],arguments[2]))
         elseif operation.operator==A.Equal or operation.operator==A.NotEqual then

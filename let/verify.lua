@@ -43,6 +43,7 @@ function B.Unary:verify(ctx)
     elseif self.operator==A.ToFloat then ctx:expect(self.operand,B.Int); ctx:results(L{B.Float})
     elseif self.operator==A.ToU8 then ctx:expect(self.operand,B.Int); ctx:results(L{B.U8})
     elseif self.operator==A.ToU32 then ctx:expect(self.operand,B.Int); ctx:results(L{B.U32})
+    elseif self.operator==A.ToF32 then ctx:expect(self.operand,B.Float); ctx:results(L{B.Float32})
     elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
     elseif self.operator==A.ToCString then ctx:expect(self.operand,B.Text); ctx:results(L{B.CString})
     elseif self.operator==A.ToText then ctx:expect(self.operand,B.CString); ctx:results(L{B.Text})
@@ -53,7 +54,7 @@ function B.Unary:verify(ctx)
         assert(pointer==B.CString or pointer==B.CPointer or B.Named:isclassof(pointer),'null test requires a pointer')
         ctx:results(L{B.Bool})
     else
-        assert(type_==B.Int or type_==B.Float,'negation requires a numeric operand')
+        assert(type_==B.Int or type_==B.Float or type_==B.Float32,'negation requires a numeric operand')
         ctx:results(L{type_})
     end
 end
@@ -67,12 +68,12 @@ end
 function A.BinaryOp:verify(ctx,left,right)
     local type_=ctx:type(left)
     ctx:expect(right,type_)
-    assert(type_==B.Int or type_==B.U8 or type_==B.U32 or type_==B.Float,'arithmetic requires a numeric operand')
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32 or type_==B.Float or type_==B.Float32,'arithmetic requires a numeric operand')
     return type_
 end
 local function compare(_,ctx,left,right)
     local type_=ctx:type(left); ctx:expect(right,type_)
-    assert(type_==B.Int or type_==B.U8 or type_==B.U32 or type_==B.Float,'comparison requires a numeric operand'); return B.Bool
+    assert(type_==B.Int or type_==B.U8 or type_==B.U32 or type_==B.Float or type_==B.Float32,'comparison requires a numeric operand'); return B.Bool
 end
 A.Less.verify=compare; A.LessEqual.verify=compare; A.Greater.verify=compare; A.GreaterEqual.verify=compare
 local function equal_(_,ctx,left,right)

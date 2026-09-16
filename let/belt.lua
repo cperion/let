@@ -5,7 +5,7 @@ module Belt {
     Destination = Persistent | Transient
     Access = CopyAccess | OwnAccess | ReadAccess | MutAccess
     Field = (string? name, Type type, boolean mutable)
-    Type = Int | U8 | U32 | Float | Bool | Unit | Text | Effect | CString | CPointer
+    Type = Int | U8 | U32 | Float | Float32 | Bool | Unit | Text | Effect | CString | CPointer
          | Named(string name) | Address(Type pointee)
          | Borrow(Type pointee, boolean stable)
          | Aggregate(Field* fields, boolean is_copy, string? name)
@@ -92,6 +92,8 @@ function B.Type:copyable() return false end
 function B.Int:copyable() return true end
 -- §13.2 fixed-width integers are Copy values, like Int.
 function B.U8:copyable() return true end
+-- §13.3 Float32 is a Copy scalar, like Float.
+function B.Float32:copyable() return true end
 function B.U32:copyable() return true end
 function B.Float:copyable() return true end
 function B.Bool:copyable() return true end
@@ -157,6 +159,7 @@ end
 function B.Type:key() return tostring(self) end
 function B.Int:key() return 'int' end
 function B.U8:key() return 'u8' end
+function B.Float32:key() return 'f32' end
 function B.U32:key() return 'u32' end
 function B.Float:key() return 'float' end
 function B.Bool:key() return 'bool' end

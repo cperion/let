@@ -383,9 +383,9 @@ function A.Program:resolve(options)
     -- §11: the primitive type words are ordinary names, not a phase; the vocabulary decides
     -- what a type word means at a boundary.
     local builtins={}
-    for _,name in ipairs{'Bool','Int','U8','U32','Float','Unit','Text','CString','CPointer','Type'} do builtins[name]={type=true} end
+    for _,name in ipairs{'Bool','Int','U8','U32','Float','Float32','Unit','Text','CString','CPointer','Type'} do builtins[name]={type=true} end
     -- The core numeric conversions are runtime words (§13.3), shadowable like any binding.
-    for _,name in ipairs{'float','int','u8','u32'} do builtins[name]={phase='runtime'} end
+    for _,name in ipairs{'float','int','u8','u32','f32'} do builtins[name]={phase='runtime'} end
     local outer=dictionary(ctx,nil,builtins)
     outer=dictionary(ctx,outer,options.dictionary or {})
     local resources={}

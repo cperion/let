@@ -11,11 +11,11 @@ local Vocabulary={}; Vocabulary.__index=Vocabulary
 -- message naming the contract, rather than at whichever consumer happened to read it first.
 -- The atomic type names every program has, in one place, so a consumer that must show them
 -- (the editor's token classification) does not restate which names are types.
-Vocabulary.scalars={'Int','U8','U32','Float','Bool','Unit','Text','CString','CPointer','Type'}
+Vocabulary.scalars={'Int','U8','U32','Float','Float32','Bool','Unit','Text','CString','CPointer','Type'}
 
 function Vocabulary.new(options)
     options=options or {}
-    local types={Int=B.Int,U8=B.U8,U32=B.U32,Float=B.Float,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}
+    local types={Int=B.Int,U8=B.U8,U32=B.U32,Float=B.Float,Float32=B.Float32,Bool=B.Bool,Unit=B.Unit,Text=B.Text,CString=B.CString,CPointer=B.CPointer,Type=B.TypeWord}
     local representations={}
     local destroy={}
     for name,descriptor in pairs(options.resources or {}) do
@@ -58,7 +58,10 @@ function Vocabulary.new(options)
             return let_type==B.Int or let_type==B.U8 or let_type==B.U32
                 or (B.Named:isclassof(let_type) and representations[let_type.name]~='pointer')
         end
-        if kind=='double' or kind=='float' then return let_type==B.Float end
+        -- §13.3 a C `double` describes Float and a C `float` describes Float32; the two are
+        -- never implicitly converted.
+        if kind=='double' then return let_type==B.Float end
+        if kind=='float' then return let_type==B.Float32 end
         if kind=='bool' then return let_type==B.Bool end
         if kind=='pointer' then
             return let_type==B.CString or let_type==B.CPointer

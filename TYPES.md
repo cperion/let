@@ -24,7 +24,7 @@ No parameter lists, no products in the type: `Int : Int : do R` is `Int -> (Int 
 A **type word** is a word built from primitives and constructors:
 
 ```
-type-word ::= Int | U8 | U32 | Float | Bool | Unit | Text | CString | CPointer   -- atomic, not constructors
+type-word ::= Int | U8 | U32 | Float | Float32 | Bool | Unit | Text | CString | CPointer   -- atomic, not constructors
             | Type                                -- the classifier of type words
             | { let field : type-word ... }      -- product, keyed
             | type-word or type-word               -- sum (see §8)
@@ -215,6 +215,9 @@ semantics are unchanged (the DESIGN.md acceptance rule).
     implicitly converted, and every operation reduces modulo `2^width`. `u8 x`/`u32 x` are the
     explicit crossings. `Op.kind` is the one place the width of a result type is read, so
     folding, the interpreter oracle, and the emitted C agree.
+11. **[done] Float32.** `Float32` is an atomic binary32 type word (§13.3), Copy, never implicitly
+    converted to or from `Float`; `f32 x` is the explicit narrowing. `Op.kind` returns `'f32'`, so
+    every operation rounds its result back to binary32 in folding, the oracle, and the C.
 
 ## 10. Deleted
 

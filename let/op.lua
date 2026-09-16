@@ -12,6 +12,7 @@ local Op={}
 function Op.kind(type_)
     if type_==B.U8 then return 8 end
     if type_==B.U32 then return 32 end
+    if type_==B.Float32 then return 'f32' end
     return nil
 end
 
@@ -31,7 +32,7 @@ Op.binary={
 Op.unary={
     [A.Negate]=scalar.negate, [A.Not]=function(a) return not a end, [A.BitNot]=scalar.bitnot,
     [A.ToFloat]=scalar.to_float, [A.ToInt]=scalar.to_int,
-    [A.ToU8]=scalar.to_u8, [A.ToU32]=scalar.to_u32,
+    [A.ToU8]=scalar.to_u8, [A.ToU32]=scalar.to_u32, [A.ToF32]=scalar.to_f32,
     [A.TextSize]=scalar.text_size,
     -- `IsNull` is not here: a pointer is not a Let value, so it never folds.
 }

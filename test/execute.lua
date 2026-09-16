@@ -110,7 +110,7 @@ return function(fn,arguments,hosts,limit,program)
     local incoming={0}
     for i,value in ipairs(arguments or {}) do
         local type_=fn.signature.parameters[i+1].type
-        incoming[i+1]=type_==B.Int and scalar.int64(value) or value
+        incoming[i+1]=(type_==B.Int and scalar.int64(value)) or (type_==B.Float32 and scalar.to_f32(value)) or value
     end
     local results=Run.frame(fn,incoming,hosts or {},program,limit)
     return results[1],results[#results]
