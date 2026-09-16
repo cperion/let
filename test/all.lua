@@ -10,11 +10,8 @@ local suites={
     'test/known.lua','test/import.lua','test/place.lua','test/host_entry.lua',
     'test/native.lua','test/width.lua','test/sum.lua','test/view.lua','test/float.lua','test/ide.lua','test/bundle.lua',
 }
--- The committed dist/let.lua is the LuaJIT bundle, so `test/bundle.lua` runs only under
--- LuaJIT; with PUC Lua, `lua bundle.lua` writes that host's own bundle instead.
-if type(jit)~='table' then
-    for index=#suites,1,-1 do if suites[index]=='test/bundle.lua' then table.remove(suites,index) end end
-end
+-- `test/bundle.lua` runs under either host: the committed bundle is host-independent, so both
+-- hosts must regenerate it byte for byte, and running this file under each is what checks that.
 -- Run each suite with the interpreter running this file, so the suite runs on LuaJIT or PUC Lua.
 local interpreter=arg[-1] or 'luajit'
 local total,failed=0,{}

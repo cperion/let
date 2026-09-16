@@ -48,7 +48,7 @@ local text_host_code=[[
 struct let_text mark(struct let_text text){ fwrite(text.data,1,(size_t)text.size,stdout); fputc('\n',stdout); return text; }
 ]]
 local trap_code=[[
-void let_trap(char* reason){ fputs("trap: ",stderr); fputs(reason,stderr); fputc('\n',stderr); abort(); }
+void let_trap(char* reason){ fflush(stdout); fputs("trap: ",stderr); fputs(reason,stderr); fputc('\n',stderr); abort(); }
 ]]
 
 
@@ -743,6 +743,20 @@ let answer = pick(runtime_int(9))
 let shown = print_int(answer.a)
 ]],'int main(void){ let_module_init(); return 0; }')
 check(output:find('trap: index out of range',1,true)~=nil,'§8.4 a trapping runtime index in a struct-returning word')
+
+-- §14.2 allows a trap to abandon buffered output, but the bytes printed before it are the last
+-- thing a reader has, so the trap hook flushes stdout first -- and so does the command-line
+-- host. Without the flush `abort` discards them, which is what this pins: the line printed just
+-- before the trap has to arrive, and in order.
+output=native('trap_after_output',[[
+let show = let n : Int do : Int
+    let written = print_int(n)
+    let cells = { 1, 2 }
+    return cells[runtime_int(5)]
+end
+let answer = show(42)
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'42\ntrap: index out of range\n','output printed before a trap is flushed rather than lost')
 
 -- A capturing word invoked with an element read at a runtime index. The read's bounds check
 -- splits the block, so the field the callee is handed -- `base`, captured from the module -- has

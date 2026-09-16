@@ -11,6 +11,14 @@ local function eq(actual,expected,message)
     checks=checks+1
 end
 
+-- The bundle is host-independent, so this suite runs under either interpreter and uses the one
+-- running it. That both hosts must produce the *same* file is what makes one artifact enough,
+-- and it is tested by running this file under each of them rather than by asking here.
+local interpreter=arg[-1] or 'luajit'
+-- Lua 5.2+ returns (true,"exit",0) instead of a status code, so normalize it.
+local function status(ok,_,code) return (type(ok)=='number') and ok or (ok and 0 or (code or 1)) end
+local function run(command) return status(os.execute(command))==0 end
+
 local source='let answer = 6 * 7\nlet show = do : Int return answer end\nlet shown = show()\n'
 local function emit(api)
     local program=api.parse(source,'bundle.let'):build{}
@@ -20,7 +28,7 @@ end
 
 -- The committed bundle is what the generator produces now, so the two cannot drift apart.
 local regenerated='/tmp/let_bundle_regenerated.lua'
-assert(os.execute(('luajit bundle.lua %s >/dev/null'):format(regenerated))==0 or true)
+check(run(('%s bundle.lua %s >/dev/null'):format(interpreter,regenerated)),'the generator ran')
 local produced=assert(io.open(regenerated,'rb')):read('*a')
 local committed=assert(io.open('dist/let.lua','rb')):read('*a')
 eq(produced,committed,'the committed bundle is current')
@@ -35,7 +43,7 @@ eq(emit(B),emit(V),'the bundle emits what the module layout emits')
 local input,output='/tmp/let_bundle_input.let','/tmp/let_bundle_output.c'
 local handle=assert(io.open(input,'wb')); handle:write(source); handle:close()
 os.remove(output)
-os.execute(('luajit dist/let.lua %s %s'):format(input,output))
+os.execute(('%s dist/let.lua %s %s'):format(interpreter,input,output))
 local compiled=assert(io.open(output,'rb')):read('*a')
 -- The command line is a host, so it publishes every exported word as an entry; compare against
 -- the same thing done by hand rather than against an emission with nothing published.
@@ -55,7 +63,7 @@ local standalone=directory..'/demo.let'
 local handle=assert(io.open(standalone,'wb'))
 handle:write('let twice = let n : Int do : Int return n * 2 end\nlet answer = twice(21)\n')
 handle:close()
-os.execute(('cd %s && luajit let.lua demo.let demo.c'):format(directory))
+os.execute(('cd %s && %s let.lua demo.let demo.c'):format(directory,interpreter))
 local emitted=assert(io.open(directory..'/demo.c','rb')):read('*a')
 check(emitted:find('INT64_C(42)',1,true)~=nil,
     'the bundle compiles on its own, with no module tree to fall back on')
@@ -67,7 +75,7 @@ local hello=directory..'/hello.let'
 local handle=assert(io.open(hello,'wb'))
 handle:write('let main = do : Unit c.puts(c.string("hello from let")) end\n')
 handle:close()
-os.execute(('cd %s && luajit let.lua hello.let hello.c'):format(directory))
+os.execute(('cd %s && %s let.lua hello.let hello.c'):format(directory,interpreter))
 os.execute(('cc -std=c11 -O1 -o %s/hello %s/hello.c'):format(directory,directory))
 local pipe=io.popen(directory..'/hello 2>&1')
 local greeting=pipe:read('*a'); pipe:close()
