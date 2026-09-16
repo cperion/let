@@ -138,7 +138,7 @@ let do end own mut move return if else while switch case and or not true false b
 
 These spellings cannot be used as binding names. `if`, `else`, `while`, `switch`, `case`, `break`, and `continue` are structured control spellings in the language dictionary. They describe inline control regions rather than invoking runtime branch closures. `and`, `or`, and `not` are reserved operator spellings.
 
-The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. `->` is the type arrow and is never an expression operator; `or` builds a tagged union between two type words (`A or B`, §11.5) and is otherwise the logical or, the loosest expression operator (§3.4). The scanner takes `->` before `-`. Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
+The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. `->` is the type arrow and is never an expression operator; `or` builds a tagged union between two type words (`A or B`, §11.5) and is otherwise the logical or, the loosest expression operator (§3.4). `|`, `&`, `^`, and unary `~` are bitwise and are never the union; `<<` and `>>` are the shifts (§3.4, §13.2). The scanner takes `->` before `-`. Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
 
 ---
 
@@ -284,13 +284,17 @@ Precedence from highest to lowest is:
 | ---: | --- | --- |
 | 1 | postfix `value.name`, `value[index]`, `word(args...)` | left |
 | 2 | specialization by juxtaposition | left |
-| 3 | prefix `not`, unary `-` | right |
+| 3 | prefix `not`, unary `-`, unary `~` | right |
 | 4 | `* / %` | left |
 | 5 | `+ -` | left |
-| 6 | `< <= > >=` | non-associative |
-| 7 | `== !=` | non-associative |
-| 8 | `and` | left, short-circuiting |
-| 9 | `or` | left, short-circuiting; between two type words, tagged union |
+| 6 | `<< >>` | left |
+| 7 | `&` | left |
+| 8 | `^` | left |
+| 9 | `\|` | left |
+| 10 | `< <= > >=` | non-associative |
+| 11 | `== !=` | non-associative |
+| 12 | `and` | left, short-circuiting |
+| 13 | `or` | left, short-circuiting; between two type words, tagged union |
 
 Postfix invocation is recognized regardless of whitespace. `f(x)` and `f (x)` are identical. Prefix parentheses group an expression. `or` is the loosest expression operator, so `a and b or c` parses as `(a and b) or c`; between two type words it builds a tagged union type word (§11.5), and between values it short-circuits.
 
@@ -301,16 +305,20 @@ and_expression       := equality_expression { "and" equality_expression }
 equality_expression  := comparison_expression
                         [ ("==" | "!=") comparison_expression ]
 comparison_expression
-                     := additive_expression
+                     := bit_or_expression
                         [ ("<" | "<=" | ">" | ">=")
-                          additive_expression ]
+                          bit_or_expression ]
+bit_or_expression    := bit_xor_expression { "|" bit_xor_expression }
+bit_xor_expression   := bit_and_expression { "^" bit_and_expression }
+bit_and_expression   := shift_expression { "&" shift_expression }
+shift_expression     := additive_expression { ("<<" | ">>") additive_expression }
 additive_expression  := multiplicative_expression
                         { ("+" | "-") multiplicative_expression }
 multiplicative_expression
                      := prefix_expression
                         { ("*" | "/" | "%") prefix_expression }
 
-prefix_expression    := ("not" | "-") prefix_expression
+prefix_expression    := ("not" | "-" | "~") prefix_expression
                      | specialization
 specialization       := postfix_expression
                         { specialization_argument }
@@ -1239,8 +1247,12 @@ Arithmetic is defined exactly:
 | `+`, `-`, `*`, unary `-` | Low 64 bits; two's-complement wraparound |
 | `/` | Signed quotient truncated toward zero |
 | `%` | Signed remainder with the dividend's sign |
+| `&`, `\|`, `^` | Bitwise and, or, and exclusive or of the 64-bit two's-complement values |
+| unary `~` | Bitwise complement |
+| `<<` | Left shift by `count mod 64`; the low 64 bits |
+| `>>` | Arithmetic right shift by `count mod 64` |
 
-Division or remainder by zero traps. `INT_MIN / -1` wraps to `INT_MIN`; `INT_MIN % -1` is zero. Signed comparisons implement `<`, `<=`, `>`, and `>=`.
+Division or remainder by zero traps. `INT_MIN / -1` wraps to `INT_MIN`; `INT_MIN % -1` is zero. Signed comparisons implement `<`, `<=`, `>`, and `>=`. Bitwise operators accept only Int operands and return Int. A shift count is reduced modulo 64, so no shift is undefined and no shift traps; `<<` keeps the low 64 bits, so shifting out of range wraps.
 
 There are no implicit numeric conversions or promotion rules. Additional numeric vocabularies use distinct type words and explicit conversion words.
 

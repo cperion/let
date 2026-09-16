@@ -884,10 +884,10 @@ module Source {
 }
 module AST {
     Capability = Read | Mut | Own | OwnMut
-    UnaryOp = Negate | Not | ToFloat | ToInt | ToCString | ToText | TextSize | IsNull
+    UnaryOp = Negate | Not | BitNot | ToFloat | ToInt | ToCString | ToText | TextSize | IsNull
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
-             | And | Or
+             | And | Or | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight
     TypeExpr = Ref(string name, Expr* arguments, Source.Range name_range) | Apply(TypeExpr constructor, TypeExpr argument)
              | Arrow(TypeExpr from, TypeExpr to) | Sum(TypeExpr left, TypeExpr right)
              | Do(TypeExpr result)
@@ -1297,6 +1297,7 @@ local function compute(template,resolved,types,environment)
         if A.Unary:isclassof(expr) then
             local operator=expr.operator
             if operator==A.Not then infer(expr.operand,B.Bool); return B.Bool end
+            if operator==A.BitNot then infer(expr.operand,B.Int); return B.Int end
             if operator==A.ToFloat then infer(expr.operand,B.Int); return B.Float end
             if operator==A.ToInt then infer(expr.operand,B.Float); return B.Int end
             -- Negate: the operand has the expression's type.
@@ -1307,6 +1308,10 @@ local function compute(template,resolved,types,environment)
         end
         if A.Binary:isclassof(expr) then
             local operator=expr.operator
+            if operator==A.BitAnd or operator==A.BitOr or operator==A.BitXor
+                or operator==A.ShiftLeft or operator==A.ShiftRight then
+                infer(expr.left,B.Int); infer(expr.right,B.Int); return B.Int
+            end
             if operator==A.And or operator==A.Or then
                 infer(expr.left,B.Bool); infer(expr.right,B.Bool); return B.Bool
             end
@@ -3074,7 +3079,10 @@ function A.Unary:build(ctx)
         return ctx:emit(B.IntegerLiteral(spelling),L{B.Int},self.span)
     end
     local value=self.operand:build(ctx)
-    local type_=self.operator==A.Not and B.Bool or (value.type==B.Float and B.Float or B.Int)
+    local type_
+    if self.operator==A.Not then type_=B.Bool
+    elseif self.operator==A.BitNot then type_=B.Int
+    else type_=value.type==B.Float and B.Float or B.Int end
     expect(value,type_,self.span)
     return ctx:emit(B.Unary(self.operator,ctx:ref(value)),L{type_},self.span)
 end
@@ -3104,6 +3112,14 @@ local function checked(self,ctx,left,right,span)
     return ctx:ordered(B.CheckedBinary(self,ctx:ref(ctx.effect),ctx:ref(left),ctx:ref(right)),B.Int,span)
 end
 A.Divide.apply=checked; A.Remainder.apply=checked
+-- `& | ^ << >>` take two Ints and produce an Int. They are pure: no operand and no shift count
+-- can trap, because a count is reduced modulo the width and `<<` keeps the low bits (§13.3).
+local function bitwise(self,ctx,left,right,span)
+    expect(left,B.Int,span); expect(right,B.Int,span)
+    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Int},span)
+end
+A.BitAnd.apply=bitwise; A.BitOr.apply=bitwise; A.BitXor.apply=bitwise
+A.ShiftLeft.apply=bitwise; A.ShiftRight.apply=bitwise
 function A.BinaryOp:build(ctx,expression)
     local left=expression.left:build(ctx)
     if not left.type then gap(expression.left.span,'word values in data positions') end
@@ -3977,6 +3993,7 @@ end
 function B.Unary:verify(ctx)
     local type_=ctx:type(self.operand)
     if self.operator==A.Not then ctx:expect(self.operand,B.Bool); ctx:results(L{B.Bool})
+    elseif self.operator==A.BitNot then ctx:expect(self.operand,B.Int); ctx:results(L{B.Int})
     elseif self.operator==A.ToFloat then ctx:expect(self.operand,B.Int); ctx:results(L{B.Float})
     elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
     elseif self.operator==A.ToCString then ctx:expect(self.operand,B.Text); ctx:results(L{B.CString})
@@ -4016,6 +4033,10 @@ end
 A.Equal.verify=equal_; A.NotEqual.verify=equal_
 local function boolean_(_,ctx,left,right) ctx:expect(left,B.Bool); ctx:expect(right,B.Bool); return B.Bool end
 A.And.verify=boolean_; A.Or.verify=boolean_
+-- `& | ^ << >>` require two Ints and produce an Int.
+local function bits(_,ctx,left,right) ctx:expect(left,B.Int); ctx:expect(right,B.Int); return B.Int end
+A.BitAnd.verify=bits; A.BitOr.verify=bits; A.BitXor.verify=bits
+A.ShiftLeft.verify=bits; A.ShiftRight.verify=bits
 function B.Binary:verify(ctx)
     local result=self.operator:verify(ctx,self.left,self.right)
     assert(not ((self.operator==A.Divide or self.operator==A.Remainder) and result==B.Int),'potential trap must consume an effect')
@@ -4359,8 +4380,8 @@ function Lexer:next()
         return Source.Token('integer',spelling,nil,span)
     end
     local two=rest:sub(1,2)
-    if two=='==' or two=='!=' or two=='<=' or two=='>=' or two=='->' then self:advance(); self:advance(); return Source.Token(two,two,nil,span) end
-    if c:match('^[=;(),{}%[%].:+*/%%<>%-|]$') then self:advance(); return Source.Token(c,c,nil,span) end
+    if two=='==' or two=='!=' or two=='<=' or two=='>=' or two=='->' or two=='<<' or two=='>>' then self:advance(); self:advance(); return Source.Token(two,two,nil,span) end
+    if c:match('^[=;(),{}%[%].:+*/%%<>%-&|^~]$') then self:advance(); return Source.Token(c,c,nil,span) end
     local bad=self:advance(); Lexer.fail(span,'unexpected character ' .. string.format('%q',bad))
 end
 function Lexer:scan()
@@ -4748,6 +4769,7 @@ end
 function Parser:prefix()
     local minus=self:accept('-'); if minus then return A.Unary(A.Negate,self:prefix(),minus.span) end
     local not_=self:accept('not'); if not_ then return A.Unary(A.Not,self:prefix(),not_.span) end
+    local invert=self:accept('~'); if invert then return A.Unary(A.BitNot,self:prefix(),invert.span) end
     local value=self:postfix()
     while self:is('name') or self:is('integer') or self:is('text') or self:is('true') or self:is('false') or self:is('{') or self:is('move') do
         if self:assignment_ahead() then break end
@@ -4759,8 +4781,10 @@ local operators={
     ['or']={1,A.Or},['and']={2,A.And},
     ['==']={3,A.Equal},['!=']={3,A.NotEqual},
     ['<']={4,A.Less},['<=']={4,A.LessEqual},['>']={4,A.Greater},['>=']={4,A.GreaterEqual},
-    ['+']={5,A.Add},['-']={5,A.Subtract},
-    ['*']={6,A.Multiply},['/']={6,A.Divide},['%']={6,A.Remainder}
+    ['|']={5,A.BitOr},['^']={6,A.BitXor},['&']={7,A.BitAnd},
+    ['<<']={8,A.ShiftLeft},['>>']={8,A.ShiftRight},
+    ['+']={9,A.Add},['-']={9,A.Subtract},
+    ['*']={10,A.Multiply},['/']={10,A.Divide},['%']={10,A.Remainder}
 }
 function Parser:expression(minimum)
     minimum=minimum or 0; local left=self:prefix(); local used={}
@@ -6137,10 +6161,12 @@ Op.binary={
     [A.Less]=scalar.less, [A.LessEqual]=scalar.less_equal,
     [A.Greater]=scalar.greater, [A.GreaterEqual]=scalar.greater_equal,
     [A.And]=function(a,b) return a and b end, [A.Or]=function(a,b) return a or b end,
+    [A.BitAnd]=scalar.band, [A.BitOr]=scalar.bor, [A.BitXor]=scalar.bxor,
+    [A.ShiftLeft]=scalar.shl, [A.ShiftRight]=scalar.shr,
 }
 
 Op.unary={
-    [A.Negate]=scalar.negate, [A.Not]=function(a) return not a end,
+    [A.Negate]=scalar.negate, [A.Not]=function(a) return not a end, [A.BitNot]=scalar.bitnot,
     [A.ToFloat]=scalar.to_float, [A.ToInt]=scalar.to_int,
     [A.TextSize]=scalar.text_size,
     -- `IsNull` is not here: a pointer is not a Let value, so it never folds.
@@ -7180,7 +7206,8 @@ function Emitter:arglist(block,block_id,position,refs)
 end
 
 local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Divide]='/',[A.Less]='<',[A.LessEqual]='<=',
-    [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||'}
+    [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||',
+    [A.BitAnd]='&',[A.BitOr]='|',[A.BitXor]='^'}
 local arithmetic={[A.Add]={'add','LET_ADD'}, [A.Subtract]={'sub','LET_SUB'}, [A.Multiply]={'mul','LET_MUL'}}
 
 
@@ -7231,6 +7258,7 @@ function Emitter:instruction(block,block_id,index,instruction)
             declare(0,B.Int,C.Cast(C.I64,C.Field(operand,'size')))
         elseif operation.operator==A.IsNull then
             declare(0,B.Bool,C.Binary('==',operand,C.Integer(0,0)))
+        elseif operation.operator==A.BitNot then declare(0,B.Int,C.Unary('~',operand))
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
@@ -7258,6 +7286,14 @@ function Emitter:instruction(block,block_id,index,instruction)
             local helper=arithmetic[operation.operator]
             self.helpers[helper[1]]=true
             declare(0,B.Int,C.Call(C.Name(helper[2]),L{arguments[1],arguments[2]}))
+        elseif operation.operator==A.ShiftLeft or operation.operator==A.ShiftRight then
+            if operation.operator==A.ShiftLeft then
+                self.helpers.shl=true
+                declare(0,B.Int,C.Call(C.Name('LET_SHL'),L{arguments[1],arguments[2]}))
+            else
+                self.helpers.shr=true
+                declare(0,B.Int,C.Call(C.Name('let_shr'),L{arguments[1],arguments[2]}))
+            end
         else
             declare(0,instruction.results[1],C.Binary(symbolic[operation.operator],arguments[1],arguments[2]))
         end
@@ -7785,6 +7821,10 @@ function Emitter:helper_declarations()
     if self.helpers.sub then raw('#define LET_SUB(a,b) ((int64_t)((uint64_t)(a)-(uint64_t)(b)))') end
     if self.helpers.mul then raw('#define LET_MUL(a,b) ((int64_t)((uint64_t)(a)*(uint64_t)(b)))') end
     if self.helpers.neg then raw('#define LET_NEG(a) ((int64_t)(0-(uint64_t)(a)))') end
+    -- A shift count is reduced modulo the width, and a left shift keeps the low bits, so neither
+    -- shift is undefined and a huge count is defined rather than a trap.
+    if self.helpers.shl then raw('#define LET_SHL(a,b) ((int64_t)((uint64_t)(a) << ((uint64_t)(b) & 63)))') end
+    if self.helpers.shr then raw('static int64_t let_shr(int64_t a,int64_t b){unsigned n=(unsigned)((uint64_t)b & 63u);uint64_t u=(uint64_t)a >> n;if(a<0 && n)u|=~(uint64_t)0 << (64u-n);return (int64_t)u;}') end
     -- Division and remainder keep one shared helper each: inlining the trap check at every
     -- site would duplicate control flow rather than remove a function.
     if self.helpers.div then raw('static int64_t let_div(int64_t a,int64_t b){if(b==0)let_trap("division by zero");if(b==-1)return (int64_t)(0-(uint64_t)a);return a/b;}') end

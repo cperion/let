@@ -370,6 +370,7 @@ end
 function Parser:prefix()
     local minus=self:accept('-'); if minus then return A.Unary(A.Negate,self:prefix(),minus.span) end
     local not_=self:accept('not'); if not_ then return A.Unary(A.Not,self:prefix(),not_.span) end
+    local invert=self:accept('~'); if invert then return A.Unary(A.BitNot,self:prefix(),invert.span) end
     local value=self:postfix()
     while self:is('name') or self:is('integer') or self:is('text') or self:is('true') or self:is('false') or self:is('{') or self:is('move') do
         if self:assignment_ahead() then break end
@@ -381,8 +382,10 @@ local operators={
     ['or']={1,A.Or},['and']={2,A.And},
     ['==']={3,A.Equal},['!=']={3,A.NotEqual},
     ['<']={4,A.Less},['<=']={4,A.LessEqual},['>']={4,A.Greater},['>=']={4,A.GreaterEqual},
-    ['+']={5,A.Add},['-']={5,A.Subtract},
-    ['*']={6,A.Multiply},['/']={6,A.Divide},['%']={6,A.Remainder}
+    ['|']={5,A.BitOr},['^']={6,A.BitXor},['&']={7,A.BitAnd},
+    ['<<']={8,A.ShiftLeft},['>>']={8,A.ShiftRight},
+    ['+']={9,A.Add},['-']={9,A.Subtract},
+    ['*']={10,A.Multiply},['/']={10,A.Divide},['%']={10,A.Remainder}
 }
 function Parser:expression(minimum)
     minimum=minimum or 0; local left=self:prefix(); local used={}

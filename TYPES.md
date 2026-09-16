@@ -76,7 +76,7 @@ awaiting its fields -- the record's constructor and its type; a `let x = v` memb
 the aggregate is the value. There is no separate `{ x : Int }` notation.
 
 A stage **must** declare its type word, and a runtime terminal **must** state its result: `do : T`.
-The result is parsed as `result_type` (arrows and `|`, no top-level juxtaposition) so a name-starting
+The result is parsed as `result_type` (arrows and `or`, no top-level juxtaposition) so a name-starting
 body is not swallowed; write `do : (List Int)` for an applied result. A data terminal needs no
 written result -- its type is the type of its terminal expression, composed from the declared stage
 types (no unknowns, so not inference). The declaration makes the word's type readable without
@@ -185,13 +185,17 @@ no longer coerces `|` operands to type-word `Ref`s; `A.Or:build` dispatches on t
 types (Bool versus type words), so the union decision moves from parse time to construction.
 The union is therefore not a distinct AST node; it is an `A.Or` resolved by phase.
 
+`|`, `&`, `^`, unary `~`, `<<` and `>>` are now the bitwise operators (§13.2). They bind tighter
+than comparison and looser than `+`; a shift count is reduced modulo 64 and `<<` keeps the low
+bits, so no shift is undefined and no shift traps.
+
 ## 9. Migration
 
 Each step keeps `luajit test/all.lua` green, regenerates `dist/let.lua`, and emits identical C where
 semantics are unchanged (the DESIGN.md acceptance rule).
 
 1. **[done] TypeExpr + parser.** `TypeExpr` replaces `Constraint`; the §3 grammar parses; `->` and
-   `|` are tokenized; `do : T` parses.
+   `->`, `or`, and the bitwise spellings are tokenized; `do : T` parses.
 2. **[done] Resolve / vocabulary.** `resolve.lua` resolves `TypeExpr` names like any word;
    `vocabulary.lua` is a type registry with `resolve_type`; the third phase is gone.
 3. **[done] Contract → checker.** `Context:constraint` → `Context:check`; a declared `do : T` is
@@ -205,6 +209,8 @@ semantics are unchanged (the DESIGN.md acceptance rule).
    elimination, Copy alternatives.
 8. **[done] Nominal records.** A stage aggregate's constructor brands its record, so same-shaped
    constructors are distinct types; a `let`-bound word names a type.
+9. **[done] Bitwise operators.** `& | ^ ~ << >>` are Int-only across `verify`, `build`, `op`, and
+   `emit`, with `LET_SHL`/`let_shr` fixing the shift semantics.
 
 ## 10. Deleted
 

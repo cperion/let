@@ -48,6 +48,19 @@ check(A.Sum:isclassof(sum) and sum.left.name=='Int' and sum.right.name=='Text')
 -- or the logical or is a question about the operands, answered when they are resolved.
 local union=parse('let Pair = Int or Text').file.items[1].binding.value.terminal.value
 check(A.Binary:isclassof(union) and union.operator==A.Or and A.Name:isclassof(union.left))
+-- §3.4 Bitwise binds tighter than comparison but looser than `+`, and `&` binds tighter than
+-- `^`, which binds tighter than `|`: `a | b == c` is `(a | b) == c`, `a + b << c` is
+-- `(a + b) << c`, and `a | b ^ c & d` is `a | (b ^ (c & d))`.
+local bit_compare=parse('let f = a | b == c').file.items[1].binding.value.terminal.value
+check(A.Binary:isclassof(bit_compare) and bit_compare.operator==A.Equal
+    and A.Binary:isclassof(bit_compare.left) and bit_compare.left.operator==A.BitOr)
+local bit_add=parse('let f = a + b << c').file.items[1].binding.value.terminal.value
+check(A.Binary:isclassof(bit_add) and bit_add.operator==A.ShiftLeft
+    and A.Binary:isclassof(bit_add.left) and bit_add.left.operator==A.Add)
+local bit_chain=parse('let f = a | b ^ c & d').file.items[1].binding.value.terminal.value
+check(A.Binary:isclassof(bit_chain) and bit_chain.operator==A.BitOr
+    and A.Binary:isclassof(bit_chain.right) and bit_chain.right.operator==A.BitXor
+    and A.Binary:isclassof(bit_chain.right.right) and bit_chain.right.right.operator==A.BitAnd)
 local record=parse('let f : { let x : Int let y : Text } = {}').file.items[1].binding.constraint
 check(A.Record:isclassof(record) and #record.fields==2 and record.fields[2].name=='y')
 local mutable=parse('let f : { let x mut : Int } = {}').file.items[1].binding.constraint

@@ -36,6 +36,7 @@ end
 function B.Unary:verify(ctx)
     local type_=ctx:type(self.operand)
     if self.operator==A.Not then ctx:expect(self.operand,B.Bool); ctx:results(L{B.Bool})
+    elseif self.operator==A.BitNot then ctx:expect(self.operand,B.Int); ctx:results(L{B.Int})
     elseif self.operator==A.ToFloat then ctx:expect(self.operand,B.Int); ctx:results(L{B.Float})
     elseif self.operator==A.ToInt then ctx:expect(self.operand,B.Float); ctx:results(L{B.Int})
     elseif self.operator==A.ToCString then ctx:expect(self.operand,B.Text); ctx:results(L{B.CString})
@@ -75,6 +76,10 @@ end
 A.Equal.verify=equal_; A.NotEqual.verify=equal_
 local function boolean_(_,ctx,left,right) ctx:expect(left,B.Bool); ctx:expect(right,B.Bool); return B.Bool end
 A.And.verify=boolean_; A.Or.verify=boolean_
+-- `& | ^ << >>` require two Ints and produce an Int.
+local function bits(_,ctx,left,right) ctx:expect(left,B.Int); ctx:expect(right,B.Int); return B.Int end
+A.BitAnd.verify=bits; A.BitOr.verify=bits; A.BitXor.verify=bits
+A.ShiftLeft.verify=bits; A.ShiftRight.verify=bits
 function B.Binary:verify(ctx)
     local result=self.operator:verify(ctx,self.left,self.right)
     assert(not ((self.operator==A.Divide or self.operator==A.Remainder) and result==B.Int),'potential trap must consume an effect')

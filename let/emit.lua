@@ -181,7 +181,8 @@ function Emitter:arglist(block,block_id,position,refs)
 end
 
 local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Divide]='/',[A.Less]='<',[A.LessEqual]='<=',
-    [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||'}
+    [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||',
+    [A.BitAnd]='&',[A.BitOr]='|',[A.BitXor]='^'}
 local arithmetic={[A.Add]={'add','LET_ADD'}, [A.Subtract]={'sub','LET_SUB'}, [A.Multiply]={'mul','LET_MUL'}}
 
 
@@ -232,6 +233,7 @@ function Emitter:instruction(block,block_id,index,instruction)
             declare(0,B.Int,C.Cast(C.I64,C.Field(operand,'size')))
         elseif operation.operator==A.IsNull then
             declare(0,B.Bool,C.Binary('==',operand,C.Integer(0,0)))
+        elseif operation.operator==A.BitNot then declare(0,B.Int,C.Unary('~',operand))
         elseif instruction.results[1]==B.Float then declare(0,B.Float,C.Unary('-',operand))
         elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
     elseif B.Binary:isclassof(operation) then
@@ -259,6 +261,14 @@ function Emitter:instruction(block,block_id,index,instruction)
             local helper=arithmetic[operation.operator]
             self.helpers[helper[1]]=true
             declare(0,B.Int,C.Call(C.Name(helper[2]),L{arguments[1],arguments[2]}))
+        elseif operation.operator==A.ShiftLeft or operation.operator==A.ShiftRight then
+            if operation.operator==A.ShiftLeft then
+                self.helpers.shl=true
+                declare(0,B.Int,C.Call(C.Name('LET_SHL'),L{arguments[1],arguments[2]}))
+            else
+                self.helpers.shr=true
+                declare(0,B.Int,C.Call(C.Name('let_shr'),L{arguments[1],arguments[2]}))
+            end
         else
             declare(0,instruction.results[1],C.Binary(symbolic[operation.operator],arguments[1],arguments[2]))
         end
@@ -786,6 +796,10 @@ function Emitter:helper_declarations()
     if self.helpers.sub then raw('#define LET_SUB(a,b) ((int64_t)((uint64_t)(a)-(uint64_t)(b)))') end
     if self.helpers.mul then raw('#define LET_MUL(a,b) ((int64_t)((uint64_t)(a)*(uint64_t)(b)))') end
     if self.helpers.neg then raw('#define LET_NEG(a) ((int64_t)(0-(uint64_t)(a)))') end
+    -- A shift count is reduced modulo the width, and a left shift keeps the low bits, so neither
+    -- shift is undefined and a huge count is defined rather than a trap.
+    if self.helpers.shl then raw('#define LET_SHL(a,b) ((int64_t)((uint64_t)(a) << ((uint64_t)(b) & 63)))') end
+    if self.helpers.shr then raw('static int64_t let_shr(int64_t a,int64_t b){unsigned n=(unsigned)((uint64_t)b & 63u);uint64_t u=(uint64_t)a >> n;if(a<0 && n)u|=~(uint64_t)0 << (64u-n);return (int64_t)u;}') end
     -- Division and remainder keep one shared helper each: inlining the trap check at every
     -- site would duplicate control flow rather than remove a function.
     if self.helpers.div then raw('static int64_t let_div(int64_t a,int64_t b){if(b==0)let_trap("division by zero");if(b==-1)return (int64_t)(0-(uint64_t)a);return a/b;}') end

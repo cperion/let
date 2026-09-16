@@ -8,10 +8,10 @@ module Source {
 }
 module AST {
     Capability = Read | Mut | Own | OwnMut
-    UnaryOp = Negate | Not | ToFloat | ToInt | ToCString | ToText | TextSize | IsNull
+    UnaryOp = Negate | Not | BitNot | ToFloat | ToInt | ToCString | ToText | TextSize | IsNull
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
-             | And | Or
+             | And | Or | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight
     TypeExpr = Ref(string name, Expr* arguments, Source.Range name_range) | Apply(TypeExpr constructor, TypeExpr argument)
              | Arrow(TypeExpr from, TypeExpr to) | Sum(TypeExpr left, TypeExpr right)
              | Do(TypeExpr result)

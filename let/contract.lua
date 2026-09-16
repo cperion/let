@@ -109,6 +109,7 @@ local function compute(template,resolved,types,environment)
         if A.Unary:isclassof(expr) then
             local operator=expr.operator
             if operator==A.Not then infer(expr.operand,B.Bool); return B.Bool end
+            if operator==A.BitNot then infer(expr.operand,B.Int); return B.Int end
             if operator==A.ToFloat then infer(expr.operand,B.Int); return B.Float end
             if operator==A.ToInt then infer(expr.operand,B.Float); return B.Int end
             -- Negate: the operand has the expression's type.
@@ -119,6 +120,10 @@ local function compute(template,resolved,types,environment)
         end
         if A.Binary:isclassof(expr) then
             local operator=expr.operator
+            if operator==A.BitAnd or operator==A.BitOr or operator==A.BitXor
+                or operator==A.ShiftLeft or operator==A.ShiftRight then
+                infer(expr.left,B.Int); infer(expr.right,B.Int); return B.Int
+            end
             if operator==A.And or operator==A.Or then
                 infer(expr.left,B.Bool); infer(expr.right,B.Bool); return B.Bool
             end

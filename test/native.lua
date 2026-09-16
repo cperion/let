@@ -371,6 +371,28 @@ let shown = run()
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'65\n66\n','§11.5 tagged unions: injection, tag, projection and switch')
 
+-- §13.2 Bitwise operations and shifts run through the same semantics the interpreter uses: the
+-- emitted C masks the shift count and writes arithmetic `>>` out rather than relying on it.
+output=native('bitwise',[[
+let bits =
+    let a : Int
+    let b : Int
+    do : Int
+        print_int(a & b);
+        print_int(a | b);
+        print_int(a ^ b);
+        print_int(a << b);
+        print_int(a >> b);
+        print_int(~a)
+        return 0
+    end
+
+let go = bits(runtime_int(-8), runtime_int(1))
+]],[[
+int main(void){ let_module_init(); return 0; }
+]])
+eq(output,'0\n-7\n-7\n-16\n-4\n7\n','§13.2 bitwise and shifts use the specified 64-bit semantics')
+
 -- §4.2 Self recursion that is not a tail call: the recursive call returns whatever the
 -- word returns, so its result type comes from the word itself.
 output=native('recursion',[[

@@ -708,7 +708,10 @@ function A.Unary:build(ctx)
         return ctx:emit(B.IntegerLiteral(spelling),L{B.Int},self.span)
     end
     local value=self.operand:build(ctx)
-    local type_=self.operator==A.Not and B.Bool or (value.type==B.Float and B.Float or B.Int)
+    local type_
+    if self.operator==A.Not then type_=B.Bool
+    elseif self.operator==A.BitNot then type_=B.Int
+    else type_=value.type==B.Float and B.Float or B.Int end
     expect(value,type_,self.span)
     return ctx:emit(B.Unary(self.operator,ctx:ref(value)),L{type_},self.span)
 end
@@ -738,6 +741,14 @@ local function checked(self,ctx,left,right,span)
     return ctx:ordered(B.CheckedBinary(self,ctx:ref(ctx.effect),ctx:ref(left),ctx:ref(right)),B.Int,span)
 end
 A.Divide.apply=checked; A.Remainder.apply=checked
+-- `& | ^ << >>` take two Ints and produce an Int. They are pure: no operand and no shift count
+-- can trap, because a count is reduced modulo the width and `<<` keeps the low bits (§13.3).
+local function bitwise(self,ctx,left,right,span)
+    expect(left,B.Int,span); expect(right,B.Int,span)
+    return ctx:emit(B.Binary(self,ctx:ref(left),ctx:ref(right)),L{B.Int},span)
+end
+A.BitAnd.apply=bitwise; A.BitOr.apply=bitwise; A.BitXor.apply=bitwise
+A.ShiftLeft.apply=bitwise; A.ShiftRight.apply=bitwise
 function A.BinaryOp:build(ctx,expression)
     local left=expression.left:build(ctx)
     if not left.type then gap(expression.left.span,'word values in data positions') end

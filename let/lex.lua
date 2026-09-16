@@ -114,8 +114,8 @@ function Lexer:next()
         return Source.Token('integer',spelling,nil,span)
     end
     local two=rest:sub(1,2)
-    if two=='==' or two=='!=' or two=='<=' or two=='>=' or two=='->' then self:advance(); self:advance(); return Source.Token(two,two,nil,span) end
-    if c:match('^[=;(),{}%[%].:+*/%%<>%-|]$') then self:advance(); return Source.Token(c,c,nil,span) end
+    if two=='==' or two=='!=' or two=='<=' or two=='>=' or two=='->' or two=='<<' or two=='>>' then self:advance(); self:advance(); return Source.Token(two,two,nil,span) end
+    if c:match('^[=;(),{}%[%].:+*/%%<>%-&|^~]$') then self:advance(); return Source.Token(c,c,nil,span) end
     local bad=self:advance(); Lexer.fail(span,'unexpected character ' .. string.format('%q',bad))
 end
 function Lexer:scan()
