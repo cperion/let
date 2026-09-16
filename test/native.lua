@@ -349,11 +349,11 @@ let shown = run()
 ]],[[int main(void){ let_module_init(); return 0; }]])
 eq(output,'42\n-1\n','§11.1 a word-typed stage runs the word its argument supplied')
 
--- §11.5 Tagged unions: `T = A | B` is a type word with derived injections `T.left`/`T.right`;
+-- §11.5 Tagged unions: `T = A or B` is a type word with derived injections `T.left`/`T.right`;
 -- the value carries a tag, projection reads the active alternative, and `switch` eliminates it.
 output=native('sums',[[
 let run = do : Unit
-    let Opt = Int | Int
+    let Opt = Int or Int
     let a : Opt = Opt.left 65;
     let b : Opt = Opt.right 66;
     switch a.tag do

@@ -138,7 +138,7 @@ let do end own mut move return if else while switch case and or not true false b
 
 These spellings cannot be used as binding names. `if`, `else`, `while`, `switch`, `case`, `break`, and `continue` are structured control spellings in the language dictionary. They describe inline control regions rather than invoking runtime branch closures. `and`, `or`, and `not` are reserved operator spellings.
 
-The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. `->` is the type arrow and is never an expression operator; `|` builds a tagged union (`A | B`, §11.5) and is the lowest-precedence expression operator (§3.4). The scanner takes `->` before `-`. Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
+The scanner takes `//` before `/`, and takes `<=`, `>=`, `==`, and `!=` before their one-character prefixes. `->` is the type arrow and is never an expression operator; `or` builds a tagged union between two type words (`A or B`, §11.5) and is otherwise the logical or, the loosest expression operator (§3.4). The scanner takes `->` before `-`. Whitespace may separate tokens but never changes `(` from postfix invocation into a different operator.
 
 ---
 
@@ -175,10 +175,10 @@ transfer_value      := expression | "move" place
 
 type_expression     := arrow_type
 arrow_type          := sum_type [ "->" arrow_type ]
-sum_type            := apply_type { "|" apply_type }
+sum_type            := apply_type { "or" apply_type }
 apply_type          := atom_type { atom_type }
 result_type         := result_sum [ "->" result_type ]
-result_sum          := atom_type { "|" atom_type }
+result_sum          := atom_type { "or" atom_type }
 atom_type           := NAME { literal }
                      | record_type
                      | "(" type_expression ")"
@@ -198,7 +198,7 @@ The right-hand side ends when its terminal form ends. `do ... end` and `{ ... }`
 
 A `type_expression` names a **type word** (§11). `List Int` applies a type word to another by
 **juxtaposition** -- the same stable-specialization operation as a value word, never invocation;
-`A -> B` is the unary arrow, `A | B` is a tagged union, and `{ let x : Int let y : Text }` is a
+`A -> B` is the unary arrow, `A or B` is a tagged union, and `{ let x : Int let y : Text }` is a
 record type. A record type uses the **regular aggregate form**
 (§3.3): the same braces and the same `let` members, with a member's type where a value aggregate
 writes a value. A member written `let x : T` is a stage, so the aggregate is a word awaiting its
@@ -290,14 +290,12 @@ Precedence from highest to lowest is:
 | 6 | `< <= > >=` | non-associative |
 | 7 | `== !=` | non-associative |
 | 8 | `and` | left, short-circuiting |
-| 9 | `or` | left, short-circuiting |
-| 10 | `A \| B` (tagged union) | left |
+| 9 | `or` | left, short-circuiting; between two type words, tagged union |
 
-Postfix invocation is recognized regardless of whitespace. `f(x)` and `f (x)` are identical. Prefix parentheses group an expression. `|` has the lowest precedence, so `a or b | c` parses as `(a or b) | c`, and it builds a tagged union type word (§11.5).
+Postfix invocation is recognized regardless of whitespace. `f(x)` and `f (x)` are identical. Prefix parentheses group an expression. `or` is the loosest expression operator, so `a and b or c` parses as `(a and b) or c`; between two type words it builds a tagged union type word (§11.5), and between values it short-circuits.
 
 ~~~text
-expression           := union_expression
-union_expression     := or_expression { "|" or_expression }
+expression           := or_expression
 or_expression        := and_expression { "or" and_expression }
 and_expression       := equality_expression { "and" equality_expression }
 equality_expression  := comparison_expression
@@ -992,7 +990,7 @@ A **type word** is a word built from primitive type words and constructors (§3.
 type-word := Int | Float | Bool | Unit | Text | CString | CPointer   // atomic, not constructors
            | Type                                                     // the classifier of type words
            | { let field : type-word ... }                           // product, keyed
-           | type-word | type-word                                   // tagged union
+           or type-word | type-word                                  // tagged union
            | type-word -> type-word                                  // unary arrow
            | do type-word                                            // runtime terminal
            | Name
@@ -1076,7 +1074,7 @@ are deferred (§18)**, and a program that uses a type word as a value is rejecte
 
 ### 11.5 Tagged unions
 
-`A | B` is a tagged union, named by a `let` whose value is the sum: `let Opt = Int | Text`. A sum
+`A or B` is a tagged union, named by a `let` whose value is the sum: `let Opt = Int or Text`. A sum
 type is a word with derived members, and a value carries a **tag** and the active alternative's
 payload.
 
@@ -1606,7 +1604,7 @@ Such choices may change size, speed, and embedding policy. They must not change 
 | Word | A value containing remaining stages, stable state, and a terminal meaning |
 | Word type | A word's chain read as unary, right-nested arrows ending in its terminal (§11.1) |
 | Type word | A word built from primitive type words and constructors, usable as a type (§11.2) |
-| Tagged union | An `A \| B` sum: `let Opt = Int \| Text`, injected by `Opt.left`/`Opt.right`, projected by `v.tag`/`v.left`, eliminated by `switch` on the tag (§11.5) |
+| Tagged union | An `A or B` sum: `let Opt = Int or Text`, injected by `Opt.left`/`Opt.right`, projected by `v.tag`/`v.left`, eliminated by `switch` on the tag (§11.5) |
 | Specialization | Persistent stage binding by juxtaposition; never terminal-body invocation |
 | Invocation | Transient saturation followed by entry into runtime `do` |
 | Construction word | Construction-phase word that shapes the enclosing word's control behavior from source expressions and regions |

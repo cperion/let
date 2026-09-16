@@ -42,8 +42,12 @@ check(run('let example=do : Int return -9223372036854775808 end')==V.scalar.min)
 -- §3/§11 type expressions: arrow, sum, keyed record, positional record, and the terminal result.
 local arrow=parse('let f : Int -> Int -> Int = do : Int return 1 end').file.items[1].binding.constraint
 check(A.Arrow:isclassof(arrow) and A.Arrow:isclassof(arrow.to) and arrow.from.name=='Int' and arrow.to.to.name=='Int')
-local sum=parse('let f : Int | Text = 0').file.items[1].binding.constraint
+local sum=parse('let f : Int or Text = 0').file.items[1].binding.constraint
 check(A.Sum:isclassof(sum) and sum.left.name=='Int' and sum.right.name=='Text')
+-- §11.5 `or` in expression position is a plain binary expression here; whether it is the union
+-- or the logical or is a question about the operands, answered when they are resolved.
+local union=parse('let Pair = Int or Text').file.items[1].binding.value.terminal.value
+check(A.Binary:isclassof(union) and union.operator==A.Or and A.Name:isclassof(union.left))
 local record=parse('let f : { let x : Int let y : Text } = {}').file.items[1].binding.constraint
 check(A.Record:isclassof(record) and #record.fields==2 and record.fields[2].name=='y')
 local mutable=parse('let f : { let x mut : Int } = {}').file.items[1].binding.constraint

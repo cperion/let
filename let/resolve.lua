@@ -153,6 +153,12 @@ function A.Body:resolve_terminal(ctx,scope,outer,self_definition)
     template.body_scope=ctx:region(self.statements,bindings)
 end
 function A.Data:resolve_terminal(ctx,scope) self.value:resolve(ctx,scope) end
+-- A type name written in expression position (an `or` union alternative) resolves as a type-
+-- word use, so the editor can follow it and the builder can read the type it denotes.
+function Context:resolve_type_name(node,scope)
+    local head={span=(node.name_range and node.name_range.start) or node.span}
+    self.type_refs[node]=self:use(scope,node.name,head,'type')
+end
 function A.Ref:resolve(ctx,scope,span)
     -- §11: a type word resolves as an ordinary name. Whether it names a known type word is a
     -- vocabulary question, answered when the annotation is checked, not here.
@@ -226,7 +232,36 @@ function A.Text:resolve() end
 function A.Unit:resolve() end
 function A.Name:resolve(ctx,scope) ctx:use(scope,self.name,self,'read',self) end
 function A.Unary:resolve(ctx,scope) self.operand:resolve(ctx,scope) end
-function A.Binary:resolve(ctx,scope) self.left:resolve(ctx,scope); self.right:resolve(ctx,scope) end
+-- §11.5: `or` is disjunction. Between two type words it forms the tagged union, exactly where
+-- `|` did before; between values it is the short-circuiting logical or of §13.1. Only the
+-- operands can tell the two apart, so the decision is recorded here and the builder reads it.
+local function union_operand(ctx,scope,node)
+    if A.Binary:isclassof(node) and node.operator==A.Or then
+        return union_operand(ctx,scope,node.left) and union_operand(ctx,scope,node.right)
+    end
+    if not A.Name:isclassof(node) then return false end
+    local definition=ctx:peek(scope,node.name)
+    if not definition or definition.unknown then return false end
+    if definition.node and definition.node.type then return true end
+    -- A binding whose value is a union type word is itself a type word (`let Pair = Int or Text`).
+    if definition.kind=='binding' and definition.node then
+        local value=definition.node.value
+        if A.Binary:isclassof(value) and value.operator==A.Or and ctx.unions[value] then return true end
+    end
+    return false
+end
+local function resolve_union_operand(ctx,scope,node)
+    if A.Binary:isclassof(node) and node.operator==A.Or then return node:resolve(ctx,scope) end
+    ctx:resolve_type_name(node,scope)
+end
+function A.Binary:resolve(ctx,scope)
+    if self.operator==A.Or and union_operand(ctx,scope,self.left) and union_operand(ctx,scope,self.right) then
+        ctx.unions[self]=true
+        resolve_union_operand(ctx,scope,self.left); resolve_union_operand(ctx,scope,self.right)
+        return
+    end
+    self.left:resolve(ctx,scope); self.right:resolve(ctx,scope)
+end
 function A.Specialize:resolve(ctx,scope)
     -- `import` is a dictionary entry, so a lexical binding of that name still wins.
     if A.Name:isclassof(self.word) and self.word.name=='import' then
@@ -343,7 +378,7 @@ end
 function A.Program:resolve(options)
     options=options or {}
     local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},type_refs={},scopes={},templates={},
-        imports={},import_words={},importing={},namespace_members={},module_projections={},diagnostics={},unknowns={},resolving={},
+        imports={},import_words={},importing={},namespace_members={},module_projections={},diagnostics={},unknowns={},resolving={},unions={},
         import_resolver=options.resolve,file=self.file.span.file},Context)
     -- §11: the primitive type words are ordinary names, not a phase; the vocabulary decides
     -- what a type word means at a boundary.

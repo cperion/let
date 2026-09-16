@@ -2577,7 +2577,7 @@ function Context:resolve_type_expr(node,env)
     -- §11.5: a sum type literal (`Int | Text`) names its alternatives as expressions.
     if A.Name:isclassof(node) then
         if env[node.name] then return env[node.name] end
-        return self.fn.vocabulary.types[node.name]
+        return self.fn.vocabulary.types[node.name] or self:bound_type(node,env)
     end
     -- §11.2: a generic type word applied to type words by juxtaposition. The word's stages must
     -- be `Type` parameters; each argument is substituted and the terminal is evaluated as a type.
@@ -2609,7 +2609,7 @@ function Context:resolve_type_expr(node,env)
         if not result then return nil end
         return B.Do(result)
     end
-    if A.Sum:isclassof(node) or A.SumType:isclassof(node) then
+    if A.Sum:isclassof(node) or A.SumType:isclassof(node) or self:is_union(node) then
         local nodes={}; self:flatten_sum(node,nodes)
         local alternatives,copy=L(),true
         for _,element in ipairs(nodes) do
@@ -2643,8 +2643,14 @@ function Context:resolve_type_expr(node,env)
     end
     return nil
 end
+-- §11.5: an `or` whose two operands resolved to type words is a union type literal, not a
+-- condition. The resolver records that; everything downstream asks here.
+function Context:is_union(node)
+    if not (A.Binary:isclassof(node) and node.operator==A.Or) then return false end
+    return (self.resolved and self.resolved.unions[node]) and true or false
+end
 function Context:flatten_sum(node,into)
-    if A.Sum:isclassof(node) or A.SumType:isclassof(node) then self:flatten_sum(node.left,into); self:flatten_sum(node.right,into)
+    if A.Sum:isclassof(node) or A.SumType:isclassof(node) or self:is_union(node) then self:flatten_sum(node.left,into); self:flatten_sum(node.right,into)
     else into[#into+1]=node end
 end
 -- §11.2: a `let`-bound word as a type denotes its terminal result type.
@@ -2657,7 +2663,7 @@ function Context:bound_type(node,env)
         if A.Word:isclassof(value) then
             local inner=self.resolved.chains[value.chain]
             if inner then template=inner end
-        elseif A.SumType:isclassof(value) or A.Sum:isclassof(value) then
+        elseif A.SumType:isclassof(value) or A.Sum:isclassof(value) or self:is_union(value) then
             return self:resolve_type_expr(value,env or {})
         end
     end
@@ -3118,7 +3124,12 @@ local function short(self,ctx,expression)
     local function skip(child) return child:boolean(self==A.Or,expression.span) end
     return ctx:branch(left,self==A.And and rhs or skip,self==A.And and skip or rhs,B.Bool)
 end
-A.And.build=short; A.Or.build=short
+A.And.build=short
+-- §11.5: `or` between type words is the tagged union; between values it is the logical or.
+function A.Or.build(self,ctx,expression)
+    if ctx:is_union(expression) then return A.Sum.build(expression,ctx) end
+    return short(self,ctx,expression)
+end
 function A.Binary:build(ctx) return self.operator:build(ctx,self) end
 function A.Specialize:build(ctx)
     -- §11.5: `T.left v` injects `v` into the sum type `T`. The member `T.left` builds an
@@ -4414,7 +4425,7 @@ function Parser:arrow_type()
 end
 function Parser:sum_type()
     local left=self:apply_type()
-    while self:accept('|') do local span=self:token().span; left=A.Sum(left,self:apply_type(),span) end
+    while self:accept('or') do local span=self:token().span; left=A.Sum(left,self:apply_type(),span) end
     return left
 end
 -- §3.1: type-word application is **juxtaposition**, the same operation that specializes a value
@@ -4567,7 +4578,7 @@ function Parser:result_arrow()
 end
 function Parser:result_sum()
     local left=self:atom_type()
-    while self:accept('|') do local span=self:token().span; left=A.Sum(left,self:atom_type(),span) end
+    while self:accept('or') do local span=self:token().span; left=A.Sum(left,self:atom_type(),span) end
     return left
 end
 function Parser:conditional(span)
@@ -4745,7 +4756,6 @@ function Parser:prefix()
     return value
 end
 local operators={
-    ['|']={0,A.Sum},
     ['or']={1,A.Or},['and']={2,A.And},
     ['==']={3,A.Equal},['!=']={3,A.NotEqual},
     ['<']={4,A.Less},['<=']={4,A.LessEqual},['>']={4,A.Greater},['>=']={4,A.GreaterEqual},
@@ -4760,15 +4770,11 @@ function Parser:expression(minimum)
         if (op[1]==3 or op[1]==4) and used[op[1]] then fail(token.span,'chained comparison is invalid') end
         used[op[1]]=true; self:take()
         local right=self:expression(op[1]+1)
-        -- §11.5: `A | B` is a sum type, a word-level operator, not an arithmetic one. Its
-        -- operands are type words; an expression-position name becomes a type-word `Ref`.
-        if op[2]==A.Sum then
-            local function as_type(node)
-                if A.Name:isclassof(node) then return A.Ref(node.name,L(),span_range(node.span,node.name),node.span) end
-                return node
-            end
-            left=A.SumType(as_type(left),as_type(right),token.span)
-        else left=A.Binary(op[2],left,right,token.span) end
+        -- §11.5: `or` is disjunction. Between two type words it forms the tagged union, exactly
+        -- where `|` did before that operator was freed for bitwise or; between values it is the
+        -- short-circuiting logical or of §13.1. Which one it is is decided when the operands are
+        -- resolved, not here, because only then is a name known to be a type word.
+        left=A.Binary(op[2],left,right,token.span)
     end
 end
 function Parser:transfer()
@@ -5032,6 +5038,12 @@ function A.Body:resolve_terminal(ctx,scope,outer,self_definition)
     template.body_scope=ctx:region(self.statements,bindings)
 end
 function A.Data:resolve_terminal(ctx,scope) self.value:resolve(ctx,scope) end
+-- A type name written in expression position (an `or` union alternative) resolves as a type-
+-- word use, so the editor can follow it and the builder can read the type it denotes.
+function Context:resolve_type_name(node,scope)
+    local head={span=(node.name_range and node.name_range.start) or node.span}
+    self.type_refs[node]=self:use(scope,node.name,head,'type')
+end
 function A.Ref:resolve(ctx,scope,span)
     -- §11: a type word resolves as an ordinary name. Whether it names a known type word is a
     -- vocabulary question, answered when the annotation is checked, not here.
@@ -5105,7 +5117,36 @@ function A.Text:resolve() end
 function A.Unit:resolve() end
 function A.Name:resolve(ctx,scope) ctx:use(scope,self.name,self,'read',self) end
 function A.Unary:resolve(ctx,scope) self.operand:resolve(ctx,scope) end
-function A.Binary:resolve(ctx,scope) self.left:resolve(ctx,scope); self.right:resolve(ctx,scope) end
+-- §11.5: `or` is disjunction. Between two type words it forms the tagged union, exactly where
+-- `|` did before; between values it is the short-circuiting logical or of §13.1. Only the
+-- operands can tell the two apart, so the decision is recorded here and the builder reads it.
+local function union_operand(ctx,scope,node)
+    if A.Binary:isclassof(node) and node.operator==A.Or then
+        return union_operand(ctx,scope,node.left) and union_operand(ctx,scope,node.right)
+    end
+    if not A.Name:isclassof(node) then return false end
+    local definition=ctx:peek(scope,node.name)
+    if not definition or definition.unknown then return false end
+    if definition.node and definition.node.type then return true end
+    -- A binding whose value is a union type word is itself a type word (`let Pair = Int or Text`).
+    if definition.kind=='binding' and definition.node then
+        local value=definition.node.value
+        if A.Binary:isclassof(value) and value.operator==A.Or and ctx.unions[value] then return true end
+    end
+    return false
+end
+local function resolve_union_operand(ctx,scope,node)
+    if A.Binary:isclassof(node) and node.operator==A.Or then return node:resolve(ctx,scope) end
+    ctx:resolve_type_name(node,scope)
+end
+function A.Binary:resolve(ctx,scope)
+    if self.operator==A.Or and union_operand(ctx,scope,self.left) and union_operand(ctx,scope,self.right) then
+        ctx.unions[self]=true
+        resolve_union_operand(ctx,scope,self.left); resolve_union_operand(ctx,scope,self.right)
+        return
+    end
+    self.left:resolve(ctx,scope); self.right:resolve(ctx,scope)
+end
 function A.Specialize:resolve(ctx,scope)
     -- `import` is a dictionary entry, so a lexical binding of that name still wins.
     if A.Name:isclassof(self.word) and self.word.name=='import' then
@@ -5222,7 +5263,7 @@ end
 function A.Program:resolve(options)
     options=options or {}
     local ctx=setmetatable({definitions={},bindings={},chains={},uses={},references={},type_refs={},scopes={},templates={},
-        imports={},import_words={},importing={},namespace_members={},module_projections={},diagnostics={},unknowns={},resolving={},
+        imports={},import_words={},importing={},namespace_members={},module_projections={},diagnostics={},unknowns={},resolving={},unions={},
         import_resolver=options.resolve,file=self.file.span.file},Context)
     -- §11: the primitive type words are ordinary names, not a phase; the vocabulary decides
     -- what a type word means at a boundary.

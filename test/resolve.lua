@@ -70,5 +70,14 @@ local tolerant_built,tolerant_error=pcall(function()
     V.parse('let x : Int = missing\nlet y : Int = also_missing','tolerant.let'):build{}
 end)
 check(not tolerant_built and tostring(tolerant_error):find('tolerant.let:1:15: unknown name missing',1,true))
+-- §11.5 `or` is disjunction: between two type words it forms the tagged union, between values
+-- it is the logical or. Only the operands can tell the two apart, so both are checked here.
+local union=V.parse('let Opt = Int or Text','union.let'):resolve{}
+local union_node=union.module.names.Opt.node.value.terminal.value
+check(union.unions[union_node]==true and union.type_refs[union_node.left].node.type==true)
+local logical=V.parse('let flag : Bool = true\nlet both = flag or false','logical.let'):resolve{}
+local logical_node=logical.module.names.both.node.value.terminal.value
+check(logical.unions[logical_node]==nil and logical.references[logical_node.left][1].definition==logical.module.names.flag)
+check(#logical.diagnostics==0)
 print(('passed %d lexical/stage contract checks'):format(count))
 

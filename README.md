@@ -61,8 +61,8 @@ type accepts a word of that signature, so the callee is selected at the call sit
 
 Types are words. A word's type is its chain read as unary, right-nested arrows ending in its
 terminal; `:` annotates a binder with a type word; and `do : T` states a runtime terminal's
-result. A type word may be generic over other type words by juxtaposition (`Box Int`), and `A | B`
-is a tagged union (`let Opt = Int | Text`). See [TYPES.md](TYPES.md) and §11 of the specification.
+result. A type word may be generic over other type words by juxtaposition (`Box Int`), and `A or B`
+is a tagged union (`let Opt = Int or Text`). See [TYPES.md](TYPES.md) and §11 of the specification.
 
 ## Run
 

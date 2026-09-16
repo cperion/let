@@ -47,7 +47,7 @@ function Parser:arrow_type()
 end
 function Parser:sum_type()
     local left=self:apply_type()
-    while self:accept('|') do local span=self:token().span; left=A.Sum(left,self:apply_type(),span) end
+    while self:accept('or') do local span=self:token().span; left=A.Sum(left,self:apply_type(),span) end
     return left
 end
 -- §3.1: type-word application is **juxtaposition**, the same operation that specializes a value
@@ -200,7 +200,7 @@ function Parser:result_arrow()
 end
 function Parser:result_sum()
     local left=self:atom_type()
-    while self:accept('|') do local span=self:token().span; left=A.Sum(left,self:atom_type(),span) end
+    while self:accept('or') do local span=self:token().span; left=A.Sum(left,self:atom_type(),span) end
     return left
 end
 function Parser:conditional(span)
@@ -378,7 +378,6 @@ function Parser:prefix()
     return value
 end
 local operators={
-    ['|']={0,A.Sum},
     ['or']={1,A.Or},['and']={2,A.And},
     ['==']={3,A.Equal},['!=']={3,A.NotEqual},
     ['<']={4,A.Less},['<=']={4,A.LessEqual},['>']={4,A.Greater},['>=']={4,A.GreaterEqual},
@@ -393,15 +392,11 @@ function Parser:expression(minimum)
         if (op[1]==3 or op[1]==4) and used[op[1]] then fail(token.span,'chained comparison is invalid') end
         used[op[1]]=true; self:take()
         local right=self:expression(op[1]+1)
-        -- §11.5: `A | B` is a sum type, a word-level operator, not an arithmetic one. Its
-        -- operands are type words; an expression-position name becomes a type-word `Ref`.
-        if op[2]==A.Sum then
-            local function as_type(node)
-                if A.Name:isclassof(node) then return A.Ref(node.name,L(),span_range(node.span,node.name),node.span) end
-                return node
-            end
-            left=A.SumType(as_type(left),as_type(right),token.span)
-        else left=A.Binary(op[2],left,right,token.span) end
+        -- §11.5: `or` is disjunction. Between two type words it forms the tagged union, exactly
+        -- where `|` did before that operator was freed for bitwise or; between values it is the
+        -- short-circuiting logical or of §13.1. Which one it is is decided when the operands are
+        -- resolved, not here, because only then is a name known to be a type word.
+        left=A.Binary(op[2],left,right,token.span)
     end
 end
 function Parser:transfer()

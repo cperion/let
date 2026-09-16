@@ -56,7 +56,7 @@ failure).
 ```
 type_expression := arrow_type
 arrow_type      := sum_type [ "->" arrow_type ]        -- unary, right-nested
-sum_type        := apply_type { "|" apply_type }       -- tagged union
+sum_type        := apply_type { "or" apply_type }      -- tagged union
 apply_type      := atom_type { atom_type }             -- juxtaposition: List Int
 atom_type       := NAME { literal }                    -- a type word, optional C spelling
                  | record_type
@@ -100,7 +100,7 @@ TypeExpr = Ref(string name, Expr* arguments)      -- a type word by name, option
          | Tuple(TypeExpr* elements)
          attributes (Source.Span span)
 TypeField = (string name, boolean mutable, TypeExpr type, Source.Span span)
-Expr = ... | SumType(TypeExpr left, TypeExpr right)  -- `Int | Text` in value position
+Expr = ... | SumType(TypeExpr left, TypeExpr right)  -- legacy `Int | Text` in value position; now `A.Or`
 ```
 
 `Binding.constraint`, `Stage.constraint`, `Extern.result`, and `Extern` parameters all carry
@@ -154,7 +154,7 @@ sum → tag + payload descriptor, nominal → a unique id). Only types that esca
 ## 8. Sums: tagged unions
 
 Products come free from aggregates. Recursion (`Option`, `List`) needs a sum. A sum is a **tagged
-union** `A | B | C`, named by a `let`: `let Opt = Int | Text`. A sum type is a word with derived
+union** `A or B or C`, named by a `let`: `let Opt = Int or Text`. A sum type is a word with derived
 members:
 
 - `T.left v` / `T.right v` are the **injections**, one per alternative (juxtaposition);

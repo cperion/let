@@ -211,7 +211,7 @@ function Context:resolve_type_expr(node,env)
     -- §11.5: a sum type literal (`Int | Text`) names its alternatives as expressions.
     if A.Name:isclassof(node) then
         if env[node.name] then return env[node.name] end
-        return self.fn.vocabulary.types[node.name]
+        return self.fn.vocabulary.types[node.name] or self:bound_type(node,env)
     end
     -- §11.2: a generic type word applied to type words by juxtaposition. The word's stages must
     -- be `Type` parameters; each argument is substituted and the terminal is evaluated as a type.
@@ -243,7 +243,7 @@ function Context:resolve_type_expr(node,env)
         if not result then return nil end
         return B.Do(result)
     end
-    if A.Sum:isclassof(node) or A.SumType:isclassof(node) then
+    if A.Sum:isclassof(node) or A.SumType:isclassof(node) or self:is_union(node) then
         local nodes={}; self:flatten_sum(node,nodes)
         local alternatives,copy=L(),true
         for _,element in ipairs(nodes) do
@@ -277,8 +277,14 @@ function Context:resolve_type_expr(node,env)
     end
     return nil
 end
+-- §11.5: an `or` whose two operands resolved to type words is a union type literal, not a
+-- condition. The resolver records that; everything downstream asks here.
+function Context:is_union(node)
+    if not (A.Binary:isclassof(node) and node.operator==A.Or) then return false end
+    return (self.resolved and self.resolved.unions[node]) and true or false
+end
 function Context:flatten_sum(node,into)
-    if A.Sum:isclassof(node) or A.SumType:isclassof(node) then self:flatten_sum(node.left,into); self:flatten_sum(node.right,into)
+    if A.Sum:isclassof(node) or A.SumType:isclassof(node) or self:is_union(node) then self:flatten_sum(node.left,into); self:flatten_sum(node.right,into)
     else into[#into+1]=node end
 end
 -- §11.2: a `let`-bound word as a type denotes its terminal result type.
@@ -291,7 +297,7 @@ function Context:bound_type(node,env)
         if A.Word:isclassof(value) then
             local inner=self.resolved.chains[value.chain]
             if inner then template=inner end
-        elseif A.SumType:isclassof(value) or A.Sum:isclassof(value) then
+        elseif A.SumType:isclassof(value) or A.Sum:isclassof(value) or self:is_union(value) then
             return self:resolve_type_expr(value,env or {})
         end
     end
@@ -752,7 +758,12 @@ local function short(self,ctx,expression)
     local function skip(child) return child:boolean(self==A.Or,expression.span) end
     return ctx:branch(left,self==A.And and rhs or skip,self==A.And and skip or rhs,B.Bool)
 end
-A.And.build=short; A.Or.build=short
+A.And.build=short
+-- §11.5: `or` between type words is the tagged union; between values it is the logical or.
+function A.Or.build(self,ctx,expression)
+    if ctx:is_union(expression) then return A.Sum.build(expression,ctx) end
+    return short(self,ctx,expression)
+end
 function A.Binary:build(ctx) return self.operator:build(ctx,self) end
 function A.Specialize:build(ctx)
     -- §11.5: `T.left v` injects `v` into the sum type `T`. The member `T.left` builds an
