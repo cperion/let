@@ -69,5 +69,20 @@ local union=vocab:resolve_type(A.Sum(A.Sum(tref('Int'),tref('Text'),span),tref('
 check(B.Sum:isclassof(union) and #union.alternatives==3,'a tagged union flattens its alternatives')
 local record=vocab:resolve_type(A.Record(L{A.TypeField('x',false,tref('Int'),span)},span))
 check(B.Aggregate:isclassof(record) and record.fields[1].name=='x','a keyed record type lowers')
+-- §12.4 A host descriptor field the compiler does not know is refused rather than ignored. A
+-- declaration nobody reads is worse than no declaration: `ownership` and `nullable` sat unread in
+-- libc.lua for long enough to be believed. They are now classified in the vocabulary as intent
+-- only, and anything new has to be classified deliberately.
+local function probe_host(extra,result)
+    local host={symbol='probe',phase='runtime',purity='ordered',
+        signature=B.Signature(L{B.Parameter(B.Int,A.Read)},L{result or B.Int})}
+    for key,value in pairs(extra) do host[key]=value end
+    return {hosts={probe=host}}
+end
+local ok,err=pcall(function() V.Vocabulary.new(probe_host({unheard_of=true})) end)
+check(not ok and tostring(err):find('unclassified field unheard_of'),'an unclassified host field is refused')
+check(pcall(V.Vocabulary.new,probe_host({ownership='borrowed',nullable=true},B.CString)),
+    'the declared-only fields are still accepted, because the declaration is the contract')
+
 print(('passed %d vocabulary/numbering checks'):format(checks))
 

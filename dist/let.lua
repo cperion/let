@@ -1161,6 +1161,16 @@ local function borrows(type_)
 end
 function B.Type:owns() return owns(self) end
 function B.Type:borrows() return borrows(self) end
+-- One authority for each of these, and it is not a convention. The union's methods are attached to
+-- every class table as one shared function, so a per-type override would be a *second* authority.
+-- The two drifted once: `B.Sum:owns` was a hardcoded `false` that stayed behind when the rule moved
+-- to the central function, so a sum holding an owned alternative claimed to own nothing and
+-- `Context:destroy` refused to release it. Nothing caught it but a program. Overriding is now a
+-- load-time failure.
+for class in pairs(B.Type.members) do
+    assert(rawget(class,'owns')==B.Type.owns and rawget(class,'borrows')==B.Type.borrows,
+        'a belt type must not override owns or borrows: the central rule is the only authority')
+end
 
 end
 
@@ -1998,7 +2008,27 @@ function Vocabulary.new(options)
         if kind=='void' then return let_type==B.Unit end
         return false
     end
+    -- §12.4 The boundary declares the facts C's type system cannot. This table names what each
+    -- declaration is for, and a host carrying a field that is not here is refused -- so a field
+    -- cannot be added and then quietly ignored. Two are marked as intent only, on purpose:
+    -- `ownership` and `nullable` are declared in libc.lua and read by nothing, which reads as a
+    -- promise the compiler does not keep. Saying so is the repair; honouring them would need
+    -- nullability to be a tracked fact, which is a mechanism this refactor does not add.
+    local host_fields={
+        symbol='the C symbol the program calls, checked below',
+        phase='runtime, checked below',
+        purity='pure or ordered, checked below',
+        signature='the Let types, checked against the C prototype below',
+        c='the C prototype, checked against the signature below',
+        helper='an emitted helper rather than a C library symbol (emit.lua)',
+        borrows='the argument the result views (build.lua, Context:hold_view)',
+        ownership='DECLARED INTENT ONLY -- Let must not free the result. Nothing reads it.',
+        nullable='DECLARED INTENT ONLY -- the result may be null. Nothing reads it.',
+    }
     local function add_host(name,host)
+        for key in pairs(host) do
+            assert(host_fields[key],('host %s carries an unclassified field %s'):format(name,tostring(key)))
+        end
         assert(host.phase=='runtime' and (host.purity=='ordered' or host.purity=='pure'),
             'host must declare runtime phase and purity')
         assert(type(host.symbol)=='string' and host.symbol:match('^[A-Za-z_][A-Za-z0-9_]*$'),

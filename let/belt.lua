@@ -225,6 +225,16 @@ local function borrows(type_)
 end
 function B.Type:owns() return owns(self) end
 function B.Type:borrows() return borrows(self) end
+-- One authority for each of these, and it is not a convention. The union's methods are attached to
+-- every class table as one shared function, so a per-type override would be a *second* authority.
+-- The two drifted once: `B.Sum:owns` was a hardcoded `false` that stayed behind when the rule moved
+-- to the central function, so a sum holding an owned alternative claimed to own nothing and
+-- `Context:destroy` refused to release it. Nothing caught it but a program. Overriding is now a
+-- load-time failure.
+for class in pairs(B.Type.members) do
+    assert(rawget(class,'owns')==B.Type.owns and rawget(class,'borrows')==B.Type.borrows,
+        'a belt type must not override owns or borrows: the central rule is the only authority')
+end
 
 end
 

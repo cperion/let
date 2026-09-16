@@ -70,7 +70,27 @@ function Vocabulary.new(options)
         if kind=='void' then return let_type==B.Unit end
         return false
     end
+    -- §12.4 The boundary declares the facts C's type system cannot. This table names what each
+    -- declaration is for, and a host carrying a field that is not here is refused -- so a field
+    -- cannot be added and then quietly ignored. Two are marked as intent only, on purpose:
+    -- `ownership` and `nullable` are declared in libc.lua and read by nothing, which reads as a
+    -- promise the compiler does not keep. Saying so is the repair; honouring them would need
+    -- nullability to be a tracked fact, which is a mechanism this refactor does not add.
+    local host_fields={
+        symbol='the C symbol the program calls, checked below',
+        phase='runtime, checked below',
+        purity='pure or ordered, checked below',
+        signature='the Let types, checked against the C prototype below',
+        c='the C prototype, checked against the signature below',
+        helper='an emitted helper rather than a C library symbol (emit.lua)',
+        borrows='the argument the result views (build.lua, Context:hold_view)',
+        ownership='DECLARED INTENT ONLY -- Let must not free the result. Nothing reads it.',
+        nullable='DECLARED INTENT ONLY -- the result may be null. Nothing reads it.',
+    }
     local function add_host(name,host)
+        for key in pairs(host) do
+            assert(host_fields[key],('host %s carries an unclassified field %s'):format(name,tostring(key)))
+        end
         assert(host.phase=='runtime' and (host.purity=='ordered' or host.purity=='pure'),
             'host must declare runtime phase and purity')
         assert(type(host.symbol)=='string' and host.symbol:match('^[A-Za-z_][A-Za-z0-9_]*$'),
