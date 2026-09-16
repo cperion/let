@@ -1936,7 +1936,13 @@ function Packet.bind_parameter(ctx,field,name,span)
     elseif field.capability==A.Own or field.capability==A.OwnMut then parameter.mode='fresh' end
     local owned=Packet.entry_owned(field)
     local address=Packet.place(field.type) and parameter or false
-    local binding=ctx:force_bind(name or field.name,parameter,field.mutable,owned,field.external==true,address,span or field.span)
+    -- The flag `build.lua` reads for a tail-call borrow is "does this binding's storage outlive my
+    -- activation". Two things do: a field reached from the caller (`external`), and a *retained*
+    -- field, whose storage lives in the word bundle rather than in the frame. A prelude is retained,
+    -- so `return c.load_byte(cells, i)` over the word's own prelude is not a dangling borrow and
+    -- was wrongly refused.
+    local outlives=field.external==true or field.retained==true
+    local binding=ctx:force_bind(name or field.name,parameter,field.mutable,owned,outlives,address,span or field.span)
     return binding,parameter,owned
 end
 
@@ -5710,7 +5716,7 @@ function Builder:instantiate(ctx,definition)
             else
                 value=ctx:read(capture.name,capture.span)
                 if not value.type:copyable() then
-                    refuse(capture.span,'a non-Copy capture needs the owner to be a place')
+                    gap(capture.span,'a non-Copy capture needs the owner to be a place')
                 end
             end
             word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,
@@ -5739,7 +5745,7 @@ function Builder:self_value(ctx,definition)
     ctx:push(); ctx:retain()
     for _,capture in ipairs(layout.captures) do
         local value=ctx:read(capture.name,capture.span)
-        if not value.type:copyable() then refuse(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)') end
+        if not value.type:copyable() then gap(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)') end
         word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,mutable=false,owned=false,retained=true,span=capture.span}
     end
     local result=self:pack(ctx,word)
@@ -5991,7 +5997,7 @@ function Builder:invoke(ctx,expression,tail)
         if tail then
             -- §6.5: the *caller's* own word state is not a local, so it must survive the
             -- transfer. Carrying it through the tail result needs address-taken state.
-            if ctx.mutable_state then refuse(expression.span,'tail invocation from a word with mutable state') end
+            if ctx.mutable_state then gap(expression.span,'tail invocation from a word with mutable state') end
             -- §6.5: a tail transfer retires this activation, so a place this activation owns
             -- cannot be passed. Only a borrow of module storage would survive, and the type
             -- does not distinguish that, so any borrow is conservative here.
@@ -7980,7 +7986,15 @@ function Emitter:exit(target_id,block,block_id,exit)
         local statements=L()
         statements:insert(C.Evaluate(C.Call(C.Name('let_trap'),L{C.String(exit.reason)})))
         local type_=self:return_shape(self.functions[target_id].signature.results)
-        statements:insert(C.Return(type_==C.Void and nil or C.Integer(0,0)))
+        -- The trap aborts, so this return is never reached -- but C still has to typecheck it, and a
+        -- function returning a struct cannot `return 0`. A struct gets a zero of its own type, which
+        -- leaves the rest of its members zero-initialized. The scalar and pointer cases keep the
+        -- plain zero, which is also a valid null pointer constant.
+        local value
+        if type_~=C.Void then
+            value=C.Named:isclassof(type_) and C.Compound(type_,L{C.Integer(0,0)}) or C.Integer(0,0)
+        end
+        statements:insert(C.Return(value))
         return C.Block(statements)
     end
     self:error('no representation for ' .. tostring(exit))

@@ -728,6 +728,22 @@ let shown = show()
 ]],'int main(void){ let_module_init(); return 0; }')
 check(output:find('trap: division by zero',1,true)~=nil,'§14.2 native division trap')
 
+-- §8.4 The C after a trap is unreachable, but C still has to typecheck it, and a word whose result
+-- is a record returns a struct -- so the trailing return cannot be a scalar zero. It was, and the
+-- emitted C did not compile: "incompatible types when returning type 'long int' but 'struct
+-- let_val_2' was expected".
+output=native('trap_index',[[
+let Pair = { let a : Int let b : Int }
+let pick = let index : Int do : Pair
+    let cells mut = { 1, 2, 3 };
+    let v = cells[index];
+    return Pair v v
+end
+let answer = pick(runtime_int(9))
+let shown = print_int(answer.a)
+]],'int main(void){ let_module_init(); return 0; }')
+check(output:find('trap: index out of range',1,true)~=nil,'§8.4 a trapping runtime index in a struct-returning word')
+
 -- §15.3 A host may state the C prototype it calls, and the C vocabulary lives under `c`: its
 -- members take a borrowed `CString` (a `const char*`), and `c.string`/`c.text` are the
 -- explicit crossings between that and Let's `Text`. No shim, and no implicit string conflation.

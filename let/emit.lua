@@ -679,7 +679,15 @@ function Emitter:exit(target_id,block,block_id,exit)
         local statements=L()
         statements:insert(C.Evaluate(C.Call(C.Name('let_trap'),L{C.String(exit.reason)})))
         local type_=self:return_shape(self.functions[target_id].signature.results)
-        statements:insert(C.Return(type_==C.Void and nil or C.Integer(0,0)))
+        -- The trap aborts, so this return is never reached -- but C still has to typecheck it, and a
+        -- function returning a struct cannot `return 0`. A struct gets a zero of its own type, which
+        -- leaves the rest of its members zero-initialized. The scalar and pointer cases keep the
+        -- plain zero, which is also a valid null pointer constant.
+        local value
+        if type_~=C.Void then
+            value=C.Named:isclassof(type_) and C.Compound(type_,L{C.Integer(0,0)}) or C.Integer(0,0)
+        end
+        statements:insert(C.Return(value))
         return C.Block(statements)
     end
     self:error('no representation for ' .. tostring(exit))

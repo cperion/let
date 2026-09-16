@@ -129,7 +129,7 @@ function Builder:instantiate(ctx,definition)
             else
                 value=ctx:read(capture.name,capture.span)
                 if not value.type:copyable() then
-                    refuse(capture.span,'a non-Copy capture needs the owner to be a place')
+                    gap(capture.span,'a non-Copy capture needs the owner to be a place')
                 end
             end
             word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,
@@ -158,7 +158,7 @@ function Builder:self_value(ctx,definition)
     ctx:push(); ctx:retain()
     for _,capture in ipairs(layout.captures) do
         local value=ctx:read(capture.name,capture.span)
-        if not value.type:copyable() then refuse(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)') end
+        if not value.type:copyable() then gap(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)') end
         word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,mutable=false,owned=false,retained=true,span=capture.span}
     end
     local result=self:pack(ctx,word)
@@ -410,7 +410,7 @@ function Builder:invoke(ctx,expression,tail)
         if tail then
             -- §6.5: the *caller's* own word state is not a local, so it must survive the
             -- transfer. Carrying it through the tail result needs address-taken state.
-            if ctx.mutable_state then refuse(expression.span,'tail invocation from a word with mutable state') end
+            if ctx.mutable_state then gap(expression.span,'tail invocation from a word with mutable state') end
             -- §6.5: a tail transfer retires this activation, so a place this activation owns
             -- cannot be passed. Only a borrow of module storage would survive, and the type
             -- does not distinguish that, so any borrow is conservative here.

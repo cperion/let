@@ -36,11 +36,29 @@ local thing_implementations={
 }
 local thing_options={hosts=thing_contracts,resources={Thing={destroy='kill'}}}
 
+-- The libc words the corpus uses, implemented over a Lua table so a buffer program can run in the
+-- interpreter rather than only under a C compiler. A handle indexes a table of bytes.
+local memory,next_handle={},0
+local libc_implementations={
+    malloc=function(n) next_handle=next_handle+1; memory[next_handle]={}; return next_handle end,
+    free=function(handle) memory[handle]=nil end,
+    -- The index arrives as an Int, which on LuaJIT is int64 cdata, and two equal cdata values are
+    -- not the same table key. So the fake memory keys on the number it stands for.
+    let_store_byte=function(handle,index,value) memory[handle][tonumber(index)]=value end,
+    let_load_byte=function(handle,index) return memory[handle][tonumber(index)] or 0 end,
+}
+local libc_options={dictionary={c={members=V.libc.members}},resources={CAlloc=V.libc.resources.CAlloc}}
+
 local programs={
     {name='fold',result=7},
     {name='fold_variable',result=8},
     {name='borrow_place',result=7},
     {name='mutable_member',result=2},
+    -- §6.5 A tail call may borrow a value the word does not own: the word's *prelude* lives in its
+    -- bundle rather than in the activation, so the borrow survives the transfer. This was refused
+    -- as "tail invocation borrow does not outlive caller cleanup", and the same code with the
+    -- buffer as a body local is correctly refused -- see the refusals below.
+    {name='tail_prelude',result=7,options=libc_options,implementations=libc_implementations},
     {name="sum_drop",result=0,options=thing_options,implementations=thing_implementations,
         before=function() releases=0 end,
         after=function() eq(releases,1,'sum_drop: the owned payload is released exactly once') end},
@@ -50,7 +68,8 @@ for _,program in ipairs(programs) do
     local options=program.options or {}
     if program.before then program.before() end
     local built=V.parse(source(program.name),program.name..'.let'):build(options)
-    built:verify_flow(options.hosts)
+    -- `emit` verifies the flow itself, with the vocabulary's symbols -- so a host reached through a
+    -- dictionary (`c.malloc`) is covered, which an explicit `verify_flow(options.hosts)` was not.
     -- Rendering is part of the contract: an unrepresentable value fails here, not at a C compiler
     -- the suite does not run.
     V.print(built:emit(options))
@@ -73,10 +92,21 @@ let answer = run()
 let run = do : Int continue return 0 end
 let answer = run()
 ]],fragment='continue outside a loop'},
+    -- The counterpart of the corpus's `tail_prelude`: the same code with the buffer as a body
+    -- local instead of a prelude is a borrow that really does die with the activation, so the
+    -- refusal must stay.
+    {name='tail borrow of a body local',options=libc_options,source=[[
+let read_at = let i : Int do : Int
+    let cells = c.malloc(4);
+    return c.load_byte(cells, i)
+end
+let answer = read_at(0)
+]],fragment='tail invocation borrow does not outlive caller cleanup'},
 }
 for _,case in ipairs(refusals) do
     local ok,err=pcall(function()
-        V.parse(case.source,case.name..'.let'):build({hosts=thing_contracts,resources={Thing={destroy='kill'}}})
+        local options=case.options or {hosts=thing_contracts,resources={Thing={destroy='kill'}}}
+        V.parse(case.source,case.name..'.let'):build(options)
     end)
     check(not ok,case.name..': expected the language to refuse it')
     if not ok then

@@ -1,0 +1,11 @@
+// §6.5 A tail call may borrow a value the word itself does not own. A word's prelude lives in its
+// bundle, which outlives the activation, so `c.load_byte(cells, i)` in tail position is a borrow of
+// storage that survives the transfer.
+let read_at =
+    let cells = c.malloc(4)
+    let i : Int
+    do : Int
+        c.store_byte(cells, 0, 7);
+        return c.load_byte(cells, i)
+    end
+let answer = read_at(0)

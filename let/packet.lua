@@ -93,7 +93,13 @@ function Packet.bind_parameter(ctx,field,name,span)
     elseif field.capability==A.Own or field.capability==A.OwnMut then parameter.mode='fresh' end
     local owned=Packet.entry_owned(field)
     local address=Packet.place(field.type) and parameter or false
-    local binding=ctx:force_bind(name or field.name,parameter,field.mutable,owned,field.external==true,address,span or field.span)
+    -- The flag `build.lua` reads for a tail-call borrow is "does this binding's storage outlive my
+    -- activation". Two things do: a field reached from the caller (`external`), and a *retained*
+    -- field, whose storage lives in the word bundle rather than in the frame. A prelude is retained,
+    -- so `return c.load_byte(cells, i)` over the word's own prelude is not a dangling borrow and
+    -- was wrongly refused.
+    local outlives=field.external==true or field.retained==true
+    local binding=ctx:force_bind(name or field.name,parameter,field.mutable,owned,outlives,address,span or field.span)
     return binding,parameter,owned
 end
 
