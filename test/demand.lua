@@ -3,12 +3,13 @@ local V=require('let'); local A,B,L=V.AST,V.Belt,V.List
 local checks=0
 local function check(v,message) assert(v,message); checks=checks+1 end
 local span=V.Source.Span('demand.let',1,1)
+local range=V.Source.Range(span,span)
 local function n(name) return A.Name(name,span) end
 local function i(value) return A.Integer(tostring(value),span) end
 local function call(name,value) return A.Invoke(n(name),L{value},span) end
 local function ret(value) return A.Return(value,span) end
-local function local_(name,value,mutable) return A.Local(A.Binding(name,mutable or false,nil,A.Chain(L(),A.Data(value),span),span),span) end
-local function stage(name,type_) return A.Stage(name,A.Read,A.Constraint(type_,L(),span),span) end
+local function local_(name,value,mutable) return A.Local(A.Binding(name,mutable or false,nil,A.Chain(L(),A.Data(value),span),span,range),span) end
+local function stage(name,type_) return A.Stage(name,A.Read,A.Constraint(type_,L(),range,span),span,range) end
 local function host(name,purity,type_) return {symbol=name,phase='runtime',purity=purity,signature=B.Signature(L{B.Parameter(type_ or B.Int,A.Read)},L{B.Int})} end
 local hosts={math=host('math','pure'),tick=host('tick','ordered'),peek=host('peek','pure',B.Named('Box'))}
 local options={hosts=hosts,resources={Box={destroy='drop'}}}

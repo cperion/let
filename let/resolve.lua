@@ -8,7 +8,9 @@ function Context:scope(parent)
     self.scopes[#self.scopes+1]=scope; return scope
 end
 function Context:definition(name,kind,node,owner)
-    local definition={id=#self.definitions+1,name=name,kind=kind,node=node,owner=owner}
+    -- The name's own range, when the declaring node has one; a dictionary or namespace node has
+    -- no source, so it has none.
+    local definition={id=#self.definitions+1,name=name,kind=kind,node=node,owner=owner,range=node and node.name_range}
     self.definitions[definition.id]=definition; self.bindings[node]=definition; return definition
 end
 function Context:publish(scope,definition,span)
@@ -112,7 +114,7 @@ function A.Data:resolve_terminal(ctx,scope) self.value:resolve(ctx,scope) end
 function A.Ref:resolve(ctx,scope,span)
     -- §11: a type word resolves as an ordinary name. Whether it names a known type word is a
     -- vocabulary question, answered when the annotation is checked, not here.
-    local head={span=span}; local definition=ctx:use(scope,self.name,head,'type')
+    local head={span=(self.name_range and self.name_range.start) or span}; local definition=ctx:use(scope,self.name,head,'type')
     ctx.type_refs[self]=definition
     for _,argument in ipairs(self.arguments) do argument:resolve(ctx,scope) end
 end
@@ -145,7 +147,7 @@ function A.Binding:resolve(ctx,scope)
         local inner=ctx.chains[terminal.value.chain]
         if inner then inner.name=definition.name end
     end
-    ctx:publish(scope,definition,self.span); return definition
+    ctx:publish(scope,definition,definition.range and definition.range.start or self.span); return definition
 end
 function A.Stage:resolve(ctx,scope,index)
     local template=ctx.current; template.preparation.last=index-1
@@ -153,7 +155,8 @@ function A.Stage:resolve(ctx,scope,index)
     template.steps[#template.steps+1]={stage=self,index=index,prepare=preparation}
     template.preparation=preparation
     if self.constraint then self.constraint:resolve(ctx,scope,self.span) end
-    ctx:publish(scope,ctx:definition(self.name,'stage',self,ctx.current),self.span)
+    local stage=ctx:definition(self.name,'stage',self,ctx.current)
+    ctx:publish(scope,stage,stage.range and stage.range.start or self.span)
 end
 function A.Prelude:resolve(ctx,scope) self.binding:resolve(ctx,scope) end
 -- A foreign declaration's constraints are type names, so resolving them catches an unknown one

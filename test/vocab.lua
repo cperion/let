@@ -50,6 +50,7 @@ rejects(function() block:resolve(4,ref(0,1)) end,'invalid producer output')
 rejects(function() verify(B.Block(L{int},L(),B.Jump(B.Edge(2,L{ref(0)})))) end,'invalid block target')
 rejects(function() verify(B.Block(L{int},L(),B.Jump(B.Edge(1,L())))) end,'edge parameter count mismatch')
 local span=V.Source.Span('test.let',1,1)
+local range=V.Source.Range(span,span)
 local subject=A.Name('x',span)
 local arm=A.Case(L{A.Integer('0',span)},L{A.Return(A.Integer('42',span),span)},span)
 local selection=A.Switch(subject,L{arm},L(),span)
@@ -58,7 +59,7 @@ local c=C.Unit(L{'stdint.h'},L{C.Function('answer',false,true,C.I64,L(),C.Block(
 check(#c.declarations==1,'C output vocabulary constructs independently')
 -- §11.2: declared type words lower to belt types.
 local vocab=V.Vocabulary.new({resources={Box={destroy='drop'}}})
-local function tref(name) return A.Ref(name,L(),span) end
+local function tref(name) return A.Ref(name,L(),range,span) end
 check(vocab:resolve_type(tref('Int'))==B.Int,'a primitive type word lowers')
 check(B.Named:isclassof(vocab:resolve_type(tref('Box'))),'a resource type word lowers')
 check(vocab:resolve_type(tref('Nope'))==nil,'an unknown type word does not lower')

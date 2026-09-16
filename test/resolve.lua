@@ -50,5 +50,14 @@ local separated,separator_error=separator_message('let f=let x:Int do : Int retu
 check(not separated)
 check(tostring(separator_error):find('end the value with ";"',1,true))
 check(separator_message('let f=let x:Int do : Int return x end\ndo : Unit let b=1;\nf(b) return end'))
+-- §3.3 A resolved declaration carries the range of its name, and a duplicate binding names it.
+local ranged=V.parse('let a : Int = 1\nlet b = let n : Int do : Int return n end','range.let')
+local ranged_names=ranged:resolve()
+check(ranged_names.module.names.a.range.start.line==1 and ranged_names.module.names.a.range.start.column==5)
+local ranged_stage=ranged_names.module.names.b.template.steps[1].stage
+check(ranged_names.bindings[ranged_stage].range.start.line==2 and ranged_names.bindings[ranged_stage].range.start.column==13)
+local duplicate=V.parse('let a : Int = 1\nlet a : Int = 2','duplicate.let')
+local duplicated,duplicate_error=pcall(function() return duplicate:resolve{} end)
+check(not duplicated and tostring(duplicate_error):find('duplicate.let:2:5:',1,true))
 print(('passed %d lexical/stage contract checks'):format(count))
 

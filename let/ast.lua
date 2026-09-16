@@ -3,6 +3,7 @@ return function(context)
     context:Define [[
 module Source {
     Span = (string file, number line, number column)
+    Range = (Span start, Span stop)
     Token = (string kind, string spelling, string? value, Span span)
 }
 module AST {
@@ -11,18 +12,18 @@ module AST {
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or
-    TypeExpr = Ref(string name, Expr* arguments) | Apply(TypeExpr constructor, TypeExpr argument)
+    TypeExpr = Ref(string name, Expr* arguments, Source.Range name_range) | Apply(TypeExpr constructor, TypeExpr argument)
              | Arrow(TypeExpr from, TypeExpr to) | Sum(TypeExpr left, TypeExpr right)
              | Do(TypeExpr result)
              | Record(TypeField* fields) | Tuple(TypeExpr* elements)
          attributes (Source.Span span)
     TypeField = (string name, boolean mutable, TypeExpr type, Source.Span span)
     Program = (Chain file)
-    Binding = (string name, boolean mutable, TypeExpr? constraint, Chain value, Source.Span span)
+    Binding = (string name, boolean mutable, TypeExpr? constraint, Chain value, Source.Span span, Source.Range name_range)
     Chain = (Item* items, Terminal? terminal, Source.Span span)
-    Item = Stage(string name, Capability capability, TypeExpr? constraint, Source.Span span)
+    Item = Stage(string name, Capability capability, TypeExpr? constraint, Source.Span span, Source.Range name_range)
          | Prelude(Binding binding)
-         | Extern(string name, boolean pure, string? symbol, Stage* parameters, TypeExpr? result, Source.Span span)
+         | Extern(string name, boolean pure, string? symbol, Stage* parameters, TypeExpr? result, Source.Span span, Source.Range name_range)
     Terminal = Data(Expr value) | Body(Stmt* statements, TypeExpr? result)
     Expr = Name(string name) | Integer(string spelling) | Float(string spelling) | Boolean(boolean value)
          | Text(string value) | Unit
@@ -32,7 +33,7 @@ module AST {
          | Invoke(Expr word, Expr* arguments)
          | Word(Chain chain)
          | NamedAggregate(Binding* members, boolean nominal) | PositionalAggregate(Chain* elements)
-         | Project(Expr base, string name) | Index(Expr base, Expr index)
+         | Project(Expr base, string name, Source.Range member_range) | Index(Expr base, Expr index)
          | Move(Expr place) | Borrow(Expr place)
          | SumType(TypeExpr left, TypeExpr right)
          attributes (Source.Span span)

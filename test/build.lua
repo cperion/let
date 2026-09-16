@@ -1,7 +1,7 @@
 package.path='./?.lua;./?/init.lua;' .. package.path
 local V=require('let'); local A,B,L=V.AST,V.Belt,V.List
 local execute=require('test.execute')
-local span=V.Source.Span('spec-fixture.let',7,3); local checks=0
+local span=V.Source.Span('spec-fixture.let',7,3); local range=V.Source.Range(span,span); local checks=0
 local function check(value,message) assert(value,message); checks=checks+1 end
 local function eq(value,wanted,message) check(value==wanted,(message or 'result') .. ': ' .. tostring(value) .. ' ~= ' .. tostring(wanted)) end
 local function n(name) return A.Name(name,span) end
@@ -12,9 +12,9 @@ local function ret(value) return A.Return(value,span) end
 local function call(name,...) return A.Invoke(n(name),L{...},span) end
 local function discard(value) return A.Discard(value,span) end
 local function data(value) return A.Chain(L(),A.Data(value),span) end
-local function local_(name,value,mutable) return A.Local(A.Binding(name,mutable or false,nil,data(value),span),span) end
+local function local_(name,value,mutable) return A.Local(A.Binding(name,mutable or false,nil,data(value),span,range),span) end
 local function assign(name,value) return A.Assign(n(name),value,span) end
-local function stage(name,type_,cap) return A.Stage(name,cap or A.Read,type_ and A.Constraint(type_,L(),span) or nil,span) end
+local function stage(name,type_,cap) return A.Stage(name,cap or A.Read,type_ and A.Constraint(type_,L(),range,span) or nil,span,range) end
 local function if_(condition,yes,no) return A.If(condition,L(yes),L(no or {}),span) end
 local function while_(condition,body) return A.While(condition,L(body),span) end
 local function move(name) return A.Move(n(name),span) end
@@ -160,7 +160,7 @@ reject({ret(call('tick'))},'exactly saturate')
 reject({A.Break(span)},'break outside a loop')
 reject({A.Continue(span)},'continue outside a loop')
 reject({switch(i(1),{case({i(1)},{ret(i(1))}),case({i('0x1')},{ret(i(2))})})},'duplicate case')
-local prelude=A.Prelude(A.Binding('p',false,nil,data(call('tick',i(1))),span))
+local prelude=A.Prelude(A.Binding('p',false,nil,data(call('tick',i(1))),span,range))
 ok,err=pcall(function() A.Chain(L{stage('a','Int'),prelude,stage('b','Int')},A.Body(L{ret(i(42))},nil),span):build_function('staged',options) end)
 check(not ok and tostring(err):find('preludes must run between arguments'),'§6.2 forbids lowering a prelude into an all-arguments-bound terminal')
 local shadow_options={hosts={fixture=options.hosts.tick}}

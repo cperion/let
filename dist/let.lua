@@ -878,6 +878,7 @@ return function(context)
     context:Define [[
 module Source {
     Span = (string file, number line, number column)
+    Range = (Span start, Span stop)
     Token = (string kind, string spelling, string? value, Span span)
 }
 module AST {
@@ -886,18 +887,18 @@ module AST {
     BinaryOp = Add | Subtract | Multiply | Divide | Remainder
              | Equal | NotEqual | Less | LessEqual | Greater | GreaterEqual
              | And | Or
-    TypeExpr = Ref(string name, Expr* arguments) | Apply(TypeExpr constructor, TypeExpr argument)
+    TypeExpr = Ref(string name, Expr* arguments, Source.Range name_range) | Apply(TypeExpr constructor, TypeExpr argument)
              | Arrow(TypeExpr from, TypeExpr to) | Sum(TypeExpr left, TypeExpr right)
              | Do(TypeExpr result)
              | Record(TypeField* fields) | Tuple(TypeExpr* elements)
          attributes (Source.Span span)
     TypeField = (string name, boolean mutable, TypeExpr type, Source.Span span)
     Program = (Chain file)
-    Binding = (string name, boolean mutable, TypeExpr? constraint, Chain value, Source.Span span)
+    Binding = (string name, boolean mutable, TypeExpr? constraint, Chain value, Source.Span span, Source.Range name_range)
     Chain = (Item* items, Terminal? terminal, Source.Span span)
-    Item = Stage(string name, Capability capability, TypeExpr? constraint, Source.Span span)
+    Item = Stage(string name, Capability capability, TypeExpr? constraint, Source.Span span, Source.Range name_range)
          | Prelude(Binding binding)
-         | Extern(string name, boolean pure, string? symbol, Stage* parameters, TypeExpr? result, Source.Span span)
+         | Extern(string name, boolean pure, string? symbol, Stage* parameters, TypeExpr? result, Source.Span span, Source.Range name_range)
     Terminal = Data(Expr value) | Body(Stmt* statements, TypeExpr? result)
     Expr = Name(string name) | Integer(string spelling) | Float(string spelling) | Boolean(boolean value)
          | Text(string value) | Unit
@@ -907,7 +908,7 @@ module AST {
          | Invoke(Expr word, Expr* arguments)
          | Word(Chain chain)
          | NamedAggregate(Binding* members, boolean nominal) | PositionalAggregate(Chain* elements)
-         | Project(Expr base, string name) | Index(Expr base, Expr index)
+         | Project(Expr base, string name, Source.Range member_range) | Index(Expr base, Expr index)
          | Move(Expr place) | Borrow(Expr place)
          | SumType(TypeExpr left, TypeExpr right)
          attributes (Source.Span span)
@@ -4350,6 +4351,11 @@ module('let.parse', function(require, ...)
 return function(V)
 local A,L,Lexer=V.AST,V.List,V.Lexer
 local fail=Lexer.fail; local literal=require('let.literal')
+local Source=V.Source
+-- A name's range ends just past it. A NAME is ASCII (§2.1), so its byte length is its length
+-- in scalars and the column arithmetic is exact.
+local function span_range(span,name) return Source.Range(span,Source.Span(span.file,span.line,span.column+#name)) end
+local function name_range(token) return span_range(token.span,token.spelling) end
 local Parser={}; Parser.__index=Parser
 function Parser:token() return self.tokens[self.pos] end
 function Parser:is(kind) return self:token().kind==kind end
@@ -4409,7 +4415,7 @@ function Parser:atom_type()
     -- A type word by name, with an optional literal C spelling (`Int "int"`).
     local name=self:expect('name'); local arguments=L()
     while self:is('integer') or self:is('text') or self:is('true') or self:is('false') do arguments:insert(self:atom()) end
-    return A.Ref(name.spelling,arguments,name.span)
+    return A.Ref(name.spelling,arguments,name_range(name),name.span)
 end
 -- §3.3/§11.2: a record type is the regular aggregate form -- the same braces and `let` members,
 -- with a member's type where a value aggregate writes a value. `let x : T` is a stage, so the
@@ -4439,17 +4445,17 @@ function Parser:record_type()
     self:expect('}'); return A.Tuple(elements,span)
 end
 function Parser:header()
-    local span=self:expect('let').span; local name=self:expect('name').spelling
+    local span=self:expect('let').span; local token=self:expect('name'); local name=token.spelling
     local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
     if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
     local constraint=self:accept(':') and self:type_expression() or nil
-    return name,own,mutable,constraint,span
+    return name,own,mutable,constraint,span,name_range(token)
 end
 function Parser:binding()
-    local name,own,mutable,constraint,span=self:header()
+    local name,own,mutable,constraint,span,range=self:header()
     if own then fail(span,'own is only valid on an unsatisfied stage') end
     self:expect('='); self:separators()
-    return A.Binding(name,mutable,constraint,self:chain(),span)
+    return A.Binding(name,mutable,constraint,self:chain(),span,range)
 end
 -- The chain items: consecutive `let` forms, an unsatisfied one being a stage.
 function Parser:items()
@@ -4458,14 +4464,14 @@ function Parser:items()
         if self:is('extern') then
             items:insert(self:extern_item())
         else
-            local name,own,mutable,constraint,at=self:header()
+            local name,own,mutable,constraint,at,range=self:header()
             if self:accept('=') then
                 if own then fail(at,'own is only valid on an unsatisfied stage') end
-                self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at)))
+                self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at,range)))
             else
                 if not constraint then fail(at,'a stage must declare its type word') end
                 local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
-                items:insert(A.Stage(name,cap,constraint,at))
+                items:insert(A.Stage(name,cap,constraint,at,range))
             end
         end
         self:separators()
@@ -4478,8 +4484,8 @@ function Parser:extern_item()
     local span=self:expect('extern').span
     local pure=self:accept('pure')~=nil
     -- A dotted name adds a member to a namespace, so `extern c.puts ...` needs no embedding.
-    local name=self:expect('name').spelling
-    while self:accept('.') do name=name .. '.' .. self:expect('name').spelling end
+    local first=self:expect('name'); local last=first; local name=first.spelling
+    while self:accept('.') do last=self:expect('name'); name=name .. '.' .. last.spelling end
     local symbol=self:is('text') and self:take().value or nil
     self:expect('(')
     local parameters=L()
@@ -4488,15 +4494,15 @@ function Parser:extern_item()
     end
     self:expect(')')
     local result=self:accept(':') and self:type_expression() or nil
-    return A.Extern(name,pure,symbol,parameters,result,span)
+    return A.Extern(name,pure,symbol,parameters,result,span,Source.Range(first.span,span_range(last.span,last.spelling).stop))
 end
 function Parser:extern_parameter()
-    local span=self:token().span; local name=self:expect('name').spelling
+    local span=self:token().span; local token=self:expect('name'); local name=token.spelling
     local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
     if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
     local constraint=self:accept(':') and self:type_expression() or nil
     local cap=own and (mutable and A.OwnMut or A.Own) or (mutable and A.Mut or A.Read)
-    return A.Stage(name,cap,constraint,span)
+    return A.Stage(name,cap,constraint,span,name_range(token))
 end
 
 -- A chain in an expression position always has a written terminal. A source file may omit
@@ -4582,7 +4588,7 @@ end
 function Parser:place()
     local token=self:expect('name'); local value=A.Name(token.spelling,token.span)
     while true do
-        if self:accept('.') then value=A.Project(value,self:expect('name').spelling,value.span)
+        if self:accept('.') then local member=self:expect('name'); value=A.Project(value,member.spelling,name_range(member),value.span)
         elseif self:accept('[') then local index=self:expression(); self:expect(']'); value=A.Index(value,index,value.span)
         else return value end
     end
@@ -4622,7 +4628,7 @@ function Parser:aggregate_word(items,span)
         local name=A.Stage:isclassof(item) and item.name or item.binding.name
         local at=A.Stage:isclassof(item) and item.span or item.binding.span
         local value=A.Data(A.Name(name,at))
-        members:insert(A.Binding(name,false,nil,A.Chain(L(),value,at),at))
+        members:insert(A.Binding(name,false,nil,A.Chain(L(),value,at),at,span_range(at,name)))
     end
     return A.Chain(items,A.Data(A.NamedAggregate(members,true,span)),span)
 end
@@ -4690,7 +4696,7 @@ end
 function Parser:postfix()
     local value=self:atom()
     while true do
-        if self:accept('.') then value=A.Project(value,self:expect('name').spelling,value.span)
+        if self:accept('.') then local member=self:expect('name'); value=A.Project(value,member.spelling,name_range(member),value.span)
         elseif self:accept('[') then local index=self:expression(); self:expect(']'); value=A.Index(value,index,value.span)
         elseif self:accept('(') then
             local arguments=L()
@@ -4739,7 +4745,7 @@ function Parser:expression(minimum)
         -- operands are type words; an expression-position name becomes a type-word `Ref`.
         if op[2]==A.Sum then
             local function as_type(node)
-                if A.Name:isclassof(node) then return A.Ref(node.name,L(),node.span) end
+                if A.Name:isclassof(node) then return A.Ref(node.name,L(),span_range(node.span,node.name),node.span) end
                 return node
             end
             left=A.SumType(as_type(left),as_type(right),token.span)
@@ -4862,7 +4868,9 @@ function Context:scope(parent)
     self.scopes[#self.scopes+1]=scope; return scope
 end
 function Context:definition(name,kind,node,owner)
-    local definition={id=#self.definitions+1,name=name,kind=kind,node=node,owner=owner}
+    -- The name's own range, when the declaring node has one; a dictionary or namespace node has
+    -- no source, so it has none.
+    local definition={id=#self.definitions+1,name=name,kind=kind,node=node,owner=owner,range=node and node.name_range}
     self.definitions[definition.id]=definition; self.bindings[node]=definition; return definition
 end
 function Context:publish(scope,definition,span)
@@ -4966,7 +4974,7 @@ function A.Data:resolve_terminal(ctx,scope) self.value:resolve(ctx,scope) end
 function A.Ref:resolve(ctx,scope,span)
     -- §11: a type word resolves as an ordinary name. Whether it names a known type word is a
     -- vocabulary question, answered when the annotation is checked, not here.
-    local head={span=span}; local definition=ctx:use(scope,self.name,head,'type')
+    local head={span=(self.name_range and self.name_range.start) or span}; local definition=ctx:use(scope,self.name,head,'type')
     ctx.type_refs[self]=definition
     for _,argument in ipairs(self.arguments) do argument:resolve(ctx,scope) end
 end
@@ -4999,7 +5007,7 @@ function A.Binding:resolve(ctx,scope)
         local inner=ctx.chains[terminal.value.chain]
         if inner then inner.name=definition.name end
     end
-    ctx:publish(scope,definition,self.span); return definition
+    ctx:publish(scope,definition,definition.range and definition.range.start or self.span); return definition
 end
 function A.Stage:resolve(ctx,scope,index)
     local template=ctx.current; template.preparation.last=index-1
@@ -5007,7 +5015,8 @@ function A.Stage:resolve(ctx,scope,index)
     template.steps[#template.steps+1]={stage=self,index=index,prepare=preparation}
     template.preparation=preparation
     if self.constraint then self.constraint:resolve(ctx,scope,self.span) end
-    ctx:publish(scope,ctx:definition(self.name,'stage',self,ctx.current),self.span)
+    local stage=ctx:definition(self.name,'stage',self,ctx.current)
+    ctx:publish(scope,stage,stage.range and stage.range.start or self.span)
 end
 function A.Prelude:resolve(ctx,scope) self.binding:resolve(ctx,scope) end
 -- A foreign declaration's constraints are type names, so resolving them catches an unknown one

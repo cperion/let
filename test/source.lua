@@ -57,5 +57,15 @@ local result=parse('let f = do : Unit return {} end').file.items[1].binding.valu
 check(result and result.name=='Unit')
 local grouped=parse('let f : (Int -> Int) -> Int = 0').file.items[1].binding.constraint
 check(A.Arrow:isclassof(grouped) and A.Arrow:isclassof(grouped.from))
+-- §3 Every declared name and written member carries the range of the identifier itself.
+local named=parse('let outer : Int = 1\nlet word = let n : Int do : Int return n end\nlet view = item.field\nextern c.puts (value : CString) : Int\n')
+local named_items=named.file.items
+local function at(range) return ('%d:%d'):format(range.start.line,range.start.column) end
+check(at(named_items[1].binding.name_range)=='1:5' and named_items[1].binding.name_range.stop.column==10)
+check(at(named_items[2].binding.name_range)=='2:5')
+check(at(named_items[2].binding.value.items[1].name_range)=='2:16')
+check(at(named_items[2].binding.value.items[1].constraint.name_range)=='2:20')
+check(at(named_items[3].binding.value.terminal.value.member_range)=='3:17')
+check(at(named_items[4].name_range)=='4:8' and at(named_items[4].parameters[1].name_range)=='4:16')
 print(('passed %d source integration checks'):format(count))
 
