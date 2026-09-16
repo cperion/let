@@ -4,7 +4,7 @@
 package.path='./?.lua;./?/init.lua;'..package.path
 
 local suites={
-    'test/vocab.lua','test/build.lua','test/demand.lua','test/source.lua',
+    'test/belt.lua','test/vocab.lua','test/build.lua','test/demand.lua','test/source.lua',
     'test/resolve.lua','test/program.lua','test/emit.lua','test/aggregate.lua',
     'test/known.lua','test/import.lua','test/place.lua','test/host_entry.lua',
     'test/native.lua','test/width.lua','test/sum.lua','test/view.lua','test/float.lua','test/ide.lua','test/bundle.lua',
