@@ -59,4 +59,32 @@ for _,program in ipairs(programs) do
     if program.after then program.after() end
 end
 
+-- Programs the language *refuses*, and the reason it gives. A refusal and a gap read
+-- differently on purpose: one means rewrite the program, the other means the compiler is
+-- missing something. Sharing a word for both is why an ownership error once arrived
+-- prefixed "construction not yet implemented". So the prefix is asserted absent, and the
+-- reason present.
+local refusals={
+    {name='break outside a loop',source=[[
+let run = do : Int break return 0 end
+let answer = run()
+]],fragment='break outside a loop'},
+    {name='continue outside a loop',source=[[
+let run = do : Int continue return 0 end
+let answer = run()
+]],fragment='continue outside a loop'},
+}
+for _,case in ipairs(refusals) do
+    local ok,err=pcall(function()
+        V.parse(case.source,case.name..'.let'):build({hosts=thing_contracts,resources={Thing={destroy='kill'}}})
+    end)
+    check(not ok,case.name..': expected the language to refuse it')
+    if not ok then
+        check(tostring(err):find(case.fragment,1,true)~=nil,
+            case.name..': expected the reason to name '..case.fragment..', got '..tostring(err))
+        check(tostring(err):find('construction not yet implemented',1,true)==nil,
+            case.name..': a refusal must not read like a gap, got '..tostring(err))
+    end
+end
+
 print(('passed %d real-program checks'):format(checks))

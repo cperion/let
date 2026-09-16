@@ -4,7 +4,7 @@
 return function(V)
 local A,B,L=V.AST,V.Belt,V.List
 local Build=V.Build; local Context=Build.Context
-local expect,fail,gap,copy=Build.expect,Build.fail,Build.gap,Build.copy
+local expect,fail,gap,refuse,copy=Build.expect,Build.fail,Build.gap,Build.refuse,Build.copy
 local Packet=V.Packet
 local Vocabulary=V.Vocabulary
 
@@ -129,7 +129,7 @@ function Builder:instantiate(ctx,definition)
             else
                 value=ctx:read(capture.name,capture.span)
                 if not value.type:copyable() then
-                    gap(capture.span,'a non-Copy capture needs the owner to be a place')
+                    refuse(capture.span,'a non-Copy capture needs the owner to be a place')
                 end
             end
             word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,
@@ -158,7 +158,7 @@ function Builder:self_value(ctx,definition)
     ctx:push(); ctx:retain()
     for _,capture in ipairs(layout.captures) do
         local value=ctx:read(capture.name,capture.span)
-        if not value.type:copyable() then gap(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)') end
+        if not value.type:copyable() then refuse(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)') end
         word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,mutable=false,owned=false,retained=true,span=capture.span}
     end
     local result=self:pack(ctx,word)
@@ -180,7 +180,7 @@ function Builder:advance(ctx,value,supplied,span,destination,complete)
         gap(span,'word-valued stages')
     end
     local _,temporary=item.capability:bind_argument(supplied,destination,function(message) fail(span,message) end)
-    if temporary then gap(span,'transient read borrow of owned state') end
+    if temporary then refuse(span,'transient read borrow of owned state') end
     -- A mutable stage is a place, so its argument is the declared type's address and the
     -- constraint describes what that place contains.
     local mut=item.capability==A.Mut
@@ -192,7 +192,7 @@ function Builder:advance(ctx,value,supplied,span,destination,complete)
         else expect(supplied,type_,span) end
     end
     if (item.capability==A.Own or item.capability==A.OwnMut) and supplied.type:borrows() then
-        gap(span,'passing a word that borrows enclosing state to an ownership-taking stage')
+        refuse(span,'passing a word that borrows enclosing state to an ownership-taking stage')
     end
     local owned=not supplied.type:copyable() and (item.capability==A.Own or item.capability==A.OwnMut)
     -- Advancement happens in a scope holding every field the word already has. Earlier steps
@@ -410,7 +410,7 @@ function Builder:invoke(ctx,expression,tail)
         if tail then
             -- §6.5: the *caller's* own word state is not a local, so it must survive the
             -- transfer. Carrying it through the tail result needs address-taken state.
-            if ctx.mutable_state then gap(expression.span,'tail invocation from a word with mutable state') end
+            if ctx.mutable_state then refuse(expression.span,'tail invocation from a word with mutable state') end
             -- §6.5: a tail transfer retires this activation, so a place this activation owns
             -- cannot be passed. Only a borrow of module storage would survive, and the type
             -- does not distinguish that, so any borrow is conservative here.
@@ -426,9 +426,9 @@ function Builder:invoke(ctx,expression,tail)
                     if B.Address:isclassof(field.type) then borrowed=true end
                 end
                 if borrowed then
-                    gap(expression.span,'tail invocation of a captured word: its state must be written back, which a tail transfer cannot do')
+                    refuse(expression.span,'tail invocation of a captured word: its state must be written back, which a tail transfer cannot do')
                 end
-                gap(expression.span,'tail invocation of a word whose state belongs to the retiring activation')
+                refuse(expression.span,'tail invocation of a word whose state belongs to the retiring activation')
             end
             -- A function whose only exit is a tail call takes its result type from the callee.
             if not ctx.fn.result then
@@ -452,7 +452,7 @@ function Builder:invoke(ctx,expression,tail)
             -- A direct self call returns whatever this word returns, which the contract states.
             result_type=ctx.fn.result
             if not result_type then
-                gap(expression.span,'the result type of a recursive call must be fixed by another return in the same word')
+                refuse(expression.span,'the result type of a recursive call must be fixed by another return in the same word')
             end
         else
             gap(expression.span,'the result type of a recursive call must be fixed by another return in the same word')
@@ -468,7 +468,7 @@ function Builder:invoke(ctx,expression,tail)
         -- ownership rules for that stated first, and says so rather than being guessed at.
         if B.Word:isclassof(result_type) then
             if not result_type.is_copy then
-                gap(expression.span,'a returned word with owned state needs ownership vocabulary')
+                refuse(expression.span,'a returned word with owned state needs ownership vocabulary')
             end
             local template
             for _,candidate in ipairs(self.resolved.templates) do
@@ -504,7 +504,7 @@ function Builder:invoke(ctx,expression,tail)
         if changed then
             -- Interior state must be written back to its owner. A projected word member has
             -- no writable place of its own yet, so its state update would be silently lost.
-            if not origin then gap(expression.span,'invoking a projected word member with mutable state') end
+            if not origin then refuse(expression.span,'invoking a projected word member with mutable state') end
             local packed=self:pack(ctx,updated)
             local binding=ctx.fn.bindings[origin]
             if binding.address then

@@ -10,8 +10,14 @@ local Context={}; Context.__index=Context
 local function copy(t) local out={}; for k,v in pairs(t) do out[k]=v end; return out end
 local function fail(span,message) error(('%s:%d:%d: %s'):format(span.file,span.line,span.column,message),0) end
 local function gap(span,message) fail(span,'construction not yet implemented: ' .. message) end
+-- A *refusal* is the language saying no; a *gap* is the compiler saying "not yet". They are kept
+-- apart because a reader has to know which one they are looking at: one means rewrite the program,
+-- the other means the compiler is missing something. Sharing a word is why `program.lua`'s
+-- "That is an ownership error, not a missing lowering" sat directly above a call whose message
+-- began "construction not yet implemented".
+local function refuse(span,message) fail(span,message) end
 local function expect(value,type_,span)
-    if not value.type then gap(span,'word values in data positions') end
+    if not value.type then refuse(span,'word values in data positions') end
     if not value.type:same(type_) then fail(span,'expected ' .. tostring(type_) .. ', got ' .. tostring(value.type)) end
 end
 function Context:value(type_)
@@ -118,7 +124,7 @@ function Context:path_key(type_,steps,span,allow_dynamic)
         local index,leaf=self:member_step(type_,step,span,'a partial move requires an aggregate path')
         if index==nil then
             if allow_dynamic then return nil end
-            gap(step.span,'a partial move needs a statically known path')
+            refuse(step.span,'a partial move needs a statically known path')
         end
         key=(key=='' and tostring(index)) or (key .. '.' .. tostring(index))
         indices[#indices+1]=index
@@ -210,7 +216,7 @@ function Context:take_member(name,steps,span)
 end
 function Context:resource(type_,span)
     local destroy=B.Named:isclassof(type_) and self.fn.vocabulary:destructor(type_.name)
-    if not destroy then gap(span,'ownership representation for ' .. tostring(type_)) end
+    if not destroy then refuse(span,'ownership representation for ' .. tostring(type_)) end
     return {destroy=destroy}
 end
 
@@ -451,7 +457,7 @@ function Context:take(name,span)
     value.mode='fresh'; value.origin=id; return value
 end
 function Context:accept_owned(value,span)
-    if not value.type then gap(span,'stored or returned words') end
+    if not value.type then refuse(span,'stored or returned words') end
     if value.mode=='mut' then fail(span,'a mutable borrow cannot be stored or returned') end
     if not value.type:copyable() and value.mode~='fresh' then fail(span,'non-copyable value requires move or a fresh result') end
 end
@@ -637,7 +643,7 @@ function Context:destroy(value,span,moved,prefix)
             end
         end
     else
-        gap(span,'destruction of ' .. tostring(type_))
+        refuse(span,'destruction of ' .. tostring(type_))
     end
 end
 function Context:release(id)
@@ -786,7 +792,7 @@ function A.Unit:build(ctx) return ctx:emit(B.UnitLiteral,L{B.Unit},self.span) en
 -- may carry it in state, and annotations and injections read the handle.
 function A.Sum:build(ctx)
     local sum=ctx:resolve_type_expr(self,{})
-    if not sum then gap(self.span,'a sum type needs type words') end
+    if not sum then refuse(self.span,'a sum type needs type words') end
     local value=ctx:emit(B.Construct(L(),false),L{B.TypeWord},self.span)
     value.sum=sum
     value.mode='fresh'
@@ -879,7 +885,7 @@ function A.Specialize:build(ctx)
     local word=self.word:build(ctx)
     if word and word.injection then
         local payload=self.argument:build(ctx)
-        if not payload.type then gap(self.argument.span,'a word value in a sum injection') end
+        if not payload.type then refuse(self.argument.span,'a word value in a sum injection') end
         return ctx:sum_inject(word.injection.sum,word.injection.index,payload,self.span,self.argument.span)
     end
     local builder=ctx.builder
@@ -914,7 +920,7 @@ function A.Move:build(ctx)
     -- §9.2: `move place` may name a subplace. The path must be statically known.
     local root,steps,reason=place_path(self.place)
     if not root then gap(self.span,reason or 'this move place') end
-    if not ctx:find(root) then gap(self.span,'moving out of ' .. tostring(root)) end
+    if not ctx:find(root) then refuse(self.span,'moving out of ' .. tostring(root)) end
     return ctx:take_member(root,steps,self.span)
 end
 -- A compile-time index, or nil when the index is only known at run time. `-7` is a
@@ -1089,7 +1095,7 @@ function A.PositionalAggregate:build(ctx)
     local values,fields=L(),{}
     for index,chain in ipairs(self.elements) do
         local value=chain_value(ctx,chain)
-        if value.host then gap(self.span,'stored host words') end
+        if value.host then refuse(self.span,'stored host words') end
         values:insert(value); fields[index]={type=value.type,mutable=false}
     end
     return ctx:construct_record(values,fields,self.span)
@@ -1120,7 +1126,7 @@ function Context:ensure_word(record,span,writable)
     if not B.Word:isclassof(type_) then return nil end
     for _,field in ipairs(type_:record()) do
         if field.mutable and not writable then
-            gap(span,'invoking a word with mutable state through a read-only view')
+            refuse(span,'invoking a word with mutable state through a read-only view')
         end
     end
     local template=self.builder and self.builder.resolved.templates[type_.template]
@@ -1146,7 +1152,7 @@ function A.Project:build(ctx)
     if member then
         if member.conversion then return {conversion=member.conversion} end
         if member.signature then return {host=member} end
-        gap(self.span,'a namespace member here is not a runtime word')
+        refuse(self.span,'a namespace member here is not a runtime word')
     end
     -- §11.5: a member of a sum type word is an injection (`left`/`right`/`f<i>`).
     if A.Name:isclassof(self.base) then
@@ -1176,7 +1182,7 @@ function A.Project:build(ctx)
     else
         ctx.intermediate=true; base=self.base:build(ctx); ctx.intermediate=nil
     end
-    if base.host then gap(self.span,'projection requires a value') end
+    if base.host then refuse(self.span,'projection requires a value') end
     local index,field=ctx:record_field(base.type,self.name,self.span)
     local value=ctx:emit(B.LoadField(ctx:ref(base),index-1),L{field.type},self.span)
     ctx:word_value(value,self.span,false)
@@ -1215,7 +1221,7 @@ function A.Index:build(ctx)
     else
         ctx.intermediate=true; base=self.base:build(ctx); ctx.intermediate=nil
     end
-    if base.host then gap(self.span,'indexing requires a value') end
+    if base.host then refuse(self.span,'indexing requires a value') end
     local fields=base.type:record()
     if not fields then fail(self.span,'indexing requires an aggregate value') end
     local index=static
@@ -1453,7 +1459,7 @@ end
 
 function A.Discard:build(ctx)
     local value=self.value:build(ctx)
-    if value.host or value.mode=='mut' then gap(self.span,'discard of word/borrow values') end
+    if value.host or value.mode=='mut' then refuse(self.span,'discard of word/borrow values') end
     if not value.type:copyable() and value.mode=='fresh' then ctx:destroy(value,self.span) end
 end
 function A.Return:build(ctx)
@@ -1498,13 +1504,13 @@ end
 -- facts and the effect thread cross the edge like any other branch.
 function A.Break:build(ctx)
     local target=ctx.loops and ctx.loops[1]
-    if not target then gap(self.span,'break outside a loop') end
+    if not target then refuse(self.span,'break outside a loop') end
     ctx:unwind(target.depth)
     ctx.block.exit=B.Jump(ctx:edge(target.exit,target.exit:pack(ctx)))
 end
 function A.Continue:build(ctx)
     local target=ctx.loops and ctx.loops[1]
-    if not target then gap(self.span,'continue outside a loop') end
+    if not target then refuse(self.span,'continue outside a loop') end
     ctx:unwind(target.depth)
     ctx.block.exit=B.Jump(ctx:edge(target.head,target.head:pack(ctx)))
 end
@@ -1675,7 +1681,7 @@ end
 -- and a host entry deliver the same shape and ownership for `mut` and `own mut`.
 function A.Stage:bind_parameter(ctx,index,options)
     local type_=ctx:check(self.constraint,nil,self.span)
-    if not type_ then gap(self.span,'stage type inference from uses; supply a concrete parameter type') end
+    if not type_ then refuse(self.span,'stage type inference from uses; supply a concrete parameter type') end
     if self.capability==A.Mut and not type_:copyable() then gap(self.span,'mutable borrowed resource stages') end
     ctx:validate_ownership(type_,self.span)
     Packet.bind_parameter(ctx,Packet.stage_field(self.capability,self.name,self.span,type_),self.name,self.span)
@@ -1685,7 +1691,7 @@ function A.Prelude:bind_parameter() gap(self.binding.span,'stage preparation: pr
 function A.Extern:bind_parameter() end
 function A.Chain:build_function(name,options)
     options=options or {}
-    if not A.Body:isclassof(self.terminal) then gap(self.span,'data-terminal construction (not a runtime function)') end
+    if not A.Body:isclassof(self.terminal) then refuse(self.span,'data-terminal construction (not a runtime function)') end
     -- One validated vocabulary, the same one a program build uses.
     local vocabulary=Vocabulary.new(options)
     local ctx=Context.new_function{name=name,span=self.span,result=options.result,
@@ -1695,6 +1701,6 @@ function A.Chain:build_function(name,options)
     fn.self_visible=true
     return ctx:finish_function(self.terminal.statements):verify_flow(vocabulary.hosts)
 end
-V.Build={Context=Context,expect=expect,fail=fail,gap=gap,copy=copy}
+V.Build={Context=Context,expect=expect,fail=fail,gap=gap,refuse=refuse,copy=copy}
 end
 
