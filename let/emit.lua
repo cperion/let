@@ -312,6 +312,13 @@ function Emitter:instruction(block,block_id,index,instruction)
         -- A borrow is the same storage, so nothing is emitted for the operation itself; only
         -- the type changed, and that is a frontend matter.
         declare(0,instruction.results[1],self:ref(block,block_id,position,operation.address))
+    elseif B.InjectSum:isclassof(operation) then
+        -- §11.5: name the tag and the active alternative and leave the rest to C's zero-fill, so
+        -- an alternative that owns state is never written with a dummy value.
+        local index=operation.index
+        declare(0,instruction.results[1],C.Init(self:ctype(instruction.results[1]),
+            L{C.Designator('f0',C.Integer(0,index)),
+                C.Designator('f' .. (index+1),self:ref(block,block_id,position,operation.payload))}))
     elseif B.Construct:isclassof(operation) then
         if #operation.fields==0 then declare(0,instruction.results[1],C.Integer(0,0))
         else declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,operation.fields))) end

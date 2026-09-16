@@ -58,6 +58,12 @@ function B.FieldAddress:execute(ctx) return {owner=contents(ctx:get(self.place))
 function B.Move:execute(ctx) return ctx:get(self.value),ctx:get(self.effect)+1 end
 function B.Destroy:execute(ctx) assert(ctx.hosts[self.destructor])(ctx:get(self.value)); return ctx:get(self.effect)+1 end
 function B.Construct:execute(ctx) local fields={}; for i,ref in ipairs(self.fields) do fields[i]=ctx:get(ref) end; return {fields=fields} end
+-- A sum is a record with the tag first, and only the active alternative is set. The inactive
+-- slots stay absent, so reading one is an error rather than a zero-fill agreeing by accident.
+function B.InjectSum:execute(ctx)
+    local fields={}; fields[1]=self.index; fields[self.index+2]=ctx:get(self.payload)
+    return {fields=fields}
+end
 function B.LoadField:execute(ctx) return ctx:get(self.record).fields[self.field+1] end
 function B.StoreField:execute(ctx)
     local word=ctx:get(self.record); local fields={} for i,value in ipairs(word.fields) do fields[i]=value end

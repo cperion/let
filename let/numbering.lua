@@ -11,6 +11,7 @@ return function(V)
     function B.BorrowPlace:inputs() return L{self.address} end
     function B.FieldAddress:inputs() return L{self.place} end
     function B.Construct:inputs() return self.fields end
+    function B.InjectSum:inputs() return L{self.payload} end
     function B.LoadField:inputs() return L{self.record} end
     function B.StoreField:inputs() return L{self.record,self.value} end
     function B.CallFunction:inputs() local out=L{self.effect}; append(out,self.arguments); return out end

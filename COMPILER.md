@@ -9,10 +9,11 @@ this construction step. These implementation boundaries do not redefine Let.
 > word and a runtime terminal must state its result (`do : T`); no inference remains; an aggregate of
 > stages is a nominal constructor; a `let`-bound word names a type; type words are generic over type
 > words by juxtaposition (`Box Int`); tagged unions are built (`let Opt = Int or Text`, `Opt.left v`,
-> `v.tag`, `switch`); `Copy`/`Executable` are gone; and a host-entry type error is a located error
-> rather than a silent skip. Still deferred: first-class runtime type values (§18), a generated sum
-> `match` handler-fold, and non-Copy sum payloads. Rows below that mention constraints or inferred
-> stage types describe the pre-migration compiler.
+> `v.tag`, `switch`); a sum may hold a non-Copy alternative, and its drop dispatches on the tag;
+> `Copy`/`Executable` are gone; and a host-entry type error is a located error rather than a silent
+> skip. Still deferred: first-class runtime type values (§18) and a generated sum `match`
+> handler-fold. Rows below that mention constraints or inferred stage types describe the
+> pre-migration compiler.
 
 ## What is built now
 

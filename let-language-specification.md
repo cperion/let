@@ -1092,8 +1092,14 @@ payload.
 - `switch v.tag do case 0 … case 1 … end` eliminates the union, so no pattern-matching syntax is
   needed.
 
-A sum is Copy exactly when every alternative is Copy; the inactive payloads are zero-filled, so a
-non-Copy alternative is rejected. The runtime tag of §11.4 is the discriminator.
+An injection writes the tag and the active alternative and leaves the other alternatives
+untouched, so an alternative does not have to be Copy. A sum is Copy exactly when every
+alternative is. A sum with a non-Copy alternative is owned, and destroying it dispatches on the
+tag: only the active alternative is a value, so only the active alternative is released, and an
+alternative that was never written is never read. Moving the payload out of a sum leaves a hole
+and the drop skips it, so a payload is released exactly once. The tag selects the active
+alternative, so assigning to a projection is refused -- inject a new value instead. The runtime
+tag of §11.4 is the discriminator.
 
 ---
 

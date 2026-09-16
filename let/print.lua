@@ -57,6 +57,12 @@ function C.Compound:print()
     local parts={} for _,field in ipairs(self.fields) do parts[#parts+1]=field:print() end
     return '((' .. self.type:print() .. '){' .. table.concat(parts,', ') .. '})'
 end
+-- A designated initializer names each member it sets. The compiler uses it for a sum, so only
+-- the tag and the active alternative are written and the rest is left to C's zero-fill.
+function C.Init:print()
+    local parts={} for _,field in ipairs(self.fields) do parts[#parts+1]='.' .. field.name .. ' = ' .. field.value:print() end
+    return '((' .. self.type:print() .. '){' .. table.concat(parts,', ') .. '})'
+end
 
 -- Renders one statement. `lines` accumulates output; `level` is the indent depth.
 local function statement(node,level,lines)

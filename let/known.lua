@@ -342,6 +342,12 @@ function Evaluator:instruction(block,block_id,index,instruction)
         put(0,Known.runtime(B.Text))
     elseif B.BorrowPlace:isclassof(operation) then
         put(0,Known.runtime(instruction.results[1]))
+    elseif B.InjectSum:isclassof(operation) then
+        -- Reading the payload keeps the analysis flowing to it, so a folded payload is still
+        -- answered as its constant. The sum itself is not folded: naming a tag and one
+        -- alternative has no bundle shape, and a sum value costs the same either way.
+        inputs{operation.payload}
+        put(0,Known.runtime(instruction.results[1]))
     elseif B.Construct:isclassof(operation) then
         -- Every member has an answer, because a run-time input answers `runtime`. The record
         -- is one constant only when no member is run-time; otherwise it is a partial record,

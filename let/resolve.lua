@@ -243,11 +243,16 @@ local function union_operand(ctx,scope,node)
     if not A.Name:isclassof(node) then return false end
     local definition=ctx:peek(scope,node.name)
     if not definition or definition.unknown then return false end
-    if definition.node and definition.node.type then return true end
-    -- A binding whose value is a union type word is itself a type word (`let Pair = Int or Text`).
-    if definition.kind=='binding' and definition.node then
-        local value=definition.node.value
-        if A.Binary:isclassof(value) and value.operator==A.Or and ctx.unions[value] then return true end
+    -- A built-in type word, or a resource, which is a type word too (§12.4).
+    if definition.node and (definition.node.type or definition.node.resource) then return true end
+    -- A binding whose value is itself a union type word is a type word (`let Pair = Int or Text`).
+    -- The value is a chain, so the type word is the chain's terminal expression.
+    if definition.kind=='binding' and definition.node and definition.node.value then
+        local terminal=definition.node.value.terminal
+        if A.Data:isclassof(terminal) then
+            local value=terminal.value
+            if A.Binary:isclassof(value) and value.operator==A.Or and ctx.unions[value] then return true end
+        end
     end
     return false
 end

@@ -140,6 +140,12 @@ function B.FieldAddress:verify(ctx)
     assert(fields and self.field<#fields,'a field address requires a valid record field')
     ctx:results(L{B.Borrow(fields[self.field+1].type,self.stable)})
 end
+function B.InjectSum:verify(ctx)
+    local sum=ctx.instruction.results[1]
+    local alternative=assert(sum.alternatives[self.index+1],'sum injection index out of range')
+    ctx:expect(self.payload,alternative)
+    ctx:results(L{sum})
+end
 function B.Construct:verify(ctx)
     local result=ctx.instruction.results[1]
     local fields=result and result:record()

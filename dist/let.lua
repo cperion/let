@@ -962,6 +962,7 @@ module Belt {
        | BorrowPlace(Ref address, boolean stable)
        | FieldAddress(Ref place, number field, boolean stable)
        | Construct(Ref* fields, boolean is_copy)
+       | InjectSum(number index, Ref payload)
        | LoadField(Ref record, number field)
        | StoreField(Ref record, number field, Ref value)
        | CallFunction(number target, Ref effect, Ref* arguments)
@@ -1120,7 +1121,8 @@ function B.Sum:key()
     for _,alternative in ipairs(self.alternatives) do parts[#parts+1]=alternative:key() end
     return (self.is_copy and 'S' or 's')..'('..table.concat(parts,'|')..')'
 end
-function B.Sum:owns() return false end
+-- A sum owns when any alternative owns, and the rule lives with the other type rules below, so
+-- a nested sum is answered by the same code as a top-level one.
 
 -- §8.5, §10.1: ownership is a property of the type, not of one consumer. An address owns what
 -- it points at, a borrow never owns, and a record owns when any member does. These are facts
@@ -1133,6 +1135,11 @@ local function owns(type_)
     local result
     if B.Address:isclassof(type_) then result=owns(type_.pointee)
     elseif B.Named:isclassof(type_) then result=true
+    elseif B.Sum:isclassof(type_) then
+        -- §11.5: the tag decides which alternative is live, so a sum owns exactly when one of its
+        -- alternatives does. The drop follows the tag.
+        result=false
+        for _,alternative in ipairs(type_.alternatives) do if owns(alternative) then result=true; break end end
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         result=false
         for _,field in ipairs(type_.fields) do if owns(field.type) then result=true; break end end
@@ -1174,7 +1181,9 @@ module C {
          | Cast(Type type, Expr value) | Call(Expr callee, Expr* arguments)
          | Field(Expr base, string name) | Index(Expr base, Expr index)
          | Compound(Type type, Expr* fields)
+         | Init(Type type, Designator* fields)
     Parameter = (Type type, string name)
+    Designator = (string name, Expr value)
     Stmt = Declare(Type type, string name, Expr? initial)
          | Assign(Expr place, Expr value) | Evaluate(Expr value)
          | Block(Stmt* statements) | If(Expr condition, Stmt yes, Stmt? no)
@@ -2324,6 +2333,7 @@ return function(V)
     function B.BorrowPlace:inputs() return L{self.address} end
     function B.FieldAddress:inputs() return L{self.place} end
     function B.Construct:inputs() return self.fields end
+    function B.InjectSum:inputs() return L{self.payload} end
     function B.LoadField:inputs() return L{self.record} end
     function B.StoreField:inputs() return L{self.record,self.value} end
     function B.CallFunction:inputs() local out=L{self.effect}; append(out,self.arguments); return out end
@@ -2562,6 +2572,10 @@ function Context:take_member(name,steps,span)
     end
     local at=binding.type
     for _,index in ipairs(indices) do
+        -- §11.5: a payload is consumed by matching its tag, so a projection is not a place to
+        -- move out of. The tag would keep naming a value that is no longer there.
+        -- §11.5: a payload is consumed by moving it out, and the tag keeps naming the value
+        -- that is no longer there, so the drop is told through `moved`. Nothing to add here.
         at=at:record()[index+1].type
         value=self:emit(B.LoadField(self:ref(value),index),L{at},span)
     end
@@ -2587,6 +2601,10 @@ end
 -- A type that owns no resource needs no destruction story, so this is not a Copy check.
 function Context:validate_ownership(type_,span)
     if B.Named:isclassof(type_) then self:resource(type_,span)
+    elseif B.Sum:isclassof(type_) then
+        -- §11.5: every alternative needs a destruction story, whether or not it is the active
+        -- one, because which alternative is live is a run-time fact.
+        for _,alternative in ipairs(type_.alternatives) do self:validate_ownership(alternative,span) end
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         for _,field in ipairs(type_:record()) do self:validate_ownership(field.type,span) end
     end
@@ -2940,6 +2958,40 @@ function Context:destroy(value,span,moved,prefix)
         self:destroy(self:ordered(B.Load(self:ref(self.effect),self:ref(value)),type_.pointee,span),span,moved,prefix)
     elseif B.Named:isclassof(type_) then
         self:ordered(B.Destroy(self:ref(self.effect),self:ref(value),self:resource(type_,span).destroy),nil,span)
+    elseif B.Sum:isclassof(type_) then
+        -- §11.5: only the active alternative holds a value, and the tag says which one it is, so
+        -- the drop dispatches on the tag. An inactive alternative is never read.
+        if type_:owns() then
+            self:pin(value)
+            local tag=self:emit(B.LoadField(self:ref(value),0),L{B.Int},span)
+            self:pin(tag)
+            local alternatives=type_.alternatives
+            local function choose(c,at)
+                if at>#alternatives then return end
+                local alternative=alternatives[at]
+                local key=(prefix and prefix~='') and (prefix .. '.' .. at) or tostring(at)
+                local state=moved and moved[key]
+                if not alternative:owns() or state==true then return choose(c,at+1) end
+                local function release(target)
+                    local function drop(inner)
+                        inner:destroy(inner:emit(B.LoadField(inner:ref(value),at),L{alternative},span),span,moved,key)
+                    end
+                    if state==nil then drop(target)
+                    else
+                        -- A dynamic hole: release the payload only where it still holds a value.
+                        target:pin(state)
+                        target:branch(state,function() end,drop)
+                        target:unpin()
+                    end
+                end
+                local matches=c:emit(B.IntegerLiteral(tostring(at-1)),L{B.Int},span)
+                local test=c:emit(B.Binary(A.Equal,c:ref(tag),c:ref(matches)),L{B.Bool},span)
+                return c:branch(test,release,function(n) return choose(n,at+1) end)
+            end
+            choose(self,1)
+            self:unpin()
+            self:unpin()
+        end
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         for index=#type_:record(),1,-1 do
             local field=type_:record()[index]
@@ -3196,38 +3248,23 @@ end
 -- zero-fills the inactive ones.
 function Context:sum_inject(sum,index,payload,span,payload_span)
     local fields=sum:record()
-    expect(payload,fields[index+2].type,payload_span or span)
-    local values=L()
-    for i,field in ipairs(fields) do
-        if i==1 then values:insert(self:emit(B.IntegerLiteral(tostring(index)),L{B.Int},span))
-        elseif i==index+2 then values:insert(payload)
-        else
-            local zero=self:zero_value(field.type,span)
-            if not zero then fail(span,'a sum alternative must be Copy (zero-fillable)') end
-            values:insert(zero)
+    local alternative=fields[index+2].type
+    expect(payload,alternative,payload_span or span)
+    -- §11.5: only the tag and the active alternative are written; C leaves the other
+    -- alternatives alone, so an alternative no longer has to be Copy (zero-fillable).
+    if alternative:owns() then
+        if payload.mode=='borrow' then
+            fail(payload_span or span,'a non-Copy sum alternative takes an owned value; move it in')
+        end
+        -- While a module terminal is being built, owned state may only be *moved in* from a
+        -- top-level prelude (§15.1), exactly as for an aggregate member.
+        if self.module_preludes and not (payload.origin and self.module_preludes[payload.origin]) then
+            fail(span,'a module terminal may not construct new owned state; move an owned prelude into it')
         end
     end
-    local result=self:emit(B.Construct(self:refs(values),sum:copyable()),L{sum},span)
-    result.mode='fresh'
-    return result
-end
--- A zero value for a Copy type, used to fill the inactive fields of a sum.
-function Context:zero_value(type_,span)
-    if type_==B.Int then return self:emit(B.IntegerLiteral('0'),L{B.Int},span) end
-    if type_==B.Bool then return self:boolean(false,span) end
-    if type_==B.Float then return self:emit(B.FloatLiteral('0.0'),L{B.Float},span) end
-    if type_==B.Text then return self:emit(B.TextLiteral(''),L{B.Text},span) end
-    if type_==B.Unit then return self:emit(B.UnitLiteral,L{B.Unit},span) end
-    if B.Aggregate:isclassof(type_) or B.Sum:isclassof(type_) then
-        local values=L()
-        for _,field in ipairs(type_:record()) do
-            local zero=self:zero_value(field.type,span)
-            if not zero then return nil end
-            values:insert(zero)
-        end
-        return self:emit(B.Construct(self:refs(values),type_:copyable()),L{type_},span)
-    end
-    return nil
+    local value=self:emit(B.InjectSum(index,self:ref(payload)),L{sum},span)
+    value.mode='fresh'
+    return value
 end
 local place_path
 function A.Move:build(ctx)
@@ -3471,12 +3508,18 @@ function A.Project:build(ctx)
     end
     -- §11.5: a member of a sum type word is an injection (`left`/`right`/`f<i>`).
     if A.Name:isclassof(self.base) then
-        local id=ctx:find(self.base.name)
-        local base=id and ctx.cells[id].value
-        if base and base.sum then
+        -- The base is a type word, so the sum is found through the resolved definition rather
+        -- than the cell: a word that captured the binding has no cell for it of its own.
+        local occurrences=ctx.resolved and ctx.resolved.references[self.base]
+        local definition=occurrences and occurrences[1] and occurrences[1].definition
+        -- The registry lives on the resolved table because every function shares that table and
+        -- nothing else: a word that captured the binding is built in a context of its own.
+        local sums=ctx.resolved and ctx.resolved.sums
+        local sum=sums and definition and sums[definition]
+        if sum then
             if self.name=='tag' then fail(self.span,'a sum tag is read from a value, not a type word') end
-            for index,field in ipairs(base.sum:record()) do
-                if field.name==self.name then return {injection={sum=base.sum,index=index-2}} end
+            for index,field in ipairs(sum:record()) do
+                if field.name==self.name then return {injection={sum=sum,index=index-2}} end
             end
             fail(self.span,'no sum member ' .. self.name)
         end
@@ -3565,6 +3608,12 @@ function A.Binding:build(ctx)
         value=self.value.terminal:build(ctx)
     end
     if value.host then gap(self.span,'stored host words') end
+    -- A sum type word carries the sum the injections and projections need; remembering it by the
+    -- resolved definition keeps it reachable from a word that captured the binding.
+    if value.sum and ctx.resolved and ctx.resolved.bindings[self] then
+        ctx.resolved.sums=ctx.resolved.sums or {}
+        ctx.resolved.sums[ctx.resolved.bindings[self]]=value.sum
+    end
     ctx:check(self.constraint,value.type,self.span); ctx:accept_owned(value,self.span)
     ctx:validate_ownership(value.type,self.span)
     local definition=ctx.resolved and ctx.resolved.bindings[self]
@@ -3616,6 +3665,9 @@ function A.Assign:assign_place(ctx)
     local records={ctx:read_place(id,root,binding,cell,self.span)}
     local path,type_,dynamic='',binding.type,0
     for i,step in ipairs(steps) do
+        -- §11.5: the tag decides which alternative is live, so writing one directly would
+        -- contradict it. Replace the whole sum by injecting instead.
+        if B.Sum:isclassof(type_) then fail(step.span,'a sum alternative is selected by the tag, not assigned to') end
         local index,leaf,mutable=ctx:member_step(type_,step,step.span,'a place path requires an aggregate value')
         if index==nil then dynamic=i; break end
         if mutable then interior=true end
@@ -4134,6 +4186,12 @@ function B.FieldAddress:verify(ctx)
     local fields=record:record()
     assert(fields and self.field<#fields,'a field address requires a valid record field')
     ctx:results(L{B.Borrow(fields[self.field+1].type,self.stable)})
+end
+function B.InjectSum:verify(ctx)
+    local sum=ctx.instruction.results[1]
+    local alternative=assert(sum.alternatives[self.index+1],'sum injection index out of range')
+    ctx:expect(self.payload,alternative)
+    ctx:results(L{sum})
 end
 function B.Construct:verify(ctx)
     local result=ctx.instruction.results[1]
@@ -5202,11 +5260,16 @@ local function union_operand(ctx,scope,node)
     if not A.Name:isclassof(node) then return false end
     local definition=ctx:peek(scope,node.name)
     if not definition or definition.unknown then return false end
-    if definition.node and definition.node.type then return true end
-    -- A binding whose value is a union type word is itself a type word (`let Pair = Int or Text`).
-    if definition.kind=='binding' and definition.node then
-        local value=definition.node.value
-        if A.Binary:isclassof(value) and value.operator==A.Or and ctx.unions[value] then return true end
+    -- A built-in type word, or a resource, which is a type word too (§12.4).
+    if definition.node and (definition.node.type or definition.node.resource) then return true end
+    -- A binding whose value is itself a union type word is a type word (`let Pair = Int or Text`).
+    -- The value is a chain, so the type word is the chain's terminal expression.
+    if definition.kind=='binding' and definition.node and definition.node.value then
+        local terminal=definition.node.value.terminal
+        if A.Data:isclassof(terminal) then
+            local value=terminal.value
+            if A.Binary:isclassof(value) and value.operator==A.Or and ctx.unions[value] then return true end
+        end
     end
     return false
 end
@@ -6587,6 +6650,12 @@ function Evaluator:instruction(block,block_id,index,instruction)
         put(0,Known.runtime(B.Text))
     elseif B.BorrowPlace:isclassof(operation) then
         put(0,Known.runtime(instruction.results[1]))
+    elseif B.InjectSum:isclassof(operation) then
+        -- Reading the payload keeps the analysis flowing to it, so a folded payload is still
+        -- answered as its constant. The sum itself is not folded: naming a tag and one
+        -- alternative has no bundle shape, and a sum value costs the same either way.
+        inputs{operation.payload}
+        put(0,Known.runtime(instruction.results[1]))
     elseif B.Construct:isclassof(operation) then
         -- Every member has an answer, because a run-time input answers `runtime`. The record
         -- is one constant only when no member is run-time; otherwise it is a partial record,
@@ -6965,6 +7034,12 @@ function C.Field:print() return '(' .. self.base:print() .. ').' .. self.name en
 function C.Index:print() return '(' .. self.base:print() .. ')[' .. self.index:print() .. ']' end
 function C.Compound:print()
     local parts={} for _,field in ipairs(self.fields) do parts[#parts+1]=field:print() end
+    return '((' .. self.type:print() .. '){' .. table.concat(parts,', ') .. '})'
+end
+-- A designated initializer names each member it sets. The compiler uses it for a sum, so only
+-- the tag and the active alternative are written and the rest is left to C's zero-fill.
+function C.Init:print()
+    local parts={} for _,field in ipairs(self.fields) do parts[#parts+1]='.' .. field.name .. ' = ' .. field.value:print() end
     return '((' .. self.type:print() .. '){' .. table.concat(parts,', ') .. '})'
 end
 
@@ -7400,6 +7475,13 @@ function Emitter:instruction(block,block_id,index,instruction)
         -- A borrow is the same storage, so nothing is emitted for the operation itself; only
         -- the type changed, and that is a frontend matter.
         declare(0,instruction.results[1],self:ref(block,block_id,position,operation.address))
+    elseif B.InjectSum:isclassof(operation) then
+        -- §11.5: name the tag and the active alternative and leave the rest to C's zero-fill, so
+        -- an alternative that owns state is never written with a dummy value.
+        local index=operation.index
+        declare(0,instruction.results[1],C.Init(self:ctype(instruction.results[1]),
+            L{C.Designator('f0',C.Integer(0,index)),
+                C.Designator('f' .. (index+1),self:ref(block,block_id,position,operation.payload))}))
     elseif B.Construct:isclassof(operation) then
         if #operation.fields==0 then declare(0,instruction.results[1],C.Integer(0,0))
         else declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,operation.fields))) end

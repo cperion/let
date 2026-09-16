@@ -26,6 +26,7 @@ module Belt {
        | BorrowPlace(Ref address, boolean stable)
        | FieldAddress(Ref place, number field, boolean stable)
        | Construct(Ref* fields, boolean is_copy)
+       | InjectSum(number index, Ref payload)
        | LoadField(Ref record, number field)
        | StoreField(Ref record, number field, Ref value)
        | CallFunction(number target, Ref effect, Ref* arguments)
@@ -184,7 +185,8 @@ function B.Sum:key()
     for _,alternative in ipairs(self.alternatives) do parts[#parts+1]=alternative:key() end
     return (self.is_copy and 'S' or 's')..'('..table.concat(parts,'|')..')'
 end
-function B.Sum:owns() return false end
+-- A sum owns when any alternative owns, and the rule lives with the other type rules below, so
+-- a nested sum is answered by the same code as a top-level one.
 
 -- §8.5, §10.1: ownership is a property of the type, not of one consumer. An address owns what
 -- it points at, a borrow never owns, and a record owns when any member does. These are facts
@@ -197,6 +199,11 @@ local function owns(type_)
     local result
     if B.Address:isclassof(type_) then result=owns(type_.pointee)
     elseif B.Named:isclassof(type_) then result=true
+    elseif B.Sum:isclassof(type_) then
+        -- §11.5: the tag decides which alternative is live, so a sum owns exactly when one of its
+        -- alternatives does. The drop follows the tag.
+        result=false
+        for _,alternative in ipairs(type_.alternatives) do if owns(alternative) then result=true; break end end
     elseif B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
         result=false
         for _,field in ipairs(type_.fields) do if owns(field.type) then result=true; break end end

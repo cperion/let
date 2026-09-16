@@ -882,5 +882,31 @@ int main(void){ let_module_init(); return 0; }
 ]],{dictionary={c={members=V.libc.members}},
     resources={Box={destroy='close'},Buffer={destroy='close_buffer'},CAlloc=V.libc.resources.CAlloc}})
 eq(output,'65\n66\n1.5\n','an owned buffer is indexed by a runtime Int through emitted helpers')
+-- §11.5 A sum may hold a non-Copy alternative. Only the active alternative is a value, so the
+-- drop dispatches on the tag: the payload is released exactly once, and an alternative that was
+-- never written is never read.
+output,path=native('sumdrop',[[
+let run = do : Int
+    let Opt = Int or Buffer
+    let buffer = open_buffer(16);
+    let value = Opt.right move buffer;
+    return 0
+end
+let started = run()
+]],[[
+int main(void){ let_module_init(); return 0; }
+]])
+eq(output,'open:16\nclose_buffer:7\n','§11.5 an owned sum payload is released through the tag')
+output,path=native('sumkeep',[[
+let run = do : Int
+    let Opt = Int or Buffer
+    let value = Opt.left 65;
+    return 0
+end
+let started = run()
+]],[[
+int main(void){ let_module_init(); return 0; }
+]])
+eq(output,'','§11.5 an inactive alternative owns nothing and is never released')
 
 print(('passed %d native compilation checks (source in %s)'):format(checks,path))

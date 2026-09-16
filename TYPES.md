@@ -163,11 +163,13 @@ members:
   already branches on Int literals and the tag is an Int, so no new construction word or
   pattern-matching syntax is needed.
 
-**Implemented** as a tagged record: the tag field first, then one field per alternative, built and
-projected with the existing `Construct`/`LoadField`, emitted as a C struct. A sum is Copy exactly
-when every alternative is Copy; inactive payloads are zero-filled, so a non-Copy alternative is
-rejected. The tag is the runtime discriminator (§7). Generic sums (`Option a`) work through the
-type-word application of §11.2. A generated `match` handler-fold and non-Copy payloads remain
+**Implemented** as a tagged record: the tag field first, then one field per alternative, projected
+with the existing `LoadField`, and emitted as a C struct. An injection names the tag and the
+active alternative with a designated initializer and leaves the rest to C, so an alternative need
+not be Copy. A sum is Copy exactly when every alternative is, and a sum that owns is destroyed by
+dispatching on the tag, so only the active alternative is released. The tag is the runtime
+discriminator (§7). Generic sums (`Option a`) work through the
+type-word application of §11.2. A generated `match` handler-fold remains
 future work.
 
 ### Union formation moved onto `or`
@@ -218,6 +220,11 @@ semantics are unchanged (the DESIGN.md acceptance rule).
 11. **[done] Float32.** `Float32` is an atomic binary32 type word (§13.3), Copy, never implicitly
     converted to or from `Float`; `f32 x` is the explicit narrowing. `Op.kind` returns `'f32'`, so
     every operation rounds its result back to binary32 in folding, the oracle, and the C.
+12. **[done] Owned sum payloads.** An injection names the tag and the active alternative and
+    leaves the rest to C's own zero-fill, so an alternative no longer has to be Copy. A sum owns
+    when any alternative does, and destruction dispatches on the tag, releasing only the active
+    alternative and skipping one that was moved out. A projection is not a place: the tag selects
+    the alternative, and a value is replaced by injecting, not by assigning.
 
 ## 10. Deleted
 
@@ -230,8 +237,8 @@ semantics are unchanged (the DESIGN.md acceptance rule).
 ## 11. Open decisions
 
 1. Descriptor representation and comparison for runtime type values (deferred with `code-emit`).
-2. A generated sum `T.match` handler-fold, and non-Copy sum payloads -- the current elimination is
-   `switch` on the tag, and inactive payloads are zero-filled.
+2. A generated sum `T.match` handler-fold -- the current elimination is `switch` on the tag, and
+   a projection is not a place, so a payload is consumed by moving it out.
 
 Decided and implemented: explicit annotations with no inference; `Type` and generic type words
 applied by juxtaposition; nominal record identity; tagged unions by injection + tag + `switch`.
