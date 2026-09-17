@@ -107,6 +107,43 @@ function Builder:value_of_binding(ctx,definition)
     return self:instantiate(ctx,definition)
 end
 
+-- One capture rule, because a word value and a word's own name are two ways of reaching the same
+-- word. §10.1 says a non-escaping word captures an owned binding as a read borrow of the owner's
+-- storage, and that is true however the word was named. Two copies of this drifted once already --
+-- the self path read every capture by value while this one borrowed -- which is what a second copy
+-- of one rule always does eventually.
+function Builder:capture_field(ctx,capture,word)
+    local id=ctx:find(capture.name)
+    -- A word that names a binding declared later in the same sequence is a forward reference. The
+    -- resolver allows it -- the word runs later -- but the builder cannot capture it yet, because a
+    -- module cell is bound where its statement appears rather than allocated with the module's state
+    -- record. Naming that is better than the crash it produced, and it is the piece that closes
+    -- mutual recursion.
+    if not id then refuse(capture.span,'a word cannot capture ' .. capture.name .. ' yet: it is declared later, and its storage is not allocated up front') end
+    local binding=ctx.fn.bindings[id]
+    -- The storage fact has one of two homes depending on how the binding was made: `lifetime` for a
+    -- binding this context declared, `external` for a parameter, which is set where the packet was
+    -- bound (`field.external or field.retained`). Either saying "outlives me" is what makes the
+    -- borrow stable, and a stable borrow is what a tail transfer may carry.
+    local stable=binding.lifetime=='module' or binding.external==true
+    local value,borrows
+    if binding.address then
+        -- §10.1: a borrow of a value is the owner's storage, so the word holds the owner's address
+        -- and invoking through it writes to the owner in place.
+        local address=ctx.cells[id].value
+        value=ctx:emit(B.BorrowPlace(ctx:ref(address),stable),L{B.Borrow(address.type.pointee,stable)},capture.span)
+        value.mode='borrow'
+        borrows={id}
+    else
+        value=ctx:read(capture.name,capture.span)
+        if not value.type:copyable() then
+            gap(capture.span,'a non-Copy capture needs the owner to be a place')
+        end
+    end
+    word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,
+        mutable=binding.mutable,owned=false,retained=true,span=capture.span,borrows=borrows}
+end
+
 function Builder:instantiate(ctx,definition)
     local template=definition.template
     local layout=self:layout(template)
@@ -114,32 +151,7 @@ function Builder:instantiate(ctx,definition)
     ctx:push(); ctx:retain()
     local function captures()
         for _,capture in ipairs(layout.captures) do
-            local id=ctx:find(capture.name)
-            -- A word that names a binding declared later in the same sequence is a forward
-            -- reference. The resolver allows it -- the word runs later -- but the builder cannot
-            -- capture it yet, because a module cell is bound where its statement appears rather than
-            -- allocated with the module's state record. Naming that is better than the crash it
-            -- produced, and it is the piece that closes mutual recursion.
-            if not id then refuse(capture.span,'a word cannot capture ' .. capture.name .. ' yet: it is declared later, and its storage is not allocated up front') end
-            local binding=ctx.fn.bindings[id]
-            local value,borrows
-            if binding.address then
-                -- §10.1: a non-escaping word captures an owned binding as a read borrow, and
-                -- a borrow of a value is the owner's storage. The word therefore holds the
-                -- owner's address, and invoking through it mutates the owner in place.
-                local address=ctx.cells[id].value
-                value=ctx:emit(B.BorrowPlace(ctx:ref(address),binding.lifetime=='module'),
-                    L{B.Borrow(address.type.pointee,binding.lifetime=='module')},capture.span)
-                value.mode='borrow'
-                borrows={id}
-            else
-                value=ctx:read(capture.name,capture.span)
-                if not value.type:copyable() then
-                    gap(capture.span,'a non-Copy capture needs the owner to be a place')
-                end
-            end
-            word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,
-                mutable=binding.mutable,owned=false,retained=true,span=capture.span,borrows=borrows}
+            self:capture_field(ctx,capture,word)
         end
         Packet.bind_all(ctx,word.fields)
     end
@@ -163,34 +175,7 @@ function Builder:self_value(ctx,definition)
     local word={template=template,fields={},supplied=0}
     ctx:push(); ctx:retain()
     for _,capture in ipairs(layout.captures) do
-        -- §10.1: the same capture rule as `instantiate`, because a word that calls itself holds its
-        -- captures the same way a word value does. A non-Copy binding is captured as a read borrow of
-        -- the owner's storage, which is what lets invoking through the self value write to the owner
-        -- instead of copying a value that cannot be copied. Keeping the two loops alike is the point:
-        -- they are the same question asked of two ways of naming the same word.
-        local id=ctx:find(capture.name)
-        local binding=id and ctx.fn.bindings[id]
-        -- A capture that is itself a parameter carries its storage fact in `external` -- set where
-        -- the packet was bound, from `field.external or field.retained` -- because inside this entry
-        -- the owner's storage is a parameter and not something this activation owns. `lifetime` speaks
-        -- for a binding this context declared. Either one saying "outlives me" is what makes the
-        -- borrow stable, and a stable borrow is what a tail transfer is allowed to carry.
-        local stable=binding and (binding.lifetime=='module' or binding.external==true)
-        local value,borrows
-        if binding and binding.address then
-            local address=ctx.cells[id].value
-            value=ctx:emit(B.BorrowPlace(ctx:ref(address),stable),
-                L{B.Borrow(address.type.pointee,stable)},capture.span)
-            value.mode='borrow'
-            borrows={id}
-        else
-            value=ctx:read(capture.name,capture.span)
-            if not value.type:copyable() then
-                gap(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)')
-            end
-        end
-        word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,
-            mutable=binding and binding.mutable or false,owned=false,retained=true,span=capture.span,borrows=borrows}
+        self:capture_field(ctx,capture,word)
     end
     local result=self:pack(ctx,word)
     ctx:pop()
