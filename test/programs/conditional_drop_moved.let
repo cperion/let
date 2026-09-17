@@ -1,0 +1,10 @@
+// The other arm of `conditional_drop`'s guard: the same program with the path taken that moves the
+// value out. The `move` releases it, and the guard at the scope's end must *not* release it again --
+// so the count is one, not two and not zero.
+let w = let c : Int do : Int
+    let t = make(1);
+    let keep = do : Thing return t end;
+    if c == 0 do move t; end
+    return 0
+end
+let answer = w(0)

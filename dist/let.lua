@@ -3286,7 +3286,17 @@ function Context:release(id)
         end
         self:destroy(contents,binding.span,cell.moved,'')
     elseif binding.address then
-        gap(binding.span,'conditional destruction of an address-taken binding')
+        -- The same guard, one indirection in. A cell's contents are only there when the flag says
+        -- so, which is why the load belongs *inside* the branch and not before it: before the
+        -- branch, the contents are as likely to be a value already moved out as one still here.
+        -- The address itself is what must cross, and the pin is what carries it.
+        self:pin(cell.value); local crossed=self:pin_moved(cell.moved)
+        self:branch(cell.alive,
+            function(ctx)
+                local contents=ctx:ordered(B.Load(ctx:ref(ctx.effect),ctx:ref(cell.value)),binding.type,binding.span)
+                ctx:destroy(contents,binding.span,cell.moved,'')
+            end,function() end)
+        self:unpin_moved(crossed); self:unpin()
     else
         -- Pin the old value: conditional destruction introduces new block parameters.
         self:pin(cell.value); local crossed=self:pin_moved(cell.moved)

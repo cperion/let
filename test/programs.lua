@@ -69,6 +69,16 @@ local programs={
     {name="sum_drop",result=0,options=thing_options,implementations=thing_implementations,
         before=function() releases=0 end,
         after=function() eq(releases,1,'sum_drop: the owned payload is released exactly once') end},
+    -- §9.2/§10.1 An address-taken owned local whose liveness is a run-time fact at the scope's end.
+    -- The guard releases it where it is still there, and the `move` released it where it is not --
+    -- one release either way, which is what makes the pair a test of the guard rather than of the
+    -- program: an unconditional release gives two in the moved arm and none gives zero.
+    {name='conditional_drop',result=0,options=thing_options,implementations=thing_implementations,
+        before=function() releases=0 end,
+        after=function() eq(releases,1,'conditional_drop: the value still here is released once') end},
+    {name='conditional_drop_moved',result=0,options=thing_options,implementations=thing_implementations,
+        before=function() releases=0 end,
+        after=function() eq(releases,1,'conditional_drop_moved: the moved value was released once, and not twice') end},
 }
 
 for _,program in ipairs(programs) do

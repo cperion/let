@@ -50,10 +50,9 @@ that fits the model and the rest is stated as forbidden rather than pending.
 This one cause closes five sites, and it is the same mechanism the deferred `T.match` handler-fold
 wants: a word receiving a body word, specialized so the arms inline.
 
-### Cause 2 — address-taken state and write-back (3 sites)
+### Cause 2 — address-taken state and write-back (2 sites)
 
-`conditional destruction of an address-taken binding` · `address-taken locals` ·
-`mutable borrowed resource stages`
+`address-taken locals` · `mutable borrowed resource stages`
 
 ~~`tail invocation from a word with mutable state`~~ **Fixed**, and not by address-taking. State that
 has to come back through the result does have somewhere to go when the transfer is to the *same*
@@ -90,7 +89,19 @@ those parameters exist so that *"a destruction can then be guarded"* -- which is
 already does for `moved`. The gap is only the `binding.address` case: the value is loaded from the
 cell, and the destroy needs to happen inside a branch on that flag, with the loaded value pinned
 across the split (this is the same pinning question the invocation path answers with `ctx:pin`).
-Contained, destruction-sensitive, and the next thing here worth doing.
+**Done.** The load and the destroy moved inside the branch, which is the same guard the non-place
+case already used, one indirection in. Measured rather than reasoned: a captured owned local with
+path-dependent liveness gapped before the change and builds after it, and the destruction is exactly
+one either way -- released by the guard where the value is still there, by the `move` where it is
+not. Pinned three ways: `test/programs/conditional_drop.let` and `conditional_drop_moved.let` (the
+interpreter counts the releases), and a compiled pair in `test/native.lua`, which is the only path
+that exercises the cell load. The compiled check was falsified -- making both arms destroy prints
+`close:1` twice and the check fails -- so it tests the guard and not the program.
+
+Worth noting for the next reader: the site *was* reachable, contrary to what the triage assumed when
+it filed this under "blocked by the capture gaps". One shape reaches it today.
+
+`mutable borrowed resource stages` is the one that needs a decision rather than a mechanism: a `mut`
 
 `mutable borrowed resource stages` is the one that needs a decision rather than a mechanism: a `mut`
 stage over a non-Copy type is a temporary borrow of something that owns state, and what that means

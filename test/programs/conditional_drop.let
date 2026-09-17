@@ -1,0 +1,11 @@
+// §9.2/§10.1 A captured owned local whose liveness is a run-time fact by the time its scope ends:
+// one path moves the value out, the other leaves it. The guard then releases it when it is still
+// here, and the `move` released it when it was not -- exactly once either way. The driver counts the
+// releases, and the twin program `conditional_drop_moved` is the other arm of the same guard.
+let w = let c : Int do : Int
+    let t = make(1);
+    let keep = do : Thing return t end;
+    if c == 0 do move t; end
+    return 0
+end
+let answer = w(1)

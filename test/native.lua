@@ -774,6 +774,26 @@ let shown = print_int(answer)
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'16\n','a capturing word called with an element read at a runtime index')
 
+-- §9.2/§10.1 Conditional destruction of a value that lives in a cell. Compiled, because this is the
+-- path that loads the cell's contents, and the interpreter has no cell to load: the guard must
+-- release it exactly once, and the move must be the release in the other arm. `runtime_int` keeps
+-- the condition a run-time fact, so the branch cannot fold and the guard is really emitted.
+local conditional=[[
+let w = let c : Int do : Int
+    let b = open(1);
+    let keep = do : Box return b end;
+    if c == 0 do move b; end
+    return 0
+end
+let answer = w(runtime_int(%d))
+let shown = print_int(answer)
+]]
+for _,moved in ipairs{0,1} do
+    output=native('conditional_drop_'..moved,conditional:format(moved),'int main(void){ let_module_init(); return 0; }')
+    eq(select(2,output:gsub('close:1','')),1,
+        ('conditional destruction releases once with c = %d, got %s'):format(moved,output:gsub('\n','|')))
+end
+
 -- §6.5: a tail transfer to the same word carries that word's mutable state as the packet, so the
 -- recursion is a loop whose loop variables include the state, written back once on the way out.
 output=native('tail_state',[[
