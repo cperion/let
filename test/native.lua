@@ -48,7 +48,7 @@ local text_host_code=[[
 struct let_text mark(struct let_text text){ fwrite(text.data,1,(size_t)text.size,stdout); fputc('\n',stdout); return text; }
 ]]
 local trap_code=[[
-void let_trap(char* reason){ fflush(stdout); fputs("trap: ",stderr); fputs(reason,stderr); fputc('\n',stderr); abort(); }
+_Noreturn void let_trap(char* reason){ fflush(stdout); fputs("trap: ",stderr); fputs(reason,stderr); fputc('\n',stderr); abort(); }
 ]]
 
 

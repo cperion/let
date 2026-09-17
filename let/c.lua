@@ -10,6 +10,7 @@ module C {
          | Cast(Type type, Expr value) | Call(Expr callee, Expr* arguments)
          | Field(Expr base, string name) | Index(Expr base, Expr index)
          | Compound(Type type, Expr* fields)
+         | Conditional(Expr condition, Expr yes, Expr no)
          | Init(Type type, Designator* fields)
     Parameter = (Type type, string name)
     Designator = (string name, Expr value)

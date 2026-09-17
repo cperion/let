@@ -148,7 +148,7 @@ local stem='/tmp/let_float_native'
 local out=assert(io.open(stem .. '.c','wb'))
 out:write(V.print(program:emit{entries=builder.host_entries}))
 out:write([[
-void let_trap(char* reason){ (void)reason; __builtin_trap(); }
+_Noreturn void let_trap(char* reason){ (void)reason; __builtin_trap(); }
 int main(void){
     let_module_init();
     if (let_area_host(2.0)!=12.0) return 1;

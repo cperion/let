@@ -218,7 +218,7 @@ check(wide_text:find('switch (',1,true)~=nil,'a runtime index lowers to a switch
 check(wide_text:find('let_select_',1,true)==nil,'and to no function: C has the construct, so nothing is called')
 -- The reason itself is escaped in the C string literal, so what is asserted here is the trap; that
 -- it carries §8.4's message is asserted by running it, in `test/native.lua`.
-check(wide_text:find('let_trap(',1,true)~=nil,'whose default arm is the range trap §8.4 names')
+check(wide_text:find('let_trap("',1,true)~=nil,'whose default arm is the range trap §8.4 names')
 check(wide>narrow,'a wider aggregate lists more cases, which is what a switch is')
 -- A read site costs a few lines per member -- a case label and an assignment each -- and not the
 -- block-per-member chain, which cost about 48 lines per member. Bounded at 4, which that chain

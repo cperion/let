@@ -36,7 +36,9 @@ return function(V,arg)
         for _,field in ipairs(main.fields) do arguments[#arguments+1]=('ns.r0.f%d'):format(field) end
         local declarations=V.List()
         for _,declaration in ipairs(unit.declarations) do declarations:insert(declaration) end
-        declarations:insert(V.C.Raw('void let_trap(char* reason){ fflush(stdout); fputs(reason,stderr); fputc(10,stderr); abort(); }'))
+        -- `_Noreturn` matches the `_Noreturn` declaration the emitter writes, so a caller's
+        -- optimizer knows the trap does not return.
+        declarations:insert(V.C.Raw('_Noreturn void let_trap(char* reason){ fflush(stdout); fputs(reason,stderr); fputc(10,stderr); abort(); }'))
         declarations:insert(V.C.Raw(('int main(void){ %s ns = let_module_init(); %s(%s); return 0; }')
             :format(namespace:print(),main.c_name,table.concat(arguments,', '))))
         local includes,seen=V.List(),{}

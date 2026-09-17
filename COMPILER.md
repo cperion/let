@@ -327,6 +327,37 @@ a static index). A longer path rebuilds every level on the way up, and each leve
 so those destinations keep the per-arm chain.
 
 
+## Operators lower where the operation is written
+
+Operations Let defines but C lacks as a single expression used to be emitted as helper functions,
+called once per site. They are written at the site now: dividing is not calling, and a function has
+a cost -- a call, an ABI, a name over the operation -- while C text has none.
+
+| operation | what the emitted C says |
+|-----------|-------------------------|
+| `a / b`   | `if (b == 0) { let_trap("division by zero"); } v = (b == -1) ? (int64_t)(-((uint64_t)a)) : a / b;` |
+| `a % b`   | the same, with `%`, and `0` for the `-1` case |
+| `a >> b`  | `v = (a < 0 && n) ? (((uint64_t)a >> n) \| (~(uint64_t)0 << (64 - n))) : ((uint64_t)a >> n)`, with `n` = `b & 63` |
+| `int(x)`  | one `?:` chain: NaN to zero, out of range saturates, otherwise the truncation |
+| `text_of(s)` | `(struct let_text){(char*)s, s ? strlen(s) : 0}` |
+
+Most of these need C constructs the output vocabulary did not have, which is the only reason the
+earlier versions could be calls: `?:` is now `C.Conditional`, and a select needed `C.Switch` and
+`C.Break`. A guard around a division is a *statement*; with no statement in the vocabulary, the
+only way to write one was to call something that contained it.
+
+Two things the inlining made explicit. A known divisor decides the check: non-zero and it cannot
+fail, so nothing is written; literally zero and the trap is the whole operation, with no division
+by a constant zero anywhere in the C -- that is undefined behaviour in C, and although gcc -O3
+leaves the trap alone, the emitted C should not rely on a compiler's restraint. And `let_trap` is
+declared `_Noreturn`, which is C11's word for a function that does not return; an optimizer that
+must assume the call returns holds a licence this removes. Measured, gcc -O3 keeps the trap either
+way, so that one is conformance rather than a repair.
+
+What remains a function is `c.load_byte(p, i)` and its siblings, plus `let_trap` itself. Those are
+not lowerings of Let constructs: the source called a word, so the C calls a word. An operator is
+not a call, and no longer becomes one.
+
 ## Tests and their limits
 
 `luajit test/all.lua` runs every suite and reports the total check count; that total is

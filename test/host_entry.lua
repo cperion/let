@@ -140,7 +140,7 @@ local function compile_and_run(name,unit_text,statistics,main)
     local stem='/tmp/let_host_entry_' .. name
     local out=assert(io.open(stem .. '.c','wb'))
     out:write(unit_text)
-    out:write('\nvoid let_trap(char* reason){ (void)reason; __builtin_trap(); }\n')
+    out:write('\n_Noreturn void let_trap(char* reason){ (void)reason; __builtin_trap(); }\n')
     out:write(main)
     out:close()
     local executed,_,code=os.execute(('cc -std=c11 -O1 -w %s.c -o %s && %s'):format(stem,stem,stem))

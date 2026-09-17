@@ -47,6 +47,9 @@ function C.Name:print() return self.name end
 function C.Unary:print() return '(' .. self.operator .. self.operand:print() .. ')' end
 function C.Binary:print() return '(' .. self.left:print() .. ' ' .. self.operator .. ' ' .. self.right:print() .. ')' end
 function C.Cast:print() return '((' .. self.type:print() .. ')' .. self.value:print() .. ')' end
+function C.Conditional:print()
+    return '(' .. self.condition:print() .. ' ? ' .. self.yes:print() .. ' : ' .. self.no:print() .. ')'
+end
 function C.Call:print()
     local parts={} for _,argument in ipairs(self.arguments) do parts[#parts+1]=argument:print() end
     return self.callee:print() .. '(' .. table.concat(parts,', ') .. ')'

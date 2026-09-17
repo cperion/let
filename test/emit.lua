@@ -131,8 +131,11 @@ let f = do : Int
 end
 let r = f()
 ]]
-check(text:find('let_div',1,true)~=nil,'a known zero divisor keeps a residual trapping operation')
+check(text:find('let_trap("',1,true)~=nil,'a known zero divisor keeps a residual trapping operation')
+check(text:find('if (',1,true)==nil,'and needs no guard: the divisor cannot be anything else')
+check(text:find('/ INT64_C(0)',1,true)==nil,'and no division by a constant zero is written, which C reads as undefined')
 
+-- A known non-zero divisor written at the site cannot fail, so no check is written for it.
 text=emitted[[
 let f =
     let n : Int
@@ -141,7 +144,22 @@ let f =
     end
 let r = f(pure_calc(1))
 ]]
-check(text:find('let_div',1,true)~=nil,'an unknown-during-analysis divisor keeps the check')
+check(text:find('if (',1,true)==nil and text:find('let_trap("',1,true)==nil,
+    'a known non-zero divisor at the site needs no check')
+
+-- The unknown operand has to be the *divisor* for the check to be needed: `n / 2` cannot fail,
+-- but `n / d` can, and then the guard is written where the division is.
+text=emitted[[
+let g =
+    let n : Int
+    let d : Int
+    do : Int
+        return n / d
+    end
+let r = g(pure_calc(1), pure_calc(2))
+]]
+check(text:find('if (',1,true)~=nil and text:find('let_trap("',1,true)~=nil,
+    'an unknown divisor keeps the check, beside the division it guards')
 
 -- Folding: cross-function ---------------------------------------------------------
 

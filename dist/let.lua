@@ -1262,6 +1262,7 @@ module C {
          | Cast(Type type, Expr value) | Call(Expr callee, Expr* arguments)
          | Field(Expr base, string name) | Index(Expr base, Expr index)
          | Compound(Type type, Expr* fields)
+         | Conditional(Expr condition, Expr yes, Expr no)
          | Init(Type type, Designator* fields)
     Parameter = (Type type, string name)
     Designator = (string name, Expr value)
@@ -7559,6 +7560,9 @@ function C.Name:print() return self.name end
 function C.Unary:print() return '(' .. self.operator .. self.operand:print() .. ')' end
 function C.Binary:print() return '(' .. self.left:print() .. ' ' .. self.operator .. ' ' .. self.right:print() .. ')' end
 function C.Cast:print() return '((' .. self.type:print() .. ')' .. self.value:print() .. ')' end
+function C.Conditional:print()
+    return '(' .. self.condition:print() .. ' ? ' .. self.yes:print() .. ' : ' .. self.no:print() .. ')'
+end
 function C.Call:print()
     local parts={} for _,argument in ipairs(self.arguments) do parts[#parts+1]=argument:print() end
     return self.callee:print() .. '(' .. table.concat(parts,', ') .. ')'
@@ -7943,12 +7947,22 @@ function Emitter:instruction(block,block_id,index,instruction)
         elseif operation.operator==A.ToU32 then declare(0,B.U32,C.Cast(self:ctype(B.U32),operand))
         elseif operation.operator==A.ToF32 then declare(0,B.Float32,C.Cast(self:ctype(B.Float32),operand))
         elseif operation.operator==A.ToInt then
-            if declare(0,B.Int,C.Call(C.Name('let_to_int'),L{operand})) then self.helpers.to_int=true end
+            -- §13.3: the conversion is total, so it is one expression and nothing is called. A NaN
+            -- becomes zero and an out-of-range value saturates at the nearer Int bound.
+            declare(0,B.Int,C.Conditional(C.Binary('!=',operand,operand),C.Integer(0,0),
+                C.Conditional(C.Binary('>=',operand,C.Float(9223372036854775808.0)),C.Name('INT64_MAX'),
+                    C.Conditional(C.Binary('<',operand,C.Float(-9223372036854775808.0)),C.Name('INT64_MIN'),
+                        C.Cast(C.I64,operand)))))
         elseif operation.operator==A.ToCString then
             declare(0,B.CString,C.Field(operand,'data'))
         elseif operation.operator==A.ToText then
-            self.text=true; self.helpers.text_from_c=true
-            declare(0,B.Text,C.Call(C.Name('let_text_from_c'),L{operand}))
+            -- A `char*` from the host carries no length, so it runs to the terminator -- the contract
+            -- a C string already implies. That is a compound literal with one conditional in it, not
+            -- a call.
+            self.text=true; self.helpers.strlen=true
+            declare(0,B.Text,C.Compound(self:ctype(B.Text),L{
+                C.Cast(C.Pointer(C.Named('char')),operand),
+                C.Conditional(operand,C.Call(C.Name('strlen'),L{operand}),C.Integer(0,0))}))
         elseif operation.operator==A.TextSize then
             declare(0,B.Int,C.Cast(C.I64,C.Field(operand,'size')))
         elseif operation.operator==A.IsNull then
@@ -7994,20 +8008,52 @@ function Emitter:instruction(block,block_id,index,instruction)
                 self.helpers.shl=true
                 declare(0,B.Int,C.Call(C.Name('LET_SHL'),L{arguments[1],arguments[2]}))
             else
-                self.helpers.shr=true
-                declare(0,B.Int,C.Call(C.Name('let_shr'),L{arguments[1],arguments[2]}))
+                -- §13.2: `>>` on a negative signed value is implementation-defined in C, and the
+                -- language says arithmetic, so the vacated bits take the sign. One expression, whose
+                -- operands are variables, so repeating them costs nothing.
+                local count=C.Binary('&',C.Cast(C.U64,arguments[2]),C.Integer(0,63))
+                local magnitude=C.Binary('>>',C.Cast(C.U64,arguments[1]),count)
+                declare(0,B.Int,C.Conditional(
+                    C.Binary('&&',C.Binary('<',arguments[1],C.Integer(0,0)),count),
+                    C.Cast(C.I64,C.Binary('|',magnitude,
+                        C.Binary('<<',C.Unary('~',C.Cast(C.U64,C.Integer(0,0))),
+                            C.Binary('-',C.Integer(0,64),count)))),
+                    C.Cast(C.I64,magnitude)))
             end
         else
             declare(0,instruction.results[1],C.Binary(symbolic[operation.operator],arguments[1],arguments[2]))
         end
     elseif B.CheckedBinary:isclassof(operation) then
         local arguments=self:arglist(block,block_id,position,{operation.left,operation.right})
-        local helper=operation.operator==A.Divide and 'let_div' or 'let_rem'
-        if not known(0) then self.helpers[operation.operator==A.Divide and 'div' or 'rem']=true end
+        local numerator,divisor=arguments[1],arguments[2]
+        local divide=operation.operator==A.Divide
         local effect=self:ref(block,block_id,position,operation.effect)
-        -- §16.2: a non-zero known divisor proves the check cannot fail, so it is omitted.
-        if declare(0,instruction.results[1],C.Call(C.Name(helper),L{arguments[1],arguments[2]})) then
+        local producer=position-1-operation.right.distance
+        local fate,answer=self:disposition(self.current_instance.analysis,self.current,block_id,producer,operation.right.output)
+        local constant=fate=='constant' and answer.type==B.Int and answer.value or nil
+        if declare(0,instruction.results[1],nil) then
             self.trap=true
+            local reason=C.String(divide and 'division by zero' or 'remainder by zero')
+            local trap=C.Evaluate(C.Call(C.Name('let_trap'),L{reason}))
+            if constant and scalar.equal(constant,scalar.integer('0',error)) then
+                -- A literal zero divisor: the trap is the whole operation, so no division by a
+                -- constant zero is written. Dividing by zero is undefined behaviour in C, and a
+                -- compiler is entitled to exploit that; this one (gcc -O3) leaves the trap alone,
+                -- but the emitted C should not depend on a compiler's restraint. The assignment
+                -- keeps the result defined for the reader's compiler, and is unreachable.
+                out[#out+1]=trap
+                out[#out+1]=C.Assign(C.Name(self:value(block_id,index,0)),C.Integer(0,0))
+            else
+                if not constant then out[#out+1]=C.If(C.Binary('==',divisor,C.Integer(0,0)),C.Block(L{trap})) end
+                local negation=divide and C.Cast(C.I64,C.Unary('-',C.Cast(C.U64,numerator))) or C.Integer(0,0)
+                local division=C.Binary(divide and '/' or '%',numerator,divisor)
+                local result
+                if constant then
+                    -- A known divisor needs no guard even for -1: it either is -1 or it is not.
+                    result=scalar.equal(constant,scalar.integer('-1',error)) and negation or division
+                else result=C.Conditional(C.Binary('==',divisor,self:literal('-1')),negation,division) end
+                out[#out+1]=C.Assign(C.Name(self:value(block_id,index,0)),result)
+            end
             declare(1,B.Effect,C.Binary('+',effect,C.Integer(0,1)))
         else declare(1,B.Effect,effect) end
     elseif B.FieldAddress:isclassof(operation) then
@@ -8580,12 +8626,15 @@ end
 
 function Emitter:helper_declarations()
     local declarations=L()
-    if self.text or self.helpers.text_eq or self.helpers.text_from_c then declarations:insert(C.Struct('let_text',L{C.Parameter(C.Pointer(C.Named('char')),'data'),C.Parameter(C.U64,'size')})) end
-    declarations:insert(C.Function('let_trap',true,false,C.Void,L{C.Parameter(C.Pointer(C.Named('char')),'reason')},nil))
+    if self.text or self.helpers.text_eq then declarations:insert(C.Struct('let_text',L{C.Parameter(C.Pointer(C.Named('char')),'data'),C.Parameter(C.U64,'size')})) end
+    -- §14.2: the trap does not return, and C11 has a word for that. It is not decoration: an
+    -- optimizer that must assume this call returns has a licence that this declaration removes.
+    -- (Measured: gcc -O3 keeps the trap either way for the division shape, so this is
+    -- conformance rather than a repair -- but the licence should not be granted in the first place.)
+    declarations:insert(C.Raw('_Noreturn void let_trap(char* reason);'))
     local function raw(code) declarations:insert(C.Raw(code)) end
     -- A `char*` the host returns has no length; the Let Text takes its size from the bytes up
     -- to the terminator, which is the contract a C string already implies.
-    if self.helpers.text_from_c then raw('static struct let_text let_text_from_c(const char* s){struct let_text t;t.data=(char*)s;t.size=s?(size_t)strlen(s):0;return t;}') end
     -- Signed overflow is undefined in C, so wrapping arithmetic must go through unsigned.
     -- These are one-line and branch-free, so a macro inlines them without adding a function.
     if self.helpers.add then raw('#define LET_ADD(a,b) ((int64_t)((uint64_t)(a)+(uint64_t)(b)))') end
@@ -8595,14 +8644,10 @@ function Emitter:helper_declarations()
     -- A shift count is reduced modulo the width, and a left shift keeps the low bits, so neither
     -- shift is undefined and a huge count is defined rather than a trap.
     if self.helpers.shl then raw('#define LET_SHL(a,b) ((int64_t)((uint64_t)(a) << ((uint64_t)(b) & 63)))') end
-    if self.helpers.shr then raw('static int64_t let_shr(int64_t a,int64_t b){unsigned n=(unsigned)((uint64_t)b & 63u);uint64_t u=(uint64_t)a >> n;if(a<0 && n)u|=~(uint64_t)0 << (64u-n);return (int64_t)u;}') end
     -- Division and remainder keep one shared helper each: inlining the trap check at every
     -- site would duplicate control flow rather than remove a function.
-    if self.helpers.div then raw('static int64_t let_div(int64_t a,int64_t b){if(b==0)let_trap("division by zero");if(b==-1)return (int64_t)(0-(uint64_t)a);return a/b;}') end
-    if self.helpers.rem then raw('static int64_t let_rem(int64_t a,int64_t b){if(b==0)let_trap("remainder by zero");if(b==-1)return 0;return a%b;}') end
     -- The conversion is total (§13.3): a NaN becomes zero and an out-of-range value saturates at
     -- the nearer Int bound, so it needs no effect and can be folded or dropped.
-    if self.helpers.to_int then raw('static int64_t let_to_int(double x){if(x!=x)return 0;if(x>=9223372036854775808.0)return INT64_MAX;if(x<-9223372036854775808.0)return INT64_MIN;return (int64_t)x;}') end
     if self.helpers.text_eq then raw('#define LET_TEXT_EQ(a,b) ((a).size==(b).size&&memcmp((a).data,(b).data,(size_t)(a).size)==0)') end
     -- Byte and binary32 buffers, indexed by a runtime Int. The float loads and stores go through
     -- `memcpy` so an unaligned or aliased address is still defined behavior.
@@ -8715,7 +8760,7 @@ function Emitter:program(program,options)
     local includes=L()
     if self.c_hosts then includes:insert('stddef.h') end
     includes:insert('stdint.h'); includes:insert('stdbool.h')
-    if self.helpers.buffer or (self.text and (self.helpers.text_eq or self.helpers.text_from_c)) then includes:insert('string.h') end
+    if self.helpers.buffer or self.helpers.strlen or self.helpers.text_eq then includes:insert('string.h') end
     if self.math then includes:insert('math.h') end
     local declarations=L()
     declarations:insertall(helpers)
@@ -8781,7 +8826,9 @@ return function(V,arg)
         for _,field in ipairs(main.fields) do arguments[#arguments+1]=('ns.r0.f%d'):format(field) end
         local declarations=V.List()
         for _,declaration in ipairs(unit.declarations) do declarations:insert(declaration) end
-        declarations:insert(V.C.Raw('void let_trap(char* reason){ fflush(stdout); fputs(reason,stderr); fputc(10,stderr); abort(); }'))
+        -- `_Noreturn` matches the `_Noreturn` declaration the emitter writes, so a caller's
+        -- optimizer knows the trap does not return.
+        declarations:insert(V.C.Raw('_Noreturn void let_trap(char* reason){ fflush(stdout); fputs(reason,stderr); fputc(10,stderr); abort(); }'))
         declarations:insert(V.C.Raw(('int main(void){ %s ns = let_module_init(); %s(%s); return 0; }')
             :format(namespace:print(),main.c_name,table.concat(arguments,', '))))
         local includes,seen=V.List(),{}
