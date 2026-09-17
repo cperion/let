@@ -169,6 +169,16 @@ function B.SelectField:verify(ctx)
     for i=2,#fields do assert(fields[i].type:same(fields[1].type),'a runtime index needs members of one type') end
     ctx:results(L{fields[1].type})
 end
+function B.SelectStore:verify(ctx)
+    -- The write half of a selection. The members must agree on a type, the key is an Int, and the
+    -- stored value has that one member type; the result is the whole record, as `StoreField`'s is.
+    local record=ctx:type(self.record); local fields=record:record()
+    assert(fields and #fields>0,'a selection needs an aggregate with members')
+    ctx:expect(self.key,B.Int)
+    for i=2,#fields do assert(fields[i].type:same(fields[1].type),'a runtime index needs members of one type') end
+    ctx:expect(self.value,fields[1].type)
+    ctx:results(L{record})
+end
 function B.StoreField:verify(ctx)
     local record=ctx:type(self.record); local fields=record:record()
     assert(fields and self.field<#fields,'store requires a valid record field')

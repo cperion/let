@@ -1439,6 +1439,13 @@ function A.Assign:assign_place(ctx)
     local updated
     if dynamic==0 then
         updated=replace(ctx,positions[#steps],value)
+    elseif dynamic==1 and #steps==1 and #suffix==0 and not leaf:owns() and hole==nil then
+        -- §8.4: the write half of the same switch, and one instruction for the same reason. Only
+        -- this shape is one: a longer path rebuilds every level on the way up, and a member that
+        -- owns is destroyed before it is replaced, so both put real code in every arm rather than a
+        -- store. (A hole is impossible here: only a fully written path can be one, which needs a
+        -- static index.)
+        updated=ctx:emit(B.SelectStore(ctx:ref(parent),ctx:ref(key),ctx:ref(value)),L{parent.type},self.span)
     else
         updated=ctx:select_member(key,parent.type:record(),records[1].type,self.span,
             function(c,at) return replace(c,at,value) end)

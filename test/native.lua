@@ -774,6 +774,31 @@ let shown = print_int(answer)
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'16\n','a capturing word called with an element read at a runtime index')
 
+-- The write half of a runtime index, compiled and run: the same switch, with the record going in
+-- and coming back rebuilt. `1 + 77 + 3` is the observable result.
+output=native('select_store',[[
+let store = let i : Int do : Int
+    let a mut = { 1, 2, 3 };
+    a[i] = 77;
+    return a[0] + a[1] + a[2]
+end
+let answer = store(runtime_int(1))
+let shown = print_int(answer)
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'81\n','writing through a runtime index, compiled')
+
+-- And its range check: a destination index with no member traps.
+output=native('select_store_out_of_range',[[
+let store = let i : Int do : Int
+    let a mut = { 1, 2, 3 };
+    a[i] = 77;
+    return a[0]
+end
+let answer = store(runtime_int(9))
+let shown = print_int(answer)
+]],'int main(void){ let_module_init(); return 0; }')
+check(output:find('trap: index out of range',1,true)~=nil,'§8.4 a trapping runtime index used as a destination')
+
 -- §15.3 A host may state the C prototype it calls, and the C vocabulary lives under `c`: its
 -- members take a borrowed `CString` (a `const char*`), and `c.string`/`c.text` are the
 -- explicit crossings between that and Let's `Text`. No shim, and no implicit string conflation.

@@ -385,6 +385,24 @@ function Evaluator:instruction(block,block_id,index,instruction)
         if Known.answered(answer) and at and at>=0 and at==math.floor(at) and answer.value.fields[at+1] then
             put(0,answer.value.fields[at+1])
         else put(0,Known.runtime(instruction.results[1])) end
+    elseif B.SelectStore:isclassof(operation) then
+        -- A known index stores into that member, exactly as a written index does, so the record it
+        -- rebuilds folds the way `StoreField`'s does.
+        local answer=inputs{operation.record}[1]
+        local index=inputs{operation.key}[1]
+        local at=Known.answered(index) and tonumber(scalar.to_float(index.value)) or nil
+        if Known.answered(answer) and at and at==math.floor(at) and answer.value.fields[at+1] then
+            local fields,partial={},false
+            for i,field in ipairs(answer.value.fields) do
+                fields[i]=field
+                if not Known.is_known(field) then partial=true end
+            end
+            local stored=inputs{operation.value}[1]
+            fields[at+1]=stored
+            if not Known.is_known(stored) then partial=true end
+            if partial then put(0,Known.partial(instruction.results[1],fields))
+            else put(0,Known.bundle(instruction.results[1],fields)) end
+        else put(0,Known.runtime(instruction.results[1])) end
     elseif B.LoadField:isclassof(operation) then
         -- Reading a member answers with that member's own answer, constant or not.
         local answer=inputs{operation.record}[1]

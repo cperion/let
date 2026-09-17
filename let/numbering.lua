@@ -14,6 +14,7 @@ return function(V)
     function B.InjectSum:inputs() return L{self.payload} end
     function B.LoadField:inputs() return L{self.record} end
     function B.SelectField:inputs() return L{self.record,self.key} end
+    function B.SelectStore:inputs() return L{self.record,self.key,self.value} end
     function B.StoreField:inputs() return L{self.record,self.value} end
     function B.CallFunction:inputs() local out=L{self.effect}; append(out,self.arguments); return out end
     function B.HostCall:inputs() local out=L{self.effect}; append(out,self.arguments); return out end

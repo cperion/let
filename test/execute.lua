@@ -73,6 +73,16 @@ function B.SelectField:execute(ctx)
     if not at or at~=math.floor(at) or at<0 or at>=#fields then error('trap: index out of range',0) end
     return fields[at+1]
 end
+-- The write half traps out of range identically: a program that stores past the end fails the
+-- same way whichever lowering the compiler chose.
+function B.SelectStore:execute(ctx)
+    local word=ctx:get(self.record); local fields={}
+    for i,value in ipairs(word.fields) do fields[i]=value end
+    local at=tonumber(ctx:get(self.key))
+    if not at or at~=math.floor(at) or at<0 or at>=#fields then error('trap: index out of range',0) end
+    fields[at+1]=ctx:get(self.value)
+    return {fields=fields}
+end
 function B.StoreField:execute(ctx)
     local word=ctx:get(self.record); local fields={} for i,value in ipairs(word.fields) do fields[i]=value end
     fields[self.field+1]=ctx:get(self.value); return {fields=fields}

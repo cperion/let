@@ -221,4 +221,23 @@ check(wide_text:find('index out of range',1,true)~=nil,'whose fall-through is th
 eq(wide-narrow>=0,true,'the wider aggregate still emits, and emits a helper')
 eq(indexed(32,4)-wide,indexed(4,4)-narrow,'three more reads cost the same at 4 members and at 32')
 
+-- The same property for the write half, which is one instruction for the same reason. The stage
+-- arrives through `runtime_int`, because a constant index folds the whole word away and nothing is
+-- emitted at all.
+local function written(members,writes)
+    local elements={} for i=1,members do elements[i]=tostring(i) end
+    local body=''
+    for w=1,writes do body=body..('    a[i] = %d;\n'):format(w) end
+    local source=('let w = let i : Int do : Int\n    let a mut = { %s };\n%s    keep(a[0]);\n    return 0\nend\nlet r = w(runtime_int(1))\n')
+        :format(table.concat(elements,', '),body)
+    local emitted=V.print(V.parse(source,'indexwrite.let'):build(options):emit(options))
+    local lines=0
+    for _ in emitted:gmatch('\n') do lines=lines+1 end
+    return lines,emitted
+end
+local written_narrow=written(4,1)
+local written_wide,written_text=written(32,1)
+check(written_text:find('r.f0=value',1,true)~=nil,'a runtime index as a destination lowers to a storing switch')
+eq(written(32,4)-written_wide,written(4,4)-written_narrow,'three more writes cost the same at 4 members and at 32')
+
 print(('passed %d aggregate/projection checks'):format(checks))

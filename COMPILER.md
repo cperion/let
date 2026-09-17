@@ -308,11 +308,34 @@ because a C compiler folds thousands of near-identical branch chains away. The c
 real and the artifact was not, which is why it went unnoticed. `test/aggregate.lua` pins the
 property rather than a line count: three more reads must cost the same at 4 members as at 32.
 
-A runtime index used as a *write* target still takes the old path, and it is not the same shape.
-Its arm is not always a store: where the member owns, the old value is destroyed first and a hole
-may need a guard around it, and a destination can be a nested path (`a.b[i].c`) whose store is a
-chain of `StoreField`s. A single-instruction lowering therefore fits only the simple case -- one
-level, nothing owning, no hole -- which is where that work would start.
+A runtime index used as a *write* target is one instruction too, for the simple destination: the
+record goes in by value and comes back rebuilt, which is what `StoreField` already does.
+
+```c
+static struct let_val_3 let_select_2(struct let_val_3 r, int64_t key, int64_t value){
+switch(key){
+case 0: r.f0=value; break;
+case 1: r.f1=value; break;
+default: let_trap("index out of range"); }
+return r;
+}
+```
+
+Measured the same way, in lines of emitted C:
+
+| members | 1 write | 4 writes | lines per write | before |
+|---------|---------|----------|-----------------|--------|
+| 4       | 68      | 71       | 1               | 164    |
+| 8       | 76      | 79       | 1               | 340    |
+| 16      | 92      | 95       | 1               | 692    |
+| 32      | 124     | 127      | 1               | 1396   |
+
+Only that shape is one instruction, and the condition is the compiler's own statement of what
+needs more than a store: the dynamic index must be the last step of a one-step path, the member
+must not own anything (an owned member is destroyed before it is replaced), and the destination
+must not be a hole (only a fully written path can be one, which needs a static index). A longer
+path rebuilds every level on the way up, and each level is a `StoreField`, so those destinations
+keep the per-arm chain.
 
 
 ## Tests and their limits

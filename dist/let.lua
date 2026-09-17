@@ -976,6 +976,7 @@ module Belt {
        | InjectSum(number index, Ref payload)
        | LoadField(Ref record, number field)
        | SelectField(Ref record, Ref key)
+       | SelectStore(Ref record, Ref key, Ref value)
        | StoreField(Ref record, number field, Ref value)
        | CallFunction(number target, Ref effect, Ref* arguments)
        | HostCall(string symbol, Ref effect, Ref* arguments)
@@ -2540,6 +2541,7 @@ return function(V)
     function B.InjectSum:inputs() return L{self.payload} end
     function B.LoadField:inputs() return L{self.record} end
     function B.SelectField:inputs() return L{self.record,self.key} end
+    function B.SelectStore:inputs() return L{self.record,self.key,self.value} end
     function B.StoreField:inputs() return L{self.record,self.value} end
     function B.CallFunction:inputs() local out=L{self.effect}; append(out,self.arguments); return out end
     function B.HostCall:inputs() local out=L{self.effect}; append(out,self.arguments); return out end
@@ -4053,6 +4055,13 @@ function A.Assign:assign_place(ctx)
     local updated
     if dynamic==0 then
         updated=replace(ctx,positions[#steps],value)
+    elseif dynamic==1 and #steps==1 and #suffix==0 and not leaf:owns() and hole==nil then
+        -- §8.4: the write half of the same switch, and one instruction for the same reason. Only
+        -- this shape is one: a longer path rebuilds every level on the way up, and a member that
+        -- owns is destroyed before it is replaced, so both put real code in every arm rather than a
+        -- store. (A hole is impossible here: only a fully written path can be one, which needs a
+        -- static index.)
+        updated=ctx:emit(B.SelectStore(ctx:ref(parent),ctx:ref(key),ctx:ref(value)),L{parent.type},self.span)
     else
         updated=ctx:select_member(key,parent.type:record(),records[1].type,self.span,
             function(c,at) return replace(c,at,value) end)
@@ -4511,6 +4520,16 @@ function B.SelectField:verify(ctx)
     ctx:expect(self.key,B.Int)
     for i=2,#fields do assert(fields[i].type:same(fields[1].type),'a runtime index needs members of one type') end
     ctx:results(L{fields[1].type})
+end
+function B.SelectStore:verify(ctx)
+    -- The write half of a selection. The members must agree on a type, the key is an Int, and the
+    -- stored value has that one member type; the result is the whole record, as `StoreField`'s is.
+    local record=ctx:type(self.record); local fields=record:record()
+    assert(fields and #fields>0,'a selection needs an aggregate with members')
+    ctx:expect(self.key,B.Int)
+    for i=2,#fields do assert(fields[i].type:same(fields[1].type),'a runtime index needs members of one type') end
+    ctx:expect(self.value,fields[1].type)
+    ctx:results(L{record})
 end
 function B.StoreField:verify(ctx)
     local record=ctx:type(self.record); local fields=record:record()
@@ -7161,6 +7180,24 @@ function Evaluator:instruction(block,block_id,index,instruction)
         if Known.answered(answer) and at and at>=0 and at==math.floor(at) and answer.value.fields[at+1] then
             put(0,answer.value.fields[at+1])
         else put(0,Known.runtime(instruction.results[1])) end
+    elseif B.SelectStore:isclassof(operation) then
+        -- A known index stores into that member, exactly as a written index does, so the record it
+        -- rebuilds folds the way `StoreField`'s does.
+        local answer=inputs{operation.record}[1]
+        local index=inputs{operation.key}[1]
+        local at=Known.answered(index) and tonumber(scalar.to_float(index.value)) or nil
+        if Known.answered(answer) and at and at==math.floor(at) and answer.value.fields[at+1] then
+            local fields,partial={},false
+            for i,field in ipairs(answer.value.fields) do
+                fields[i]=field
+                if not Known.is_known(field) then partial=true end
+            end
+            local stored=inputs{operation.value}[1]
+            fields[at+1]=stored
+            if not Known.is_known(stored) then partial=true end
+            if partial then put(0,Known.partial(instruction.results[1],fields))
+            else put(0,Known.bundle(instruction.results[1],fields)) end
+        else put(0,Known.runtime(instruction.results[1])) end
     elseif B.LoadField:isclassof(operation) then
         -- Reading a member answers with that member's own answer, constant or not.
         local answer=inputs{operation.record}[1]
@@ -7731,11 +7768,13 @@ end
 -- each access site instead costs the member count at every read, which is what made a dispatch
 -- table's emitted C proportional to (members x reads) -- tens of thousands of lines whose binary
 -- was small only because a C compiler folds the repeated chains away.
-function Emitter:select_helper(record,element)
-    local key='s' .. tostring(self:ctype(record))
+function Emitter:select_helper(record,element,kind)
+    -- The two halves of a selection need different helpers -- one reads a member, one writes one and
+    -- returns the record -- so the kind is part of the key.
+    local key='s' .. kind .. tostring(self:ctype(record))
     local existing=self.selections[key]
     if existing then return existing end
-    local helper={name='let_select_' .. (#self.selection_list+1),record=record,element=element}
+    local helper={name='let_select_' .. (#self.selection_list+1),record=record,element=element,kind=kind}
     self.selections[key]=helper
     self.selection_list:insert(helper)
     return helper
@@ -8005,10 +8044,22 @@ function Emitter:instruction(block,block_id,index,instruction)
         -- load of a named member, so the switch over the members is the whole of the operation and
         -- it belongs in one helper rather than at this site.
         local _,record=block:resolve(position,operation.record)
-        local helper=self:select_helper(record,instruction.results[1])
+        local helper=self:select_helper(record,instruction.results[1],'read')
         if declare(0,instruction.results[1],C.Call(C.Name(helper.name),
             L{C.Unary('&',self:ref(block,block_id,position,operation.record)),
               self:ref(block,block_id,position,operation.key)})) then
+            self.selections_used[helper.name]=true
+        end
+    elseif B.SelectStore:isclassof(operation) then
+        -- The write half. The record goes by value and comes back rebuilt, which is what
+        -- `StoreField` does too: the members are replaced, not mutated through the caller's copy.
+        local _,record=block:resolve(position,operation.record)
+        local _,element=block:resolve(position,operation.value)
+        local helper=self:select_helper(record,element,'store')
+        if declare(0,instruction.results[1],C.Call(C.Name(helper.name),
+            L{self:ref(block,block_id,position,operation.record),
+              self:ref(block,block_id,position,operation.key),
+              self:ref(block,block_id,position,operation.value)})) then
             self.selections_used[helper.name]=true
         end
     elseif B.LoadField:isclassof(operation) then
@@ -8525,16 +8576,30 @@ function Emitter:selection_declarations()
     for _,helper in ipairs(self.selection_list) do
         if self.selections_used[helper.name] then
             local element=self:ctype(helper.element)
-            local parts={('static %s %s(const %s *r, int64_t key){'):format(
-                element:print(),helper.name,self:ctype(helper.record):print()),
-                'switch(key){'}
+            -- A read takes the record by pointer and returns the member; a store takes it by value
+            -- and returns the record with one member replaced, which is what `StoreField` does too.
+            local typed=self:ctype(helper.record):print()
+            local signature=helper.kind=='read'
+                and ('static %s %s(const %s *r, int64_t key){'):format(element:print(),helper.name,typed)
+                or ('static %s %s(%s r, int64_t key, %s value){'):format(typed,helper.name,typed,element:print())
+            local parts={signature,'switch(key){'}
             local fields=helper.record:record()
-            for i=1,#fields do parts[#parts+1]=('case %d: return r->f%d;'):format(i-1,i-1) end
+            for i=1,#fields do
+                parts[#parts+1]=helper.kind=='read'
+                    and ('case %d: return r->f%d;'):format(i-1,i-1)
+                    or ('case %d: r.f%d=value; break;'):format(i-1,i-1)
+            end
             parts[#parts+1]='default: let_trap("index out of range"); }'
-            -- The trap does not return, but C still has to typecheck what follows, and a
-            -- function returning a struct cannot `return 0`.
-            parts[#parts+1]=('return %s;'):format(C.Named:isclassof(element)
-                and ('(%s){0}'):format(element:print()) or '0')
+            -- A read returns from every case, so what follows is unreachable -- but C still has to
+            -- typecheck it, and a function returning a struct cannot `return 0`. A store *breaks*
+            -- out of its switch, so what follows is its real return, and it must return the record
+            -- the cases just wrote into rather than a zero.
+            if helper.kind=='read' then
+                parts[#parts+1]=('return %s;'):format(C.Named:isclassof(element)
+                    and ('(%s){0}'):format(element:print()) or '0')
+            else
+                parts[#parts+1]='return r;'
+            end
             parts[#parts+1]='}'
             declarations:insert(C.Raw(table.concat(parts,'\n')))
         end
