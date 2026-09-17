@@ -1,0 +1,11 @@
+// A word whose state must be written back, making a tail transfer to *itself*. The state is the
+// packet the transfer already carries, so the recursion is a loop with the state as a loop variable,
+// and the write-back happens once, when the chain finally returns. It used to be refused as "tail
+// invocation from a word with mutable state", because the write-back had no continuation to happen in.
+let total mut = 0
+let loop = let n : Int do : Int
+    if n == 0 do return total end
+    total = total + n;
+    return loop(n - 1)
+end
+let answer = loop(3)

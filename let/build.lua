@@ -501,7 +501,7 @@ local function ambient(frame)
         lifetime=frame.lifetime, function_id=frame.function_id,
         self_name=frame.self_name, self_definition=frame.self_definition,
         module_pending=frame.module_pending, module_preludes=frame.module_preludes,
-        mutable_state=frame.mutable_state, intermediate=frame.intermediate, finish=frame.finish,
+        state_written_back=frame.state_written_back, intermediate=frame.intermediate, finish=frame.finish,
         loops=frame.loops,
     }
 end

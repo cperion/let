@@ -57,9 +57,6 @@ function Packet.written_back(field)
     return field.mutable and field.retained and not B.Address:isclassof(field.type)
 end
 
--- A word with any mutable retained field is stateful for tail-transfer purposes, whether the
--- state is written back as a value or reached through a place.
-function Packet.mutable_state(field) return field.mutable and field.retained end
 
 -- The entry a field packet names. One key per shape, so call sites that agree share one function
 -- and its signature. The per-field flag runs are separate so a shape cannot collide with a longer

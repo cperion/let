@@ -774,6 +774,20 @@ let shown = print_int(answer)
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'16\n','a capturing word called with an element read at a runtime index')
 
+-- §6.5: a tail transfer to the same word carries that word's mutable state as the packet, so the
+-- recursion is a loop whose loop variables include the state, written back once on the way out.
+output=native('tail_state',[[
+let total mut = 0
+let loop = let n : Int do : Int
+    if n == 0 do return total end
+    total = total + n;
+    return loop(n - 1)
+end
+let answer = loop(3)
+let shown = print_int(answer)
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'6\n','a self tail transfer with state is a loop, and it computes 3 + 2 + 1')
+
 -- The write half of a runtime index, compiled and run: the same switch, with the record going in
 -- and coming back rebuilt. `1 + 77 + 3` is the observable result.
 output=native('select_store',[[

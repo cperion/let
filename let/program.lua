@@ -364,7 +364,9 @@ function Builder:build_entry(template,fields,id)
         self_.block.exit=B.Return(values); self_:unpin()
     end
     for _,record in ipairs(records) do
-        if Packet.mutable_state(record.field) then ctx.mutable_state=true end
+        -- The state that has to come back through this entry's result, and only that: state reached
+        -- through a place is written through its address, so nothing about it returns.
+        if Packet.written_back(record.field) then ctx.state_written_back=true end
     end
     -- The word's own state lives in the field scopes above; its body's locals are
     -- activation state and must be destroyed by the return, so they get their own scope
@@ -436,7 +438,15 @@ function Builder:invoke(ctx,expression,tail)
         if tail then
             -- §6.5: the *caller's* own word state is not a local, so it must survive the
             -- transfer. Carrying it through the tail result needs address-taken state.
-            if ctx.mutable_state then gap(expression.span,'tail invocation from a word with mutable state') end
+            -- §6.5: a tail transfer retires this activation, so state that has to come back through
+            -- the result has nowhere to be written from -- unless the transfer is to this same entry,
+            -- where the state *is* the packet the transfer already carries: the loop variables of a
+            -- self tail call, written back once when the chain finally returns. State reached through
+            -- a place needs no write-back at all, which is what `written_back` says, so that is the
+            -- whole condition.
+            if ctx.state_written_back and target~=ctx.function_id then
+                gap(expression.span,'tail invocation from a word whose state must be written back, to a different word')
+            end
             -- §6.5: a tail transfer retires this activation, so a place this activation owns
             -- cannot be passed. Only a borrow of module storage would survive, and the type
             -- does not distinguish that, so any borrow is conservative here.

@@ -57,6 +57,10 @@ local programs={
     -- A call whose argument splits the block: `cells[i]` traps when the index is out of range, so
     -- the callee's captured field crosses a boundary on the way to the call.
     {name='capture_element',result=16},
+    -- §6.5 A tail transfer to the same word carries that word's mutable state as its packet, so the
+    -- recursion is a loop with the state as a loop variable and the write-back happens once, on the
+    -- way out. It is 3 + 2 + 1.
+    {name='tail_state',result=6},
     -- §6.5 A tail call may borrow a value the word does not own: the word's *prelude* lives in its
     -- bundle rather than in the activation, so the borrow survives the transfer. This was refused
     -- as "tail invocation borrow does not outlive caller cleanup", and the same code with the
@@ -117,6 +121,36 @@ for _,case in ipairs(refusals) do
             case.name..': expected the reason to name '..case.fragment..', got '..tostring(err))
         check(tostring(err):find('construction not yet implemented',1,true)==nil,
             case.name..': a refusal must not read like a gap, got '..tostring(err))
+    end
+end
+
+-- Programs the compiler cannot build yet. A gap and a refusal read differently on purpose -- one
+-- means the compiler is missing a mechanism, the other means the program is wrong -- so the prefix
+-- is asserted *present* here, the opposite of the checks above.
+local gaps={
+    -- The state has to come back through the result, and a transfer to a different word has nowhere to
+    -- put it: the callee's signature is its own. A self transfer does have somewhere -- its packet is
+    -- the state -- which is why `tail_state` above builds.
+    {name='a tail transfer to a different word, from a word whose state must be written back',
+     source=[[
+let total mut = 0
+let helper = let n : Int do : Int return n end
+let run = let n : Int do : Int
+    total = total + n;
+    return helper(n)
+end
+let r = run(1)
+]],
+     fragment='tail invocation from a word whose state must be written back, to a different word'},
+}
+for _,case in ipairs(gaps) do
+    local ok,err=pcall(function() V.parse(case.source,case.name..'.let'):build{} end)
+    check(not ok,case.name..': expected the compiler to say it cannot build this')
+    if not ok then
+        check(tostring(err):find('construction not yet implemented',1,true)~=nil,
+            case.name..': expected a gap rather than a refusal, got '..tostring(err))
+        check(tostring(err):find(case.fragment,1,true)~=nil,
+            case.name..': expected the reason to name '..case.fragment..', got '..tostring(err))
     end
 end
 

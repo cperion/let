@@ -166,7 +166,31 @@ unhandled form is actionable. Making them genuinely unreachable is a review, not
 `'this place form'`. It now reads `a place to move or borrow is a name, a member or a constant index`,
 stated from the program's side, which is what the classifier needs to see.
 
-## Order I would take them
+### Cause 2 — address-taken state and write-back (3 sites)
+
+`conditional destruction of an address-taken binding` · `address-taken locals` ·
+`mutable borrowed resource stages`
+
+~~`tail invocation from a word with mutable state`~~ **Fixed**, and not by address-taking. The state
+that must come back through the result does have somewhere to go when the transfer is to the *same*
+entry: its packet *is* the state, so the recursion is a loop with the state as a loop variable and
+the write-back happens once, when the chain returns. That is sound for a self transfer and only for
+one, so the condition is now the fact rather than an over-approximation of it -- `ctx.state_written_back`
+(`Packet.written_back`, i.e. state that really returns) *and* the target is a different entry. The
+old `ctx.mutable_state` also covered state reached through a place, which returns nothing and needs no
+continuation at all, so it refused a case that was already sound; the predicate is deleted rather than
+left beside its replacement. Measured both ways: `test/programs/tail_state.let` and a compiled
+`tail_state` case compute 3 + 2 + 1 = 6, and the transfer to a *different* word still gaps, now
+saying which half is missing.
+
+**The rest of this cause is unchanged.** For a non-tail invocation the compiler already writes a
+callee's mutable retained state back to the caller: `Packet.written_back(record.field)` decides which
+fields are results, and the callee returns them (`program.lua`, the `updated` list).
+
+`address-taken locals` looks like the same family but is probably smaller: the resolver already
+records `definition.address_taken = 'mutable borrow'`, and `A.Binding:build` already allocates a cell
+when it sees that. Reaching this site means the resolver missed a `mut` access, so it is a resolver
+gap rather than a lowering one. Worth confirming with a repro before believing it.
 
 0a. ~~The recursive-call crash.~~ **Fixed**.
 0b. **Forward references: the resolver half is done, the builder half is not.** The rule that makes
