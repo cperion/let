@@ -65,6 +65,14 @@ function B.InjectSum:execute(ctx)
     return {fields=fields}
 end
 function B.LoadField:execute(ctx) return ctx:get(self.record).fields[self.field+1] end
+-- A runtime index traps out of range the same way the write-time chain did, so a program that
+-- reads past the end fails identically whichever lowering the compiler chose.
+function B.SelectField:execute(ctx)
+    local fields=ctx:get(self.record).fields
+    local at=tonumber(ctx:get(self.key))
+    if not at or at~=math.floor(at) or at<0 or at>=#fields then error('trap: index out of range',0) end
+    return fields[at+1]
+end
 function B.StoreField:execute(ctx)
     local word=ctx:get(self.record); local fields={} for i,value in ipairs(word.fields) do fields[i]=value end
     fields[self.field+1]=ctx:get(self.value); return {fields=fields}

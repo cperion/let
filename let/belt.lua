@@ -28,6 +28,7 @@ module Belt {
        | Construct(Ref* fields, boolean is_copy)
        | InjectSum(number index, Ref payload)
        | LoadField(Ref record, number field)
+       | SelectField(Ref record, Ref key)
        | StoreField(Ref record, number field, Ref value)
        | CallFunction(number target, Ref effect, Ref* arguments)
        | HostCall(string symbol, Ref effect, Ref* arguments)

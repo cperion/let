@@ -158,6 +158,17 @@ function B.LoadField:verify(ctx)
     assert(fields and self.field<#fields,'load requires a valid record field')
     ctx:results(L{fields[self.field+1].type})
 end
+function B.SelectField:verify(ctx)
+    -- A runtime index selects among members, so the members must agree on a type: the result is
+    -- that one type. This is the rule `Context:member_type` states where the selection is built,
+    -- asserted here too because a selection is the one instruction whose result type comes from
+    -- its *operand* rather than from what it constructs.
+    local record=ctx:type(self.record); local fields=record:record()
+    assert(fields and #fields>0,'a selection needs an aggregate with members')
+    ctx:expect(self.key,B.Int)
+    for i=2,#fields do assert(fields[i].type:same(fields[1].type),'a runtime index needs members of one type') end
+    ctx:results(L{fields[1].type})
+end
 function B.StoreField:verify(ctx)
     local record=ctx:type(self.record); local fields=record:record()
     assert(fields and self.field<#fields,'store requires a valid record field')

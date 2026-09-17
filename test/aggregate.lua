@@ -9,7 +9,14 @@ end
 local box=B.Named('Box')
 local open={symbol='open',phase='runtime',purity='ordered',
     signature=B.Signature(L{B.Parameter(B.Int,A.Read)},L{box})}
-local options={hosts={open=open},resources={Box={destroy='close'}}}
+-- Two hosts the index-lowering checks below need: one whose value the analysis cannot know, so an
+-- index stays a runtime index, and one ordered call to keep a read alive (Let is demand-driven,
+-- so an unused read is never built at all).
+local runtime_int={symbol='runtime_int',phase='runtime',purity='pure',
+    signature=B.Signature(L{B.Parameter(B.Int,A.Read)},L{B.Int})}
+local keep={symbol='keep',phase='runtime',purity='ordered',
+    signature=B.Signature(L{B.Parameter(B.Int,A.Read)},L{B.Unit})}
+local options={hosts={open=open,runtime_int=runtime_int,keep=keep},resources={Box={destroy='close'}}}
 local events={}
 local host_functions={
     open=function(n) events[#events+1]='open:'..tonumber(n); return n end,
@@ -185,5 +192,33 @@ let Counter = { let at mut : Int let stop : Int }
 let c = Counter 0 4
 let d = c
 ]],'move or a fresh result','a record with a `mut` member is not Copy')
+
+-- §8.4 A runtime index is one instruction, and the emitter writes its switch once per aggregate
+-- *type* rather than once per access site. The chain of tests it replaced emitted a test and a
+-- branch per member at every read, so the emitted C grew with (members x reads): a dispatch table
+-- -- an aggregate of one shape indexed from everywhere -- produced ~172,000 lines of C for a 24 KB
+-- binary. Asserted as a property rather than a line count, so unrelated emission changes do not
+-- break it.
+local function indexed(members,reads)
+    local elements={} for i=1,members do elements[i]=tostring(i) end
+    local body=''
+    for r=1,reads do
+        body=body..('    let v%d = cells[runtime_int(%d)];\n    keep(v%d);\n'):format(r,r,r)
+    end
+    local source=('let pick = let i : Int do : Int\n    let cells = { %s }\n%s    return 0\nend\nlet answer = pick(runtime_int(0))\n')
+        :format(table.concat(elements,', '),body)
+    local emitted=V.print(V.parse(source,'index.let'):build(options):emit(options))
+    local lines=0
+    for _ in emitted:gmatch('\n') do lines=lines+1 end
+    return lines,emitted
+end
+local narrow,narrow_text=indexed(4,1)
+local wide,wide_text=indexed(32,1)
+check(wide_text:find('switch(key)',1,true)~=nil,'a runtime index lowers to a switch over the members')
+check(wide_text:find('index out of range',1,true)~=nil,'whose fall-through is the range trap §8.4 names')
+-- Three more reads cost the same whether the aggregate has 4 members or 32. That is the property:
+-- before, the same three reads cost 4x3 lines at 4 members and 32x3 at 32.
+eq(wide-narrow>=0,true,'the wider aggregate still emits, and emits a helper')
+eq(indexed(32,4)-wide,indexed(4,4)-narrow,'three more reads cost the same at 4 members and at 32')
 
 print(('passed %d aggregate/projection checks'):format(checks))

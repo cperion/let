@@ -275,30 +275,45 @@ These are not gaps. The specification fixes no behaviour to implement, or defers
 
 ## What an indexed aggregate costs
 
-A runtime index into an aggregate is lowered by `Context:select_member`, which walks the members
-in order: one equality, one branch, and one load per member, at **every** access site. The cost of
-an access site is therefore linear in the member count, and the cost of a program is linear in
-(access sites × members). Measured on a word reading `members` distinct elements of an inline
-aggregate and keeping each one, in lines of emitted C:
+A runtime index into an aggregate is lowered to one `SelectField` instruction, and the emitter
+writes its switch **once per aggregate type** rather than once per access site. Every read through
+that type calls the helper:
 
-| members | 1 access site | 4 access sites | lines per access site |
-|---------|---------------|----------------|-----------------------|
-| 4       | 154           | 685            | 177                   |
-| 8       | 262           | 1369           | 369                   |
-| 16      | 478           | 2737           | 753                   |
-| 32      | 910           | 5473           | 1521                  |
+```c
+static int64_t let_select_1(const struct let_val_3 *r, int64_t key){
+switch(key){
+case 0: return r->f0;
+case 1: return r->f1;
+default: let_trap("index out of range"); }
+return 0;
+}
+```
 
-That is about 48 lines per member per access site, and it is what a large dispatch aggregate --
-an opcode table, a state machine, a VM -- turns into: a real report of one is ~172,000 lines of C
-for a 24 KB binary, because gcc folds thousands of near-identical branch chains away. The compile
-time is real, the code is not, which is why the binary stays small and the problem is easy to miss.
+So a read costs a call, and the emitted C is proportional to (members + reads) rather than to
+(members × reads). Measured on a word reading members of an inline aggregate at runtime indices and
+keeping each one, in lines of emitted C:
 
-Two ways out, neither taken yet. A `switch` on the index is O(1) lines per access site and the C
-compiler emits a jump table for it, but the belt has no such `Op` (§4.3 fixes the vocabulary), so
-it is a belt addition rather than a local change. Index arithmetic -- if the members are
-homogeneous, load the *i*-th of a uniform layout rather than testing for it -- is O(1) too and is
-what a dispatch table actually wants, but it needs a rule for when members may be treated as an
-array, which is a language question rather than a lowering one.
+| members | 1 read | 4 reads | lines per read |
+|---------|--------|---------|----------------|
+| 4       | 68     | 77      | 3              |
+| 8       | 76     | 85      | 3              |
+| 16      | 92     | 101     | 3              |
+| 32      | 124    | 133     | 3              |
+
+The same measurement before the switch grew with the member count -- 154/685 at 4 members and
+910/5473 at 32, about 48 lines per member per read -- because each access site emitted an integer
+literal, a test, a branch and a load per member. A dispatch aggregate is the shape that multiplies
+that: an opcode table indexed from everywhere produced ~172,000 lines of C for a 24 KB binary,
+because a C compiler folds thousands of near-identical branch chains away. The compile time was
+real and the artifact was not, which is why it went unnoticed. `test/aggregate.lua` pins the
+property rather than a line count: three more reads must cost the same at 4 members as at 32.
+
+A runtime index used as a *write* target still takes the old path, and it is not the same shape.
+Its arm is not always a store: where the member owns, the old value is destroyed first and a hole
+may need a guard around it, and a destination can be a nested path (`a.b[i].c`) whose store is a
+chain of `StoreField`s. A single-instruction lowering therefore fits only the simple case -- one
+level, nothing owning, no hole -- which is where that work would start.
+
 
 ## Tests and their limits
 

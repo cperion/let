@@ -13,6 +13,7 @@ local Emitter={}; Emitter.__index=Emitter
 function Emitter.new(options)
     return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
         names={},helpers={},used_hosts={},used_destroys={},destroy_pointer={},text=false,stdbool=true,trap=false,
+        selections={},selection_list=L(),selections_used={},
         instances={},pending={},generic={},serial={},self_tail={}},Emitter)
 end
 
@@ -66,6 +67,21 @@ function Emitter:register_struct(fields)
     self.struct_names[key]=name
     self.structs[#self.structs+1]=C.Struct(name,declarations)
     return 'struct ' .. name
+end
+
+-- One selection helper per aggregate *type*, not per access site. The helper holds the switch a
+-- runtime index needs, and every read through that aggregate type calls it. Writing the switch at
+-- each access site instead costs the member count at every read, which is what made a dispatch
+-- table's emitted C proportional to (members x reads) -- tens of thousands of lines whose binary
+-- was small only because a C compiler folds the repeated chains away.
+function Emitter:select_helper(record,element)
+    local key='s' .. tostring(self:ctype(record))
+    local existing=self.selections[key]
+    if existing then return existing end
+    local helper={name='let_select_' .. (#self.selection_list+1),record=record,element=element}
+    self.selections[key]=helper
+    self.selection_list:insert(helper)
+    return helper
 end
 
 function Emitter:ctype(type_)
@@ -327,6 +343,17 @@ function Emitter:instruction(block,block_id,index,instruction)
     elseif B.Construct:isclassof(operation) then
         if #operation.fields==0 then declare(0,instruction.results[1],C.Integer(0,0))
         else declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,operation.fields))) end
+    elseif B.SelectField:isclassof(operation) then
+        -- §8.4: a runtime index over an aggregate whose members share a type. A member read is a
+        -- load of a named member, so the switch over the members is the whole of the operation and
+        -- it belongs in one helper rather than at this site.
+        local _,record=block:resolve(position,operation.record)
+        local helper=self:select_helper(record,instruction.results[1])
+        if declare(0,instruction.results[1],C.Call(C.Name(helper.name),
+            L{C.Unary('&',self:ref(block,block_id,position,operation.record)),
+              self:ref(block,block_id,position,operation.key)})) then
+            self.selections_used[helper.name]=true
+        end
     elseif B.LoadField:isclassof(operation) then
         local base=self:ref(block,block_id,position,operation.record)
         declare(0,instruction.results[1],C.Field(base,'f' .. operation.field))
@@ -832,6 +859,32 @@ function Emitter:host_declarations()
     return declarations
 end
 
+-- A selection helper's switch. It is emitted *after* the struct definitions, because its body
+-- reads the record's members and names the record's type; and only where a selection was actually
+-- lowered, because a unit of C declares every helper it may need and one the demand analysis
+-- folded away needs no function.
+function Emitter:selection_declarations()
+    local declarations=L()
+    for _,helper in ipairs(self.selection_list) do
+        if self.selections_used[helper.name] then
+            local element=self:ctype(helper.element)
+            local parts={('static %s %s(const %s *r, int64_t key){'):format(
+                element:print(),helper.name,self:ctype(helper.record):print()),
+                'switch(key){'}
+            local fields=helper.record:record()
+            for i=1,#fields do parts[#parts+1]=('case %d: return r->f%d;'):format(i-1,i-1) end
+            parts[#parts+1]='default: let_trap("index out of range"); }'
+            -- The trap does not return, but C still has to typecheck what follows, and a
+            -- function returning a struct cannot `return 0`.
+            parts[#parts+1]=('return %s;'):format(C.Named:isclassof(element)
+                and ('(%s){0}'):format(element:print()) or '0')
+            parts[#parts+1]='}'
+            declarations:insert(C.Raw(table.concat(parts,'\n')))
+        end
+    end
+    return declarations
+end
+
 function Emitter:helper_declarations()
     local declarations=L()
     if self.text or self.helpers.text_eq or self.helpers.text_from_c then declarations:insert(C.Struct('let_text',L{C.Parameter(C.Pointer(C.Named('char')),'data'),C.Parameter(C.U64,'size')})) end
@@ -976,6 +1029,7 @@ function Emitter:program(program,options)
     declarations:insertall(self.statics)
     for _,struct in ipairs(self.structs) do declarations:insert(struct) end
     for _,struct in ipairs(self.results) do declarations:insert(struct) end
+    declarations:insertall(self:selection_declarations())
     declarations:insertall(host_declarations)
     for _,instance in ipairs(self.pending) do
         declarations:insert(C.Function(instance.name,self:hosted(instance),self:hosted(instance),

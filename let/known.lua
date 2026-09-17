@@ -375,6 +375,16 @@ function Evaluator:instruction(block,block_id,index,instruction)
             if not Known.is_known(answer) then partial=true end
         end
         put(0,partial and Known.partial(instruction.results[1],fields) or Known.bundle(instruction.results[1],fields))
+    elseif B.SelectField:isclassof(operation) then
+        -- A selection whose index has become known answers with that member, exactly as a written
+        -- index does, so a runtime index that turns out to be constant still folds rather than
+        -- keeping the switch. A written index never reaches here: the builder takes it directly.
+        local answer=inputs{operation.record}[1]
+        local index=inputs{operation.key}[1]
+        local at=Known.answered(index) and tonumber(scalar.to_float(index.value)) or nil
+        if Known.answered(answer) and at and at>=0 and at==math.floor(at) and answer.value.fields[at+1] then
+            put(0,answer.value.fields[at+1])
+        else put(0,Known.runtime(instruction.results[1])) end
     elseif B.LoadField:isclassof(operation) then
         -- Reading a member answers with that member's own answer, constant or not.
         local answer=inputs{operation.record}[1]

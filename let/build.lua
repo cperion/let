@@ -1247,13 +1247,17 @@ function A.Index:build(ctx)
         value.mode=fields[index+1].type:copyable() and 'copy' or 'borrow'
         return value
     end
+    -- A runtime index is one instruction, and the switch over the members is emitted once per
+    -- aggregate type rather than once per read: the chain of tests this replaces cost the member
+    -- count at *every* access site, which is what made a dispatch table's C quadratic. The index
+    -- is built with `base` pinned, because building it can itself split the block.
+    ctx:pin(base)
     local key=self.index:build(ctx); expect(key,B.Int,self.index.span)
-    local element=fields[1].type
-    ctx:pin(base); ctx:pin(key)
-    local value=ctx:select_member(key,fields,element,self.span,
-        function(y,at) return y:emit(B.LoadField(y:ref(base),at),L{element},self.span) end)
+    ctx:pin(key)
+    local element=ctx:member_type(fields,self.span)
+    local value=ctx:emit(B.SelectField(ctx:ref(base),ctx:ref(key)),L{element},self.span)
     ctx:unpin(); ctx:unpin()
-    if value then value.mode=element:copyable() and 'copy' or 'borrow' end
+    value.mode=element:copyable() and 'copy' or 'borrow'
     return value
 end
 

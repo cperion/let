@@ -975,6 +975,7 @@ module Belt {
        | Construct(Ref* fields, boolean is_copy)
        | InjectSum(number index, Ref payload)
        | LoadField(Ref record, number field)
+       | SelectField(Ref record, Ref key)
        | StoreField(Ref record, number field, Ref value)
        | CallFunction(number target, Ref effect, Ref* arguments)
        | HostCall(string symbol, Ref effect, Ref* arguments)
@@ -2538,6 +2539,7 @@ return function(V)
     function B.Construct:inputs() return self.fields end
     function B.InjectSum:inputs() return L{self.payload} end
     function B.LoadField:inputs() return L{self.record} end
+    function B.SelectField:inputs() return L{self.record,self.key} end
     function B.StoreField:inputs() return L{self.record,self.value} end
     function B.CallFunction:inputs() local out=L{self.effect}; append(out,self.arguments); return out end
     function B.HostCall:inputs() local out=L{self.effect}; append(out,self.arguments); return out end
@@ -3859,13 +3861,17 @@ function A.Index:build(ctx)
         value.mode=fields[index+1].type:copyable() and 'copy' or 'borrow'
         return value
     end
+    -- A runtime index is one instruction, and the switch over the members is emitted once per
+    -- aggregate type rather than once per read: the chain of tests this replaces cost the member
+    -- count at *every* access site, which is what made a dispatch table's C quadratic. The index
+    -- is built with `base` pinned, because building it can itself split the block.
+    ctx:pin(base)
     local key=self.index:build(ctx); expect(key,B.Int,self.index.span)
-    local element=fields[1].type
-    ctx:pin(base); ctx:pin(key)
-    local value=ctx:select_member(key,fields,element,self.span,
-        function(y,at) return y:emit(B.LoadField(y:ref(base),at),L{element},self.span) end)
+    ctx:pin(key)
+    local element=ctx:member_type(fields,self.span)
+    local value=ctx:emit(B.SelectField(ctx:ref(base),ctx:ref(key)),L{element},self.span)
     ctx:unpin(); ctx:unpin()
-    if value then value.mode=element:copyable() and 'copy' or 'borrow' end
+    value.mode=element:copyable() and 'copy' or 'borrow'
     return value
 end
 
@@ -4494,6 +4500,17 @@ function B.LoadField:verify(ctx)
     local record=ctx:type(self.record); local fields=record:record()
     assert(fields and self.field<#fields,'load requires a valid record field')
     ctx:results(L{fields[self.field+1].type})
+end
+function B.SelectField:verify(ctx)
+    -- A runtime index selects among members, so the members must agree on a type: the result is
+    -- that one type. This is the rule `Context:member_type` states where the selection is built,
+    -- asserted here too because a selection is the one instruction whose result type comes from
+    -- its *operand* rather than from what it constructs.
+    local record=ctx:type(self.record); local fields=record:record()
+    assert(fields and #fields>0,'a selection needs an aggregate with members')
+    ctx:expect(self.key,B.Int)
+    for i=2,#fields do assert(fields[i].type:same(fields[1].type),'a runtime index needs members of one type') end
+    ctx:results(L{fields[1].type})
 end
 function B.StoreField:verify(ctx)
     local record=ctx:type(self.record); local fields=record:record()
@@ -7134,6 +7151,16 @@ function Evaluator:instruction(block,block_id,index,instruction)
             if not Known.is_known(answer) then partial=true end
         end
         put(0,partial and Known.partial(instruction.results[1],fields) or Known.bundle(instruction.results[1],fields))
+    elseif B.SelectField:isclassof(operation) then
+        -- A selection whose index has become known answers with that member, exactly as a written
+        -- index does, so a runtime index that turns out to be constant still folds rather than
+        -- keeping the switch. A written index never reaches here: the builder takes it directly.
+        local answer=inputs{operation.record}[1]
+        local index=inputs{operation.key}[1]
+        local at=Known.answered(index) and tonumber(scalar.to_float(index.value)) or nil
+        if Known.answered(answer) and at and at>=0 and at==math.floor(at) and answer.value.fields[at+1] then
+            put(0,answer.value.fields[at+1])
+        else put(0,Known.runtime(instruction.results[1])) end
     elseif B.LoadField:isclassof(operation) then
         -- Reading a member answers with that member's own answer, constant or not.
         local answer=inputs{operation.record}[1]
@@ -7643,6 +7670,7 @@ local Emitter={}; Emitter.__index=Emitter
 function Emitter.new(options)
     return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
         names={},helpers={},used_hosts={},used_destroys={},destroy_pointer={},text=false,stdbool=true,trap=false,
+        selections={},selection_list=L(),selections_used={},
         instances={},pending={},generic={},serial={},self_tail={}},Emitter)
 end
 
@@ -7696,6 +7724,21 @@ function Emitter:register_struct(fields)
     self.struct_names[key]=name
     self.structs[#self.structs+1]=C.Struct(name,declarations)
     return 'struct ' .. name
+end
+
+-- One selection helper per aggregate *type*, not per access site. The helper holds the switch a
+-- runtime index needs, and every read through that aggregate type calls it. Writing the switch at
+-- each access site instead costs the member count at every read, which is what made a dispatch
+-- table's emitted C proportional to (members x reads) -- tens of thousands of lines whose binary
+-- was small only because a C compiler folds the repeated chains away.
+function Emitter:select_helper(record,element)
+    local key='s' .. tostring(self:ctype(record))
+    local existing=self.selections[key]
+    if existing then return existing end
+    local helper={name='let_select_' .. (#self.selection_list+1),record=record,element=element}
+    self.selections[key]=helper
+    self.selection_list:insert(helper)
+    return helper
 end
 
 function Emitter:ctype(type_)
@@ -7957,6 +8000,17 @@ function Emitter:instruction(block,block_id,index,instruction)
     elseif B.Construct:isclassof(operation) then
         if #operation.fields==0 then declare(0,instruction.results[1],C.Integer(0,0))
         else declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,operation.fields))) end
+    elseif B.SelectField:isclassof(operation) then
+        -- §8.4: a runtime index over an aggregate whose members share a type. A member read is a
+        -- load of a named member, so the switch over the members is the whole of the operation and
+        -- it belongs in one helper rather than at this site.
+        local _,record=block:resolve(position,operation.record)
+        local helper=self:select_helper(record,instruction.results[1])
+        if declare(0,instruction.results[1],C.Call(C.Name(helper.name),
+            L{C.Unary('&',self:ref(block,block_id,position,operation.record)),
+              self:ref(block,block_id,position,operation.key)})) then
+            self.selections_used[helper.name]=true
+        end
     elseif B.LoadField:isclassof(operation) then
         local base=self:ref(block,block_id,position,operation.record)
         declare(0,instruction.results[1],C.Field(base,'f' .. operation.field))
@@ -8462,6 +8516,32 @@ function Emitter:host_declarations()
     return declarations
 end
 
+-- A selection helper's switch. It is emitted *after* the struct definitions, because its body
+-- reads the record's members and names the record's type; and only where a selection was actually
+-- lowered, because a unit of C declares every helper it may need and one the demand analysis
+-- folded away needs no function.
+function Emitter:selection_declarations()
+    local declarations=L()
+    for _,helper in ipairs(self.selection_list) do
+        if self.selections_used[helper.name] then
+            local element=self:ctype(helper.element)
+            local parts={('static %s %s(const %s *r, int64_t key){'):format(
+                element:print(),helper.name,self:ctype(helper.record):print()),
+                'switch(key){'}
+            local fields=helper.record:record()
+            for i=1,#fields do parts[#parts+1]=('case %d: return r->f%d;'):format(i-1,i-1) end
+            parts[#parts+1]='default: let_trap("index out of range"); }'
+            -- The trap does not return, but C still has to typecheck what follows, and a
+            -- function returning a struct cannot `return 0`.
+            parts[#parts+1]=('return %s;'):format(C.Named:isclassof(element)
+                and ('(%s){0}'):format(element:print()) or '0')
+            parts[#parts+1]='}'
+            declarations:insert(C.Raw(table.concat(parts,'\n')))
+        end
+    end
+    return declarations
+end
+
 function Emitter:helper_declarations()
     local declarations=L()
     if self.text or self.helpers.text_eq or self.helpers.text_from_c then declarations:insert(C.Struct('let_text',L{C.Parameter(C.Pointer(C.Named('char')),'data'),C.Parameter(C.U64,'size')})) end
@@ -8606,6 +8686,7 @@ function Emitter:program(program,options)
     declarations:insertall(self.statics)
     for _,struct in ipairs(self.structs) do declarations:insert(struct) end
     for _,struct in ipairs(self.results) do declarations:insert(struct) end
+    declarations:insertall(self:selection_declarations())
     declarations:insertall(host_declarations)
     for _,instance in ipairs(self.pending) do
         declarations:insert(C.Function(instance.name,self:hosted(instance),self:hosted(instance),
