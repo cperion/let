@@ -186,5 +186,16 @@ check(B.Do(B.Int):same(B.Do(B.Int)) and B.Do(B.Int):key()=='do(int)')
 local sum=B.Sum(L{B.Int,B.Text},true)
 check(sum:same(B.Sum(L{B.Int,B.Text},true)) and not sum:same(B.Sum(L{B.Int,B.Text},false)))
 check(sum:copyable() and sum:key()=='S(int|text)')
+-- Cause 6: the two fallbacks name the form they were handed, so an unhandled node is actionable
+-- instead of anonymous. Reached directly, because nothing in the language reaches them -- that is
+-- what a fallback is for, and it is exactly why the message has to say what it got.
+local unhandled=setmetatable({span=span},A.Chain)
+local ok,err=pcall(function() A.Stmt.build(unhandled) end)
+check(not ok and tostring(err):find('no lowering for the statement AST.Chain',1,true)~=nil,
+    'an unhandled statement form names the class it was handed, got '..tostring(err))
+local ok_expr,err_expr=pcall(function() A.Expr.build(unhandled) end)
+check(not ok_expr and tostring(err_expr):find('no lowering for the expression AST.Chain',1,true)~=nil,
+    'and so does an unhandled expression form, got '..tostring(err_expr))
+
 print(('passed %d specification-grounded build checks'):format(checks))
 

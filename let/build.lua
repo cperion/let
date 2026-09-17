@@ -773,12 +773,17 @@ function Context:finish_function(body,extra)
     local blocks=self:blocks()
     return B.Function(self.fn.name,B.Signature(blocks[1].parameters,results),blocks)
 end
+-- A fallback, so the message has to name the form that has no rule: the node's own class is the
+-- only thing that makes an unhandled form actionable, and `tostring` on a class already prints it.
+local function node_form(node)
+    return tostring(getmetatable(node)):match('Class%((.-)%)') or 'an unknown form'
+end
 function A.Expr:build(ctx)
     if A.SumType:isclassof(self) then return A.Sum.build(self,ctx) end
-    gap(self.span,'this expression form')
+    gap(self.span,'no lowering for the expression ' .. node_form(self))
 end
 function A.Expr:tail(ctx) ctx:finish(self:build(ctx),self.span) end
-function A.Stmt:build() gap(self.span,'this statement form') end
+function A.Stmt:build() gap(self.span,'no lowering for the statement ' .. node_form(self)) end
 function A.Name:build(ctx)
     if ctx:find(self.name) then return ctx:word_value(ctx:read(self.name,self.span),self.span,true) end
     -- The defining runtime word is visible only inside its own terminal body (§4.2).
