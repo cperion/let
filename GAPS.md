@@ -50,17 +50,27 @@ that fits the model and the rest is stated as forbidden rather than pending.
 This one cause closes five sites, and it is the same mechanism the deferred `T.match` handler-fold
 wants: a word receiving a body word, specialized so the arms inline.
 
-### Cause 2 — address-taken state and write-back (4 sites)
+### Cause 2 — address-taken state and write-back (3 sites)
 
 `conditional destruction of an address-taken binding` · `address-taken locals` ·
-`tail invocation from a word with mutable state` · `mutable borrowed resource stages`
+`mutable borrowed resource stages`
 
-**Elegant fix: partly, and the mechanism already exists.** For a non-tail invocation the compiler
-*already* writes a callee's mutable retained state back to the caller:
-`Packet.written_back(record.field)` decides which fields are results, and the callee returns them
-(`program.lua`, the `updated` list). A tail transfer is the same problem with the return path
-replaced by the callee's return, so this is one mechanism extended rather than a new one — which is
-the definition of elegant here.
+~~`tail invocation from a word with mutable state`~~ **Fixed**, and not by address-taking. State that
+has to come back through the result does have somewhere to go when the transfer is to the *same*
+entry: its packet *is* the state, so the recursion is a loop with the state as a loop variable, and
+the write-back happens once, when the chain returns. That is sound for a self transfer and only for
+one, so the gate is now the fact rather than an over-approximation of it — `ctx.state_written_back`
+(`Packet.written_back`: state that really returns) *and* the target being a different entry. The old
+`ctx.mutable_state` also covered state reached through a place, which returns nothing and needs no
+continuation at all, so it refused a case that was already sound; the predicate is deleted rather
+than left beside its replacement.
+
+Measured both ways: `test/programs/tail_state.let` and a compiled `tail_state` case compute
+3 + 2 + 1 = 6, and a transfer to a *different* word still gaps, now saying which half is missing.
+
+**The rest of this cause is unchanged.** For a non-tail invocation the compiler already writes a
+callee's mutable retained state back to the caller: `Packet.written_back(record.field)` decides which
+fields are results, and the callee returns them (`program.lua`, the `updated` list).
 
 `address-taken locals` looks like the same family but is probably smaller: the resolver already
 records `definition.address_taken = 'mutable borrow'`, and `A.Binding:build` already allocates a cell
@@ -166,32 +176,6 @@ unhandled form is actionable. Making them genuinely unreachable is a review, not
 `'this place form'`. It now reads `a place to move or borrow is a name, a member or a constant index`,
 stated from the program's side, which is what the classifier needs to see.
 
-### Cause 2 — address-taken state and write-back (3 sites)
-
-`conditional destruction of an address-taken binding` · `address-taken locals` ·
-`mutable borrowed resource stages`
-
-~~`tail invocation from a word with mutable state`~~ **Fixed**, and not by address-taking. The state
-that must come back through the result does have somewhere to go when the transfer is to the *same*
-entry: its packet *is* the state, so the recursion is a loop with the state as a loop variable and
-the write-back happens once, when the chain returns. That is sound for a self transfer and only for
-one, so the condition is now the fact rather than an over-approximation of it -- `ctx.state_written_back`
-(`Packet.written_back`, i.e. state that really returns) *and* the target is a different entry. The
-old `ctx.mutable_state` also covered state reached through a place, which returns nothing and needs no
-continuation at all, so it refused a case that was already sound; the predicate is deleted rather than
-left beside its replacement. Measured both ways: `test/programs/tail_state.let` and a compiled
-`tail_state` case compute 3 + 2 + 1 = 6, and the transfer to a *different* word still gaps, now
-saying which half is missing.
-
-**The rest of this cause is unchanged.** For a non-tail invocation the compiler already writes a
-callee's mutable retained state back to the caller: `Packet.written_back(record.field)` decides which
-fields are results, and the callee returns them (`program.lua`, the `updated` list).
-
-`address-taken locals` looks like the same family but is probably smaller: the resolver already
-records `definition.address_taken = 'mutable borrow'`, and `A.Binding:build` already allocates a cell
-when it sees that. Reaching this site means the resolver missed a `mut` access, so it is a resolver
-gap rather than a lowering one. Worth confirming with a repro before believing it.
-
 0a. ~~The recursive-call crash.~~ **Fixed**.
 0b. **Forward references: the resolver half is done, the builder half is not.** The rule that makes
     them sound turned out to be two conditions plus a check, and all three are now implemented and
@@ -246,8 +230,9 @@ gap rather than a lowering one. Worth confirming with a repro before believing i
 1. ~~Cause 4, by deletion.~~ **Withdrawn**: those two sites are not reachable by the shapes that
    would exercise them, and the inference path is not what keeps them alive.
 2. **Cause 3's `two runtime indices`.** Reuses `select_member`; small and self-contained.
-3. **Cause 2's tail write-back.** Extends `written_back`; unblocks stateful continuations, which is
-   what a stack machine wants.
+3. ~~Cause 2's tail write-back.~~ **Done**, and it needed less than this list assumed. The write-back
+   already existed for a non-tail call; what was missing was noticing that a *self* transfer carries
+   the state as its own packet, and that the gate was an over-approximation of what returns.
 4. **Cause 1, the statically known half.** Closes five sites and unlocks the callback-that-accumulates
    and `T.match`. Bigger than the three above, and the one with the most value.
 5. **Cause 6's message.** Trivial, do it with whichever of the above touches that area.
