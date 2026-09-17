@@ -808,6 +808,21 @@ let shown = print_int(answer)
 ]],'int main(void){ let_module_init(); return 0; }')
 eq(output,'6\n','a self tail transfer with state is a loop, and it computes 3 + 2 + 1')
 
+-- §10.1 A self transfer carrying a *stable* borrow: a word that recurses while capturing a non-Copy
+-- module binding. Compiled, because the borrow is an address in the owner's storage and that is what
+-- the transfer has to carry -- the interpreter has no storage to share.
+output=native('self_capture',[[
+let Pair = { let a mut : Int let b : Int }
+let p = Pair 1 2
+let loop = let n : Int do : Int
+    if n == 0 do return p.b end
+    return loop(n - 1)
+end
+let answer = loop(3)
+let shown = print_int(answer)
+]],'int main(void){ let_module_init(); return 0; }')
+eq(output,'2\n','a self transfer carries a stable borrow of the owner, and reads 2')
+
 -- The write half of a runtime index, compiled and run: the same switch, with the record going in
 -- and coming back rebuilt. `1 + 77 + 3` is the observable result.
 output=native('select_store',[[

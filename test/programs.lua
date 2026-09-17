@@ -61,6 +61,9 @@ local programs={
     -- recursion is a loop with the state as a loop variable and the write-back happens once, on the
     -- way out. It is 3 + 2 + 1.
     {name='tail_state',result=6},
+    -- §10.1 A self transfer that carries a *stable* borrow of a non-Copy module binding. The capture
+    -- is a borrow of the owner's storage, so nothing is copied and the recursion reads the owner.
+    {name='self_capture',result=2},
     -- §6.5 A tail call may borrow a value the word does not own: the word's *prelude* lives in its
     -- bundle rather than in the activation, so the borrow survives the transfer. This was refused
     -- as "tail invocation borrow does not outlive caller cleanup", and the same code with the

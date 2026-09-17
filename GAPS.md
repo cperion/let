@@ -28,9 +28,24 @@ the fault only when it names *what the program did*; a message that names an *an
 
 ## The 18, by cause
 
-### Cause 1 — a word value that carries its captures (5 sites)
+### Cause 1 — a word value that carries its captures (4 sites)
 
-`word-valued stages` · `non-Copy lexical captures` · `a non-Copy capture needs the owner to be a place`
+`word-valued stages` · `a non-Copy capture needs the owner to be a place`
+
+~~`non-Copy lexical captures`~~ **Fixed**, and it was threading after all. `Builder:self_value` -- the
+self-recursion path -- read every capture by value and refused a non-Copy one, while
+`Builder:instantiate` ten lines above it already captured a non-Copy binding as a *borrow* of the
+owner's storage. The two loops are the same question asked of two ways of naming the same word, so
+the second now follows the first.
+
+One thing the fix had to learn, and measuring is what said so: inside an entry the owner is a
+*parameter*, so the storage fact is `binding.external` -- set where the packet was bound, from
+`field.external or field.retained` -- and not `binding.lifetime`, which speaks for a binding this
+context declared. Instrumenting the tail-borrow check printed `type=~Pair stable=false` for a
+module-level owner, which is how the missing half of the fact was found rather than guessed.
+With it, the borrow is stable, `borrows()` is false, and the transfer is allowed -- so this fix and
+the self-transfer fix compose: recursion that carries a non-Copy module binding now works, measured
+at 2 in the interpreter and at `-O0/-O2/-O3` compiled.
 · `source/indirect word invocation` · `source-word invocation and recursion`
 
 **Elegant fix: yes, for a statically known template.** `resolve.lua` already computes the ordered

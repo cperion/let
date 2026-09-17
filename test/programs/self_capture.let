@@ -1,0 +1,12 @@
+// A word that calls itself while capturing a non-Copy module binding. §10.1: the capture is a
+// *stable* borrow of the owner's storage, so a self transfer may carry it -- and the recursion reads
+// the owner's value rather than a copy of something that cannot be copied. The storage fact is what
+// makes it stable: inside the entry the owner is a parameter, so it is `external` (set where the
+// packet was bound) rather than `lifetime` that says "this outlives me".
+let Pair = { let a mut : Int let b : Int }
+let p = Pair 1 2
+let loop = let n : Int do : Int
+    if n == 0 do return p.b end
+    return loop(n - 1)
+end
+let answer = loop(3)

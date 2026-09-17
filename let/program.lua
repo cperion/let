@@ -163,9 +163,34 @@ function Builder:self_value(ctx,definition)
     local word={template=template,fields={},supplied=0}
     ctx:push(); ctx:retain()
     for _,capture in ipairs(layout.captures) do
-        local value=ctx:read(capture.name,capture.span)
-        if not value.type:copyable() then gap(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)') end
-        word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,mutable=false,owned=false,retained=true,span=capture.span}
+        -- §10.1: the same capture rule as `instantiate`, because a word that calls itself holds its
+        -- captures the same way a word value does. A non-Copy binding is captured as a read borrow of
+        -- the owner's storage, which is what lets invoking through the self value write to the owner
+        -- instead of copying a value that cannot be copied. Keeping the two loops alike is the point:
+        -- they are the same question asked of two ways of naming the same word.
+        local id=ctx:find(capture.name)
+        local binding=id and ctx.fn.bindings[id]
+        -- A capture that is itself a parameter carries its storage fact in `external` -- set where
+        -- the packet was bound, from `field.external or field.retained` -- because inside this entry
+        -- the owner's storage is a parameter and not something this activation owns. `lifetime` speaks
+        -- for a binding this context declared. Either one saying "outlives me" is what makes the
+        -- borrow stable, and a stable borrow is what a tail transfer is allowed to carry.
+        local stable=binding and (binding.lifetime=='module' or binding.external==true)
+        local value,borrows
+        if binding and binding.address then
+            local address=ctx.cells[id].value
+            value=ctx:emit(B.BorrowPlace(ctx:ref(address),stable),
+                L{B.Borrow(address.type.pointee,stable)},capture.span)
+            value.mode='borrow'
+            borrows={id}
+        else
+            value=ctx:read(capture.name,capture.span)
+            if not value.type:copyable() then
+                gap(capture.span,'non-Copy lexical captures (ownership/borrow capture of §10.1)')
+            end
+        end
+        word.fields[#word.fields+1]=Packet.field{name=capture.name,value=value,type=value.type,
+            mutable=binding and binding.mutable or false,owned=false,retained=true,span=capture.span,borrows=borrows}
     end
     local result=self:pack(ctx,word)
     ctx:pop()
