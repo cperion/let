@@ -32,6 +32,31 @@ the fault only when it names *what the program did*; a message that names an *an
 
 `word-valued stages` · `a non-Copy capture needs the owner to be a place`
 
+**`a non-Copy capture needs the owner to be a place`: reproduced, and the shape is narrow.** A
+non-Copy **`own` stage** captured by a nested word is the one that fires it:
+
+```let
+let Pair = { let a mut : Int let b : Int }
+let outer = let p own : Pair do : Int
+    let peek = do : Int return p.b end;
+    let r = peek();
+    return r
+end
+let r = outer(Pair 1 2)
+```
+
+The neighbours refuse for reasons of their own, which is why the reachable shape is this one: a
+plain non-Copy stage gives `transient read borrow of owned state`, and a `mut` stage needs a place
+at the call site (it is passed one). So the case is an *owned* parameter: the word owns the value
+and a nested word borrows it, and the parameter's storage is not observable because it arrived by
+value.
+
+**The mechanism is the one the sibling site needs.** An owned non-Copy parameter that gets captured
+has to be *address-taken* -- the entry must store it in a cell and bind the address, which is what
+`A.Binding:build` already does for a local whose `definition.address_taken or captured` is set. So
+this site and `address-taken locals` are one piece of work, not two, which is worth knowing before
+either is started. The repro above is the net for it.
+
 ~~`non-Copy lexical captures`~~ **Fixed**, and it was threading after all. `Builder:self_value` -- the
 self-recursion path -- read every capture by value and refused a non-Copy one, while
 `Builder:instantiate` ten lines above it already captured a non-Copy binding as a *borrow* of the
