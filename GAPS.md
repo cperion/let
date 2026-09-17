@@ -77,6 +77,25 @@ records `definition.address_taken = 'mutable borrow'`, and `A.Binding:build` alr
 when it sees that. Reaching this site means the resolver missed a `mut` access, so it is a resolver
 gap rather than a lowering one. Worth confirming with a repro before believing it.
 
+**Tested, and it did not reproduce.** `mut place` is spelled only as a call argument (`f(mut x)`), and
+the resolver's `A.Borrow:resolve` does reach `use(...,'mut',...)` and set `address_taken` for it.
+Three shapes build: a `mut` local, a mutable *member* (`bump(mut pair.a)`), and a `mut` stage passed on.
+So the site needs a narrower shape than the inventory assumed -- most likely a binding that
+`A.Binding:build` never allocates for, which is a question to answer with the site's own condition
+(`binding.mutable and not binding.address`) rather than by guessing. Not chased further here.
+
+`conditional destruction of an address-taken binding` does have a mechanism waiting for it, and the
+interface already states it. A dynamic `alive` is carried across a join as one `Bool` parameter, and
+those parameters exist so that *"a destruction can then be guarded"* -- which is what the same code
+already does for `moved`. The gap is only the `binding.address` case: the value is loaded from the
+cell, and the destroy needs to happen inside a branch on that flag, with the loaded value pinned
+across the split (this is the same pinning question the invocation path answers with `ctx:pin`).
+Contained, destruction-sensitive, and the next thing here worth doing.
+
+`mutable borrowed resource stages` is the one that needs a decision rather than a mechanism: a `mut`
+stage over a non-Copy type is a temporary borrow of something that owns state, and what that means
+for destruction and write-back is a question about the language, not a lowering.
+
 ### Cause 3 — analysis depth (3 sites)
 
 `two runtime indices in one place path` · `loop ownership states that require initialization
@@ -88,6 +107,16 @@ fixed-point analysis` · `a partial move inside a loop needs path-sensitive init
 one member by comparing a runtime key against each position, with a `build(c, at)` callback per arm.
 Nesting is that same recursion one level deeper — the second index is selected *inside* each arm of
 the first. No new analysis.
+
+**Tested: the read path already nests.** `a[i][j]` builds today, because `A.Index:build` recurses
+through the same lowering. Only the *place* path gaps -- a store target -- and there for a reason
+worth stating: `A.Assign:assign_place` walks the steps and stops at the *first* run-time index
+(`dynamic=i; break`), then walks the rest as a **static** suffix, so a second run-time index has
+nowhere to go. The elegant shape the note above describes is therefore real, but it is a
+generalization of that function's ownership machinery -- the hole/destroy/replace logic that
+rebuilds each level and decides what may be destroyed per arm -- from one run-time index to N. That
+is the delicate function in the compiler, so it wants its own pass with the corpus as the net, not a
+paragraph in a gap-closing sweep.
 
 The two loop sites are **not** elegant, and their own comments say why: "Breaking that circle needs
 path-sensitive facts (or peeling the first iteration)". That is a real dataflow analysis, and the
@@ -229,13 +258,15 @@ stated from the program's side, which is what the classifier needs to see.
    would exercise them, and the inference path is not what keeps them alive.
 1. ~~Cause 4, by deletion.~~ **Withdrawn**: those two sites are not reachable by the shapes that
    would exercise them, and the inference path is not what keeps them alive.
+   would exercise them, and the inference path is not what keeps them alive.
 2. **Cause 3's `two runtime indices`.** Reuses `select_member`; small and self-contained.
 3. ~~Cause 2's tail write-back.~~ **Done**, and it needed less than this list assumed. The write-back
    already existed for a non-tail call; what was missing was noticing that a *self* transfer carries
    the state as its own packet, and that the gate was an over-approximation of what returns.
 4. **Cause 1, the statically known half.** Closes five sites and unlocks the callback-that-accumulates
    and `T.match`. Bigger than the three above, and the one with the most value.
-5. **Cause 6's message.** Trivial, do it with whichever of the above touches that area.
+5. ~~Cause 6's message.~~ **Done**: both fallbacks now name the node's class
+   (`no lowering for the statement AST.Chain`), pinned in `test/build.lua`.
 6. Leave Cause 3's loop analysis and Cause 5 until the four above are done; both are real work whose
    absence is at least *stated* clearly now.
 
