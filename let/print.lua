@@ -86,6 +86,17 @@ local function statement(node,level,lines)
     elseif C.While:isclassof(node) then
         lines[#lines+1]=pad .. 'while (' .. node.condition:print() .. ')'
         statement(node.body,level,lines)
+    elseif C.Break:isclassof(node) then
+        lines[#lines+1]=pad .. 'break;'
+    elseif C.Switch:isclassof(node) then
+        -- C's own construct for a select on an integer, so a lowering that needs one writes one
+        -- rather than a function. A case with no value is the default arm.
+        lines[#lines+1]=pad .. 'switch (' .. node.value:print() .. ') {'
+        for _,case in ipairs(node.cases) do
+            lines[#lines+1]=indent(level+1) .. (case.value and ('case ' .. case.value:print() .. ':') or 'default:')
+            for _,child in ipairs(case.body) do statement(child,level+2,lines) end
+        end
+        lines[#lines+1]=pad .. '}'
     elseif C.Label:isclassof(node) then
         lines[#lines+1]=node.name .. ':;'
     elseif C.Goto:isclassof(node) then

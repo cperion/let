@@ -193,12 +193,12 @@ let c = Counter 0 4
 let d = c
 ]],'move or a fresh result','a record with a `mut` member is not Copy')
 
--- §8.4 A runtime index is one instruction, and the emitter writes its switch once per aggregate
--- *type* rather than once per access site. The chain of tests it replaced emitted a test and a
--- branch per member at every read, so the emitted C grew with (members x reads): a dispatch table
--- -- an aggregate of one shape indexed from everywhere -- produced ~172,000 lines of C for a 24 KB
--- binary. Asserted as a property rather than a line count, so unrelated emission changes do not
--- break it.
+-- §8.4 A runtime index over an aggregate whose members share a type lowers to the C construct that
+-- means exactly that: a switch, written at the site where the source selects. Not a call -- a
+-- selection is not an invocation, and a helper would put a function in the emitted C for something
+-- the program never called. The chain of tests this replaced was expensive for the opposite
+-- reason: a branch per member at every access site, each with the block machinery behind it (a
+-- goto, a label, carried parameters), which is where ~172,000 lines of C came from.
 local function indexed(members,reads)
     local elements={} for i=1,members do elements[i]=tostring(i) end
     local body=''
@@ -214,16 +214,19 @@ local function indexed(members,reads)
 end
 local narrow,narrow_text=indexed(4,1)
 local wide,wide_text=indexed(32,1)
-check(wide_text:find('switch(key)',1,true)~=nil,'a runtime index lowers to a switch over the members')
-check(wide_text:find('index out of range',1,true)~=nil,'whose fall-through is the range trap §8.4 names')
--- Three more reads cost the same whether the aggregate has 4 members or 32. That is the property:
--- before, the same three reads cost 4x3 lines at 4 members and 32x3 at 32.
-eq(wide-narrow>=0,true,'the wider aggregate still emits, and emits a helper')
-eq(indexed(32,4)-wide,indexed(4,4)-narrow,'three more reads cost the same at 4 members and at 32')
+check(wide_text:find('switch (',1,true)~=nil,'a runtime index lowers to a switch')
+check(wide_text:find('let_select_',1,true)==nil,'and to no function: C has the construct, so nothing is called')
+-- The reason itself is escaped in the C string literal, so what is asserted here is the trap; that
+-- it carries §8.4's message is asserted by running it, in `test/native.lua`.
+check(wide_text:find('let_trap(',1,true)~=nil,'whose default arm is the range trap §8.4 names')
+check(wide>narrow,'a wider aggregate lists more cases, which is what a switch is')
+-- A read site costs a few lines per member -- a case label and an assignment each -- and not the
+-- block-per-member chain, which cost about 48 lines per member. Bounded at 4, which that chain
+-- could not approach.
+check(indexed(32,4)-wide <= 3*32*4,'three more reads cost a few lines per member, not a block per member')
 
--- The same property for the write half, which is one instruction for the same reason. The stage
--- arrives through `runtime_int`, because a constant index folds the whole word away and nothing is
--- emitted at all.
+-- The write half, same construct and same reason. The stage arrives through `runtime_int`, because
+-- a constant index folds the whole word away and nothing is emitted at all.
 local function written(members,writes)
     local elements={} for i=1,members do elements[i]=tostring(i) end
     local body=''
@@ -235,9 +238,9 @@ local function written(members,writes)
     for _ in emitted:gmatch('\n') do lines=lines+1 end
     return lines,emitted
 end
-local written_narrow=written(4,1)
 local written_wide,written_text=written(32,1)
-check(written_text:find('r.f0=value',1,true)~=nil,'a runtime index as a destination lowers to a storing switch')
-eq(written(32,4)-written_wide,written(4,4)-written_narrow,'three more writes cost the same at 4 members and at 32')
+check(written_text:find('switch (',1,true)~=nil,'a runtime index as a destination lowers to a switch too')
+check(written_text:find('let_select_',1,true)==nil,'and to no function either')
+check(written(32,4)-written_wide <= 3*32*4,'three more writes cost a few lines per member')
 
 print(('passed %d aggregate/projection checks'):format(checks))

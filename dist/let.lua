@@ -1265,11 +1265,13 @@ module C {
          | Init(Type type, Designator* fields)
     Parameter = (Type type, string name)
     Designator = (string name, Expr value)
+    Case = (Expr? value, Stmt* body)
     Stmt = Declare(Type type, string name, Expr? initial)
          | Assign(Expr place, Expr value) | Evaluate(Expr value)
          | Block(Stmt* statements) | If(Expr condition, Stmt yes, Stmt? no)
          | While(Expr condition, Stmt body)
          | Label(string name) | Goto(string name) | Return(Expr? value)
+         | Switch(Expr value, Case* cases) | Break
     Declaration = Function(string name, boolean external, boolean exported, Type result, Parameter* parameters, Stmt? body)
                 | Struct(string name, Parameter* fields)
                 | Raw(string code)
@@ -7596,6 +7598,17 @@ local function statement(node,level,lines)
     elseif C.While:isclassof(node) then
         lines[#lines+1]=pad .. 'while (' .. node.condition:print() .. ')'
         statement(node.body,level,lines)
+    elseif C.Break:isclassof(node) then
+        lines[#lines+1]=pad .. 'break;'
+    elseif C.Switch:isclassof(node) then
+        -- C's own construct for a select on an integer, so a lowering that needs one writes one
+        -- rather than a function. A case with no value is the default arm.
+        lines[#lines+1]=pad .. 'switch (' .. node.value:print() .. ') {'
+        for _,case in ipairs(node.cases) do
+            lines[#lines+1]=indent(level+1) .. (case.value and ('case ' .. case.value:print() .. ':') or 'default:')
+            for _,child in ipairs(case.body) do statement(child,level+2,lines) end
+        end
+        lines[#lines+1]=pad .. '}'
     elseif C.Label:isclassof(node) then
         lines[#lines+1]=node.name .. ':;'
     elseif C.Goto:isclassof(node) then
@@ -7707,7 +7720,6 @@ local Emitter={}; Emitter.__index=Emitter
 function Emitter.new(options)
     return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
         names={},helpers={},used_hosts={},used_destroys={},destroy_pointer={},text=false,stdbool=true,trap=false,
-        selections={},selection_list=L(),selections_used={},
         instances={},pending={},generic={},serial={},self_tail={}},Emitter)
 end
 
@@ -7763,22 +7775,6 @@ function Emitter:register_struct(fields)
     return 'struct ' .. name
 end
 
--- One selection helper per aggregate *type*, not per access site. The helper holds the switch a
--- runtime index needs, and every read through that aggregate type calls it. Writing the switch at
--- each access site instead costs the member count at every read, which is what made a dispatch
--- table's emitted C proportional to (members x reads) -- tens of thousands of lines whose binary
--- was small only because a C compiler folds the repeated chains away.
-function Emitter:select_helper(record,element,kind)
-    -- The two halves of a selection need different helpers -- one reads a member, one writes one and
-    -- returns the record -- so the kind is part of the key.
-    local key='s' .. kind .. tostring(self:ctype(record))
-    local existing=self.selections[key]
-    if existing then return existing end
-    local helper={name='let_select_' .. (#self.selection_list+1),record=record,element=element,kind=kind}
-    self.selections[key]=helper
-    self.selection_list:insert(helper)
-    return helper
-end
 
 function Emitter:ctype(type_)
     if type_==B.Int then return C.I64 end
@@ -8040,27 +8036,41 @@ function Emitter:instruction(block,block_id,index,instruction)
         if #operation.fields==0 then declare(0,instruction.results[1],C.Integer(0,0))
         else declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,operation.fields))) end
     elseif B.SelectField:isclassof(operation) then
-        -- §8.4: a runtime index over an aggregate whose members share a type. A member read is a
-        -- load of a named member, so the switch over the members is the whole of the operation and
-        -- it belongs in one helper rather than at this site.
-        local _,record=block:resolve(position,operation.record)
-        local helper=self:select_helper(record,instruction.results[1],'read')
-        if declare(0,instruction.results[1],C.Call(C.Name(helper.name),
-            L{C.Unary('&',self:ref(block,block_id,position,operation.record)),
-              self:ref(block,block_id,position,operation.key)})) then
-            self.selections_used[helper.name]=true
+        -- §8.4: a runtime index over an aggregate whose members share a type. C's construct for it
+        -- is the switch, so the switch is what is written -- here, at the site, where the source
+        -- selects. A selection is not a call: a helper would put a function in the emitted C for
+        -- something the program never invoked, and would hide the operation behind a name.
+        if declare(0,instruction.results[1],nil) then
+            local _,record=block:resolve(position,operation.record)
+            local fields=record:record()
+            local base=self:ref(block,block_id,position,operation.record)
+            local name=self:value(block_id,index,0)
+            local cases=L()
+            for i=1,#fields do
+                local assign=C.Assign(C.Name(name),C.Field(base,'f' .. (i-1)))
+                cases:insert(C.Case(C.Integer(0,i-1),L{assign,C.Break}))
+            end
+            local trap=C.Call(C.Name('let_trap'),L{C.String('index out of range')})
+            cases:insert(C.Case(nil,L{C.Evaluate(trap)}))
+            out[#out+1]=C.Switch(self:ref(block,block_id,position,operation.key),cases)
         end
     elseif B.SelectStore:isclassof(operation) then
-        -- The write half. The record goes by value and comes back rebuilt, which is what
-        -- `StoreField` does too: the members are replaced, not mutated through the caller's copy.
-        local _,record=block:resolve(position,operation.record)
-        local _,element=block:resolve(position,operation.value)
-        local helper=self:select_helper(record,element,'store')
-        if declare(0,instruction.results[1],C.Call(C.Name(helper.name),
-            L{self:ref(block,block_id,position,operation.record),
-              self:ref(block,block_id,position,operation.key),
-              self:ref(block,block_id,position,operation.value)})) then
-            self.selections_used[helper.name]=true
+        -- The write half. The record is copied and one member of the copy is replaced, which is
+        -- what `StoreField` writes out too: members are replaced, never mutated through the
+        -- caller's own copy.
+        if declare(0,instruction.results[1],self:ref(block,block_id,position,operation.record)) then
+            local _,record=block:resolve(position,operation.record)
+            local fields=record:record()
+            local name=self:value(block_id,index,0)
+            local value=self:ref(block,block_id,position,operation.value)
+            local cases=L()
+            for i=1,#fields do
+                local assign=C.Assign(C.Field(C.Name(name),'f' .. (i-1)),value)
+                cases:insert(C.Case(C.Integer(0,i-1),L{assign,C.Break}))
+            end
+            local trap=C.Call(C.Name('let_trap'),L{C.String('index out of range')})
+            cases:insert(C.Case(nil,L{C.Evaluate(trap)}))
+            out[#out+1]=C.Switch(self:ref(block,block_id,position,operation.key),cases)
         end
     elseif B.LoadField:isclassof(operation) then
         local base=self:ref(block,block_id,position,operation.record)
@@ -8567,45 +8577,6 @@ function Emitter:host_declarations()
     return declarations
 end
 
--- A selection helper's switch. It is emitted *after* the struct definitions, because its body
--- reads the record's members and names the record's type; and only where a selection was actually
--- lowered, because a unit of C declares every helper it may need and one the demand analysis
--- folded away needs no function.
-function Emitter:selection_declarations()
-    local declarations=L()
-    for _,helper in ipairs(self.selection_list) do
-        if self.selections_used[helper.name] then
-            local element=self:ctype(helper.element)
-            -- A read takes the record by pointer and returns the member; a store takes it by value
-            -- and returns the record with one member replaced, which is what `StoreField` does too.
-            local typed=self:ctype(helper.record):print()
-            local signature=helper.kind=='read'
-                and ('static %s %s(const %s *r, int64_t key){'):format(element:print(),helper.name,typed)
-                or ('static %s %s(%s r, int64_t key, %s value){'):format(typed,helper.name,typed,element:print())
-            local parts={signature,'switch(key){'}
-            local fields=helper.record:record()
-            for i=1,#fields do
-                parts[#parts+1]=helper.kind=='read'
-                    and ('case %d: return r->f%d;'):format(i-1,i-1)
-                    or ('case %d: r.f%d=value; break;'):format(i-1,i-1)
-            end
-            parts[#parts+1]='default: let_trap("index out of range"); }'
-            -- A read returns from every case, so what follows is unreachable -- but C still has to
-            -- typecheck it, and a function returning a struct cannot `return 0`. A store *breaks*
-            -- out of its switch, so what follows is its real return, and it must return the record
-            -- the cases just wrote into rather than a zero.
-            if helper.kind=='read' then
-                parts[#parts+1]=('return %s;'):format(C.Named:isclassof(element)
-                    and ('(%s){0}'):format(element:print()) or '0')
-            else
-                parts[#parts+1]='return r;'
-            end
-            parts[#parts+1]='}'
-            declarations:insert(C.Raw(table.concat(parts,'\n')))
-        end
-    end
-    return declarations
-end
 
 function Emitter:helper_declarations()
     local declarations=L()
@@ -8751,7 +8722,6 @@ function Emitter:program(program,options)
     declarations:insertall(self.statics)
     for _,struct in ipairs(self.structs) do declarations:insert(struct) end
     for _,struct in ipairs(self.results) do declarations:insert(struct) end
-    declarations:insertall(self:selection_declarations())
     declarations:insertall(host_declarations)
     for _,instance in ipairs(self.pending) do
         declarations:insert(C.Function(instance.name,self:hosted(instance),self:hosted(instance),

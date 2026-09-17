@@ -13,11 +13,13 @@ module C {
          | Init(Type type, Designator* fields)
     Parameter = (Type type, string name)
     Designator = (string name, Expr value)
+    Case = (Expr? value, Stmt* body)
     Stmt = Declare(Type type, string name, Expr? initial)
          | Assign(Expr place, Expr value) | Evaluate(Expr value)
          | Block(Stmt* statements) | If(Expr condition, Stmt yes, Stmt? no)
          | While(Expr condition, Stmt body)
          | Label(string name) | Goto(string name) | Return(Expr? value)
+         | Switch(Expr value, Case* cases) | Break
     Declaration = Function(string name, boolean external, boolean exported, Type result, Parameter* parameters, Stmt? body)
                 | Struct(string name, Parameter* fields)
                 | Raw(string code)

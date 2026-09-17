@@ -275,67 +275,56 @@ These are not gaps. The specification fixes no behaviour to implement, or defers
 
 ## What an indexed aggregate costs
 
-A runtime index into an aggregate is lowered to one `SelectField` instruction, and the emitter
-writes its switch **once per aggregate type** rather than once per access site. Every read through
-that type calls the helper:
+A runtime index over an aggregate whose members share a type lowers to the C construct that means
+exactly that: a `switch`, written **at the site**, where the source selects.
 
 ```c
-static int64_t let_select_1(const struct let_val_3 *r, int64_t key){
-switch(key){
-case 0: return r->f0;
-case 1: return r->f1;
-default: let_trap("index out of range"); }
-return 0;
+switch (p1_1) {
+    case INT64_C(0):
+        v1_7_0 = (v1_6_0).f0;
+        break;
+    case INT64_C(1):
+        v1_7_0 = (v1_6_0).f1;
+        break;
+    default:
+        let_trap("index out of range");
 }
 ```
 
-So a read costs a call, and the emitted C is proportional to (members + reads) rather than to
-(members × reads). Measured on a word reading members of an inline aggregate at runtime indices and
-keeping each one, in lines of emitted C:
+A selection is not an invocation, so nothing is called: the emitted C holds no selection function
+and no name for one. The switch is a statement, so the instruction's result is declared first and the
+arms assign it; the write half declares it as a copy of the record and the arms store into it, which
+is what `StoreField` writes out anyway. `C.Stmt` gained `Switch` and `Break` for this, because the
+output vocabulary had no way to say either -- which is the only reason an earlier version of this
+lowering put a function here, and it was the wrong reason.
 
-| members | 1 read | 4 reads | lines per read |
-|---------|--------|---------|----------------|
-| 4       | 68     | 77      | 3              |
-| 8       | 76     | 85      | 3              |
-| 16      | 92     | 101     | 3              |
-| 32      | 124    | 133     | 3              |
+The chain of tests it replaced is why it cost so much. One branch per member *per access site*, and
+every branch is a control-flow split, so each carried the packet machinery with it: a goto, a label,
+and a parameter for every live value. That is about 48 lines of C per member per site, and a
+dispatch aggregate is the shape that multiplies it -- which is where a ~420-line program's ~172,000
+lines of C came from. The binary stayed at 24 KB because a C compiler folds the repeated chains
+away, so the cost was compile time and never the artifact.
 
-The same measurement before the switch grew with the member count -- 154/685 at 4 members and
-910/5473 at 32, about 48 lines per member per read -- because each access site emitted an integer
-literal, a test, a branch and a load per member. A dispatch aggregate is the shape that multiplies
-that: an opcode table indexed from everywhere produced ~172,000 lines of C for a 24 KB binary,
-because a C compiler folds thousands of near-identical branch chains away. The compile time was
-real and the artifact was not, which is why it went unnoticed. `test/aggregate.lua` pins the
-property rather than a line count: three more reads must cost the same at 4 members as at 32.
+Measured on a word reading members of an inline aggregate at runtime indices and keeping each one, in
+lines of emitted C:
 
-A runtime index used as a *write* target is one instruction too, for the simple destination: the
-record goes in by value and comes back rebuilt, which is what `StoreField` already does.
+| members | 1 read | 4 reads | per read | (chain) |
+|---------|--------|---------|----------|---------|
+| 4       | 74     | 131     | 19       | 177     |
+| 8       | 90     | 183     | 31       | 369     |
+| 16      | 122    | 287     | 55       | 753     |
+| 32      | 186    | 495     | 103      | 1521    |
 
-```c
-static struct let_val_3 let_select_2(struct let_val_3 r, int64_t key, int64_t value){
-switch(key){
-case 0: r.f0=value; break;
-case 1: r.f1=value; break;
-default: let_trap("index out of range"); }
-return r;
-}
-```
+A write is the same shape and costs the same: 186 and 489 at 32 members, 101 per write, against 1396
+for the chain. So a site costs about three lines per member rather than forty-eight, and the `switch`
+is also what a C compiler turns into a jump table instead of a chain of comparisons.
 
-Measured the same way, in lines of emitted C:
-
-| members | 1 write | 4 writes | lines per write | before |
-|---------|---------|----------|-----------------|--------|
-| 4       | 68      | 71       | 1               | 164    |
-| 8       | 76      | 79       | 1               | 340    |
-| 16      | 92      | 95       | 1               | 692    |
-| 32      | 124     | 127      | 1               | 1396   |
-
-Only that shape is one instruction, and the condition is the compiler's own statement of what
-needs more than a store: the dynamic index must be the last step of a one-step path, the member
-must not own anything (an owned member is destroyed before it is replaced), and the destination
-must not be a hole (only a fully written path can be one, which needs a static index). A longer
-path rebuilds every level on the way up, and each level is a `StoreField`, so those destinations
-keep the per-arm chain.
+A write is inlined the same way, but only for the simple destination, and the condition is the
+compiler's own statement of what needs more than a store: the dynamic index must be the last step of
+a one-step path, the member must not own anything (an owned member is destroyed before it is
+replaced), and the destination must not be a hole (only a fully written path can be one, which needs
+a static index). A longer path rebuilds every level on the way up, and each level is a `StoreField`,
+so those destinations keep the per-arm chain.
 
 
 ## Tests and their limits
