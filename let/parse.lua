@@ -1,476 +1,692 @@
--- Let grammar (§3), independent of the current compiler. Parsing preserves words,
--- preludes, aggregates and places even where belt construction is still pending.
+-- Tokens -> Syntax.Program (spec §3.1).
+--
+-- A program **is** a binding chain (spec §2.6): its items are the top-level bindings and its
+-- terminal, if written, replaces the namespace. So the program and a binding value are parsed by
+-- the same rule, and a chain item is the same in both positions:
+--
+--     let NAME [own] [mut] [: type]        a stage -- an unsatisfied input
+--     let NAME [mut] [: type] = <chain>    a prelude -- a completed binding
+--
+-- The split is decided by the `=` alone, and that is not a convenience: spec §3.1 gives a stage no
+-- terminal to read a type from, so a stage **must** declare its type word, and its absence is an
+-- error rather than an inference.
+--
+-- **Items are greedy; expressions are not.** Items are consumed while the next token can begin one
+-- (`let`, `extern`, `host`), and the first token that cannot begins the terminal -- so the boundary
+-- between two ITEMS needs no separator, because the keywords delimit themselves.
+--
+-- An APPLICATION, by contrast, is the keyword `with` and never adjacency (§S88). Two expressions in a
+-- row are a mistake the parser reports, which is what lets a parenthesized expression AFTER `with` be
+-- a group (`sum with (square with 3)`) -- unreachable while a word followed by `(` was an invocation.
+-- And `;` means exactly one thing now: an item's value is an expression and so is a written terminal,
+-- so THAT boundary needs a separator. `f(x); g(y)` is not why it exists.
 return function(V)
-local A,L,Lexer=V.AST,V.List,V.Lexer
-local fail=Lexer.fail; local literal=require('let.literal')
-local Source=V.Source
--- A name's range ends just past it. A NAME is ASCII (§2.1), so its byte length is its length
--- in scalars and the column arithmetic is exact.
-local function span_range(span,name) return Source.Range(span,Source.Span(span.file,span.line,span.column+#name)) end
-local function name_range(token) return span_range(token.span,token.spelling) end
-local Parser={}; Parser.__index=Parser
-function Parser:token() return self.tokens[self.pos] end
-function Parser:is(kind) return self:token().kind==kind end
-function Parser:take() local t=self:token(); self.pos=self.pos+1; return t end
-function Parser:accept(kind) if self:is(kind) then return self:take() end end
-function Parser:expect(kind)
-    if not self:is(kind) then fail(self:token().span,'expected ' .. kind .. ', found ' .. self:token().kind) end
-    return self:take()
-end
-function Parser:separators() while self:accept(';') do end end
--- Bounded lexical lookahead for place '='. It never builds or evaluates an index.
-function Parser:assignment_ahead()
-    local at=self.pos
-    if self.tokens[at].kind~='name' then return false end; at=at+1
-    while true do
-        if self.tokens[at].kind=='.' then
-            at=at+1; if self.tokens[at].kind~='name' then return false end; at=at+1
-        elseif self.tokens[at].kind=='[' then
-            local depth=1; at=at+1
-            while depth>0 do
-                local token=self.tokens[at]; if not token or token.kind=='eof' then return false end
-                if token.kind=='[' then depth=depth+1 elseif token.kind==']' then depth=depth-1 end
-                at=at+1
-            end
-        else return self.tokens[at].kind=='=' end
-    end
-end
--- A record type member is a stage: `let x : T`.
--- §3 type expressions. Arrow and sum bind outside the name+arguments atom; a record is either
--- keyed (`{ x : Int }`) or positional (`{ Int, Text }`). The name+arguments atom keeps the
--- existing annotation shape, so a plain `Int` or `List Int` lowers unchanged.
-function Parser:type_expression() return self:arrow_type() end
-function Parser:arrow_type()
-    local left=self:sum_type()
-    if self:accept('->') then local span=self:token().span; return A.Arrow(left,self:arrow_type(),span) end
-    return left
-end
-function Parser:sum_type()
-    local left=self:apply_type()
-    while self:accept('or') do local span=self:token().span; left=A.Sum(left,self:apply_type(),span) end
-    return left
-end
--- §3.1: type-word application is **juxtaposition**, the same operation that specializes a value
--- word: `List Int` applies `List` to the type word `Int`. It is not invocation -- a type word's
--- terminal is data, so `List(Int)` would be invocation of data (§6.1).
-function Parser:apply_type()
-    local left=self:atom_type()
-    while self:is('name') or self:is('(') do left=A.Apply(left,self:atom_type(),left.span) end
-    return left
-end
-function Parser:atom_type()
-    if self:accept('(') then local inner=self:type_expression(); self:expect(')'); return inner end
-    if self:is('{') then return self:record_type() end
-    -- §11.1: a runtime terminal type, written `do T`, is the codomain of a word type.
-    local do_=self:accept('do')
-    if do_ then return A.Do(self:type_expression(),do_.span) end
-    -- A type word by name, with an optional literal C spelling (`Int "int"`).
-    local name=self:expect('name'); local arguments=L()
-    while self:is('integer') or self:is('text') or self:is('true') or self:is('false') do arguments:insert(self:atom()) end
-    return A.Ref(name.spelling,arguments,name_range(name),name.span)
-end
--- §3.3/§11.2: a record type is the regular aggregate form -- the same braces and `let` members,
--- with a member's type where a value aggregate writes a value. `let x : T` is a stage, so the
--- aggregate is a word awaiting its fields (a constructor and its type); `let x = v` is a value.
-function Parser:record_type()
-    local span=self:expect('{').span
-    self:separators()
-    if self:accept('}') then return A.Record(L(),span) end
-    if self:is('let') then
-        local fields=L()
-        repeat
-            self:expect('let')
-            local name=self:expect('name')
-            local mutable=self:accept('mut')~=nil
-            if not self:accept(':') then fail(name.span,'a record type member needs : type') end
-            fields:insert(A.TypeField(name.spelling,mutable,self:type_expression(),name.span))
-            self:separators()
-        until not self:is('let')
-        self:expect('}'); return A.Record(fields,span)
-    end
-    local elements=L()
-    while true do
-        elements:insert(self:type_expression())
-        if not self:accept(',') then break end
-        if self:is('}') then break end
-    end
-    self:expect('}'); return A.Tuple(elements,span)
-end
-function Parser:header()
-    local span=self:expect('let').span; local token=self:expect('name'); local name=token.spelling
-    local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
-    if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
-    local constraint=self:accept(':') and self:type_expression() or nil
-    return name,own,mutable,constraint,span,name_range(token)
-end
-function Parser:binding()
-    local name,own,mutable,constraint,span,range=self:header()
-    if own then fail(span,'own is only valid on an unsatisfied stage') end
-    self:expect('='); self:separators()
-    return A.Binding(name,mutable,constraint,self:chain(),span,range)
-end
--- The chain items: consecutive `let` forms, an unsatisfied one being a stage.
-function Parser:items()
-    local items=L()
-    while self:is('let') or self:is('extern') do
-        if self:is('extern') then
-            items:insert(self:extern_item())
-        else
-            local name,own,mutable,constraint,at,range=self:header()
-            if self:accept('=') then
-                if own then fail(at,'own is only valid on an unsatisfied stage') end
-                self:separators(); items:insert(A.Prelude(A.Binding(name,mutable,constraint,self:chain(),at,range)))
-            else
-                if not constraint then fail(at,'a stage must declare its type word') end
-                local cap=A.capability(own,mutable)
-                items:insert(A.Stage(name,cap,constraint,at,range))
-            end
-        end
-        self:separators()
-    end
-    return items
-end
--- A foreign word: the C symbol it calls, its ordered stages with the usual capability and
--- constraint, and its result. `pure` is optional; the default is `ordered`.
-function Parser:extern_item()
-    local span=self:expect('extern').span
-    local pure=self:accept('pure')~=nil
-    -- A dotted name adds a member to a namespace, so `extern c.puts ...` needs no embedding.
-    local first=self:expect('name'); local last=first; local name=first.spelling
-    while self:accept('.') do last=self:expect('name'); name=name .. '.' .. last.spelling end
-    local symbol=self:is('text') and self:take().value or nil
-    self:expect('(')
-    local parameters=L()
-    if not self:is(')') then
-        repeat parameters:insert(self:extern_parameter()) until not self:accept(',')
-    end
-    self:expect(')')
-    local result=self:accept(':') and self:type_expression() or nil
-    return A.Extern(name,pure,symbol,parameters,result,span,Source.Range(first.span,span_range(last.span,last.spelling).stop))
-end
-function Parser:extern_parameter()
-    local span=self:token().span; local token=self:expect('name'); local name=token.spelling
-    local own=self:accept('own')~=nil; local mutable=self:accept('mut')~=nil
-    if self:is('own') or self:is('mut') then fail(self:token().span,'qualifiers must occur once in own mut order') end
-    local constraint=self:accept(':') and self:type_expression() or nil
-    local cap=A.capability(own,mutable)
-    return A.Stage(name,cap,constraint,span,name_range(token))
-end
+    local Syntax, Source, Semantic, L = V.Syntax, V.Source, V.Semantic, V.List
 
--- A chain in an expression position always has a written terminal. A source file may omit
--- it, in which case the terminal is the namespace of the file's own prelude bindings.
-function Parser:chain(optional_terminal)
-    local span=self:token().span
-    local items=self:items()
-    local terminal
-    if self:is('do') then terminal=A.Body(self:body(true))
-    elseif optional_terminal and self:is('eof') then terminal=nil
-    else terminal=A.Data(self:transfer()) end
-    return A.Chain(items,terminal,span)
-end
-function Parser:value()
-    local chain=self:chain()
-    if #chain.items==0 and A.Data:isclassof(chain.terminal) then return chain.terminal.value end
-    return A.Word(chain,chain.span)
-end
-function Parser:region(stops)
-    local statements=L(); self:separators()
-    while not stops[self:token().kind] do
-        if self:is('eof') then fail(self:token().span,'unterminated control/body region') end
-        statements:insert(self:statement()); self:separators()
-    end
-    return statements
-end
-function Parser:body(require_result)
-    local span=self:expect('do').span
-    -- §3.1: a runtime terminal must state its result. Its result type is parsed without top-level
-    -- juxtaposition, because the body follows immediately and may start with a name; write
-    -- `do : (List Int)` for an applied result type.
-    local result=self:accept(':') and self:result_type() or nil
-    if require_result and not result then fail(span,'a runtime terminal must state its result with do : T') end
-    local body=self:region({['end']=true}); self:expect('end'); return body,result
-end
--- A result type: names, arrows, sums, records and `do` -- but no bare adjacency, so a terminal's
--- body cannot be swallowed by a type-word application.
-function Parser:result_type() return self:result_arrow() end
-function Parser:result_arrow()
-    local left=self:result_sum()
-    if self:accept('->') then local span=self:token().span; return A.Arrow(left,self:result_arrow(),span) end
-    return left
-end
-function Parser:result_sum()
-    local left=self:atom_type()
-    while self:accept('or') do local span=self:token().span; left=A.Sum(left,self:atom_type(),span) end
-    return left
-end
-function Parser:conditional(span)
-    local condition=self:expression(); self:expect('do')
-    local yes=self:region({['else']=true,['end']=true}); local no=L()
-    if self:accept('else') then
-        local next_=self:accept('if')
-        if next_ then no:insert(self:conditional(next_.span)); return A.If(condition,yes,no,span) end
-        no=self:region({['end']=true})
-    end
-    self:expect('end'); return A.If(condition,yes,no,span)
-end
-function Parser:label()
-    local at=self:token().span
-    if self:is('true') or self:is('false') then local value=self:atom(); return value,'Bool:' .. tostring(value.value),'Bool' end
-    local negative=self:accept('-')~=nil; local token=self:expect('integer')
-    local _,key=literal.integer(token.spelling,negative,function(m) fail(token.span,m) end)
-    local value=A.Integer(token.spelling,token.span)
-    return negative and A.Unary(A.Negate,value,at) or value,'Int:' .. key,'Int'
-end
-function Parser:selection(span)
-    local subject=self:expression(); self:expect('do'); self:separators()
-    local cases,otherwise,seen=L(),L(),{}; local kind
-    while self:accept('case') do
-        local at=self:token().span; local labels=L()
-        repeat
-            local value,key,type_=self:label()
-            if kind and kind~=type_ then fail(value.span,'case labels must have the same type') end; kind=type_
-            if seen[key] then fail(value.span,'duplicate case label') end; seen[key]=true; labels:insert(value)
-        until not self:accept(',')
-        cases:insert(A.Case(labels,self:region({case=true,['else']=true,['end']=true}),at))
-    end
-    if #cases==0 then fail(span,'switch requires at least one case') end
-    if self:accept('else') then otherwise=self:region({['end']=true}) end
-    self:expect('end'); return A.Switch(subject,cases,otherwise,span)
-end
-function Parser:place()
-    local token=self:expect('name'); local value=A.Name(token.spelling,token.span)
-    while true do
-        if self:accept('.') then local member=self:expect('name'); value=A.Project(value,member.spelling,name_range(member),value.span)
-        elseif self:accept('[') then local index=self:expression(); self:expect(']'); value=A.Index(value,index,value.span)
-        else return value end
-    end
-end
-function Parser:statement()
-    local token=self:token()
-    if self:is('let') then return A.Local(self:binding(),token.span) end
-    if self:accept('return') then
-        local value
-        if not self:is(';') and not self:is('end') and not self:is('else') and not self:is('case') then value=self:value() end
-        return A.Return(value,token.span)
-    end
-    if self:accept('if') then return self:conditional(token.span) end
-    if self:accept('break') then return A.Break(token.span) end
-    if self:accept('continue') then return A.Continue(token.span) end
-    if self:accept('switch') then return self:selection(token.span) end
-    if self:accept('while') then local condition=self:expression(); return A.While(condition,self:body(false),token.span) end
-    -- §7.3 makes any expression a statement, and §9.2 admits `move place` as an
-    -- expression. A leading `move` is otherwise recognized only where a transfer
-    -- value is expected, so `move a.x` as a statement would be read as a
-    -- continuation of the previous value instead of a move.
-    if self:is('move') then
-        local moved=self:take()
-        return A.Discard(A.Move(self:place(),moved.span),token.span)
-    end
-    if self:assignment_ahead() then
-        local place=self:place(); self:expect('='); self:separators(); return A.Assign(place,self:value(),token.span)
-    end
-    return A.Discard(self:expression(),token.span)
-end
--- §11.2: an aggregate whose members are stages is a word that awaits its fields. Its terminal
--- constructs the record from the supplied stages, so the aggregate is both the type and its
--- constructor. A `let x = v` member is a prelude and stays in the chain.
-function Parser:aggregate_word(items,span)
-    local members,chain=L(),L()
-    -- §8.3: a named member declared `mut` is an *interior mutable place*, which is a fact about
-    -- the record rather than about how the member is supplied. So the qualifier lands on the
-    -- member, and the stage keeps only the ownership question: a `mut` member is supplied like a
-    -- read one, and taking ownership of a non-Copy member is what `own` is for.
-    for _,item in ipairs(items) do
-        local stage=A.Stage:isclassof(item)
-        local name=stage and item.name or item.binding.name
-        local at=stage and item.span or item.binding.span
-        local mutable
-        if stage then
-            mutable=A.places(item.capability)
-            local supplied=item.capability
-            if supplied==A.Mut then supplied=A.Read elseif supplied==A.OwnMut then supplied=A.Own end
-            chain:insert(A.Stage(item.name,supplied,item.constraint,item.span,item.name_range))
-        else
-            mutable=item.binding.mutable
-            chain:insert(item)
+    return function(tokens, file, text)
+        local at = 1
+        local function peek() return tokens[at] end
+        local function kind() local t = tokens[at]; return t and t.kind end
+        local function what()
+            local t = tokens[at]
+            return t and (t.spelling ~= '' and t.spelling or t.kind) or 'EOF'
         end
-        local value=A.Data(A.Name(name,at))
-        members:insert(A.Binding(name,mutable,nil,A.Chain(L(),value,at),at,span_range(at,name)))
-    end
-    return A.Chain(chain,A.Data(A.NamedAggregate(members,true,span)),span)
-end
-function Parser:named_members()
-    local members=L()
-    repeat members:insert(self:binding()); self:separators() until not self:is('let')
-    self:expect('}'); return members
-end
-function Parser:aggregate()
-    local start=self.pos; local cached=self.aggregates[start]
-    if cached then if cached.error then error(cached.error,0) end; self.pos=cached.next; return cached.value end
-    local span=self:expect('{').span; local body=self.pos; self:separators(); local value
-    if self:accept('}') then value=A.Unit(span)
-    else
-        local named_error
-        if self:is('let') then
-            -- §3.3: the regular aggregate form. Members are preludes (`let x = v`) or stages
-            -- (`let x : T`). All preludes is a data value; any stage makes the aggregate a word
-            -- -- a constructor awaiting its fields, which is also how a record type is written.
-            local trial=setmetatable({tokens=self.tokens,pos=self.pos,aggregates=self.aggregates},Parser)
-            local ok,items=pcall(function()
-                local parsed=trial:items()
-                trial:expect('}')
-                return parsed
-            end)
-            if ok then
-                self.pos=trial.pos
-                local staged=false
-                for _,item in ipairs(items) do if A.Stage:isclassof(item) then staged=true end end
-                if staged then value=A.Word(self:aggregate_word(items,span),span)
+        local function locate(t) return t and ('%s:%d:%d'):format(file, t.span.line, t.span.column) or file end
+        local function take(want)
+            local t = tokens[at]
+            if not t or t.kind ~= want then
+                error(('%s: expected %s, found %s'):format(locate(t), want, what()), 0)
+            end
+            at = at + 1
+            return t
+        end
+        local function accept(want)
+            if kind() == want then local t = tokens[at]; at = at + 1; return t end
+        end
+        -- §12.0 makes `true` and `false` lexical NAMES rather than keywords, so every place that
+        -- needs to know whether a name IS a Bool literal asks here. One owner, because a place that
+        -- forgets is a place that reads `true` as a type name or as a dictionary word.
+        local function is_boolean(spelling)
+            return spelling == 'true' or spelling == 'false'
+        end
+        -- §3.4's assignment needs a lookahead, and this is why: a name can begin an expression, so
+        -- `let n = 0` followed by `n = 1` would read that `n` as the start of a second expression and
+        -- then choke on the `=`. A name followed by `=` therefore begins a STATEMENT.
+        --
+        -- `let y = x` followed by `y` is the other side of the same coin: two expressions in a row,
+        -- which is a mistake (§S88) rather than an application -- so `let y = x; y` still needs its
+        -- `;`, and the reason is that an item's value and a written TERMINAL are both expressions.
+        -- None of this is about how application is spelled.
+        -- Whether an expression could begin here -- which is what the parser has to know in two
+        -- places: to report two expressions in a row (§S88), and to see an assignment's `=`.
+        --
+        -- A name normally continues one -- `f x` is a single application -- except when it is the
+        -- destination of §3.4's assignment, and that is not a one-token question: `n = 1` is easy,
+        -- but `r.x = 1` has its `=` past the suffixes. So the lookahead IS the postfix grammar, run
+        -- forward without consuming: a name, then any sequence of `.name` and `[...]`, then `=`.
+        -- Anything else means the name is an argument, as before.
+        local function assignment_ahead()
+            if kind() ~= 'name' then return false end
+            local ahead = at + 1
+            while true do
+                local token = tokens[ahead]
+                if not token then return false end
+                if token.kind == '.' then
+                    if not (tokens[ahead + 1] and tokens[ahead + 1].kind == 'name') then return false end
+                    ahead = ahead + 2
+                elseif token.kind == '[' then
+                    local depth, scan = 1, ahead + 1
+                    while depth > 0 do
+                        local inner = tokens[scan]
+                        if not inner then return false end
+                        if inner.kind == '[' then depth = depth + 1
+                        elseif inner.kind == ']' then depth = depth - 1 end
+                        scan = scan + 1
+                    end
+                    ahead = scan
                 else
-                    local members=L()
-                    for _,item in ipairs(items) do members:insert(item.binding) end
-                    value=A.NamedAggregate(members,false,span)
+                    return token.kind == '='
                 end
-            else named_error=items end
-        end
-        if not value then
-            self.pos=body
-            local ok,result=pcall(function()
-                local elements=L{self:chain()}
-                while self:accept(',') do if self:is('}') then break end; elements:insert(self:chain()) end
-                self:expect('}'); return A.PositionalAggregate(elements,span)
-            end)
-            if not ok then
-                local message=named_error or result; self.aggregates[start]={error=message}; error(message,0)
             end
-            value=result
         end
-    end
-    self.aggregates[start]={value=value,next=self.pos}; return value
-end
-function Parser:atom()
-    local token=self:token()
-    if self:accept('name') then return A.Name(token.spelling,token.span) end
-    if self:accept('integer') then return A.Integer(token.spelling,token.span) end
-    if self:accept('float') then return A.Float(token.spelling,token.span) end
-    if self:accept('text') then return A.Text(token.value,token.span) end
-    if self:accept('true') then return A.Boolean(true,token.span) end
-    if self:accept('false') then return A.Boolean(false,token.span) end
-    if self:accept('(') then local value=self:expression(); self:expect(')'); return value end
-    if self:is('{') then return self:aggregate() end
-    fail(token.span,'expected expression, found ' .. token.kind)
-end
-function Parser:postfix()
-    local value=self:atom()
-    while true do
-        if self:accept('.') then local member=self:expect('name'); value=A.Project(value,member.spelling,name_range(member),value.span)
-        elseif self:accept('[') then local index=self:expression(); self:expect(']'); value=A.Index(value,index,value.span)
-        elseif self:accept('(') then
-            local arguments=L()
-            if not self:is(')') then
-                repeat
-                    local borrow=self:accept('mut')
-                    arguments:insert(borrow and A.Borrow(self:place(),borrow.span) or self:value())
-                until not self:accept(',')
-            end
-            self:expect(')'); value=A.Invoke(value,arguments,value.span)
-        else return value end
-    end
-end
-function Parser:specialization_argument()
-    local moved=self:accept('move'); if moved then return A.Move(self:place(),moved.span) end
-    if self:is('name') then return self:postfix() end
-    return self:atom()
-end
-function Parser:prefix()
-    local minus=self:accept('-'); if minus then return A.Unary(A.Negate,self:prefix(),minus.span) end
-    local not_=self:accept('not'); if not_ then return A.Unary(A.Not,self:prefix(),not_.span) end
-    local invert=self:accept('~'); if invert then return A.Unary(A.BitNot,self:prefix(),invert.span) end
-    local value=self:postfix()
-    while self:is('name') or self:is('integer') or self:is('text') or self:is('true') or self:is('false') or self:is('{') or self:is('move') do
-        if self:assignment_ahead() then break end
-        value=A.Specialize(value,self:specialization_argument(),value.span)
-    end
-    return value
-end
-local operators={
-    ['or']={1,A.Or},['and']={2,A.And},
-    ['==']={3,A.Equal},['!=']={3,A.NotEqual},
-    ['<']={4,A.Less},['<=']={4,A.LessEqual},['>']={4,A.Greater},['>=']={4,A.GreaterEqual},
-    ['|']={5,A.BitOr},['^']={6,A.BitXor},['&']={7,A.BitAnd},
-    ['<<']={8,A.ShiftLeft},['>>']={8,A.ShiftRight},
-    ['+']={9,A.Add},['-']={9,A.Subtract},
-    ['*']={10,A.Multiply},['/']={10,A.Divide},['%']={10,A.Remainder}
-}
-function Parser:expression(minimum)
-    minimum=minimum or 0; local left=self:prefix(); local used={}
-    while true do
-        local token=self:token(); local op=operators[token.kind]
-        if not op or op[1]<minimum then return left end
-        if (op[1]==3 or op[1]==4) and used[op[1]] then fail(token.span,'chained comparison is invalid') end
-        used[op[1]]=true; self:take()
-        local right=self:expression(op[1]+1)
-        -- §11.5: `or` is disjunction. Between two type words it forms the tagged union, exactly
-        -- where `|` did before that operator was freed for bitwise or; between values it is the
-        -- short-circuiting logical or of §13.1. Which one it is is decided when the operands are
-        -- resolved, not here, because only then is a name known to be a type word.
-        left=A.Binary(op[2],left,right,token.span)
-    end
-end
-function Parser:transfer()
-    local moved=self:accept('move'); if moved then return A.Move(self:place(),moved.span) end
-    return self:expression()
-end
--- Sign-sensitive literal checks are constructor-owned and run over the final AST.
-local function visit(values) for _,value in ipairs(values) do value:check_literals() end end
-function A.Expr:check_literals() end
-function A.Integer:check_literals() literal.integer(self.spelling,false,function(m) fail(self.span,m) end) end
-function A.Unary:check_literals()
-    if self.operator==A.Negate and A.Integer:isclassof(self.operand) then literal.integer(self.operand.spelling,true,function(m) fail(self.operand.span,m) end)
-    else self.operand:check_literals() end
-end
-function A.Binary:check_literals() self.left:check_literals(); self.right:check_literals() end
-function A.Specialize:check_literals() self.word:check_literals(); self.argument:check_literals() end
-function A.Invoke:check_literals() self.word:check_literals(); visit(self.arguments) end
-function A.Word:check_literals() self.chain:check_literals() end
-function A.NamedAggregate:check_literals() visit(self.members) end
-function A.PositionalAggregate:check_literals() visit(self.elements) end
-function A.Project:check_literals() self.base:check_literals() end
-function A.Index:check_literals() self.base:check_literals(); self.index:check_literals() end
-function A.Move:check_literals() self.place:check_literals() end
-function A.Borrow:check_literals() self.place:check_literals() end
-function A.Constraint:check_literals() visit(self.arguments) end
-function A.Arrow:check_literals() self.from:check_literals(); self.to:check_literals() end
-function A.Sum:check_literals() self.left:check_literals(); self.right:check_literals() end
-function A.SumType:check_literals() self.left:check_literals(); self.right:check_literals() end
-function A.Do:check_literals() self.result:check_literals() end
-function A.Record:check_literals() visit(self.fields) end
-function A.Tuple:check_literals() visit(self.elements) end
-function A.TypeField:check_literals() self.type:check_literals() end
-function A.Apply:check_literals() self.constructor:check_literals(); self.argument:check_literals() end
-function A.Binding:check_literals() if self.constraint then self.constraint:check_literals() end; self.value:check_literals() end
-function A.Stage:check_literals() if self.constraint then self.constraint:check_literals() end end
-function A.Prelude:check_literals() self.binding:check_literals() end
-function A.Extern:check_literals() visit(self.parameters); if self.result then self.result:check_literals() end end
-function A.Chain:check_literals() visit(self.items); if self.terminal then self.terminal:check_literals() end end
-function A.Data:check_literals() self.value:check_literals() end
-function A.Body:check_literals() visit(self.statements); if self.result then self.result:check_literals() end end
-function A.Local:check_literals() self.binding:check_literals() end
-function A.Assign:check_literals() self.place:check_literals(); self.value:check_literals() end
-function A.Return:check_literals() if self.value then self.value:check_literals() end end
-function A.Break:check_literals() end
-function A.Continue:check_literals() end
-function A.Discard:check_literals() self.value:check_literals() end
-function A.If:check_literals() self.condition:check_literals(); visit(self.yes); visit(self.no) end
-function A.While:check_literals() self.condition:check_literals(); visit(self.body) end
-function A.Switch:check_literals() self.subject:check_literals(); visit(self.cases); visit(self.otherwise) end
-function A.Case:check_literals() visit(self.labels); visit(self.body) end
-return function(text,file)
-    local parser=setmetatable({tokens=Lexer.new(text,file):scan(),pos=1,aggregates={}},Parser)
-    parser:separators()
-    local file=parser:chain(true)
-    visit(file.items); if file.terminal then file.terminal:check_literals() end
-    return A.Program(file)
-end
-end
 
+        -- §3.4's `specialization_atom`: "literal | NAME { postfix_suffix } | aggregate_literal".
+        -- So the tokens that continue an expression are exactly the ones that can BEGIN one as an
+        -- argument -- and leaving one out inverts the grammar silently: `f "x"` stopped being an
+        -- application the moment Text literals existed, and the file parser then read the `"x"` as
+        -- its own terminal and failed on the next `let`.
+        -- §11.2's `TypeExpr`, all six alternatives. `->` is the loosest and right-nested -- §11.1
+        -- reads a word's type as "unary right-nested arrows" -- and `|` sits inside it, so
+        -- `A -> B | C` is `A -> (B | C)`. A record's fields are `name : T` with an optional `mut`,
+        -- which is §3.7's interior mutability in a TYPE; a tuple's members have no names at all,
+        -- because §3.3 gives a positional element no declaration to be named by.
+        -- The three levels are mutually recursive -- a record's field is a type and a record IS a
+        -- type -- so they are declared together and assigned in order.
+        local parse_type, parse_type_sum, parse_type_atom
+
+        parse_type = function()
+            local from = parse_type_sum()
+            if accept('->') then return Syntax.Arrow(from, parse_type(), from.span) end
+            return from
+        end
+
+        parse_type_sum = function()
+            local left = parse_type_atom()
+            while accept('|') do left = Syntax.Sum(left, parse_type_atom(), left.span) end
+            return left
+        end
+
+        parse_type_atom = function()
+            local t = peek()
+            if t.kind == 'name' then
+                at = at + 1
+                return Syntax.Ref(t.spelling, t.span)
+            end
+            if t.kind == '{' then
+                at = at + 1
+                local fields = L()
+                if not accept('}') then
+                    repeat
+                        -- `name mut : T`, the same order a STAGE uses (`x own : Int`), because
+                        -- §3.7's mutability is a qualifier on the declaration and not on the type.
+                        local name = take('name')
+                        local mutable = accept('mut') ~= nil
+                        take(':')
+                        fields:insert(Syntax.TypeField(name.spelling, mutable, parse_type(),
+                            name.span))
+                    until not accept(',')
+                    take('}')
+                end
+                return Syntax.Record(fields, t.span)
+            end
+            -- §11.2's `Do(TypeExpr result)`: the type of a chain whose terminal is a body. In TYPE
+            -- position `do` cannot begin anything else, so it needs no lookahead.
+            if t.kind == 'do' then
+                at = at + 1
+                return Syntax.Do(parse_type(), t.span)
+            end
+            if t.kind == '(' then
+                at = at + 1
+                local elements = L{parse_type()}
+                while accept(',') do elements:insert(parse_type()) end
+                take(')')
+                return Syntax.Tuple(elements, t.span)
+            end
+            error(('%s: expected a type, found %s'):format(locate(t), what()), 0)
+        end
+
+        local function parse_annotation()
+            if accept(':') then return parse_type() end
+            return nil
+        end
+
+        -- A primary is a literal or a name. `true` and `false` are lexical names, not keywords.
+        -- Forward declaration: an aggregate's members are chain items, which are parsed below.
+        -- Forward declarations, because the grammar is a cycle: an aggregate's members are chain
+        -- items, an index is an expression and an expression may be an index, and `(` groups an
+        -- expression inside a primary. Every one of them is declared before the first use rather
+        -- than being left to resolve as a global -- which is a silent nil call, not an error.
+        local parse_aggregate, parse_postfix, separate, parse_if, parse_while, parse_switch, parse_expr
+
+        local function parse_primary()
+            local t = peek()
+            if t.kind == 'int' then
+                at = at + 1
+                return Syntax.Integer(t.spelling, t.span)
+            end
+            if t.kind == 'float' then
+                at = at + 1
+                return Syntax.Float(t.spelling, t.span)
+            end
+            -- §11.3's Text literal. The token's VALUE is the unescaped text, so the spelling of an
+            -- escape never reaches the judgment -- which is why `Syntax.Text` carries the value and
+            -- not the source text.
+            if t.kind == 'text' then
+                at = at + 1
+                return Syntax.Text(t.value, t.span)
+            end
+            if t.kind == 'name' and is_boolean(t.spelling) then
+                at = at + 1
+                return Syntax.Boolean(t.spelling == 'true', t.span)
+            end
+            if t.kind == 'name' then
+                at = at + 1
+                return Syntax.Name(t.spelling, t.span)
+            end
+            -- §1.4's call-site form: `move place` transfers ownership. It is a prefix on a place,
+            -- so it sits with the primaries rather than with the application.
+            if t.kind == 'move' then
+                at = at + 1
+                return Syntax.Move(parse_postfix(), t.span)
+            end
+            -- §3.4's `primary` includes prefix parentheses. `(` is ALSO the invocation suffix, and
+            -- the two never collide: an invocation is parsed by `parse_postfix` on a value it
+            -- already has, while grouping is reached only where a primary can begin.
+            if t.kind == '(' then
+                at = at + 1
+                local inner = parse_expr()
+                take(')')
+                return inner
+            end
+            if t.kind == '{' then
+                at = at + 1
+                return parse_aggregate(t)
+            end
+            error(('%s: expected an expression, found %s'):format(locate(t), what()), 0)
+        end
+
+        -- `with` is application, ONE argument at a time and left-associated, so `f with a with b` is
+        -- the chain adjacency used to mean. A prefix operator binds tighter than `with` -- `f with -x`
+        -- is one argument and not a negative application -- which is why the argument is parsed by
+        -- `parse_operator` and not by `parse_postfix`: the latter would refuse the `-`.
+        -- Forward declaration: an item's value is a chain, and a chain's item is an item.
+        local parse_chain
+
+        -- §3.4's tightest level: `.` and `[]` are postfix, so a place is one expression and binds
+        -- tighter than the `with` that supplies stages.
+        -- §3.4's postfix suffix: `.`, `[]` and invocation. They bind tighter than everything, so
+        -- a place is one expression and `f(x).y[0]` is a place too.
+        parse_postfix = function()
+            local value = parse_primary()
+            while true do
+                if accept('.') then
+                    local name = take('name')
+                    value = Syntax.Project(value, name.spelling,
+                        Source.Range(name.span, name.span), value.span)
+                elseif accept('[') then
+                    local index = parse_expr()
+                    take(']')
+                    value = Syntax.Index(value, index, value.span)
+                elseif accept('(') then
+                    -- §1.2's invocation. It saturates transiently, and `f()` -- no arguments at
+                    -- all -- is the one thing `with` cannot write: it runs the word's
+                    -- terminal without supplying a stage.
+                    local arguments = L()
+                    if not accept(')') then
+                        arguments:insert(parse_expr())
+                        while accept(',') do arguments:insert(parse_expr()) end
+                        take(')')
+                    end
+                    value = Syntax.Invoke(value, arguments, value.span)
+                else
+                    return value
+                end
+            end
+        end
+
+        -- §3.4's precedence, taken from the spec's own table and written as DATA rather than as a
+        -- chain of twelve functions. Each level is `{ associativity, { token = operator } }`, the
+        -- levels run loosest to tightest, and a non-associative level stops after one operator --
+        -- so `a < b < c` is a parse error rather than a silent `(a < b) < c`.
+        local LEVELS = {
+            { 'left', { ['or'] = Syntax.Or } },
+            { 'left', { ['and'] = Syntax.And } },
+            { 'none', { ['=='] = Syntax.Equal, ['!='] = Syntax.NotEqual } },
+            { 'none', { ['<'] = Syntax.Less, ['<='] = Syntax.LessEqual,
+                        ['>'] = Syntax.Greater, ['>='] = Syntax.GreaterEqual } },
+            { 'left', { ['|'] = Syntax.BitOr } },
+            { 'left', { ['^'] = Syntax.BitXor } },
+            { 'left', { ['&'] = Syntax.BitAnd } },
+            { 'left', { ['<<'] = Syntax.ShiftLeft, ['>>'] = Syntax.ShiftRight } },
+            { 'left', { ['+'] = Syntax.Add, ['-'] = Syntax.Subtract } },
+            { 'left', { ['*'] = Syntax.Multiply, ['/'] = Syntax.Divide, ['%'] = Syntax.Remainder } },
+        }
+        local PREFIX = { ['not'] = Syntax.Not, ['-'] = Syntax.Negate, ['~'] = Syntax.BitNot }
+
+        local parse_prefix, parse_specialization
+
+        local function parse_level(level)
+            if level > #LEVELS then return parse_prefix() end
+            local associativity, operators = LEVELS[level][1], LEVELS[level][2]
+            local value = parse_level(level + 1)
+            while true do
+                local operator = operators[kind()]
+                if not operator then return value end
+                at = at + 1
+                local right = parse_level(level + 1)
+                value = Syntax.Binary(operator, value, right, value.span)
+                if associativity == 'none' then return value end
+            end
+        end
+
+        -- Level 3 is PREFIX, and it binds tighter than every operator but looser than `with` -- so
+        -- `f with x + 1` is `(f with x) + 1`, and a prefix operator is an ARGUMENT rather than part
+        -- of the application: `f with -1` applies `f` to a negative literal. Adjacency could not
+        -- write that -- `f -1` had to be the subtraction -- which is another way of saying that an
+        -- application with no spelling makes the grammar guess.
+        parse_prefix = function()
+            local operator = PREFIX[kind()]
+            if not operator then return parse_specialization() end
+            local t = peek()
+            at = at + 1
+            return Syntax.Unary(operator, parse_prefix(), t.span)
+        end
+
+        -- Prefix operators and postfix suffixes, with NO application: the thing `with` takes.
+        parse_operator = function()
+            local operator = PREFIX[kind()]
+            if not operator then return parse_postfix() end
+            local t = peek()
+            at = at + 1
+            return Syntax.Unary(operator, parse_operator(), t.span)
+        end
+
+        -- Two adjacent expressions WERE an application and are now a mistake, so this is where the
+        -- parser says so. It is the predicate the old greediness used -- §S40's `starts_expression`,
+        -- which had to be taught `{` and `text` -- kept for the one job it can still do: telling a
+        -- writer what they meant. A name that is an assignment TARGET is not one of these (`x = 1` is
+        -- a statement), which is why the lookahead matters.
+        local function continues_an_expression()
+            if kind() == 'int' or kind() == 'text' or kind() == '{' then return true end
+            if kind() ~= 'name' then return false end
+            return not assignment_ahead()
+        end
+
+        parse_specialization = function()
+            local value = parse_operator()
+            while accept('with') do
+                value = Syntax.Specialize(value, parse_operator(), value.span)
+            end
+            if continues_an_expression() then
+                error(('%s: two adjacent expressions. An application is `with` (`f with a`), and a '
+                    .. 'chain\'s TERMINAL is separated from the items before it by `;`')
+                    :format(locate(peek())), 0)
+            end
+            return value
+        end
+
+        parse_expr = function() return parse_level(1) end
+
+        -- §11.2's `Item.Extern`, and §3.6's reason for it: the host's vocabulary is DECLARED in
+        -- source rather than registered by an embedding. The declaration is the whole contract --
+        -- stages, their capabilities and types, the result, and purity -- because that is what the
+        -- compiler holds a host to. The optional quoted symbol is the C name when it differs from
+        -- the Let name, which is `Extern.symbol` and not a second name.
+        local function parse_extern()
+            local kw = take('extern')
+            local pure = accept('pure') ~= nil
+            local name = take('name')
+            local name_range = Source.Range(name.span, name.span)
+            local symbol
+            if kind() == 'text' then symbol = take('text').value end
+            take('(')
+            local parameters = L()
+            if not accept(')') then
+                repeat
+                    local spec = take('name')
+                    local own = accept('own') ~= nil
+                    local mutable = accept('mut') ~= nil
+                    local constraint = parse_annotation()
+                    if not constraint then
+                        error(("%s: a host stage must declare its type: %s")
+                            :format(locate(kw), spec.spelling), 0)
+                    end
+                    local capability = own and (mutable and Semantic.OwnMut or Semantic.Own)
+                                               or (mutable and Semantic.Mut or Semantic.Read)
+                    parameters:insert(Syntax.StageSpec(spec.spelling, capability, constraint,
+                        spec.span, Source.Range(spec.span, spec.span)))
+                until not accept(',')
+                take(')')
+            end
+            local result
+            if accept(':') then result = parse_type() end
+            return Syntax.Extern(name.spelling, pure, symbol, parameters, result, kw.span, name_range)
+        end
+
+        -- §3.6: "a view is a SEPARATELY DECLARED HOST TYPE", and §3.6 makes the declaration the
+        -- whole contract. So `host Handle close` declares a type whose values the host owns and
+        -- which `close` destroys. The destructor is optional: a host type with none is one whose
+        -- values Let holds and never releases, which is exactly §3.6's "foreign" row.
+        local function parse_host()
+            local kw = take('host')
+            local name = take('name')
+            local name_range = Source.Range(name.span, name.span)
+            -- §3.6: "a host type may declare that it borrows argument i", which is what makes a value
+            -- of it a BORROWED type -- and §3.1 rule 4 propagates that structurally. The index is a
+            -- declared fact and never inferred, and it is carried as a SPELLING because §S38 makes
+            -- `Semantic.integer_value` the one owner of an integer's value.
+            local borrows
+            if accept('borrows') then
+                local index = take('int')
+                borrows = index.spelling
+            end
+            local destroys
+            if kind() == 'name' then destroys = take('name').spelling end
+            return Syntax.Host(name.spelling, destroys, borrows, kw.span, name_range)
+        end
+
+        local function parse_item()
+            local kw = take('let')
+            local name = take('name')
+            local own = accept('own') ~= nil
+            local mutable = accept('mut') ~= nil
+            local constraint = parse_annotation()
+            local name_range = Source.Range(name.span, name.span)
+
+            if kind() == '=' then
+                if own then
+                    error(("%s: an initialized binding cannot carry `own`"):format(locate(kw)), 0)
+                end
+                at = at + 1
+                return Syntax.Prelude(Syntax.Binding(name.spelling, mutable, constraint,
+                    parse_chain(), kw.span, name_range))
+            end
+
+            if not constraint then
+                error(("%s: a stage must declare its type: %s"):format(locate(kw), name.spelling), 0)
+            end
+            local capability = own and (mutable and Semantic.OwnMut or Semantic.Own)
+                                       or (mutable and Semantic.Mut or Semantic.Read)
+            return Syntax.Stage(Syntax.StageSpec(name.spelling, capability, constraint,
+                kw.span, name_range))
+        end
+
+        -- A statement list. It ends where the enclosing form resumes, so the terminators are the
+        -- keywords that continue one: `end` closes it, `else` is the next arm of an `if`, and
+        -- `case` is the next arm of a `switch`. A form that is not here is not silently skipped --
+        -- it is a parse error, and the forms the compiler cannot lower yet are named by Lower.
+        local function parse_statements()
+            local statements = L()
+            while true do
+                separate()
+                local t = peek()
+                if t.kind == 'end' or t.kind == 'else' or t.kind == 'case' or t.kind == 'eof' then
+                    return statements
+                end
+                if t.kind == 'let' then
+                    local kw = take('let')
+                    local name = take('name')
+                    local mutable = accept('mut') ~= nil
+                    local constraint = parse_annotation()
+                    take('=')
+                    statements:insert(Syntax.Local(Syntax.Binding(name.spelling, mutable,
+                        constraint, parse_chain(), kw.span, Source.Range(name.span, name.span)),
+                        kw.span))
+                elseif t.kind == 'return' then
+                    at = at + 1
+                    local value
+                    if not (kind() == ';' or kind() == 'end' or kind() == 'eof') then
+                        value = parse_expr()
+                    end
+                    statements:insert(Syntax.Return(value, t.span))
+                elseif t.kind == 'if' then
+                    statements:insert(parse_if())
+                elseif t.kind == 'while' then
+                    statements:insert(parse_while())
+                elseif t.kind == 'switch' then
+                    statements:insert(parse_switch())
+                elseif t.kind == 'break' or t.kind == 'continue' then
+                    at = at + 1
+                    statements:insert(t.kind == 'break' and Syntax.Break(t.span)
+                        or Syntax.Continue(t.span))
+                else
+                    -- A bare `=` after an expression is §3.4's assignment, and nothing else in
+                    -- the grammar puts one there: `let` consumes its own. So one token of
+                    -- lookahead is the whole decision, and no place-vs-value check is needed
+                    -- here -- whether the left side IS a place is Resolve's question.
+                    local place = parse_expr()
+                    if kind() == '=' then
+                        at = at + 1
+                        statements:insert(Syntax.Assign(place, parse_expr(), t.span))
+                    else
+                        statements:insert(Syntax.Discard(place, t.span))
+                    end
+                end
+            end
+        end
+
+        -- §3.2: `if`/`else if`/`else` is ONE chain closed by one `end`, so the arms are folded into
+        -- a single `If` whose else arm holds the next condition. `else if` is therefore a nesting
+        -- in the tree and a chain in the source, which is what the grammar says.
+        parse_if = function()
+            local kw = take('if')
+            local arms = {}
+            arms[1] = { condition = parse_expr() }
+            take('do')
+            arms[1].body = parse_statements()
+            while kind() == 'else' do
+                at = at + 1
+                if kind() == 'if' then
+                    at = at + 1
+                    local arm = { condition = parse_expr() }
+                    take('do')
+                    arm.body = parse_statements()
+                    arms[#arms + 1] = arm
+                else
+                    arms[#arms + 1] = { body = parse_statements() }
+                    break
+                end
+            end
+            take('end')
+            -- Folded inward-out, so `else if` becomes the `no` list of the arm before it and the
+            -- whole chain is ONE statement. The `no` slot holds a list, so the nested `If` is the
+            -- single statement in it -- which is what makes the tree uniform. A bare `else` replaces
+            -- the fold's tail with its own body rather than nesting under another condition.
+            local otherwise = L{}
+            for i = #arms, 1, -1 do
+                local arm = arms[i]
+                if arm.condition then
+                    otherwise = L{Syntax.If(arm.condition, arm.body, otherwise, kw.span)}
+                else
+                    otherwise = arm.body
+                end
+            end
+            return otherwise[1]
+        end
+
+        -- §12.0: the subject is evaluated EXACTLY ONCE, arms are `case` label lists, and one `end`
+        -- closes the whole form. There is no fallthrough, so an arm's body simply ends. A `switch`
+        -- is not a loop, which is why `break` inside an arm belongs to the enclosing `while`.
+        parse_switch = function()
+            local kw = take('switch')
+            local subject = parse_expr()
+            take('do')
+            local cases = L()
+            while kind() == 'case' do
+                local t = take('case')
+                -- §S60: a label names what the arm matches, and the label SAYS which kind it is:
+                -- a SHAPE (a type, which the arm may then bind) or a CONSTANT (a value compared
+                -- against the subject). A type is tried FIRST, because a structural shape has no
+                -- expression spelling at all -- `{ x : Int }` is a type and nothing else -- and the
+                -- position is restored on failure the way §S27 restores it for an ambiguous `{`.
+                --
+                --     A Bool literal is a NAME lexically, so the guard below is what keeps
+                --     `case true` from being read as a type named `true`.
+                local function parse_label()
+                    local token = peek()
+                    if token.kind == 'name' and is_boolean(token.spelling) then
+                        return Syntax.Constant(parse_expr())
+                    end
+                    local mark = at
+                    local parsed, type_ = pcall(parse_type)
+                    if parsed then return Syntax.Shape(type_) end
+                    at = mark
+                    return Syntax.Constant(parse_expr())
+                end
+                local labels = L{parse_label()}
+                while accept(',') do labels:insert(parse_label()) end
+                -- §S59: an arm that matches by SHAPE names what it matched. The binder is a
+                -- NAME rather than a binding, because a match does not compute anything.
+                local binds
+                if kind() == 'as' then
+                    take('as')
+                    binds = take('name').spelling
+                end
+                cases:insert(Syntax.Case(labels, binds, parse_statements(), t.span))
+            end
+            local otherwise = L()
+            if kind() == 'else' then
+                at = at + 1
+                otherwise = parse_statements()
+            end
+            take('end')
+            return Syntax.Switch(subject, cases, otherwise, kw.span)
+        end
+
+        parse_while = function()
+            local kw = take('while')
+            local condition = parse_expr()
+            take('do')
+            local body = parse_statements()
+            take('end')
+            return Syntax.While(condition, body, kw.span)
+        end
+
+        -- §3.1: a terminal is a `do ... end` region or a transfer value. A `do` terminal states its
+        -- result, and an unstated one is refused by Resolve rather than defaulted.
+        local function parse_terminal()
+            local t = peek()
+            if t.kind == 'do' then
+                at = at + 1
+                local result
+                if accept(':') then result = parse_type() end
+                local statements = parse_statements()
+                take('end')
+                return Syntax.Body(statements, result, t.span)
+            end
+            return Syntax.Data(parse_expr(), t.span)
+        end
+
+        -- `;` SEPARATES A PRELUDE FROM A WRITTEN TERMINAL, and it stays (§S88's first draft said it
+        -- had nothing left to do, and the test suite was the counterexample within one run). Both sides
+        -- of that boundary are EXPRESSIONS -- `let secret = 8` and then `{ … }` -- so a separator is
+        -- needed however application is spelled; greedy juxtaposition was never the reason. What `;`
+        -- was never needed for is between two ITEMS, because `let`, `extern` and `host` delimit
+        -- themselves, and that is why eating it here and requiring it there is the whole rule.
+        -- `;` separates chain items from each other and from the terminal: the grammar requires it
+        -- exactly where adjacent expressions would otherwise run together.
+        separate = function() while accept(';') do end end
+
+        local function parse_items(items)
+            while true do
+                separate()
+                if kind() == 'extern' then
+                    items:insert(parse_extern())
+                elseif kind() == 'host' then
+                    items:insert(parse_host())
+                elseif kind() ~= 'let' then
+                    return
+                else
+                    items:insert(parse_item())
+                end
+            end
+        end
+
+        -- A chain is zero or more items and then a terminal. This slice's terminal is a data
+        -- expression; `do ... end` is the next alternative and needs statements.
+        parse_chain = function()
+            local first = peek().span
+            local items = L()
+            parse_items(items)
+            separate()
+            return Syntax.Chain(items, parse_terminal(), first)
+        end
+
+        -- §3.3: `{}` is Unit, `{ let x = v }` is a named aggregate, `{ v, v }` is positional, and
+        -- the forms cannot mix. A `let` after `{` is genuinely ambiguous -- it can begin a named
+        -- member or a positional element that is itself a chain -- so the named form is tried
+        -- first and the position restored on failure. This is the one place the parser backtracks
+        -- (§S27); the grammar states the constraint but not a decision procedure.
+        --
+        -- §3.7 + §S26: inside braces `mut` is *interior mutability of the member*, not a supply
+        -- qualifier. A `mut` member is supplied like a read one, and any stage member makes the
+        -- whole form a `Word` whose chain carries the stages -- which is exactly "a record type
+        -- and a value aggregate are the same form" (§3.1).
+        parse_aggregate = function(open)
+            if accept('}') then return Syntax.Unit(open.span) end
+
+            local mark = at
+            local items = L()
+            local named = pcall(function()
+                parse_items(items)
+                if kind() ~= '}' or #items == 0 then error('not a named aggregate', 0) end
+            end)
+            if named then
+                take('}')
+                local members, stages = L(), L()
+                local staged = false
+                for _, item in ipairs(items) do
+                    if Syntax.Stage:isclassof(item) then
+                        staged = true
+                        local spec = item.stage
+                        local mutable = spec.capability == Semantic.Mut
+                            or spec.capability == Semantic.OwnMut
+                        local supplied = spec.capability
+                        if supplied == Semantic.Mut then supplied = Semantic.Read
+                        elseif supplied == Semantic.OwnMut then supplied = Semantic.Own end
+                        stages:insert(Syntax.Stage(Syntax.StageSpec(spec.name, supplied,
+                            spec.constraint, spec.span, spec.name_range)))
+                        members:insert(Syntax.Binding(spec.name, mutable, spec.constraint,
+                            Syntax.Chain(L{}, Syntax.Data(Syntax.Name(spec.name, spec.span), spec.span), spec.span),
+                            spec.span, spec.name_range))
+                    else
+                        members:insert(item.binding)
+                    end
+                end
+                if staged then
+                    return Syntax.Word(Syntax.Chain(stages,
+                        Syntax.Data(Syntax.NamedAggregate(members, open.span), open.span), open.span), open.span)
+                end
+                return Syntax.NamedAggregate(members, open.span)
+            end
+
+            at = mark
+            local elements = L{parse_chain()}
+            while accept(',') do
+                if kind() == '}' then break end
+                elements:insert(parse_chain())
+            end
+            take('}')
+            return Syntax.PositionalAggregate(elements, open.span)
+        end
+
+        -- The program is the same shape with the terminal optional (spec §2.6).
+        local items = L()
+        parse_items(items)
+        separate()
+        local terminal
+        if kind() ~= 'eof' then terminal = parse_terminal() end
+        take('eof')
+        return Syntax.Program(Syntax.Chain(items, terminal, Source.Span(file, 1, 1)))
+    end
+end

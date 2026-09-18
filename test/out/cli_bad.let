@@ -1,0 +1,5 @@
+let f = let n : Int do : Int
+    let x : Bool = 1
+    return n
+end
+let a = f 1

@@ -1,17 +1,58 @@
 # Let
 
-Let language specification and LuaJIT compiler.
+A small language and a LuaJIT compiler for it, with direct residual C.
 
-The compiler uses constructor-owned ASDL analysis, ownership checking, bounded
-partial evaluation, and direct residual C emission. Let is defined by its language
-specification; the compiler is an implementation in progress, with outstanding
-features documented in [COMPILER.md](COMPILER.md).
+The thesis is one construct: **the binding chain**. `with` applies it, invocation runs it, two executors
+evaluate it. Everything else follows — types are words, records are aggregates, modules are chains.
 
-- [Language specification](let-language-specification.md)
-- [Compiler architecture, usage, and limitations](COMPILER.md)
-- [Refactoring design and target structure](DESIGN.md)
-- [Native benchmarks](bench/README.md)
-- [Third-party notices](THIRD_PARTY.md)
+**`DESIGN.md` is the specification.** It supersedes `let-language-specification.md`, `ARCHITECTURE.md`
+and the earlier design notes, which are kept only as the record of where the language came from: reading
+them as authority is how abandoned designs come back. §17 is the decision ledger, and it is the part
+worth reading first.
+
+## Surface
+
+**Application is the keyword `with`.** One argument at a time, left-associated:
+
+```let
+let sum = let a : Int let b : Int do : Int
+    return a + b
+end
+let answer = sum with 1 with 2
+```
+
+Adjacency is **not** application: two expressions in a row are a parse error the compiler explains. That
+is what makes a parenthesized expression after `with` a **group** — `sum with (square with 3)` — and what
+makes `;` mean exactly one thing: it separates a prelude from a written **terminal**, because both sides
+of that boundary are expressions.
+
+**Invocation `f(a, b)`** is the transient form: it supplies every stage at once and runs the terminal.
+`f()` is the one thing `with` cannot write.
+
+**Types are words.** `:` annotates a binder, `do : T` states a runtime terminal's result, a type word is
+applied with `with` (`Box with Int`), and `A | B` is a tagged union. A `switch` matches a type —
+applied with `with` (`Box with Int`), and `A | B` is a tagged union. A `switch` matches a type —
+`case Int as n` — and the arm that matched binds the payload.
+
+A name that denotes a word is itself a type, and it is **nominal**: `let f : square = square` is legal
+and `let f : square = other` is refused however alike the two are. That nominality is what lets a
+**stage** be typed by a word — `let g : square` — because the type then carries the callee, so `g(x)`
+needs no vtable. A stage typed by an *arrow* names only a shape, so it has no callee and is refused.
+
+## Build and run
+
+Requires LuaJIT and a C11 compiler.
+
+```sh
+luajit letc.lua input.let -o output.c      # text -> C
+cc -std=c11 -O2 output.c host.c -o program # the HOST supplies main
+./program
+```
+
+The compiler emits a **module**: `let_module_init`, one entry point per exported word, and
+`let_module_unload` when the module owns something. `main` is the host's business (§2.6), so a program is
+a `.let` file plus the C that drives it. Diagnostics carry `file:line:column`, and the exit codes are
+§13's three kinds — `0` ok, `1` the program is wrong, `2` the compiler lacks the mechanism or is broken.
 
 ## One file
 
@@ -19,65 +60,50 @@ features documented in [COMPILER.md](COMPILER.md).
 generated from the module tree by
 
 ```sh
-luajit bundle.lua            # writes dist/let.lua
+luajit bundle.lua            # writes dist/let.lua (or: luajit bundle.lua some/other.lua)
 ```
+
+The committed `dist/let.lua` is **checked, not trusted**: `test/bundle.lua` builds a second copy and
+requires it to be byte-identical, because a rebuild that never happened is invisible to a suite that
+always rebuilds. If that check fails, the fix is the command above.
 
 and it is read two ways. As a library it returns the same table the modules do, so
 `local V = dofile('dist/let.lua')` is the compiler. As a script it compiles a file:
 
 ```sh
-luajit dist/let.lua input.let output.c [options.lua]
+luajit dist/let.lua input.let -o output.c
 ```
 
-A file whose exported word is `main` compiles to a complete C program: the command-line host
-supplies the C vocabulary as the namespace `c`, emits `main`, and emits a trap hook. A pure
-Let file can therefore call libc and become an executable with no C host of its own:
+The module set is **discovered** by following `require` from the entry point, so a module added later
+cannot be forgotten. `test/bundle.lua` uses only the bundle — building it, compiling a program with it,
+and running what comes out — because every other suite runs the compiler from the tree, where a missing
+module is invisible.
 
-```let
-let main = do
-    c.puts(c.string("hello, world"))
-end
-```
+## Tests
 
 ```sh
-luajit dist/let.lua examples/hello.let hello.c
-cc -std=c11 -O2 hello.c -o hello && ./hello
-```
-
-`test/bundle.lua` keeps it honest: the committed file must equal what the generator produces, must
-emit exactly what the module layout emits, and must compile a file when run.
-
-## Surface
-
-Juxtaposition supplies stages; parentheses invoke words. There is no `with` operator.
-Whitespace is insignificant. `let`, `do`, `end`, `if`, `else`, and `return` provide
-structural boundaries; use `;` where adjacent expressions would otherwise run
-together (`f(x); g(y)`, not `f(x) g(y)`). Assignment remains `name = value`.
-
-Structured control keeps its familiar spelling. Continuation words handle alternative
-outcomes without forcing callback plumbing into every statement: a stage whose type is a word
-type accepts a word of that signature, so the callee is selected at the call site. See
-[`examples/continuations.let`](examples/continuations.let).
-
-Types are words. A word's type is its chain read as unary, right-nested arrows ending in its
-terminal; `:` annotates a binder with a type word; and `do : T` states a runtime terminal's
-result. A type word may be generic over other type words by juxtaposition (`Box Int`), and `A or B`
-is a tagged union (`let Opt = Int or Text`). See [TYPES.md](TYPES.md) and §11 of the specification.
-
-## Run
-
-Requires LuaJIT and a C11 compiler.
-
-```sh
-luajit letc.lua examples/scalars.let output.c
-cc -std=c11 -O2 -fPIC -shared output.c -o output.so
-
 luajit test/all.lua
 ```
 
-Set `CC=clang` to run the tests with Clang. Benchmarks use LuaJIT orchestration
-and native C timing loops: `luajit bench/run.lua`.
+Four suites, and every check is a **program** rather than an assertion about a phase:
 
-The compiler emits C11 and has no other backend. [COMPILER.md](COMPILER.md) records the covered
-language and the remaining gaps.
+- `test/spec.lua` — the document and the vocabularies agree, declaration by declaration, as token
+  sequences. It is what keeps `DESIGN.md`'s ASDL from drifting away from the code.
+- `test/language.lua` — one program per construct: compiled, linked, run, stdout compared.
+- `test/bundle.lua` — the same compiler in one file, with no checkout on `package.path`.
+- `test/reference.lua` — every fenced example in `LANGUAGE_REFERENCE.md`, compiled (and each
+  `refuse:`/`missing:` block checked for the reason it claims). The reference is a document you can
+  read, and its examples cannot rot: **`LANGUAGE_REFERENCE.md`** is the language's syntax and
+  semantics, while `DESIGN.md` is the specification behind it.
 
+## What is not built
+
+The gap inventory is `Report.MissingWhy`: a `Missing` names a mechanism the compiler lacks, and §13
+keeps it apart from a `Reject`, which names a program that is wrong. The suite that reaches one program
+per alternative is part of the corpus still being rebuilt. The one entry is `ModuleState`: §2.6's `state`
+member, needed when a written terminal leaves behind a top-level binding that owns a resource. The open
+questions and every decision that produced them are in `DESIGN.md` §17.
+produced them are in `DESIGN.md` §17.
+
+`legacy/` is the previous compiler. It is not a dependency and it is not the specification; it is kept
+because knowing what a rule replaced is what stops it being quietly undone.

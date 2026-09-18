@@ -1,0 +1,4 @@
+test/out/slice_sum_owner.c: In function ‘let_f_run’:
+test/out/slice_sum_owner.c:153:16: error: incompatible types when returning type ‘Handle’ but ‘int64_t’ {aka ‘long int’} was expected
+  153 |         return b2_p3;
+      |                ^~~~~

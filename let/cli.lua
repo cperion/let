@@ -1,77 +1,108 @@
--- The command-line host: compiles one file to C, and to a complete C program when the file
--- exports a word named `main` that still needs no stage. It is a host, not the compiler: it
--- chooses the vocabulary (libc, then the embedding's, so the embedding wins) and the entry,
--- which is what §15.1 leaves to the embedding.
-return function(V,arg)
-    arg = arg or {}
+-- The command line: one file in, one C translation unit out, diagnostics on stderr.
+--
+-- The generated unit is a MODULE and not a program. §2.6 makes the host a separate thing that supplies
+-- `main`, calls `let_module_init`, and -- only when the module owns something -- calls
+-- `let_module_unload` and gives the value up. So this writes the unit and says nothing about linking,
+-- because linking is the host's business and every attempt to guess it would be a lie about the ABI.
+--
+-- The exit codes are §13's three kinds, because a script that cannot tell "your program is wrong" from
+-- "the compiler is wrong" cannot report either: 0 ok, 1 Reject, 2 Missing or Bug.
+return function(V)
+    local Context = V.Context
+    local compile = require('let.compile')(V)
 
-    -- An exported word named `main` that needs no stage is the program's entry.
-    local function entry(builder)
-        for _,candidate in ipairs(builder.host_entries or {}) do
-            if candidate.name=='main' and candidate.stages==0 then
-                -- The generated `main` passes the word's own fields from the namespace, and that
-                -- mapping is not published yet; a closed word needs none.
-                assert(candidate.bundle==0,'a `main` entry may not capture module state yet')
-                return candidate
+    local function report(diagnostic)
+        if not diagnostic then
+            io.stderr:write('letc: the compiler stopped without a diagnostic\n')
+            return 2
+        end
+        local span = diagnostic.span
+        local where = ''
+        if span then
+            where = ('%s:%d:%d: '):format(tostring(span.file), tonumber(span.line) or 0,
+                tonumber(span.column) or 0)
+        end
+        local kind = 'error'
+        local code = 1
+        if diagnostic:is_missing() then
+            kind = 'unimplemented'
+            code = 2
+        elseif diagnostic:is_bug() then
+            kind = 'internal'
+            code = 2
+        end
+        -- `why` is a Report value, so its own spelling carries the vocabulary's name. A message a
+        -- person reads should not: `MismatchedType`, not `Report.MismatchedType`.
+        local why = tostring(diagnostic.why):gsub('^Report%.', '')
+        -- A SYNTAX error carries the parser's own message, and that message already says where --
+        -- `file:line:column: expected ...` -- so the constructor around it would say the position
+        -- twice and the vocabulary once too often.
+        if V.Report.Syntax:isclassof(diagnostic.why) then
+            io.stderr:write(diagnostic.why.detail .. '\n')
+            return code
+        end
+        io.stderr:write(('%s%s: %s\n'):format(where, kind, why))
+        return code
+    end
+
+    return function(argv)
+        local input, output
+        local index = 1
+        while argv[index] do
+            local argument = argv[index]
+            if argument == '-h' or argument == '--help' then
+                io.stderr:write('usage: letc input.let [-o output.c]\n')
+                return 0
+            elseif argument == '-o' then
+                index = index + 1
+                output = argv[index]
+                if not output then
+                    io.stderr:write('letc: -o wants a path\n')
+                    return 2
+                end
+            elseif argument:sub(1, 1) ~= '-' then
+                input = input or argument
+            else
+                io.stderr:write('letc: unknown option ' .. argument .. '\n')
+                return 2
             end
+            index = index + 1
         end
-    end
+        if not input then
+            io.stderr:write('usage: letc input.let [-o output.c]\n')
+            return 2
+        end
+        -- `-o -` writes to stdout, which is what a build system wants when it pipes.
+        if not output then output = (input:gsub('%.let$', '')) .. '.c' end
 
-    -- A complete C program: the module initializer, then the entry, plus the trap hook an
-    -- executable must provide. `statistics` carries the entry's C name and the namespace members
-    -- it takes as parameters.
-    local function executable(unit,statistics)
-        local namespace
-        for _,declaration in ipairs(unit.declarations) do
-            if V.C.Function:isclassof(declaration) and declaration.name=='let_module_init' then
-                namespace=declaration.result
-            end
+        local file = io.open(input, 'rb')
+        if not file then
+            io.stderr:write('letc: cannot read ' .. input .. '\n')
+            return 2
         end
-        local main
-        for _,candidate in ipairs(statistics.entries or {}) do
-            if candidate.name=='main' then main=candidate end
-        end
-        if not (namespace and main and main.c_name) then return unit end
-        local arguments={}
-        for _,field in ipairs(main.fields) do arguments[#arguments+1]=('ns.r0.f%d'):format(field) end
-        local declarations=V.List()
-        for _,declaration in ipairs(unit.declarations) do declarations:insert(declaration) end
-        -- `_Noreturn` matches the `_Noreturn` declaration the emitter writes, so a caller's
-        -- optimizer knows the trap does not return.
-        declarations:insert(V.C.Raw('_Noreturn void let_trap(char* reason){ fflush(stdout); fputs(reason,stderr); fputc(10,stderr); abort(); }'))
-        declarations:insert(V.C.Raw(('int main(void){ %s ns = let_module_init(); %s(%s); return 0; }')
-            :format(namespace:print(),main.c_name,table.concat(arguments,', '))))
-        local includes,seen=V.List(),{}
-        for _,include in ipairs(unit.includes) do includes:insert(include); seen[include]=true end
-        for _,include in ipairs{'stdio.h','stdlib.h'} do
-            if not seen[include] then includes:insert(include) end
-        end
-        return V.C.Unit(includes,declarations)
-    end
+        local text = file:read('*a')
+        file:close()
 
-    local function compile(input,output,options_path)
-        local file=assert(io.open(input,'rb'))
-        local text=file:read('*a'); file:close()
-        -- One host vocabulary, shared with the language server (let/host.lua), so the CLI and
-        -- the editor agree about what a program can name and how an import is found.
-        local options=V.Host.configure(options_path and dofile(options_path) or {})
-        local program,builder=V.parse(text,input):build(options)
-        -- This is a host, and it publishes every exported word: §15.1's "the host selects".
-        options.entries=options.entries or builder.host_entries
-        options.statistics=options.statistics or {}
-        local unit=program:emit(options)
-        if entry(builder) then unit=executable(unit,options.statistics) end
-        local source=V.print(unit)
-        if output then
-            local out=assert(io.open(output,'wb')); out:write(source); out:close()
-        else io.write(source) end
-    end
+        -- One `Compiler` for the whole run, because it owns `modules`: two files that import the same
+        -- third one must share it, and a second load could disagree about the same bytes (§S39).
+        local compiler = Context.compiler(V, {})
+        local source, diagnostic
+        local ok = compile.translation_unit(compiler, text, input,
+            function(C, emitted) source = emitted; return true end,
+            function(C, d) diagnostic = d; return false end)
+        if not ok then return report(diagnostic) end
 
-    local ok,err=pcall(function()
-        if not arg[1] or #arg>3 then
-            error('usage: luajit letc.lua input.let [output.c [options.lua]]',0)
+        if output == '-' then
+            io.write(source)
+            return 0
         end
-        compile(arg[1],arg[2],arg[3])
-    end)
-    if not ok then io.stderr:write(tostring(err),'\n'); os.exit(1) end
+        local out = io.open(output, 'wb')
+        if not out then
+            io.stderr:write('letc: cannot write ' .. output .. '\n')
+            return 2
+        end
+        out:write(source)
+        out:close()
+        return 0
+    end
 end

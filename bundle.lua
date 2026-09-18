@@ -1,46 +1,34 @@
--- luajit bundle.lua [output]        (either host writes the same file)
+-- luajit bundle.lua [output]        (default: dist/let.lua)
 --
--- Writes one Lua file containing the compiler and everything it requires. Every module here is a
--- chunk that returns its value, so bundling is a registry and a function wrapper: the bundle
--- defines each module under its own name and hands every one of them a `require` that resolves
--- from the registry, falling back to the host's own for anything not bundled (`ffi`, in scalar).
+-- Writes one Lua file carrying the compiler and everything it requires, so the compiler can be used
+-- without the checkout: `luajit dist/let.lua program.let -o program.c`.
 --
--- The file is host-independent: it parses and runs on LuaJIT and on PUC Lua 5.3+, and either host
--- writes byte-identical output. That is what makes it one artifact rather than one per runtime,
--- and `let/numeric` picks the 64-bit backend when the bundle loads.
+-- THE MODULE SET IS DISCOVERED, NOT LISTED. Start at the entry point, read the `require` calls in each
+-- source, follow them. A hand-kept list is a second place that knows what the compiler is made of, and
+-- the failure it produces is the worst kind: the bundle keeps building, every test inside the tree keeps
+-- passing -- because the tree is still on `package.path` -- and the missing module shows up only when
+-- somebody runs the bundle.
 --
--- The module set is discovered rather than listed: start at the entry point, read the `require`
--- calls in each source, and pull in whatever is found. A module added later cannot be forgotten.
+-- The output is host-independent. The compiler uses nothing but the standard library, so unlike the
+-- legacy bundle there are no host-specific backends to carry as text; it parses and runs on LuaJIT and
+-- on PUC Lua 5.3+, and either host writes byte-identical output. A module that the HOST provides is not
+-- carried: the bundle's `require` falls back to the real one.
 package.path = './?.lua;./?/init.lua;' .. package.path
 
 local output = arg[1] or 'dist/let.lua'
-local entry = 'let'
--- Names the bundle does not carry because the runtime provides them.
-local external = {}
-for _, name in ipairs{'ffi','bit','jit','debug','io','os','math','string','table','coroutine','package'} do
-    external[name] = true
+local ENTRY = 'let'
+
+-- What the runtime provides, so it is not carried and not looked for.
+local EXTERNAL = {}
+for _, name in ipairs{ 'ffi', 'bit', 'jit', 'debug', 'io', 'os', 'math', 'string', 'table',
+                       'coroutine', 'package', 'utf8' } do
+    EXTERNAL[name] = true
 end
 
--- Each 64-bit backend is written in its own host's syntax, and each host rejects the other's --
--- PUC Lua cannot parse the `ULL` suffix LuaJIT's FFI needs, and LuaJIT cannot parse PUC's `//`,
--- `~` and `<<` -- at *parse* time, whether or not it would run them. So both are carried as text
--- and loaded only where they are used, and `let/numeric` chooses. One file then parses and runs
--- on either host, and either host generates the same file.
-local textual = {['let.numeric_ffi'] = true, ['let.numeric_native'] = true}
-
--- A chunk whose syntax this host would reject, wrapped so that the bundle still parses. The
--- bracket level is chosen so the wrapped text cannot close it.
-local function quoted(text)
-    local level = 1
-    while text:find(']' .. string.rep('=', level) .. ']', 1, true) do level = level + 1 end
-    local equals = string.rep('=', level)
-    return ('return load([%s[%s]%s])()'):format(equals, text, equals)
-end
-
+-- The two spellings `package.path` looks for: a file, or a package directory.
 local function source_of(name)
-    -- The same two spellings `package.path` looks for: a file, or a package directory.
     local stem = name:gsub('%.', '/')
-    for _, path in ipairs{stem .. '.lua', stem .. '/init.lua'} do
+    for _, path in ipairs{ stem .. '.lua', stem .. '/init.lua' } do
         local file = io.open(path, 'rb')
         if file then
             local text = file:read('*a')
@@ -51,25 +39,25 @@ local function source_of(name)
     return nil, stem .. '.lua'
 end
 
--- Depth-first from the entry point, keeping the order each module was first reached.
+-- Depth-first from the entry point, keeping the order each module was first reached. The order is the
+-- order they are written in, which is also a valid dependency order because a module is collected
+-- before the modules IT requires.
 local modules, seen, order = {}, {}, {}
 local function collect(name)
-    if seen[name] then return end
-    if external[name] then return end
+    if seen[name] or EXTERNAL[name] then return end
     seen[name] = true
     local text, path = source_of(name)
-    assert(text, ("bundle: cannot find module '%s' (%s)"):format(name, path))
-    modules[name] = {text = text, path = path}
+    assert(text, ("bundle: cannot find module '%s' (looked for %s)"):format(name, path))
+    modules[name] = { text = text, path = path }
     order[#order + 1] = name
-    -- Either quote style: the vendored files use double quotes, and missing one leaves a module
-    -- out of the bundle while every test inside the repository still passes, because the tree is
-    -- still on package.path here.
+    -- Either quote style, and both spellings of a call: `require('x')` and `require 'x'`. Missing one
+    -- leaves a module out while everything inside the tree still passes.
     for required in text:gmatch([[require%s*%(?%s*['"]([^'"]+)['"]%s*%)?]]) do collect(required) end
     for required in text:gmatch([[require%s*['"]([^'"]+)['"]%s*%(]]) do collect(required) end
 end
-collect(entry)
--- The command-line host is reached from the generated script rather than from `let`, so it is
--- collected explicitly.
+collect(ENTRY)
+-- The command line is reached from the generated script rather than from `let`, so it is collected
+-- explicitly -- nothing requires it.
 collect('let.cli')
 
 local out = {}
@@ -77,17 +65,17 @@ local function line(text) out[#out + 1] = text end
 line('-- Generated by bundle.lua from ' .. #order .. ' modules. Do not edit.')
 line('--')
 line('-- The Let compiler in one file: no installation, no package.path, and no dependency beyond the')
-line('-- host it runs on -- LuaJIT or PUC Lua 5.3+, both from this same file. Requiring it returns what')
-line('-- the module layout returns; running it as a script compiles a file.')
+line('-- host it runs on. Requiring it returns what the module layout returns (the vocabulary table);')
+line('-- running it as a script compiles a file, with the exit codes `letc` documents.')
 line('local bundled, loaded = {}, {}')
-line('local requires = require')
-line('-- A bundled chunk is called with its own name, as a Lua module chunk is, because the')
-line('-- vendored files register themselves in package.loaded rather than returning a value.')
+line('local host_require = require')
+line('-- A bundled chunk is called with its own name, as a Lua module chunk is, and whatever it returns')
+line('-- is what `require` gives back -- so the bundle behaves exactly like the tree it was built from.')
 line('local function require(name)')
 line('    local value = loaded[name]')
 line('    if value ~= nil then return value end')
 line('    local chunk = bundled[name]')
-line('    if not chunk then return requires(name) end')
+line('    if not chunk then return host_require(name) end')
 line('    value = chunk(require, name)')
 line('    if value == nil then value = package.loaded[name] end')
 line('    if value == nil then value = true end')
@@ -99,18 +87,16 @@ for _, name in ipairs(order) do
     line('')
     line(('-- %s'):format(modules[name].path))
     line(("module('%s', function(require, ...)"):format(name))
-    local text = modules[name].text
-    if textual[name] then line(quoted(text)) else line(text) end
+    line(modules[name].text)
     line('end)')
 end
 line('')
 line("local V = require('let')")
-line('-- Run as a script rather than required: compile arg[1] to arg[2], or to stdout.')
-line("local this, script = debug.getinfo(1, 'S').short_src, arg and arg[0]")
-line('-- Run as a script rather than required: compile arg[1] to arg[2], or to stdout. The test is')
-line('-- whether this chunk *is* the running script; loading it into another program is not.')
-line('if script and this == script then')
-line("    require('let.cli')(V, arg)")
+line('-- Run as a script rather than required: compile what the command line names. The test is whether')
+line('-- this chunk IS the running script, so loading it into another program is not mistaken for it.')
+line("local source, script = debug.getinfo(1, 'S').short_src, arg and arg[0]")
+line('if script and source == script then')
+line("    os.exit(require('let.cli')(V)(arg))")
 line('else')
 line('    return V')
 line('end')

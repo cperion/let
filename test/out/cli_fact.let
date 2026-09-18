@@ -1,0 +1,7 @@
+let fact = let n : Int do : Int
+    if n == 0 do
+        return 1
+    end
+    return n * fact(n - 1)
+end
+let answer = fact 5

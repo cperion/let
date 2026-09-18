@@ -1,1074 +1,604 @@
--- Belt to C. The belt is already the semantic program, so this pass only chooses
--- representations and prints them. It is not a second semantic IR and never decides
--- evaluation order: statements follow the belt's ordered effect chain.
+-- Belt.Function* x Judge.Answer* -> C.Unit (DESIGN §12.5).
+--
+-- The belt is already the semantic program, so emission chooses representations only. The choices
+-- here are the design's, not the emitter's:
+--
+--   * **Effects have no C representation.** An effect token is ordering evidence for the frontend
+--     and the belt's statement order already carries that order, so dropping it removes the effect
+--     parameter from every signature, the effect field from every result, and the effect argument
+--     from every call. That is why `let_module_init` takes `(void)`.
+--   * **A `Known` value gets no variable**: every use is the constant. A `Runtime` value that is
+--     used gets a declared local. A producer nothing uses is not written at all -- so the belt's
+--     `Fate` is computed here, from liveness, not prescribed.
+--   * **An ordered instruction is always written**, because its effect is observable even when its
+--     result is not (spec §12.2). That is what makes "pure folds, ordered schedules" hold in the
+--     output and not just in the belt.
+--   * **An include is demanded by a representation**: `stdbool.h` appears only if a `bool` is.
+--   * **A record is one `struct` per shape**, so two residuals with the same members are one type.
 return function(V)
-local A,B,C,L=V.AST,V.Belt,V.C,V.List
-local literal=require('let.literal')
-local Known=V.Known
-local scalar=V.scalar
+    local C, B, J, L, S = V.C, V.Belt, V.Judge, V.List, V.Semantic
 
-local Emitter={}; Emitter.__index=Emitter
+    local Emit = {}
 
-
-function Emitter.new(options)
-    return setmetatable({options=options or {},structs={},struct_names={},results={},result_names={},
-        names={},helpers={},used_hosts={},used_destroys={},destroy_pointer={},text=false,stdbool=true,trap=false,
-        instances={},pending={},generic={},serial={},self_tail={}},Emitter)
-end
-
--- A host may state the C prototype it calls, because that ABI is an embedding detail (§15.3).
--- The Let types already map to C (`CString` is `const char*`, the scalars are themselves), so
--- only an integer of a different width needs a cast.
-local function compact(name) return (name:gsub('%s','')) end
-local c_integer={}
-for _,name in ipairs{'char','signedchar','unsignedchar','short','unsignedshort','int','unsigned',
-    'long','unsignedlong','longlong','unsignedlonglong','size_t','ssize_t','ptrdiff_t','intptr_t',
-    'uintptr_t','int8_t','uint8_t','int16_t','uint16_t','int32_t','uint32_t','int64_t','uint64_t'} do
-    c_integer[name]=true
-end
-local function c_integer_type(name) return c_integer[compact(name)]==true end
-
-function Emitter:host_arguments(host,arguments)
-    local converted=L()
-    for i,value in ipairs(arguments) do
-        local spelling=host.c and host.c.params and host.c.params[i]
-        if spelling and c_integer_type(spelling) then
-            converted:insert(C.Cast(C.Named(spelling),value))
-        else
-            converted:insert(value)
-        end
+    -- One emitter per lowering run: the structs, deduplicated by shape, and the headers used.
+    local function emitter()
+        return { structs = {}, by_shape = {}, includes = {}, next_struct = 0, hosts = {} }
     end
-    return converted
-end
 
-function Emitter:host_result(host,call)
-    local spelling=host.c and host.c.result
-    -- A Unit result discards the value, so there is nothing to convert.
-    if spelling and host.signature.results[1]~=B.Unit and c_integer_type(spelling) then
-        return C.Cast(C.I64,call)
-    end
-    return call
-end
+    -- An unnamed member is a positional element (§3.3: it has no declaration qualifier, because it
+    -- has no declaration at all). The representation still needs a name for it, and this is the one
+    -- place that invents one -- so the struct and every access to it agree by construction.
+    local function field_name(field, index) return field.name or ('f' .. index) end
 
-function Emitter:error(message) error('C emission: ' .. message,0) end
-
-function Emitter:register_struct(fields)
-    local key='s'
-    for _,field in ipairs(fields) do key=key .. '|' .. field:key() end
-    local existing=self.struct_names[key]
-    if existing then return "struct " .. existing end
-    -- Nested aggregate fields must be declared first, so the name is chosen only
-    -- after this struct's own fields have registered theirs.
-    local declarations=L()
-    -- Field names are zero-based to match belt member indices.
-    for i,field in ipairs(fields) do declarations:insert(C.Parameter(self:ctype(field.type),'f' .. (i-1))) end
-    local name='let_val_' .. (#self.structs+1)
-    self.struct_names[key]=name
-    self.structs[#self.structs+1]=C.Struct(name,declarations)
-    return 'struct ' .. name
-end
-
-
-function Emitter:ctype(type_)
-    if type_==B.Int then return C.I64 end
-    if type_==B.U8 then return C.U8 end
-    if type_==B.U32 then return C.U32 end
-    if type_==B.Bool then return C.Bool end
-    if type_==B.Unit then return C.U8 end
-    if type_==B.Effect then return C.U64 end
-    if type_==B.Float then self.math=true; return C.F64 end
-    if type_==B.Float32 then self.math=true; return C.F32 end
-    if type_==B.Text then self.text=true; return C.Named('struct let_text') end
-    if type_==B.CString then return C.Pointer(C.Named('const char')) end
-    if type_==B.CPointer then return C.Pointer(C.Named('void')) end
-    if B.Named:isclassof(type_) then
-        -- A resource is an integer handle by default, or a C pointer when it declares one.
-        local descriptor=self.options.resources and self.options.resources[type_.name]
-        if descriptor and descriptor.representation=='pointer' then return C.Pointer(C.Named('void')) end
-        return C.I64
-    end
-    if B.Address:isclassof(type_) or B.Borrow:isclassof(type_) then return C.Pointer(self:ctype(type_.pointee)) end
-    if B.Aggregate:isclassof(type_) or B.Word:isclassof(type_) then
-        -- A record with no fields carries no information, and an empty struct is not ISO C.
-        if #type_.fields==0 then return C.U8 end
-        return C.Named(self:register_struct(type_.fields))
-    end
-    if B.Sum:isclassof(type_) then return C.Named(self:register_struct(type_:record())) end
-    if type_==B.TypeWord then return C.U8 end
-    self:error('no representation for ' .. tostring(type_))
-end
-
--- Effect tokens are ordering evidence for the frontend and have no C representation: the
--- belt's statement order already carries the order. Dropping them removes the effect
--- parameter, the effect field of every result, and every effect update.
-function Emitter:value_types(types)
-    local values={}
-    for _,type_ in ipairs(types) do if type_~=B.Effect then values[#values+1]=type_ end end
-    return values
-end
-
--- A function returning no value is `void`; one returning a single value returns that type
--- directly. Only a genuine multiple result needs a struct.
-function Emitter:return_shape(types)
-    local values=self:value_types(types)
-    if #values==0 then return C.Void,0 end
-    if #values==1 then return self:ctype(values[1]),1 end
-    local key='r'
-    for _,type_ in ipairs(values) do key=key .. '|' .. type_:key() end
-    local existing=self.result_names[key]
-    if existing then return C.Named('struct ' .. existing),#values end
-    local name='let_ret_' .. (#self.results+1)
-    self.result_names[key]=name
-    local declarations=L()
-    for i,type_ in ipairs(values) do declarations:insert(C.Parameter(self:ctype(type_),'r' .. (i-1))) end
-    self.results[#self.results+1]=C.Struct(name,declarations)
-    return C.Named('struct ' .. name),#values
-end
-
--- `values` are the materialized results only; the effect has already been dropped.
-function Emitter:return_value(type_,values)
-    if type_==C.Void then return nil end
-    if #values==1 then return values[1] end
-    return C.Compound(type_,values)
-end
-
--- Negation is applied in 64-bit two's-complement form here rather than in C, where
--- negating INT64_MIN would be undefined and the magnitude may exceed a Lua number.
-function Emitter:literal(spelling)
-    local negative=spelling:sub(1,1)=='-'
-    local _,_,hi,lo=literal.integer(negative and spelling:sub(2) or spelling,negative,function(m) self:error(m) end)
-    if not negative or (hi==0 and lo==0) then return C.Integer(hi,lo) end
-    local borrowed=lo==0 and 0 or 1
-    return C.Integer((4294967296-hi-borrowed)%4294967296, lo==0 and 0 or 4294967296-lo)
-end
-
-function Emitter:param(belt_id,index) return 'p' .. belt_id .. '_' .. index end
-function Emitter:value(belt_id,index,output) return 'v' .. belt_id .. '_' .. index .. '_' .. output end
-
--- Answers come from the abstract evaluator. A known answer is inlined at every use and its
--- producer is never written out, so folding removes work rather than hiding it. Which answers
--- exist, and where a producer's answer lives, is `disposition`'s business, not the emitter's:
--- reaching for an answer directly is how one rule became several.
-
-function Emitter:constant(answer)
-    local type_=answer.type
-    if type_==B.Int or type_==B.U8 or type_==B.U32 then local hi,lo=scalar.limbs(answer.value); return C.Integer(hi,lo) end
-    if type_==B.Float32 then self.math=true; return C.Cast(C.F32,C.Float(answer.value)) end
-    if type_==B.Float then self.math=true; return C.Float(answer.value) end
-    if type_==B.Bool then return C.Boolean(answer.value) end
-    if type_==B.Unit then return C.Integer(0,0) end
-    -- §11.2: a `Type` value is a compile-time handle with no runtime representation. A module's
-    -- state record still has a slot for a type-word binding, so the slot gets the same meaningless
-    -- zero a Unit does -- nothing ever reads it as a value, and the alternative was an error that
-    -- made a module-level `let Opt = Int or Text` impossible.
-    if type_==B.TypeWord then return C.Integer(0,0) end
-    if type_==B.Text then return C.Compound(self:ctype(B.Text),L{C.String(answer.value),C.Integer(0,#answer.value)}) end
-    if B.Word:isclassof(type_) or B.Aggregate:isclassof(type_) or B.Sum:isclassof(type_) then
-        if #answer.value.fields==0 then return C.Integer(0,0) end
-        local fields=L()
-        for _,field in ipairs(answer.value.fields) do fields:insert(self:constant(field)) end
-        return C.Compound(self:ctype(type_),fields)
-    end
-    self:error('no C constant for ' .. tostring(type_))
-end
-
--- Resolve a belt reference to the C expression holding that output.
-function Emitter:ref(block,block_id,position,ref)
-    -- Unit has exactly one value. It is materialized by whatever produced it -- an ordered call
-    -- emits a statement rather than a variable -- so a use of it is the constant, never a name.
-    local _,ref_type=block:resolve(position,ref)
-    if ref_type==B.Unit then return C.Integer(0,0) end
-    local producer=position-1-ref.distance
-    local fate,answer=self:disposition(self.current_instance.analysis,self.current,block_id,producer,ref.output)
-    if fate=='constant' then return self:constant(answer) end
-    if producer<#block.parameters then return C.Name(self:param(block_id,producer)) end
-    return C.Name(self:value(block_id,producer-#block.parameters+1,ref.output))
-end
-
-function Emitter:arglist(block,block_id,position,refs)
-    local out=L() for _,ref in ipairs(refs) do out:insert(self:ref(block,block_id,position,ref)) end
-    return out
-end
-
-local symbolic={[A.Add]='+',[A.Subtract]='-',[A.Multiply]='*',[A.Divide]='/',[A.Less]='<',[A.LessEqual]='<=',
-    [A.Greater]='>',[A.GreaterEqual]='>=',[A.Equal]='==',[A.NotEqual]='!=',[A.And]='&&',[A.Or]='||',
-    [A.BitAnd]='&',[A.BitOr]='|',[A.BitXor]='^'}
-local arithmetic={[A.Add]={'add','LET_ADD'}, [A.Subtract]={'sub','LET_SUB'}, [A.Multiply]={'mul','LET_MUL'}}
-
-
-local function statement_list(list)
-    local declarations=L(); for _,entry in ipairs(list) do declarations:insert(entry) end; return declarations
-end
-
--- Emits one instruction. Returns a statement list; output variables are named by
--- (block, instruction index, output) so relative references stay resolvable.
-function Emitter:instruction(block,block_id,index,instruction)
-    local position=#block.parameters+index-1
-    local operation=instruction.operation
-    local out={}
-    -- One question, asked of the same place the body filter and every reference asks.
-    local function known(output)
-        return self:disposition(self.current_instance.analysis,self.current,block_id,position,output)=='constant'
-    end
-    local function declare(output,type_,expr)
-        if type_==B.Effect then return false end
-        if known(output) then return false end
-        out[#out+1]=C.Declare(self:ctype(type_),self:value(block_id,index,output),expr)
-        return true
-    end
-    if B.IntegerLiteral:isclassof(operation) then
-        declare(0,B.Int,self:literal(operation.spelling))
-    elseif B.FloatLiteral:isclassof(operation) then
-        self.math=true
-        declare(0,B.Float,C.Float(scalar.float(operation.spelling,error)))
-    elseif B.BooleanLiteral:isclassof(operation) then
-        declare(0,B.Bool,C.Boolean(operation.value))
-    elseif B.UnitLiteral:isclassof(operation) then
-        declare(0,B.Unit,C.Integer(0,0))
-    elseif B.TextLiteral:isclassof(operation) then
-        self.text=true
-        declare(0,B.Text,C.Compound(self:ctype(B.Text),L{C.String(operation.value),C.Integer(0,#operation.value)}))
-    elseif B.Unary:isclassof(operation) then
-        local operand=self:arglist(block,block_id,position,{operation.operand})[1]
-        if operation.operator==A.Not then declare(0,B.Bool,C.Unary('!',operand))
-        elseif operation.operator==A.ToFloat then declare(0,B.Float,C.Cast(self:ctype(B.Float),operand))
-        elseif operation.operator==A.ToU8 then declare(0,B.U8,C.Cast(self:ctype(B.U8),operand))
-        elseif operation.operator==A.ToU32 then declare(0,B.U32,C.Cast(self:ctype(B.U32),operand))
-        elseif operation.operator==A.ToF32 then declare(0,B.Float32,C.Cast(self:ctype(B.Float32),operand))
-        elseif operation.operator==A.ToInt then
-            -- §13.3: the conversion is total, so it is one expression and nothing is called. A NaN
-            -- becomes zero and an out-of-range value saturates at the nearer Int bound.
-            declare(0,B.Int,C.Conditional(C.Binary('!=',operand,operand),C.Integer(0,0),
-                C.Conditional(C.Binary('>=',operand,C.Float(9223372036854775808.0)),C.Name('INT64_MAX'),
-                    C.Conditional(C.Binary('<',operand,C.Float(-9223372036854775808.0)),C.Name('INT64_MIN'),
-                        C.Cast(C.I64,operand)))))
-        elseif operation.operator==A.ToCString then
-            declare(0,B.CString,C.Field(operand,'data'))
-        elseif operation.operator==A.ToText then
-            -- A `char*` from the host carries no length, so it runs to the terminator -- the contract
-            -- a C string already implies. That is a compound literal with one conditional in it, not
-            -- a call.
-            self.text=true; self.helpers.strlen=true
-            declare(0,B.Text,C.Compound(self:ctype(B.Text),L{
-                C.Cast(C.Pointer(C.Named('char')),operand),
-                C.Conditional(operand,C.Call(C.Name('strlen'),L{operand}),C.Integer(0,0))}))
-        elseif operation.operator==A.TextSize then
-            declare(0,B.Int,C.Cast(C.I64,C.Field(operand,'size')))
-        elseif operation.operator==A.IsNull then
-            declare(0,B.Bool,C.Binary('==',operand,C.Integer(0,0)))
-        elseif operation.operator==A.BitNot then declare(0,instruction.results[1],C.Unary('~',operand))
-        elseif instruction.results[1]==B.Float or instruction.results[1]==B.Float32 then declare(0,instruction.results[1],C.Unary('-',operand))
-        elseif declare(0,B.Int,C.Call(C.Name('LET_NEG'),L{operand})) then self.helpers.neg=true end
-    elseif B.Binary:isclassof(operation) then
-        local arguments=self:arglist(block,block_id,position,{operation.left,operation.right})
-        local _,type_=block:resolve(position,operation.left)
-        if known(0) then return statement_list(out) end
-        if type_==B.Float or type_==B.Float32 then
-            self.math=true
-            declare(0,instruction.results[1],C.Binary(symbolic[operation.operator],arguments[1],arguments[2]))
-        elseif operation.operator==A.Equal or operation.operator==A.NotEqual then
-            -- `symbolic` already spells the operator: `==` or `!=` for a scalar, and the one Text
-            -- macro *is* equality, so only that case has anything left to negate. Negating the
-            -- scalar case too made `!=` compare equal and vice versa.
-            local call,negated
-            if type_==B.Text then
-                self.helpers.text_eq=true
-                call=C.Call(C.Name('LET_TEXT_EQ'),L{arguments[1],arguments[2]})
-                negated=operation.operator==A.NotEqual
-            else
-                call=C.Binary(symbolic[operation.operator],arguments[1],arguments[2])
-                negated=false
+    local function ctype(E, type_)
+        if type_ == B.Int then E.includes.stdint = true; return C.I64 end
+        if type_ == B.Bool then E.includes.stdbool = true; return C.Bool end
+        if type_ == B.Unit then E.includes.stdint = true; return C.U8 end
+        if type_ == B.Effect then return nil end
+        -- §11.3: Text is a module-lifetime literal, so its representation is a C string -- a
+        -- pointer to static storage -- and never a borrowed view, because a view is a separately
+        -- declared HOST type (§3.6) and not the core's `Text`. It is `const char *` and not
+        -- `uint8_t *`: the literal is a `char *`, and spelling it as bytes is a signedness mismatch
+        -- the compiler warns about, which is a representation disagreeing with itself.
+        if type_ == B.Text or type_ == B.CString then return C.CString end
+        if type_ == B.U8 then E.includes.stdint = true; return C.U8 end
+        if type_ == B.U32 then E.includes.stdint = true; return C.U32 end
+        if type_ == B.Float then return C.F64 end
+        if type_ == B.Float32 then return C.F32 end
+        if type_ == B.CPointer then return C.Pointer(C.Void) end
+        -- A host type is spelled by its own name, because the definition is the host's. §S43's rule
+        -- applies in reverse here: the compiler cannot derive a C struct it has never seen, so the
+        -- declaration states the name and the host provides the type.
+        if B.Named:isclassof(type_) then return C.Named(type_.name) end
+        -- A cell is a POINTER to storage. That is the whole representation of §3.2's
+        -- address-taken binding, and it is why assignment is a store rather than a rebinding: the
+        -- cell value is the same object on every path, and only what it points at changes.
+        if B.Cell:isclassof(type_) then return C.Pointer(ctype(E, type_.contents)) end
+        -- §3.5's sum: a tag and ONE payload, so the payload is a union of the alternatives and the
+        -- tag says which one is there. Two declarations are needed because C has no anonymous union
+        -- member in this vocabulary -- `union let_uN` for the payload, `struct let_sumN` to carry it
+        -- with the tag -- and they are deduplicated by shape like a record is, so two sums with the
+        -- same alternatives are one type.
+        --
+        -- The union's fields are `f0`, `f1`, ... because §11.7's `Sum` has alternatives and no
+        -- fields: an alternative has no name to be spelled with, which is the same reason a
+        -- positional record member is `f<index>`.
+        if B.Sum:isclassof(type_) then
+            if #type_.alternatives == 0 then return nil end
+            E.includes.stdint = true
+            local parts = {}
+            for _, alternative in ipairs(type_.alternatives) do
+                parts[#parts + 1] = tostring(alternative)
             end
-            declare(0,B.Bool,negated and C.Unary('!',call) or call)
-        elseif arithmetic[operation.operator] and instruction.results[1]~=B.U8 and instruction.results[1]~=B.U32 then
-            local helper=arithmetic[operation.operator]
-            self.helpers[helper[1]]=true
-            declare(0,B.Int,C.Call(C.Name(helper[2]),L{arguments[1],arguments[2]}))
-        elseif operation.operator==A.ShiftLeft or operation.operator==A.ShiftRight then
-            local result=instruction.results[1]
-            if result==B.U8 or result==B.U32 then
-                -- The count is reduced modulo the width, and the declared result type truncates.
-                local mask=(result==B.U8) and 7 or 31
-                local shift=operation.operator==A.ShiftLeft and '<<' or '>>'
-                declare(0,result,C.Cast(self:ctype(result),
-                    C.Binary(shift,C.Cast(self:ctype(result),arguments[1]),
-                        C.Binary('&',arguments[2],C.Integer(0,mask)))))
-            elseif operation.operator==A.ShiftLeft then
-                self.helpers.shl=true
-                declare(0,B.Int,C.Call(C.Name('LET_SHL'),L{arguments[1],arguments[2]}))
-            else
-                -- §13.2: `>>` on a negative signed value is implementation-defined in C, and the
-                -- language says arithmetic, so the vacated bits take the sign. One expression, whose
-                -- operands are variables, so repeating them costs nothing.
-                local count=C.Binary('&',C.Cast(C.U64,arguments[2]),C.Integer(0,63))
-                local magnitude=C.Binary('>>',C.Cast(C.U64,arguments[1]),count)
-                declare(0,B.Int,C.Conditional(
-                    C.Binary('&&',C.Binary('<',arguments[1],C.Integer(0,0)),count),
-                    C.Cast(C.I64,C.Binary('|',magnitude,
-                        C.Binary('<<',C.Unary('~',C.Cast(C.U64,C.Integer(0,0))),
-                            C.Binary('-',C.Integer(0,64),count)))),
-                    C.Cast(C.I64,magnitude)))
-            end
-        else
-            declare(0,instruction.results[1],C.Binary(symbolic[operation.operator],arguments[1],arguments[2]))
-        end
-    elseif B.CheckedBinary:isclassof(operation) then
-        local arguments=self:arglist(block,block_id,position,{operation.left,operation.right})
-        local numerator,divisor=arguments[1],arguments[2]
-        local divide=operation.operator==A.Divide
-        local effect=self:ref(block,block_id,position,operation.effect)
-        local producer=position-1-operation.right.distance
-        local fate,answer=self:disposition(self.current_instance.analysis,self.current,block_id,producer,operation.right.output)
-        local constant=fate=='constant' and answer.type==B.Int and answer.value or nil
-        if declare(0,instruction.results[1],nil) then
-            self.trap=true
-            local reason=C.String(divide and 'division by zero' or 'remainder by zero')
-            local trap=C.Evaluate(C.Call(C.Name('let_trap'),L{reason}))
-            if constant and scalar.equal(constant,scalar.integer('0',error)) then
-                -- A literal zero divisor: the trap is the whole operation, so no division by a
-                -- constant zero is written. Dividing by zero is undefined behaviour in C, and a
-                -- compiler is entitled to exploit that; this one (gcc -O3) leaves the trap alone,
-                -- but the emitted C should not depend on a compiler's restraint. The assignment
-                -- keeps the result defined for the reader's compiler, and is unreachable.
-                out[#out+1]=trap
-                out[#out+1]=C.Assign(C.Name(self:value(block_id,index,0)),C.Integer(0,0))
-            else
-                if not constant then out[#out+1]=C.If(C.Binary('==',divisor,C.Integer(0,0)),C.Block(L{trap})) end
-                local negation=divide and C.Cast(C.I64,C.Unary('-',C.Cast(C.U64,numerator))) or C.Integer(0,0)
-                local division=C.Binary(divide and '/' or '%',numerator,divisor)
-                local result
-                if constant then
-                    -- A known divisor needs no guard even for -1: it either is -1 or it is not.
-                    result=scalar.equal(constant,scalar.integer('-1',error)) and negation or division
-                else result=C.Conditional(C.Binary('==',divisor,self:literal('-1')),negation,division) end
-                out[#out+1]=C.Assign(C.Name(self:value(block_id,index,0)),result)
-            end
-            declare(1,B.Effect,C.Binary('+',effect,C.Integer(0,1)))
-        else declare(1,B.Effect,effect) end
-    elseif B.FieldAddress:isclassof(operation) then
-        -- A field's address: the same storage, reached one level in.
-        local place=self:ref(block,block_id,position,operation.place)
-        declare(0,instruction.results[1],C.Unary('&',C.Field(C.Unary('*',place),'f' .. operation.field)))
-    elseif B.TextOf:isclassof(operation) then
-        -- A Text view over a borrowed pointer and a length, built like a literal's struct.
-        self.text=true
-        local pointer=self:ref(block,block_id,position,operation.pointer)
-        local size=self:ref(block,block_id,position,operation.size)
-        declare(0,B.Text,C.Compound(self:ctype(B.Text),
-            L{C.Cast(C.Pointer(C.Named('char')),pointer),C.Cast(C.U64,size)}))
-    elseif B.BorrowPlace:isclassof(operation) then
-        -- A borrow is the same storage, so nothing is emitted for the operation itself; only
-        -- the type changed, and that is a frontend matter.
-        declare(0,instruction.results[1],self:ref(block,block_id,position,operation.address))
-    elseif B.InjectSum:isclassof(operation) then
-        -- §11.5: name the tag and the active alternative and leave the rest to C's zero-fill, so
-        -- an alternative that owns state is never written with a dummy value.
-        local index=operation.index
-        declare(0,instruction.results[1],C.Init(self:ctype(instruction.results[1]),
-            L{C.Designator('f0',C.Integer(0,index)),
-                C.Designator('f' .. (index+1),self:ref(block,block_id,position,operation.payload))}))
-    elseif B.Construct:isclassof(operation) then
-        if #operation.fields==0 then declare(0,instruction.results[1],C.Integer(0,0))
-        else declare(0,instruction.results[1],C.Compound(self:ctype(instruction.results[1]),self:arglist(block,block_id,position,operation.fields))) end
-    elseif B.SelectField:isclassof(operation) then
-        -- §8.4: a runtime index over an aggregate whose members share a type. C's construct for it
-        -- is the switch, so the switch is what is written -- here, at the site, where the source
-        -- selects. A selection is not a call: a helper would put a function in the emitted C for
-        -- something the program never invoked, and would hide the operation behind a name.
-        if declare(0,instruction.results[1],nil) then
-            local _,record=block:resolve(position,operation.record)
-            local fields=record:record()
-            local base=self:ref(block,block_id,position,operation.record)
-            local name=self:value(block_id,index,0)
-            local cases=L()
-            for i=1,#fields do
-                local assign=C.Assign(C.Name(name),C.Field(base,'f' .. (i-1)))
-                cases:insert(C.Case(C.Integer(0,i-1),L{assign,C.Break}))
-            end
-            local trap=C.Call(C.Name('let_trap'),L{C.String('index out of range')})
-            cases:insert(C.Case(nil,L{C.Evaluate(trap)}))
-            out[#out+1]=C.Switch(self:ref(block,block_id,position,operation.key),cases)
-        end
-    elseif B.SelectStore:isclassof(operation) then
-        -- The write half. The record is copied and one member of the copy is replaced, which is
-        -- what `StoreField` writes out too: members are replaced, never mutated through the
-        -- caller's own copy.
-        if declare(0,instruction.results[1],self:ref(block,block_id,position,operation.record)) then
-            local _,record=block:resolve(position,operation.record)
-            local fields=record:record()
-            local name=self:value(block_id,index,0)
-            local value=self:ref(block,block_id,position,operation.value)
-            local cases=L()
-            for i=1,#fields do
-                local assign=C.Assign(C.Field(C.Name(name),'f' .. (i-1)),value)
-                cases:insert(C.Case(C.Integer(0,i-1),L{assign,C.Break}))
-            end
-            local trap=C.Call(C.Name('let_trap'),L{C.String('index out of range')})
-            cases:insert(C.Case(nil,L{C.Evaluate(trap)}))
-            out[#out+1]=C.Switch(self:ref(block,block_id,position,operation.key),cases)
-        end
-    elseif B.LoadField:isclassof(operation) then
-        local base=self:ref(block,block_id,position,operation.record)
-        declare(0,instruction.results[1],C.Field(base,'f' .. operation.field))
-    elseif B.StoreField:isclassof(operation) then
-        local word=self:ref(block,block_id,position,operation.record)
-        local type_=instruction.results[1]
-        local fields=L()
-        for i=0,#type_:record()-1 do
-            if i==operation.field then fields:insert(self:ref(block,block_id,position,operation.value))
-            else fields:insert(C.Field(word,'f' .. i)) end
-        end
-        declare(0,type_,C.Compound(self:ctype(type_),fields))
-    elseif B.Allocate:isclassof(operation) then
-        -- A cell is storage whose address is taken. Storage is chosen after the contract is
-        -- known (WORDS.md §9): a value that must be observable as a place becomes memory, and
-        -- an address that never escapes can still be promoted by the C compiler.
-        local address=instruction.results[1]
-        local cell=self:value(block_id,index,'c')
-        if self.current_id==1 then
-            -- Module state lives until unload, so a module cell needs storage that outlives
-            -- the initializer's frame: a captured word holds this address.
-            self.statics[#self.statics+1]=C.Global(self:ctype(address.pointee),cell)
-            out[#out+1]=C.Assign(C.Name(cell),self:ref(block,block_id,position,operation.initial))
-        else
-            out[#out+1]=C.Declare(self:ctype(address.pointee),cell,self:ref(block,block_id,position,operation.initial))
-        end
-        declare(0,address,C.Unary('&',C.Name(cell)))
-        declare(1,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
-    elseif B.Load:isclassof(operation) then
-        declare(0,instruction.results[1],C.Unary('*',self:ref(block,block_id,position,operation.address)))
-        declare(1,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
-    elseif B.Store:isclassof(operation) then
-        out[#out+1]=C.Assign(C.Unary('*',self:ref(block,block_id,position,operation.address)),
-            self:ref(block,block_id,position,operation.value))
-        declare(0,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
-    elseif B.CallFunction:isclassof(operation) then
-        -- The callee's effect parameter is not part of its C signature.
-        local callee=self:callee_instance(operation.target,block,block_id,position,operation.arguments)
-        local call=C.Call(C.Name(callee.name),
-            self:call_arguments(callee,block,block_id,position,operation.arguments))
-        local type_,count=self:return_shape(self.functions[operation.target].signature.results)
-        -- A call the evaluator answered but kept still happens, even when every result it
-        -- returns is a constant: the answer replaces the *uses*, not the call. Only the
-        -- declaration is dropped, never the evaluation.
-        if count==0 then
-            out[#out+1]=C.Evaluate(call)
-        elseif count==1 then
-            if known(0) then out[#out+1]=C.Evaluate(call) else declare(0,instruction.results[1],call) end
-        else
-            local temporary=self:value(block_id,index,'t')
-            out[#out+1]=C.Declare(type_,temporary,call)
-            local output=0
-            for _,result in ipairs(instruction.results) do
-                if result~=B.Effect then
-                    if not known(output) then declare(output,result,C.Field(C.Name(temporary),'r' .. output)) end
-                    output=output+1
+            local key = 'sum:' .. table.concat(parts, '|')
+            local name = E.by_shape[key]
+            if not name then
+                E.next_struct = E.next_struct + 1
+                name = 'let_s' .. E.next_struct
+                E.by_shape[key] = name
+                local union_name = 'let_u' .. E.next_struct
+                local members, carried = L(), L()
+                for index, alternative in ipairs(type_.alternatives) do
+                    local mapped = ctype(E, alternative)
+                    if not mapped then return nil end
+                    members:insert(C.Parameter(mapped, 'f' .. (index - 1)))
+                    carried:insert(C.Parameter(mapped, 'f' .. (index - 1)))
                 end
+                E.structs[#E.structs + 1] = C.Union(union_name, members)
+                -- The tag is an `int64_t` rather than the `uint8_t` it could be, because §1.5's
+                -- comparisons take Int and there is no `U8 -> Int` conversion word; a narrower tag
+                -- would need one invented to compare against. One choice, stated once.
+                E.structs[#E.structs + 1] = C.Struct(name, L{
+                    C.Parameter(C.I64, 'tag'), C.Parameter(C.Named('union ' .. union_name), 'payload')})
             end
+            return C.Named('struct ' .. name)
         end
-    elseif B.HostCall:isclassof(operation) or B.PureHostCall:isclassof(operation) then
-        local host=self.hosts[operation.symbol] or self:error('missing host contract for ' .. operation.symbol)
-        self.used_hosts[host.symbol]=host
-        -- A host may name an emitted helper rather than a C library symbol, so a buffer
-        -- vocabulary needs no external runtime.
-        if host.helper then self.helpers[host.helper]=true end
-        local arguments=self:host_arguments(host,self:arglist(block,block_id,position,operation.arguments))
-        local call=self:host_result(host,C.Call(C.Name(operation.symbol),statement_list(arguments)))
-        local pure=B.PureHostCall:isclassof(operation)
-        if instruction.results[1]==B.Unit then out[#out+1]=C.Evaluate(call)
-        else out[#out+1]=C.Declare(self:ctype(instruction.results[1]),self:value(block_id,index,0),call) end
-        if not pure then
-            local effect=self:ref(block,block_id,position,operation.effect)
-            declare(#instruction.results-1,B.Effect,C.Binary('+',effect,C.Integer(0,1)))
-        end
-    elseif B.Move:isclassof(operation) then
-        local value=self:ref(block,block_id,position,operation.value)
-        if declare(0,instruction.results[1],value) then
-            declare(1,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
-        else declare(1,B.Effect,self:ref(block,block_id,position,operation.effect)) end
-    elseif B.Destroy:isclassof(operation) then
-        self.used_destroys[operation.destructor]=true
-        local value=self:ref(block,block_id,position,operation.value)
-        out[#out+1]=C.Evaluate(C.Call(C.Name(operation.destructor),L{value}))
-        declare(0,B.Effect,C.Binary('+',self:ref(block,block_id,position,operation.effect),C.Integer(0,1)))
-    else
-        self:error('no representation for ' .. tostring(operation))
-    end
-    return statement_list(out)
-end
-
--- Instances ----------------------------------------------------------------------------
---
--- The unit of emission is an *instance*: a belt function together with the answers of the
--- entry packet it is called with, which is the same key `Run` caches an analysis under. One
--- function per belt id was the special case of that where nothing is known about the packet,
--- so the generic instance is not a fallback bolted on beside specialization -- it is the
--- instance with no information, and it is what the module interface itself uses.
-
--- The instance a function has knowing nothing about its entry packet.
-function Emitter:generic_instance(id)
-    local existing=self.generic[id]
-    if existing then return existing end
-    local analysis=self.run:instance(id,nil)
-    -- Emission asks the analysis what is known at every step, so an instance without one is not
-    -- usable. The analysis answers `nil` only when it cannot compute a summary, and the generic
-    -- instance is what every other call falls back to, so there is nothing to fall back to here --
-    -- it is a compiler bug, not a program that cannot be compiled.
-    -- The analysis answers `nil` when the budget ran out unfolding a recursion that does not
-    -- converge. Emission asks what is known at every step, so a blank analysis -- nothing known -- is
-    -- the honest answer, and the demand pass still decides what to materialize. The generic instance
-    -- is what every other call falls back to, so there is no second option: without it, `emit`
-    -- refuses to build a program whose recursion merely does not terminate.
-    if not analysis then analysis=self.run:blank(id) end
-    local instance=self:add_instance(id,analysis,self.run:key(id,nil),true)
-    self.generic[id]=instance
-    return instance
-end
-
-function Emitter:add_instance(id,analysis,key,generic)
-    local serial=(self.serial[id] or 0)+1
-    self.serial[id]=serial
-    local instance={id=id,belt=self.functions[id],analysis=analysis,key=key,generic=generic,
-        name=generic and self:function_name(id) or (self:function_name(id) .. '_' .. serial)}
-    self.instances[key]=instance
-    self.pending[#self.pending+1]=instance
-    return instance
-end
-
--- A self tail transfer changes the entry packet in place, so no packet of such a function is
--- fixed and every call to it uses the generic instance.
-function Emitter:self_tail_recursive(id)
-    local known=self.self_tail[id]
-    if known~=nil then return known end
-    local found=false
-    for _,block in ipairs(self.functions[id].blocks) do
-        if B.TailCall:isclassof(block.exit) and block.exit.target==id then found=true end
-    end
-    self.self_tail[id]=found
-    return found
-end
-
--- The instance a call names. A packet with no constant is the generic instance; one with a
--- constant gets an instance of its own, unless the budget is spent or the instance is already
--- being analysed, in which case the generic one is used and every call still resolves.
-function Emitter:callee_instance(target,block,block_id,position,arguments)
-    local generic=self:generic_instance(target)
-    if self:self_tail_recursive(target) then return generic end
-    local seeded={Known.runtime(B.Effect)}
-    local useful=false
-    for i,ref in ipairs(arguments) do
-        local answer=self.current_instance.analysis:resolve(block,block_id,position,ref)
-        seeded[i+1]=answer
-        if Known.is_known(answer) then useful=true end
-    end
-    if not useful then return generic end
-    return self:specialized_instance(target,seeded) or generic
-end
-
--- The instance for a packet, if one can be built: nil when the budget is spent or the same
--- instance is already being analysed, which is how a cycle terminates.
-function Emitter:specialized_instance(id,seeded)
-    local key=self.run:key(id,seeded)
-    local existing=self.instances[key]
-    if existing then return existing end
-    local analysis=self.run:instance(id,seeded)
-    if not analysis then return nil end
-    return self:add_instance(id,analysis,key,false)
-end
-
--- What a function's body needs, as one set of producer positions and outputs. The demand pass
--- over its instructions, plus the entry parameters block 1 reads.
---
--- The second part is not redundant. The demand pass reports the module unload's state -- which
--- a `Destroy` consumes -- as unneeded, so its answer for an entry packet cannot be used on its
--- own. The scan is local to block 1 on purpose: anything read in another block was copied
--- there by an edge, and that copy is itself a reference, so a parameter block 1 never reads is
--- one nothing reads. It is recomputed per belt rather than cached beside the demand table,
--- because a callee and its call sites must reach the same answer.
-local requirements={}
--- The parameters block 1 reads. A call argument counts as a use only when the callee's parameter
--- is live: a dead parameter is dropped from the callee's signature and from the call, so treating
--- the argument as a use would keep the caller's parameter alive for a value never passed. One
--- rule reaches both. On a cycle the callee is still being computed, so its parameters are live.
-function Emitter:entry_parameters_read(belt)
-    local block=belt.blocks[1]
-    local used={}
-    local function note(position,ref)
-        local producer=block:resolve(position,ref)
-        if producer<#block.parameters then used[producer]=true end
-    end
-    for index,instruction in ipairs(block.instructions) do
-        local at=#block.parameters+index-1
-        local operation=instruction.operation
-        local callee=B.CallFunction:isclassof(operation) and self.functions[operation.target]
-        if callee and requirements[callee]~='pending' then
-            for i,ref in ipairs(operation.arguments) do
-                if self:parameter_live(nil,callee,1,i+1) then note(at,ref) end
+        if B.Aggregate:isclassof(type_) then
+            -- An empty record carries no information, and **an empty struct is not ISO C** -- so
+            -- it is the unit byte. That is what makes a word with no state a value with no fields,
+            -- rather than a GNU extension that happens to compile.
+            if #type_.fields == 0 then E.includes.stdint = true; return C.U8 end
+            local parts = {}
+            for _, field in ipairs(type_.fields) do
+                parts[#parts + 1] = (field.name or '') .. ':' .. tostring(field.type)
             end
-        else
-            for _,ref in ipairs(operation:inputs()) do note(at,ref) end
-        end
-    end
-    local at=#block.parameters+#block.instructions
-    for _,ref in ipairs(block.exit:inputs()) do note(at,ref) end
-    return used
-end
-
-function Emitter:requirements(belt)
-    local cached=requirements[belt]
-    if cached then return cached end
-    requirements[belt]='pending'
-    local needed=belt:demands()
-    local read=self:entry_parameters_read(belt)
-    needed[1]=needed[1] or {}
-    for position in pairs(read) do
-        needed[1][position]=needed[1][position] or {}
-        needed[1][position][0]=true
-    end
-    -- Block 1's read set is the whole story for its parameters, so a parameter no instruction
-    -- reads is not needed, even though the demand pass marked it as a call argument.
-    for position=0,#belt.blocks[1].parameters-1 do
-        if not read[position] then
-            local entry=needed[1][position]
-            if entry then entry[0]=nil end
-        end
-    end
-    requirements[belt]=needed
-    return needed
-end
-
--- What happens to one output of one producer.
---   'constant' -- its value is known, so every use of it is that constant;
---   'value'    -- it is materialized, and uses read it by name;
---   'dropped'  -- nothing needs it, so neither it nor its producer is written out.
---
--- A parameter asks the same question with `position` being its 0-based index, which is where
--- its value lives in the entry packet.
--- Whether a function is part of the program's interface to its host: the module initializer and
--- the entry points published for the host to call. Both are named for the linker rather than
--- `static`, and that is a property of the program, not of anything a caller passes in.
-function Emitter:hosted(instance)
-    return instance.id==1 or (self.host_ids and self.host_ids[instance.id]==true)
-end
-
-function Emitter:disposition(analysis,belt,block_id,position,output)
-    local block=belt.blocks[block_id]
-    local parameter=block.parameters[position+1]
-    -- An effect is not a value and never a declaration; it exists to order the body.
-    if parameter and parameter.type==B.Effect then return 'value' end
-    -- A parameter's value is the packet the caller supplied; an instruction's is its own
-    -- result. That is the only difference between the two, so it is stated here.
-    local answer
-    if parameter then answer=analysis and analysis:param(block_id,position+1)
-    else answer=analysis and analysis:answer(block_id,position,output) end
-    if Known.is_known(answer) then return 'constant',answer end
-    local needed=self:requirements(belt)[block_id]
-    if needed and needed[position] and needed[position][output] then return 'value' end
-    return 'dropped'
-end
-
--- Whether an instruction is written out at all. A call the evaluator folded is not, and a
--- pure producer whose outputs are all dropped is not either.
-function Emitter:instruction_runs(analysis,belt,block_id,position,instruction)
-    if analysis and B.CallFunction:isclassof(instruction.operation)
-        and analysis:call_was_folded(block_id,position) then return false end
-    for output=0,#instruction.results-1 do
-        if self:disposition(analysis,belt,block_id,position,output)~='dropped' then return true end
-    end
-    return false
-end
-
--- Does this parameter of this block exist in C at all? The function's signature, every call
--- site and every edge copy ask here, so they cannot disagree. An effect never does: statement
--- order carries it, so it is neither declared, nor passed, nor copied.
-function Emitter:parameter_live(analysis,belt,block_id,index)
-    if belt.blocks[block_id].parameters[index].type==B.Effect then return false end
-    return self:disposition(analysis,belt,block_id,index-1,0)=='value'
-end
-
-function Emitter:needed_parameter(block_id,index)
-    return self:parameter_live(self.current_instance.analysis,self.current,block_id,index)
-end
-
--- The arguments a call passes: belt argument i lands on entry parameter i+1, the effect being
--- carried separately.
--- The arguments a call passes, asked of the instance it names: belt argument i lands on entry
--- parameter i+1, and the effect is carried separately. Signature and call site ask the same
--- rule of the same instance, so they cannot disagree.
-function Emitter:call_arguments(instance,block,block_id,position,refs)
-    local out=L()
-    for i,ref in ipairs(refs) do
-        if self:parameter_live(instance.analysis,instance.belt,1,i+1) then
-            out:insert(self:ref(block,block_id,position,ref))
-        end
-    end
-    return out
-end
-
--- Edge packets are parallel assignments, so a temporary breaks any clobber cycle.
-function Emitter:edge(target_id,edge,block,block_id,position)
-    local target=self.current.blocks[target_id]
-    local statements=L()
-    local temporaries=L()
-    local live={}
-    for i,ref in ipairs(edge.arguments) do
-        if self:needed_parameter(target_id,i) then
-            local name=self:value(block_id,position,'e' .. i)
-            live[#live+1]=i
-            temporaries:insert(C.Declare(self:ctype(target.parameters[i].type),name,self:ref(block,block_id,position,ref)))
-        end
-    end
-    statements:insertall(temporaries)
-    for _,i in ipairs(live) do
-        statements:insert(C.Assign(C.Name(self:param(target_id,i-1)),C.Name(self:value(block_id,position,'e' .. i))))
-    end
-    statements:insert(C.Goto('b' .. target_id))
-    return C.Block(statements)
-end
-
-function Emitter:exit(target_id,block,block_id,exit)
-    local position=#block.parameters+#block.instructions
-    if B.Return:isclassof(exit) then
-        local types=self.functions[target_id].signature.results
-        local given=self:arglist(block,block_id,position,exit.values)
-        local values=L()
-        for i,type_ in ipairs(types) do if type_~=B.Effect then values:insert(given[i]) end end
-        local type_=self:return_shape(types)
-        return C.Return(self:return_value(type_,values))
-    elseif B.Jump:isclassof(exit) then
-        return self:edge(exit.edge.target,exit.edge,block,block_id,position)
-    elseif B.Branch:isclassof(exit) then
-        local taken=self.decision[block_id]
-        if taken then return self:edge(taken.target,taken,block,block_id,position) end
-        local condition=self:ref(block,block_id,position,exit.condition)
-        return C.If(condition,self:edge(exit.yes.target,exit.yes,block,block_id,position),self:edge(exit.no.target,exit.no,block,block_id,position))
-    elseif B.TailCall:isclassof(exit) then
-        local arguments=self:arglist(block,block_id,position,exit.arguments)
-        if exit.target==target_id then
-            -- A self tail transfer reuses this activation: assign the entry packet and
-            -- jump back to the entry block instead of growing a continuation chain.
-            local entry=self.current.blocks[1]
-            local statements,live=L(),{}
-            -- A tail call's arguments exclude the effect, so argument i lands on belt
-            -- parameter i+1 (1-based for the packet, 0-based for the C name).
-            for i,argument in ipairs(exit.arguments) do
-                if self:needed_parameter(1,i+1) then
-                    local name=self:value(block_id,position,'t' .. i)
-                    live[#live+1]=i
-                    statements:insert(C.Declare(self:ctype(entry.parameters[i+1].type),name,self:ref(block,block_id,position,argument)))
+            local key = table.concat(parts, '|')
+            local name = E.by_shape[key]
+            if not name then
+                -- A counter, not `#E.structs`: the struct is appended *after* its members are
+                -- built, so during that recursion the count has not grown and two shapes would
+                -- be given the same name.
+                E.next_struct = E.next_struct + 1
+                name = 'let_s' .. E.next_struct
+                E.by_shape[key] = name
+                local members = L()
+                for index, field in ipairs(type_.fields) do
+                    members:insert(C.Parameter(ctype(E, field.type), field_name(field, index - 1)))
                 end
+                E.structs[#E.structs + 1] = C.Struct(name, members)
             end
-            for _,i in ipairs(live) do statements:insert(C.Assign(C.Name(self:param(1,i)),C.Name(self:value(block_id,position,'t' .. i)))) end
-            statements:insert(C.Goto('b1'))
-            return C.Block(statements)
+            return C.Named('struct ' .. name)
         end
-        local callee=self:callee_instance(exit.target,block,block_id,position,exit.arguments)
-        return C.Return(C.Call(C.Name(callee.name),
-            self:call_arguments(callee,block,block_id,position,exit.arguments)))
-    elseif B.Trap:isclassof(exit) then
-        self.trap=true
-        local statements=L()
-        statements:insert(C.Evaluate(C.Call(C.Name('let_trap'),L{C.String(exit.reason)})))
-        local type_=self:return_shape(self.functions[target_id].signature.results)
-        -- The trap aborts, so this return is never reached -- but C still has to typecheck it, and a
-        -- function returning a struct cannot `return 0`. A struct gets a zero of its own type, which
-        -- leaves the rest of its members zero-initialized. The scalar and pointer cases keep the
-        -- plain zero, which is also a valid null pointer constant.
-        local value
-        if type_~=C.Void then
-            value=C.Named:isclassof(type_) and C.Compound(type_,L{C.Integer(0,0)}) or C.Integer(0,0)
+        return nil
+    end
+
+    -- A producer is named by its block and its position in it. The ENTRY block has no label, so it
+    -- has no brand: its parameters are the function's own parameters and its instructions are the
+    -- function's own locals. That is why an instance with one block still reads `p1`, `v2` -- one
+    -- block is not a special case, it is the case with nothing to disambiguate from.
+    local function brand_of(id) return id == 1 and '' or ('b' .. id .. '_') end
+
+    local function entity(brand, block, position)
+        if position < #block.parameters then return brand .. 'p' .. position end
+        return brand .. 'v' .. position
+    end
+
+    local function type_at(block, position, output)
+        if position < #block.parameters then return block.parameters[position + 1].type end
+        return block.instructions[position - #block.parameters + 1].results[output + 1]
+    end
+
+    -- A known value's C expression. It takes the belt type because a record's atom is a Bundle of
+    -- its members' atoms, so the mapping is recursive -- and it needs each member's type to spell
+    -- the designated initializer.
+    local record_expr
+    local function expr_of(E, type_, atom)
+        if J.Int:isclassof(atom) then
+            return C.Integer(math.floor(atom.value / 4294967296) % 4294967296, atom.value % 4294967296)
         end
-        statements:insert(C.Return(value))
+        -- §12.5: "an include is demanded by a REPRESENTATION". A folded constant is a use of one
+        -- -- a known `true` is still spelled `true` in C -- so the include is demanded here too.
+        -- Demanding it only where `ctype` runs misses every constant the folder produced, and the
+        -- output then fails to compile on `true` with nothing to point at.
+        if J.Bool:isclassof(atom) then
+            E.includes.stdbool = true
+            return C.Boolean(atom.value)
+        end
+        if J.Unit:isclassof(atom) then
+            E.includes.stdint = true
+            return C.Integer(0, 0)
+        end
+        if J.Text:isclassof(atom) then return C.String(atom.value) end
+        if J.Bundle:isclassof(atom) then return record_expr(E, type_, atom) end
+        return nil
+    end
+
+    record_expr = function(E, type_, atom)
+        -- An empty record is the unit byte, so its value is zero rather than a compound literal
+        -- with no members.
+        if #type_.fields == 0 then return C.Integer(0, 0) end
+        local designators = L()
+        for i, field in ipairs(type_.fields) do
+            designators:insert(C.Designator(field_name(field, i - 1),
+                expr_of(E, field.type, atom.fields[i])))
+        end
+        return C.Init(ctype(E, type_), designators)
+    end
+
+    -- The C expression for a ref. At consumer position `p`, `Ref(distance, output)` denotes producer
+    -- `p - 1 - distance` -- the same rule the belt uses, applied once more.
+    local function value_expr(E, block, answers, consumer, ref, brand)
+        local at = consumer - 1 - ref.distance
+        local answer = answers[at + 1]
+        if J.Known:isclassof(answer) then
+            -- One call: `expr_of` recurses into a Bundle itself, so a record is not a special
+            -- case here, and a constant needs no variable.
+            return expr_of(E, type_at(block, at, ref.output), answer.atom)
+        end
+        -- A cell produced by `Allocate` IS its storage's address, because `body_of` declares the
+        -- storage with the CONTENTS type and the cell is a pointer to it. Only that producer: a cell
+        -- that arrived as a PARAMETER is already a pointer, and taking its address again is `&&`.
+        if at >= #block.parameters then
+            local producer = block.instructions[at - #block.parameters + 1]
+            if B.Allocate:isclassof(producer.operation.operation) then
+                return C.Unary('&', C.Name(entity(brand, block, at)))
+            end
+        end
+        return C.Name(entity(brand, block, at))
+    end
+
+    -- A 64-bit constant. `C.Integer` takes the two halves because the output has to be valid C
+    -- without a suffix guess, so an operator's literal goes through the same spelling as an atom's.
+    local function int_expr(value)
+        return C.Integer(math.floor(value / 4294967296) % 4294967296, value % 4294967296)
+    end
+
+    local function cast_to(E, name, expr)
+        E.includes.stdint = true
+        return C.Cast(C.Named(name), expr)
+    end
+
+    -- §1.5's integer semantics written INLINE in C. There is no helper function, and that is not
+    -- style: a helper would be a second implementation of a Let operator, in C, that could drift
+    -- from the one `Known` folds. So wrapping is a cast through `uint64_t`, shifts mask their count
+    -- with `& 63`, and the two TRAPPING forms use `(abort(), 0)` -- a comma expression, which is
+    -- what lets a void call stand where a value is wanted.
+    local function binary_expr(E, operator, left, right)
+        if operator == S.Add then return cast_to(E, 'int64_t', C.Binary('+', cast_to(E, 'uint64_t', left), cast_to(E, 'uint64_t', right))) end
+        if operator == S.Subtract then return cast_to(E, 'int64_t', C.Binary('-', cast_to(E, 'uint64_t', left), cast_to(E, 'uint64_t', right))) end
+        if operator == S.Multiply then return cast_to(E, 'int64_t', C.Binary('*', cast_to(E, 'uint64_t', left), cast_to(E, 'uint64_t', right))) end
+        if operator == S.BitAnd then return C.Binary('&', left, right) end
+        if operator == S.BitOr then return C.Binary('|', left, right) end
+        if operator == S.BitXor then return C.Binary('^', left, right) end
+        if operator == S.ShiftLeft then
+            return cast_to(E, 'int64_t', C.Binary('<<', cast_to(E, 'uint64_t', left),
+                C.Binary('&', cast_to(E, 'uint64_t', right), int_expr(63))))
+        end
+        if operator == S.ShiftRight then
+            -- Arithmetic shift, which Let specifies for signed Int; a shift count is reduced modulo
+            -- 64, so no shift is undefined and none traps.
+            return C.Binary('>>', left, C.Binary('&', right, int_expr(63)))
+        end
+        if operator == S.Equal then return C.Binary('==', left, right) end
+        if operator == S.NotEqual then return C.Binary('!=', left, right) end
+        if operator == S.Less then return C.Binary('<', left, right) end
+        if operator == S.LessEqual then return C.Binary('<=', left, right) end
+        if operator == S.Greater then return C.Binary('>', left, right) end
+        if operator == S.GreaterEqual then return C.Binary('>=', left, right) end
+        if operator == S.Divide or operator == S.Remainder then
+            E.includes.stdlib = true
+            local zero = C.Binary('==', right, int_expr(0))
+            local minus_one = C.Binary('==', right, int_expr(-1))
+            local trap = C.Comma(L{C.Call(C.Name('abort'), L{}), int_expr(0)})
+            if operator == S.Divide then
+                -- §3.6: `INT_MIN / -1` wraps rather than trapping, so the wrapped quotient is
+                -- computed the same way any other wrapping arithmetic is.
+                local wrapped = cast_to(E, 'int64_t', C.Binary('-', cast_to(E, 'uint64_t', int_expr(0)), cast_to(E, 'uint64_t', left)))
+                return C.Conditional(zero, trap, C.Conditional(minus_one, wrapped, C.Binary('/', left, right)))
+            end
+            return C.Conditional(zero, trap, C.Conditional(minus_one, int_expr(0), C.Binary('%', left, right)))
+        end
+        error('no C rule for the operator ' .. tostring(operator), 0)
+    end
+
+    -- The expression an instruction computes, from its opcode alone (V.Op owns what it reads).
+    local function instruction_expr(E, block, answers, position, instruction, brand)
+        local op = instruction.operation.operation
+        local type_ = instruction.results[1]
+        if B.TextLiteral:isclassof(op) then return C.String(op.value) end
+        if B.FloatLiteral:isclassof(op) then return C.Float(S.float_value(op.spelling)) end
+        -- §3.5's construction: the tag says which alternative, and only that one is written -- so
+        -- the payload is a designated initializer for the union's field at that tag.
+        if B.InjectSum:isclassof(op) then
+            return C.Init(ctype(E, type_), L{
+                C.Designator('tag', C.Integer(0, op.index)),
+                C.Designator('payload', C.Init(C.Named('union ' .. ('let_u' .. tostring(ctype(E, type_)):match('%d+'))),
+                    L{C.Designator('f' .. op.index,
+                        value_expr(E, block, answers, position, op.payload, brand))}))})
+        end
+        -- §11.7's `Convert`, one C spelling per crossing. The numeric ones are casts because there
+        -- are no implicit conversions in the language, so an explicit one is exactly a cast. `ToText`
+        -- is absent for the reason the dictionary says: it needs a length the source does not have.
+        if B.Convert:isclassof(op) then
+            local value = value_expr(E, block, answers, position, op.value, brand)
+            local kind = op.kind
+            if kind == S.ToInt then return C.Cast(C.I64, value) end
+            if kind == S.ToFloat then return C.Cast(C.F64, value) end
+            if kind == S.ToU8 then return C.Cast(C.U8, value) end
+            if kind == S.ToU32 then return C.Cast(C.U32, value) end
+            if kind == S.ToF32 then return C.Cast(C.F32, value) end
+            -- A `Text` is already a C string in this representation, so crossing to `CString` is the
+            -- same pointer -- and saying so as a cast is what keeps the two types distinct in the
+            -- language while they coincide here.
+            if kind == S.ToCString then return C.Cast(C.CString, value) end
+            if kind == S.TextSize then
+                E.includes.string = true
+                return C.Cast(C.I64, C.Call(C.Name('strlen'), L{value}))
+            end
+            if kind == S.IsNull then return C.Unary('!', value) end
+            error('no C rule for the conversion ' .. tostring(getmetatable(kind) and getmetatable(kind).kind), 0)
+        end
+        if B.Construct:isclassof(op) then
+            if #op.fields == 0 then return C.Integer(0, 0) end
+            local fields = L()
+            for _, ref in ipairs(op.fields) do
+                fields:insert(value_expr(E, block, answers, position, ref, brand))
+            end
+            return C.Compound(ctype(E, type_), fields)
+        end
+        if B.LoadField:isclassof(op) then
+            local record_type = type_at(block, position - 1 - op.record.distance, op.record.output)
+            -- §3.5/§S59: a sum's field `0` is its TAG and field `1+K` is alternative `K`'s payload,
+            -- so both are known offsets -- which makes this the one place that knows where either
+            -- lives, and keeps every read of a sum a pure `LoadField`.
+            local name
+            if B.Sum:isclassof(record_type) then
+                if op.field == 0 then
+                    name = 'tag'
+                else
+                    return C.Field(C.Field(value_expr(E, block, answers, position, op.record, brand),
+                        'payload'), 'f' .. (op.field - 1))
+                end
+            else
+                name = field_name(record_type.fields[op.field + 1], op.field)
+            end
+            return C.Field(value_expr(E, block, answers, position, op.record, brand), name)
+        end
+        -- §12.4's host ops. The symbol is the callee, and the prototype is DERIVED from the Let
+        -- types rather than declared by the host (§3.6): the declaration in source is the whole
+        -- contract, so the C side of it is generated. A prototype is recorded once per symbol, at
+        -- the first call, because that is where its argument and result types are known.
+        if B.PureHostCall:isclassof(op) or B.HostCall:isclassof(op) then
+            local arguments = L()
+            local types = L()
+            for _, ref in ipairs(op.arguments) do
+                arguments:insert(value_expr(E, block, answers, position, ref, brand))
+                types:insert(ctype(E, type_at(block, position - 1 - ref.distance, ref.output)))
+            end
+            E.hosts[op.symbol] = { parameters = types, result = ctype(E, type_) }
+            return C.Call(C.Name(op.symbol), arguments)
+        end
+        if B.CallFunction:isclassof(op) then
+            local arguments = L()
+            for _, ref in ipairs(op.arguments) do
+                arguments:insert(value_expr(E, block, answers, position, ref, brand))
+            end
+            -- The effect argument is dropped: order is statement order.
+            return C.Call(C.Name(E.callees[op.target]), arguments)
+        end
+        -- §3.4's storage. A compound literal is what gives the cell's storage a name at its
+        -- declaration; C11 gives it the enclosing block's lifetime, which is the function.
+        -- §3.4's storage. The declaration IS the storage -- `body_of` declares it with the
+        -- CONTENTS type -- and `value_expr` takes its address wherever the cell is named, so the
+        -- expression here is simply the initial value.
+        if B.Allocate:isclassof(op) then
+            return value_expr(E, block, answers, position, op.initial, brand)
+        end
+        if B.Load:isclassof(op) then
+            return C.Unary('*', value_expr(E, block, answers, position, op.cell, brand))
+        end
+        -- §3.1's second rule, at the point it happens: destruction is a call to the word the type's
+        -- declaration named, with the value as its argument.
+        if B.Destroy:isclassof(op) then
+            -- §3.6/S41: a host type's DESTRUCTOR is declared in source exactly like a host word, so its
+            -- prototype is DERIVED the same way -- and it was the one host symbol that never got one.
+            -- The emitted unit therefore called `release` before any declaration of it, so it did not
+            -- compile on its own: the host had to pre-declare what the source had already declared.
+            -- That is the whole of "the declaration, not the implementation, is what the compiler holds
+            -- a host to" -- the compiler had the declaration and did not use it.
+            local destroyed = ctype(E, type_at(block, position - 1 - op.value.distance, op.value.output))
+            E.hosts[op.destructor] = { parameters = L{destroyed}, result = nil }
+            return C.Call(C.Name(op.destructor), L{value_expr(E, block, answers, position, op.value, brand)})
+        end
+        if B.Store:isclassof(op) then
+            return C.Assign(C.Unary('*', value_expr(E, block, answers, position, op.cell, brand)),
+                value_expr(E, block, answers, position, op.value, brand))
+        end
+        -- §S68: the address of a field, for a path that has to reach through storage. This is the
+        -- only place that knows a cell's C expression is a POINTER, which is why the base needs a
+        -- dereference and the field needs an address -- the two spellings `StoreField` and `Load`
+        -- then consume.
+        if B.FieldAddress:isclassof(op) then
+            local cell_type = type_at(block, position - 1 - op.cell.distance, op.cell.output)
+            local contents = cell_type.contents
+            return C.Unary('&', C.Field(C.Unary('*',
+                value_expr(E, block, answers, position, op.cell, brand)),
+                field_name(contents.fields[op.field + 1], op.field)))
+        end
+        if B.StoreField:isclassof(op) then
+            local record_type = type_at(block, position - 1 - op.record.distance, op.record.output)
+            local contents = record_type.contents
+            return C.Assign(
+                C.Field(C.Unary('*', value_expr(E, block, answers, position, op.record, brand)),
+                    field_name(contents.fields[op.field + 1], op.field)),
+                value_expr(E, block, answers, position, op.value, brand))
+        end
+        if B.Unary:isclassof(op) then
+            local operand = value_expr(E, block, answers, position, op.operand, brand)
+            if op.operator == S.Not then return C.Unary('!', operand) end
+            if op.operator == S.BitNot then return C.Unary('~', operand) end
+            -- Unary minus wraps like every other Int operation.
+            return cast_to(E, 'int64_t',
+                C.Binary('-', cast_to(E, 'uint64_t', int_expr(0)), cast_to(E, 'uint64_t', operand)))
+        end
+        if B.Binary:isclassof(op) or B.CheckedBinary:isclassof(op) then
+            return binary_expr(E, op.operator,
+                value_expr(E, block, answers, position, op.left, brand),
+                value_expr(E, block, answers, position, op.right, brand))
+        end
+        error('no emission rule for ' .. tostring(getmetatable(op) and getmetatable(op).kind), 0)
+    end
+
+
+
+    -- The signature: the result is the first non-effect result and the parameters are the packet
+    -- minus the effect. A function with NO non-effect result prints as `void`, which is how §2.6's
+    -- `unload` gets the signature the document writes without the emitter knowing about unload.
+    local function signature_of(E, belt)
+        local block = belt.blocks[1]
+        local result, returned
+        for i, type_ in ipairs(belt.signature.results) do
+            if type_ ~= B.Effect then result, returned = ctype(E, type_), i break end
+        end
+        local parameters = L()
+        for i, parameter in ipairs(block.parameters) do
+            if parameter.type ~= B.Effect then
+                parameters:insert(C.Parameter(ctype(E, parameter.type), entity('', block, i - 1)))
+            end
+        end
+        -- §11.7: linkage is a property of the INSTANCE, not something the emitter infers from the
+        -- name. `let_module_init` was the only exported function, so comparing the name worked; the
+        -- moment a top-level word gets a host entry point (§2.6), a name comparison is a string
+        -- standing in for a closed set -- and the second exported instance is what makes that a bug.
+        return { result = result, returned = returned, parameters = parameters,
+                 exported = belt.exported }
+    end
+
+    -- One edge: write the target's parameters from this edge's arguments, then go.
+    --
+    -- Those assignments ARE §S28's identity phi written out. The target's parameter IS the edge's
+    -- argument, so a value that crosses a join is one plain C assignment -- and the agreement the
+    -- join also requires is about PLACES, which have no representation and so write nothing.
+    local function edge_statements(E, belt, block, answers, brand, exit_at, edge)
+        local statements = L()
+        local target = belt.blocks[edge.target]
+        for index, ref in ipairs(edge.arguments) do
+            local parameter = target.parameters[index]
+            local type_ = parameter and ctype(E, parameter.type)
+            if type_ then
+                statements:insert(C.Assign(
+                    C.Name(entity(brand_of(edge.target), target, index - 1)),
+                    value_expr(E, block, answers, exit_at, ref, brand)))
+            end
+        end
+        statements:insert(C.Goto('b' .. edge.target))
         return C.Block(statements)
     end
-    self:error('no representation for ' .. tostring(exit))
-end
 
--- C names come from the belt: the module initializer and each word entry by its source
--- name, so a reader can tell what a function is without a legend.
-local function sanitize(name)
-    name=name:gsub('[^%w_]','_')
-    if name:match('^%d') then name='w' .. name end
-    return name
-end
-
-function Emitter:function_name(id)
-    local name=self.program.functions[id] and self.program.functions[id].name
-    if name=='__module_init' then return 'let_module_init' end
-    if name=='__module_unload' then return 'let_module_unload' end
-    return 'let_' .. sanitize(name or ('fn_' .. id))
-end
-
--- The signature of an instance, asked through the same rule a call site uses, so the two
--- cannot disagree about what is passed.
-function Emitter:function_parameters_for(instance)
-    local belt=instance.belt
-    local parameters=L()
-    for i,parameter in ipairs(belt.blocks[1].parameters) do
-        if self:parameter_live(instance.analysis,belt,1,i) then
-            parameters:insert(C.Parameter(self:ctype(parameter.type),self:param(1,i-1)))
+    -- The exit. A `Return` returns, a `Jump` goes, and a `Branch` does both once per edge.
+    local function exit_of(E, belt, block, answers, brand, exit_at, signature)
+        local exit = block.exit
+        if B.Return:isclassof(exit) then
+            local value = signature.returned
+                and value_expr(E, block, answers, exit_at, exit.values[signature.returned], brand)
+            return C.Return(value)
         end
-    end
-    return parameters
-end
-
-function Emitter:emit_instance(instance)
-    local belt,analysis=instance.belt,instance.analysis
-    -- A fully folded function has no residual work at all, so its body is the constant it
-    -- computes. Nothing inside it is walked: no blocks, no labels, no gotos.
-    if analysis.folded then
-        local type_=self:return_shape(belt.signature.results)
-        local values=L()
-        for i,result in ipairs(belt.signature.results) do
-            if result~=B.Effect then values:insert(self:constant(analysis.results[i])) end
+        if B.Jump:isclassof(exit) then
+            return edge_statements(E, belt, block, answers, brand, exit_at, exit.edge)
         end
-        local external=self:hosted(instance)
-        return C.Function(instance.name,external,external,type_,
-            self:function_parameters_for(instance),
-            C.Block(L{C.Return(self:return_value(type_,values))}))
+        if B.Trap:isclassof(exit) then
+            -- §1.5 traps where C would be undefined, and the one caller is §12.1's runtime index: an
+            -- index that names no member. `abort` is the only library the emitted C needs.
+            E.includes.stdlib = true
+            return C.Evaluate(C.Call(C.Name('abort'), L{}))
+        end
+        if B.Branch:isclassof(exit) then
+            return C.If(value_expr(E, block, answers, exit_at, exit.condition, brand),
+                edge_statements(E, belt, block, answers, brand, exit_at, exit.yes),
+                edge_statements(E, belt, block, answers, brand, exit_at, exit.no))
+        end
+        error('no emission rule for the exit of ' .. belt.name, 0)
     end
-    self.current_instance=instance
-    self.current=belt
-    self.current_id=instance.id
-    self.live=analysis.live_blocks
-    self.decision=analysis.decision
-    -- Consumer demand is a frontend decision: an unneeded pure producer is never
-    -- written out, so the emitted C does not rely on a C compiler to delete it.
-    -- Ordered operations always carry a demanded effect output and are therefore kept.
-    local result=self:return_shape(belt.signature.results)
-    local parameters=self:function_parameters_for(instance)
-    local body=L()
-    -- Non-entry block parameters are assigned only by edges, so they are declared once.
-    -- The entry block's packet is the function's ABI and is never pruned.
-    for block_id=2,#belt.blocks do
-        for i,parameter in ipairs(belt.blocks[block_id].parameters) do
-            if self:needed_parameter(block_id,i) then
-                body:insert(C.Declare(self:ctype(parameter.type),self:param(block_id,i-1),nil))
+
+    -- Every reachable block, in the order `Known` walked them -- which starts at the entry.
+    --
+    -- An unreachable block is not emitted: reachability is §12.3's demand one level below
+    -- instances (§S30). `Lower` still builds such a block, because a split's join exists before
+    -- either arm -- and only the graph says whether anything arrives.
+    local function body_of(E, belt, known, signature)
+        local statements = L()
+
+        -- A non-entry block's parameters are locals of the FUNCTION, declared before the first
+        -- label: C forbids a `goto` that jumps into the scope of a variably modified object, and
+        -- declaring them once is what lets an edge ASSIGN a parameter rather than declare it.
+        for _, id in ipairs(known.order) do
+            if id ~= 1 then
+                local block = belt.blocks[id]
+                for index, parameter in ipairs(block.parameters) do
+                    local type_ = ctype(E, parameter.type)
+                    if type_ then
+                        statements:insert(C.Declare(type_,
+                            entity(brand_of(id), block, index - 1), nil))
+                    end
+                end
             end
         end
-    end
-    body:insert(C.Goto('b1'))
-    for block_id,block in ipairs(belt.blocks) do
-        if not self.live[block_id] then goto continue_block end
-        body:insert(C.Label('b' .. block_id))
-        for index,instruction in ipairs(block.instructions) do
-            local position=#block.parameters+index-1
-            if self:instruction_runs(analysis,belt,block_id,position,instruction) then
-                body:insertall(self:instruction(block,block_id,index,instruction))
+
+        for _, id in ipairs(known.order) do
+            local block = belt.blocks[id]
+            local brand = brand_of(id)
+            local answers, fates = known.answers[id], known.fates[id]
+            local exit_at = #block.parameters + #block.instructions
+            if id ~= 1 then statements:insert(C.Label('b' .. id)) end
+
+            for position = #block.parameters, exit_at - 1 do
+                -- §12.5: the fate is consumed, not recomputed. `Materialized` is the ONLY fate
+                -- that writes C: `Immediate` needs no variable because every use is the constant,
+                -- and `Dropped` is the belt talking about something the machine does not do.
+                if J.Materialized:isclassof(fates[position + 1]) then
+                    local instruction = block.instructions[position - #block.parameters + 1]
+                    local type_ = instruction.results[1]
+                    local op = instruction.operation.operation
+                    -- §3.4's stores are STATEMENTS. C has no assignment expression in this
+                    -- vocabulary, and a store writes rather than produces -- so its effect result
+                    -- becomes the statement instead of wrapping one.
+                    -- An `Allocate` declares its STORAGE: the belt type is `Cell(T)` but the C
+                    -- object is a `T`, and the cell value is that object's address.
+                    if B.Allocate:isclassof(op) then
+                        statements:insert(C.Declare(ctype(E, type_.contents), entity(brand, block, position),
+                            instruction_expr(E, block, answers, position, instruction, brand)))
+                    elseif B.Store:isclassof(op) or B.StoreField:isclassof(op) then
+                        statements:insert(
+                            instruction_expr(E, block, answers, position, instruction, brand))
+                    elseif type_ == B.Effect then
+                        statements:insert(C.Evaluate(
+                            instruction_expr(E, block, answers, position, instruction, brand)))
+                    else
+                        statements:insert(C.Declare(ctype(E, type_), entity(brand, block, position),
+                            instruction_expr(E, block, answers, position, instruction, brand)))
+                    end
+                end
             end
+
+            statements:insert(exit_of(E, belt, block, answers, brand, exit_at, signature))
         end
-        body:insert(self:exit(instance.id,block,block_id,block.exit))
-        ::continue_block::
+        return C.Block(statements)
     end
-    local external=self:hosted(instance)
-    return C.Function(instance.name,external,external,result,parameters,C.Block(body))
-end
 
--- Resources and hosts are foreign code: the emitter declares the symbols it calls, and
--- the embedding supplies the implementations.
-function Emitter:host_declarations()
-    local declarations=L()
-    local names={}
-    -- Symbol sources are Lua tables, so sort them: an emitted unit must not depend on
-    -- `pairs` order, or two builds of one program would differ byte for byte.
-    -- A destructor is declared only when a `Destroy` names it, for the same reason hosts are: a
-    -- registered resource the program does not use must not appear in its C.
-    local destroys={}
-    for symbol in pairs(self.used_destroys) do destroys[#destroys+1]=symbol end
-    table.sort(destroys)
-    for _,symbol in ipairs(destroys) do
-        -- A resource that is a C pointer is destroyed through that pointer; a handle stays an
-        -- integer. The representation belongs to the resource, not to the destructor's spelling.
-        local type_=self.destroy_pointer[symbol] and C.Pointer(C.Named('void')) or C.I64
-        declarations:insert(C.Function(symbol,true,false,C.Void,L{C.Parameter(type_,'a0')},nil))
-    end
-    local symbols={}
-    -- Only a host the program actually calls is declared: a vocabulary may be registered for
-    -- names a program does not use, and those must not appear in its C.
-    for _,host in pairs(self.used_hosts) do
-        -- A host that names an emitted helper is defined in this unit, not declared as an extern.
-        if not host.helper and not names[host.symbol] then names[host.symbol]=true; symbols[#symbols+1]=host.symbol end
-    end
-    table.sort(symbols)
-    for _,symbol in ipairs(symbols) do
-        local host=self.hosts[symbol]
-        -- A declared prototype may name `size_t` or `ptrdiff_t`, so the includes follow the
-        -- hosts actually written out, not every registered one.
-        if host.c then self.c_hosts=true end
-        local parameters=L()
-        for i,parameter in ipairs(host.signature.parameters) do
-            local spelling=host.c and host.c.params and host.c.params[i]
-            local type_
-            if spelling then type_=C.Named(spelling)
-            else type_=parameter.capability==A.Mut and C.Pointer(self:ctype(parameter.type)) or self:ctype(parameter.type) end
-            parameters:insert(C.Parameter(type_,'a' .. i))
+    -- The belt's instances are a list, and a call names one by index. The mapping lives here
+    -- because a target is an emitter concern: the belt orders instances, the emitter spells them.
+    function Emit.run(unit, belts, known, k_ok, k_diag)
+        local E = emitter()
+        E.callees = {}
+        for index, belt in ipairs(belts) do E.callees[index] = belt.name end
+
+        -- Signatures first, because a signature is what registers a struct a declaration names.
+        local signatures = {}
+        for index, belt in ipairs(belts) do signatures[index] = signature_of(E, belt) end
+
+        -- Prototypes, because demand order is not dependency order: the root is emitted first and
+        -- calls what it demanded, so a definition can precede its callee.
+        local prototypes = L()
+        for index, belt in ipairs(belts) do
+            local signature = signatures[index]
+            prototypes:insert(C.Function(belt.name, false, signature.exported,
+                signature.result or C.Void, signature.parameters, nil))
         end
-        local result=host.signature.results[1]
-        local result_type
-        if host.c and host.c.result then result_type=C.Named(host.c.result)
-        else result_type=result==B.Unit and C.Void or self:ctype(result) end
-        declarations:insert(C.Function(host.symbol,true,false,result_type,parameters,nil))
-    end
-    return declarations
-end
 
+        local definitions = L()
+        for index, belt in ipairs(belts) do
+            local signature = signatures[index]
+            definitions:insert(C.Function(belt.name, false, signature.exported,
+                signature.result or C.Void, signature.parameters,
+                body_of(E, belt, known[index], signature)))
+        end
 
-function Emitter:helper_declarations()
-    local declarations=L()
-    if self.text or self.helpers.text_eq then declarations:insert(C.Struct('let_text',L{C.Parameter(C.Pointer(C.Named('char')),'data'),C.Parameter(C.U64,'size')})) end
-    -- §14.2: the trap does not return, and C11 has a word for that. It is not decoration: an
-    -- optimizer that must assume this call returns has a licence that this declaration removes.
-    -- (Measured: gcc -O3 keeps the trap either way for the division shape, so this is
-    -- conformance rather than a repair -- but the licence should not be granted in the first place.)
-    declarations:insert(C.Raw('_Noreturn void let_trap(char* reason);'))
-    local function raw(code) declarations:insert(C.Raw(code)) end
-    -- A `char*` the host returns has no length; the Let Text takes its size from the bytes up
-    -- to the terminator, which is the contract a C string already implies.
-    -- Signed overflow is undefined in C, so wrapping arithmetic must go through unsigned.
-    -- These are one-line and branch-free, so a macro inlines them without adding a function.
-    if self.helpers.add then raw('#define LET_ADD(a,b) ((int64_t)((uint64_t)(a)+(uint64_t)(b)))') end
-    if self.helpers.sub then raw('#define LET_SUB(a,b) ((int64_t)((uint64_t)(a)-(uint64_t)(b)))') end
-    if self.helpers.mul then raw('#define LET_MUL(a,b) ((int64_t)((uint64_t)(a)*(uint64_t)(b)))') end
-    if self.helpers.neg then raw('#define LET_NEG(a) ((int64_t)(0-(uint64_t)(a)))') end
-    -- A shift count is reduced modulo the width, and a left shift keeps the low bits, so neither
-    -- shift is undefined and a huge count is defined rather than a trap.
-    if self.helpers.shl then raw('#define LET_SHL(a,b) ((int64_t)((uint64_t)(a) << ((uint64_t)(b) & 63)))') end
-    -- Division and remainder keep one shared helper each: inlining the trap check at every
-    -- site would duplicate control flow rather than remove a function.
-    -- The conversion is total (§13.3): a NaN becomes zero and an out-of-range value saturates at
-    -- the nearer Int bound, so it needs no effect and can be folded or dropped.
-    if self.helpers.text_eq then raw('#define LET_TEXT_EQ(a,b) ((a).size==(b).size&&memcmp((a).data,(b).data,(size_t)(a).size)==0)') end
-    -- Byte and binary32 buffers, indexed by a runtime Int. The float loads and stores go through
-    -- `memcpy` so an unaligned or aliased address is still defined behavior.
-    if self.helpers.buffer then
-        raw('static int64_t let_load_byte(void* p,int64_t i){return (int64_t)((uint8_t*)p)[i];}')
-        raw('static void let_store_byte(void* p,int64_t i,int64_t v){((uint8_t*)p)[i]=(uint8_t)v;}')
-        raw('static float let_load_f32(void* p,int64_t i){float f;memcpy(&f,(uint8_t*)p+i,4);return f;}')
-        raw('static void let_store_f32(void* p,int64_t i,float v){memcpy((uint8_t*)p+i,&v,4);}')
-    end
-    return declarations
-end
-
--- What was emitted, for a caller that wants to know rather than guess: one entry per
--- instance, with the ABI it ended up with, and how stable the analysis that produced it was.
--- `widened` counts packet fields the fixed point had to forget, which is the honest measure of
--- how much precision a loop cost.
-function Emitter:report(statistics)
-    statistics.instances={}
-    local specialized,folded,widened=0,0,0
-    for _,instance in ipairs(self.pending) do
-        local analysis=instance.analysis
-        local parameters={}
-        for i,parameter in ipairs(instance.belt.blocks[1].parameters) do
-            if self:parameter_live(analysis,instance.belt,1,i) then
-                parameters[#parameters+1]=tostring(parameter.type)
+        -- Structs LAST, and this is not a style choice. A signature names the packet and the
+        -- result, but a BODY can be the first place a record type appears -- a value carried
+        -- across a split is a parameter of the target block, and no signature ever mentions it.
+        -- Emitting the struct list before the bodies therefore leaves those structs undefined:
+        -- the C still compiles for simple programs, and fails with "storage size isn't known" the
+        -- moment control flow carries a record.
+        local declarations = L()
+        -- A host symbol is EXTERNAL: it is defined outside this translation unit, and the language
+        -- promised nothing about who defines it (§3.6). `external` is what prints it without
+        -- `static`, which is the same distinction that decides linkage for our own instances.
+        for symbol, shape in pairs(E.hosts) do
+            local parameters = L()
+            for index, parameter in ipairs(shape.parameters) do
+                parameters:insert(C.Parameter(parameter, 'a' .. index))
             end
+            declarations:insert(C.Function(symbol, true, true, shape.result or C.Void, parameters, nil))
         end
-        local blocks=0
-        for _ in pairs(analysis.live_blocks or {}) do blocks=blocks+1 end
-        local forgotten=0
-        for _ in pairs(analysis.widened or {}) do forgotten=forgotten+1 end
-        widened=widened+forgotten
-        if not instance.generic then specialized=specialized+1 end
-        if analysis.folded then folded=folded+1 end
-        statistics.instances[#statistics.instances+1]={name=instance.name,id=instance.id,
-            generic=instance.generic,folded=analysis.folded==true,parameters=parameters,
-            blocks=blocks,widened=forgotten}
-    end
-    -- What the host must pass, which only the emitter knows: a field whose fate is not `value`
-    -- is not a parameter -- a constant is materialized inside the entry -- so the fields the host
-    -- supplies are those the signature kept, in their own order, followed by the stages.
-    statistics.entries={}
-    for _,entry in ipairs(self.options.entries or {}) do
-        local instance=self.generic[entry.id]
-        local fields,stages={},0
-        if instance then
-            local belt=instance.belt
-            -- The entry's parameters are its effect first, then the fields, then the stages.
-            for i=1,entry.bundle do
-                if self:parameter_live(instance.analysis,belt,1,i+1) then fields[#fields+1]=i-1 end
-            end
-            -- The same rule for the stages: one the body never reads is not in the signature, so
-            -- the host does not supply it. A generic instance never has a *constant* parameter, so
-            -- a stage left out here is one nothing reads.
-            for i=entry.bundle+1,#belt.blocks[1].parameters-1 do
-                if self:parameter_live(instance.analysis,belt,1,i+1) then stages=stages+1 end
-            end
-        end
-        statistics.entries[#statistics.entries+1]={name=entry.name,id=entry.id,
-            c_name=instance and instance.name or nil,fields=fields,stages=stages}
-    end
-    statistics.specialized=specialized
-    statistics.folded=folded
-    statistics.widened=widened
-    statistics.functions=#self.pending
-    return statistics
-end
+        for _, struct in ipairs(E.structs) do declarations:insert(struct) end
+        for _, prototype in ipairs(prototypes) do declarations:insert(prototype) end
+        for _, definition in ipairs(definitions) do declarations:insert(definition) end
 
-function Emitter:program(program,options)
-    self.statics=L()
-    self.program=program
-    self.functions=program.functions
-    -- Symbols to declare and call, from the top-level hosts and from any namespace member that
-    -- is a host (`c.puts`).
-    self.hosts={}
-    for _,host in pairs(options.hosts or {}) do self.hosts[host.symbol]=host end
-    for _,descriptor in pairs(options.resources or {}) do
-        self.destroy_pointer[descriptor.destroy]=descriptor.representation=='pointer'
-    end
-    for _,namespace in pairs(options.dictionary or {}) do
-        for _,member in pairs(namespace.members or {}) do
-            if member.signature then self.hosts[member.symbol]=member end
-        end
-    end
-    -- One shared run: an instance is analysed once and reused by every call site that asks
-    -- for the same entry packet.
-    self.run=Known.run(program,options)
-    -- Which entries the host publishes. The host selects (§15.1); a command-line compiler is a
-    -- host that selects every exported word, and says so by passing them.
-    self.host_ids={}
-    for _,entry in ipairs(options.entries or {}) do self.host_ids[entry.id]=true end
-    -- The module interface is the root of the instance graph, and emission discovers the rest
-    -- by writing the calls it finds -- which is the same discovery that decides liveness.
-    self:generic_instance(1)
-    self:generic_instance(2)
-    -- A host entry has no caller inside the belt, so nothing would make it live: the entries the
-    -- program publishes as its host interface are roots, like the module interface itself.
-    for _,entry in ipairs(options.entries or {}) do self:generic_instance(entry.id) end
-    local functions=L()
-    local at=1
-    while self.pending[at] do
-        functions:insert(self:emit_instance(self.pending[at]))
-        at=at+1
-    end
-    if options.statistics then self:report(options.statistics) end
-    local host_declarations=self:host_declarations()
-    local helpers=self:helper_declarations()
-    -- A host that declares its C prototype may name `size_t` or `ptrdiff_t` (§15.3); a program
-    -- that does not keeps the smaller include set.
-    local includes=L()
-    if self.c_hosts then includes:insert('stddef.h') end
-    includes:insert('stdint.h'); includes:insert('stdbool.h')
-    if self.helpers.buffer or self.helpers.strlen or self.helpers.text_eq then includes:insert('string.h') end
-    if self.math then includes:insert('math.h') end
-    local declarations=L()
-    declarations:insertall(helpers)
-    declarations:insertall(self.statics)
-    for _,struct in ipairs(self.structs) do declarations:insert(struct) end
-    for _,struct in ipairs(self.results) do declarations:insert(struct) end
-    declarations:insertall(host_declarations)
-    for _,instance in ipairs(self.pending) do
-        declarations:insert(C.Function(instance.name,self:hosted(instance),self:hosted(instance),
-            self:return_shape(instance.belt.signature.results),
-            self:function_parameters_for(instance),nil))
-    end
-    declarations:insertall(functions)
-    return C.Unit(includes,declarations)
-end
+        local includes = L()
+        if E.includes.stdint then includes:insert('stdint.h') end
+        if E.includes.stdbool then includes:insert('stdbool.h') end
+        -- A trapping division is the one place the emitted C needs a library: `abort` is the
+        -- standard spelling of "leave through the host's trap hook" until the host vocabulary has
+        -- one of its own. Nothing else asks for it, so nothing else includes it.
+        if E.includes.stdlib then includes:insert('stdlib.h') end
+        -- `TextSize` is the one conversion that is a library call rather than a cast, because a
+        -- `Text` carries no length in this representation: the length is what the operation asks for.
+        if E.includes.string then includes:insert('string.h') end
 
-function B.Program:emit(options)
-    options=options or {}
-    local emitter=Emitter.new(options)
-    return emitter:program(self,options)
-end
+        local out = C.Unit(includes, declarations)
+        unit.ambient.c = out
+        return k_ok(unit, out)
+    end
+
+    return Emit
 end

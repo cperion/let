@@ -1,44 +1,71 @@
--- One definition of each pure operation, shared by the abstract evaluator and the concrete test
--- oracle, so folding cannot disagree with execution (DEMAND.md §3). The exact scalar semantics
--- live in `let/scalar`; this table says which one an operator means.
+-- The one owner of what an opcode reads, and later of what it means.
+--
+-- DESIGN §11: *"the opcode semantics live in one registry"*. The emitter asks this for the refs an
+-- instruction reads instead of listing operands itself -- which is exactly how the emitter and the
+-- abstract evaluator would otherwise drift apart. Scalar semantics join it when the abstract
+-- evaluator needs them shared with the concrete oracle.
+--
+-- `instruction.operation` is `Op = Pure(PureOp) | Ordered(OrderedOp)`, so the inner operation is
+-- one level in. The **effect** is a ref like any other here: it is evidence of order, not a value,
+-- and only the emitter decides that it has no C representation.
 return function(V)
-local A,B=V.AST,V.Belt
-local scalar=require('let.scalar')
+    local B = V.Belt
+    local Op = {}
 
-local Op={}
+    -- The refs an instruction reads, in the order its opcode declares them.
+    function Op.inputs(instruction)
+        local op = instruction.operation.operation
+        -- The literal family reads nothing: its value is in the opcode. `TextLiteral` is in it for
+        -- the same reason as the rest -- the text is the constant, not a reference to one.
+        if B.IntegerLiteral:isclassof(op) or B.FloatLiteral:isclassof(op)
+            or B.BooleanLiteral:isclassof(op)
+            or B.UnitLiteral:isclassof(op) or B.TextLiteral:isclassof(op) then
+            return {}
+        end
+        if B.Construct:isclassof(op) then return op.fields end
+        if B.Unary:isclassof(op) then return {op.operand} end
+        if B.Convert:isclassof(op) then return {op.value} end
+        if B.InjectSum:isclassof(op) then return {op.payload} end
+        if B.Destroy:isclassof(op) then return {op.effect, op.value} end
+        if B.Binary:isclassof(op) then return {op.left, op.right} end
+        if B.CheckedBinary:isclassof(op) then return {op.effect, op.left, op.right} end
+        if B.LoadField:isclassof(op) then return {op.record} end
+        -- A cell's reads and writes: the storage op takes the effect and the whole record, the
+        -- cell ops take the effect and the cell.
+        if B.Allocate:isclassof(op) then return {op.effect, op.initial} end
+        if B.Load:isclassof(op) then return {op.effect, op.cell} end
+        if B.Store:isclassof(op) then return {op.effect, op.cell, op.value} end
+        if B.FieldAddress:isclassof(op) then return {op.cell} end
+        if B.StoreField:isclassof(op) then return {op.record, op.value} end
+        -- A move consumes the effect; the value it transfers is the same ref the consumer holds.
+        if B.Move:isclassof(op) then return {op.effect, op.value} end
+        -- A host call reads its arguments, and an ORDERED one reads the effect first -- the same
+        -- shape as `CallFunction`, because the effect is evidence of order and not of value.
+        if B.PureHostCall:isclassof(op) then
+            local refs = {}
+            for _, ref in ipairs(op.arguments) do refs[#refs + 1] = ref end
+            return refs
+        end
+        if B.HostCall:isclassof(op) then
+            local refs = {op.effect}
+            for _, ref in ipairs(op.arguments) do refs[#refs + 1] = ref end
+            return refs
+        end
+        if B.CallFunction:isclassof(op) then
+            local refs = {op.effect}
+            for _, ref in ipairs(op.arguments) do refs[#refs + 1] = ref end
+            return refs
+        end
+        error('no input rule for ' .. tostring(getmetatable(op) and getmetatable(op).kind), 0)
+    end
 
--- The width a fixed-width integer reduces to, or nil for Int and Float. An operator's meaning is
--- chosen by this, from the Let type, never by the host's representation of the value.
-function Op.kind(type_)
-    if type_==B.U8 then return 8 end
-    if type_==B.U32 then return 32 end
-    if type_==B.Float32 then return 'f32' end
-    return nil
-end
+    -- Whether an opcode has C work of its own. A `Move` does not: it is an ownership transition,
+    -- and its runtime representation is nothing -- the value is already in hand and the source is
+    -- simply not destroyed. Everything else is either a value the output can see or an effect
+    -- whose scheduled work is that statement.
+    function Op.emits(op)
+        return not B.Move:isclassof(op)
+    end
 
--- Binary operators over known values. `Divide` here is non-trapping Float division; an Int
--- division is a `CheckedBinary` and uses `Op.checked`, which traps.
-Op.binary={
-    [A.Add]=scalar.add, [A.Subtract]=scalar.subtract, [A.Multiply]=scalar.multiply,
-    [A.Divide]=scalar.fdivide,
-    [A.Equal]=scalar.equal, [A.NotEqual]=scalar.not_equal,
-    [A.Less]=scalar.less, [A.LessEqual]=scalar.less_equal,
-    [A.Greater]=scalar.greater, [A.GreaterEqual]=scalar.greater_equal,
-    [A.And]=function(a,b) return a and b end, [A.Or]=function(a,b) return a or b end,
-    [A.BitAnd]=scalar.band, [A.BitOr]=scalar.bor, [A.BitXor]=scalar.bxor,
-    [A.ShiftLeft]=scalar.shl, [A.ShiftRight]=scalar.shr,
-}
-
-Op.unary={
-    [A.Negate]=scalar.negate, [A.Not]=function(a) return not a end, [A.BitNot]=scalar.bitnot,
-    [A.ToFloat]=scalar.to_float, [A.ToInt]=scalar.to_int,
-    [A.ToU8]=scalar.to_u8, [A.ToU32]=scalar.to_u32, [A.ToF32]=scalar.to_f32,
-    [A.TextSize]=scalar.text_size,
-    -- `IsNull` is not here: a pointer is not a Let value, so it never folds.
-}
-
--- Operations that can trap, used when the divisor is not known non-zero.
-Op.checked={[A.Divide]=scalar.divide, [A.Remainder]=scalar.remainder}
-
-return Op
+    return Op
 end

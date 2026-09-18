@@ -1,8 +1,12 @@
--- Usage: luajit letc.lua input.let [output.c [options.lua]]
+-- Usage: luajit letc.lua input.let [-o output.c]
 --
--- The command-line host lives in `let/cli.lua`, so this file only finds the module tree and runs
--- it; the bundled `dist/let.lua` runs the same code.
+-- The launcher only finds the module tree; the compiler is `let/cli.lua`, so the same code runs from a
+-- checkout, from a symlink, and from a bundle.
 local path = debug.getinfo(1, 'S').source:sub(2):match('^(.*[/\\])') or './'
 package.path = path .. '?.lua;' .. path .. '?/init.lua;' .. package.path
-local ok, err = pcall(function() require('let.cli')(require('let'), arg) end)
-if not ok then io.stderr:write(tostring(err), '\n'); os.exit(1) end
+
+local ok, err = pcall(function() os.exit(require('let.cli')(require('let'))(arg)) end)
+if not ok then
+    io.stderr:write('letc: ', tostring(err), '\n')
+    os.exit(2)
+end

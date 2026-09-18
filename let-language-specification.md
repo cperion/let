@@ -28,15 +28,26 @@ Juxtaposition supplies stable arguments and constructs a new specialized word. A
 
 ## 1. Semantic model
 
-### 1.1 Three distinct operations
+### 1.1 Application and execution
 
-Let distinguishes value specialization, runtime invocation, and executable-code construction.
+Let has two application forms and two executors.
 
-| Operation | Surface form | Meaning |
+| Form | Surface | Meaning | Residual |
+| --- | --- | --- | --- |
+| Juxtaposition | `encoder JPEG 90` | stable specialization | bound |
+| Invocation | `jpeg(frame)` | transient saturation | a temporary |
+
+The forms are the same operations in the same order (§6.2); they differ only in the lifetime of
+the intermediate residuals.
+
+| Executor | Entry phase | Meaning |
 | --- | --- | --- |
-| Specialization | `encoder JPEG 90` | Bind stable stages and produce a more specific value or word |
-| Invocation | `jpeg(frame)` | Supply transient stages and enter the terminal runtime `do` |
-| Construction control | `if ready do ... end` | Shape the enclosing word's control behavior during construction |
+| the emitted program | `runtime` | the chain's operations are emitted |
+| the compiler | `construction` | the chain's operations are executed to shape code |
+
+A dictionary entry declares its phase (§12.1), so the executor is never inferred from arguments.
+A construction word with bespoke syntax (`if`, `while`, `switch`) declares the expressions and `do`
+regions its form accepts (§12.3); that is a syntactic category, not a third operation.
 
 ~~~mermaid
 flowchart TD
@@ -48,7 +59,10 @@ flowchart TD
     Template --> Stable --> Word --> Call --> Runtime
 ~~~
 
-Specialization may execute when a module is initialized or while a runtime `do` body runs. “Construction” in *construction word* instead means compiler execution that shapes code. These are not the same phase.
+Specialization may execute when a module is initialized or while a runtime `do` body runs. A
+construction *word* is different: its operations are executed by the compiler to shape code, and
+the entry's declared phase, not the phase of any enclosing code, decides which. Both executors run
+the same chain operations (§6.2).
 
 ### 1.2 Words
 
@@ -57,7 +71,8 @@ A **word** is a value containing:
 - zero or more remaining binding stages;
 - any stable state already attached by specialization;
 - a terminal meaning, which is either data or executable `do` behavior;
-- a phase: runtime or construction; a type word is an ordinary value (§11).
+- a phase, which belongs to its template and not to the value (§12.1); a type word is an ordinary
+  value (§11).
 
 A bare runtime word is a value. It does not execute:
 
@@ -506,17 +521,19 @@ let computation = add 10 20
 
 `add10` still awaits `y`. `computation` is a saturated zero-input runtime word. Neither has executed the body.
 
-Each specialization constructs a new semantic result. In particular, mutable prelude state is never shared between two specialization results unless the program explicitly supplied a shared handle. An implementation may deduplicate a pure stateless representation only when no Let observation, ownership action, or destruction can distinguish it.
+Each specialization constructs a new semantic result. In particular, mutable prelude state is never shared between two specialization results unless the program explicitly supplied a shared resource, such as an arena or a host-owned pool (§9.7). An implementation may deduplicate a pure stateless representation only when no Let observation, ownership action, or destruction can distinguish it.
 
-The receiver follows these ownership rules:
+The receiver is an operand, so it follows the ordinary ownership rules of §9:
 
 | Receiver | Specialization |
 | --- | --- |
-| Copy word | Copy its stable values into the new result; leave the original unchanged |
-| Fresh non-copyable word | Transfer its state into the new result |
-| Existing non-copyable word | Requires explicit vocabulary producing an independent copy first |
+| Copy word | Its stable values are copied into the new result; the original is unchanged |
+| non-Copy word | **Moved** into the new result; the receiver is unusable afterwards |
 
-Specialization must not implicitly consume an existing receiver, share its private mutable state, clone opaque owned resources, or replay already reached preludes. For example, `clone_word(existing) argument` is valid when the declared vocabulary explicitly constructs a fresh independent word. No general clone operation is implied.
+Specialization therefore shares no private mutable state, clones no opaque owned resource, and
+replays no already reached prelude. A non-Copy receiver need not be *fresh*: move semantics is the
+same whether the value is an rvalue or a binding, so `f a b` and `let g = f a` followed by `g b`
+have the same meaning and the same legality.
 
 If a chain reaches a data terminal, specialization returns that data immediately:
 
@@ -609,7 +626,8 @@ Consequently:
 f(a, b) ≡ transiently bind a, then bind b, then invoke
 ~~~
 
-It has the same stage order as immediately constructing and invoking `(f a b)()`, while avoiding a separately persistent residual binding.
+This is the definition, not an optimization: invocation *is* juxtaposition followed by `()`. The
+only difference is that the intermediate residuals are temporaries rather than bound values.
 
 Prelude effects reached after `a` occur before evaluation of `b`. This is the precise observable consequence of treating invocation as transient saturation of the same binding chain.
 
@@ -877,7 +895,14 @@ count = count + 1
 buffer[index] = byte
 ~~~
 
-Assignment first evaluates the destination base and any indices from left to right, establishing the place without replacing it. It then evaluates the right-hand side. If that completes and the destination still contains its old value, that value is destroyed; the new value is then installed. If the right-hand side itself moved from the destination, there is no old value left to destroy. If right-hand-side evaluation traps before such a move, replacement has not occurred. Assignment of an existing non-copyable value requires `move`.
+Assignment first evaluates the destination base and any indices from left to right, establishing
+the place without replacing it. It then evaluates the right-hand side. If that completes and the
+destination still contains its old value, that value is destroyed; the new value is then installed.
+Whether the right-hand side moved from the destination is decided by the same agreement rule as
+§9.6, one statement wide: the right-hand side either definitely moved the destination — in which
+case there is no old value left to destroy — or definitely did not. A conditional move of the
+destination is rejected rather than guarded. If right-hand-side evaluation traps before such a
+move, replacement has not occurred. Assignment of an existing non-copyable value requires `move`.
 
 Merely establishing the destination does not start a conflicting mutable borrow, so `x = x + 1` is legal. The write occurs only at the replacement step.
 
@@ -899,7 +924,14 @@ Destructors must complete: they cannot trap, suspend, or re-enter Let control. T
 
 ### 9.6 Control-flow ownership state
 
-At a join, a source place is usable only if it is initialized and owned by that place on every incoming path. If one path moved it and another did not, later use is rejected unless the moved path explicitly reinitializes it before the join.
+At a join — a branch merge, a loop backedge, or a scope exit — the ownership state of every place
+that outlives the join must agree on every incoming path: such a place is initialized, or it is
+moved, on all of them. If one path moved it and another did not, the program is rejected; the
+moved path must explicitly reinitialize it before the join.
+
+This applies to destruction as well as to later use, so no path carries a conditional ownership
+state into a join. There is therefore no `alive` flag, no guard, and no fixpoint: an ownership
+state is determined by the lexical structure of the program, not by data flow.
 
 Owned locals created only inside a branch or loop iteration are destroyed on every normal exit from that lexical scope, including a `break` or `continue`. Current values of outer mutable locals are the values established by the selected path or completed loop iteration.
 
@@ -950,7 +982,10 @@ let requests = counter 0
 
 If a named aggregate exposes a word that refers to sibling private state, projection returns a word view tied to that aggregate owner. The view may be invoked while the owner lives. It cannot be moved out and outlive the owner unless it was independently constructed with its own owned state.
 
-Moving the aggregate moves the owner and its state together. Destroying it invalidates its borrowed word views and destroys its owned members in the order defined by §8.5.
+A word view reaches the owner's state through storage the owner holds, so it may be invoked only
+while the owner is neither moved nor destroyed: moving, replacing, or destroying the owner while a
+view is live is a conflicting borrow, exactly as for any other place (§9.3). Destroying the owner
+destroys its owned members in the order defined by §8.5.
 
 A stateless word or a word containing only Copy stable values is Copy. A word containing owned or mutable state is non-copyable unless its vocabulary defines an explicit independent copy operation.
 
@@ -975,7 +1010,9 @@ WordType := T "->" WordType       // one stage: a unary function
 
 `Int : Int : do R` denotes `Int -> (Int -> do R)`. There is no parameter list and no product type:
 juxtaposition applies one unary step at a time, and `()` eliminates the runtime terminal. A word's
-type is therefore a syntactic fact about its chain, never something discovered from its body.
+type is therefore a syntactic fact about its chain, never something discovered from its body. Its
+*shape* is structural; two words of the same shape are distinct values whose templates are
+distinguished nominally, which is what makes a word-typed stage monomorphic (§11.3).
 
 ~~~let
 let multiply =
@@ -1043,8 +1080,10 @@ be a compile-time-known type word, and denotes the type of `W`'s terminal result
 - A runtime terminal `do : R` is checked against every `return`.
 - A data terminal's type is the type of its terminal expression, composed from the declared stage
   types; there are no unknowns to solve, so this is not inference.
-- `copy`, `own`, `mut`, and `own mut` are a stage's capabilities and are part of its type. `Copy` is
-  the `copy` capability, not a separate form.
+- A stage's capabilities are `read` (the unqualified form), `mut`, `own`, and `own mut`, and they
+  are part of its type. `read` is access, not copying: a `read` argument is copied when its type
+  is Copy and lent read access otherwise (§6.3). `Copy` is a property of a value's type (§9.1),
+  not a capability and not a stored form.
 - A stage whose type is a `WordType` holds a word. That is the requirement the former `Executable`
   named, and it needs no separate word.
 
@@ -1096,9 +1135,10 @@ An injection writes the tag and the active alternative and leaves the other alte
 untouched, so an alternative does not have to be Copy. A sum is Copy exactly when every
 alternative is. A sum with a non-Copy alternative is owned, and destroying it dispatches on the
 tag: only the active alternative is a value, so only the active alternative is released, and an
-alternative that was never written is never read. Moving the payload out of a sum leaves a hole
-and the drop skips it, so a payload is released exactly once. The tag selects the active
-alternative, so assigning to a projection is refused -- inject a new value instead. The runtime
+alternative that was never written is never read. Moving the payload out of a sum **consumes the
+whole sum**, rather than leaving a per-alternative hole: the sum is dead afterwards, because its
+tag would otherwise name a value that is no longer there. The tag selects the active alternative,
+so assigning to a projection is refused -- inject a new value instead. The runtime
 tag of §11.4 is the discriminator.
 
 ---
@@ -1185,14 +1225,17 @@ Three kinds of value exist at that boundary, and none of them is `Text`:
   allocation is the resource, and its destructor is the release.
 
 Two conversions cross between `Text` and `CString`: one borrows a `Text`'s bytes, which requires
-them to be NUL-terminated, and the other measures a `CString` into a `Text` at its terminator,
-producing a **borrowed view**, so the C storage must outlive it.
+them to be NUL-terminated, and the other measures a `CString` at its terminator, producing a
+**borrowed view** -- a separately declared host type, not `Text` (§13.5). The C storage must
+outlive the view.
 
 A `Text` also states its byte length, so a C call that takes a pointer and a count needs no
 terminator, and a borrowed pointer may be tested for null. Neither is a conversion between types:
 one reads a length the `Text` already has, the other compares a pointer to the null pointer. A
-Text view may also be built over a borrowed pointer and a length, so a buffer the C side filled
-becomes a Text without a terminator; that conversion takes two arguments.
+A **separately declared host view type** may be built over a borrowed pointer and a length, so a
+buffer the C side filled becomes a view without a terminator; that conversion takes two arguments.
+Such a type is not `Text`: §13.5 makes `Text` a module-lifetime literal, and a view over dynamic or
+host-owned storage is host vocabulary (§13.6).
 
 A **buffer** is host vocabulary of the same shape as the view above: an owned resource whose C
 representation is a pointer, indexed by a runtime `Int` through named load and store words, so
@@ -1200,13 +1243,14 @@ the language itself still has no dereference or pointer arithmetic (§18). The v
 decides element width, bounds behavior, and alignment; the language fixes only that each word
 is an ordinary dictionary entry with an explicit capability, purity, and ownership. A load is
 `ordered` because the bytes behind the pointer can change between calls. A borrowed view of
-such memory is a foreign pointer type, and a `Text` view may be built over a pointer and a
+such memory is a foreign pointer type, and a host view type may be built over a pointer and a
 length, as above, so one call can process a whole frame rather than one element.
 
 A view is a value that points into storage something else owns. When that storage is a Let value,
 the view **holds it borrowed** for as long as the view lives, so moving, freeing or writing the
 owner while the view is live is a conflicting borrow. A vocabulary declares which argument a view
-points into; a `Text` over a pointer and a length, and a borrowed `CString`, both name one. A view
+points into; a separately declared host view type over a pointer and a length, and a borrowed
+`CString`, both name one. A view
 of a literal or of a temporary points into storage Let never owned, so there is nothing to hold --
 and a view of a non-Copy temporary is rejected outright, because the temporary dies at the end of
 the statement.
@@ -1214,7 +1258,7 @@ the statement.
 Two limits belong to the boundary rather than being gaps to close. A foreign side that
 invalidates the bytes cannot be checked, and a host that writes through a `Read` borrow is
 invisible: the declaration, not the implementation, is what the compiler holds a host to. And the
-hold ends with the scope that made the view, so a view that escapes that scope is no longer held.
+hold ends with the scope that made the view, so a view that escapes that scope is **rejected**.
 
 
 A program may declare a foreign word in source, with no embedding registration:
@@ -1324,7 +1368,7 @@ Unary `-`, the relational operators, and `==`/`!=` follow the same IEEE rules as
 
 `==` and `!=` are defined for Unit, Bool, Int, Float, and Text. Both operands must have the same semantic kind. Unit values are always equal; Bool, Int, and Float compare by value, with Float following §13.3; Text compares its UTF-8 byte sequence.
 
-Aggregate, word, handle, and owned-resource equality is not implicit. A vocabulary may provide an explicit pure or ordered equality word for such a value.
+Aggregate, word, and owned-resource equality is not implicit. A vocabulary may provide an explicit pure or ordered equality word for such a value.
 
 ### 13.5 Text
 

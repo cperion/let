@@ -41,12 +41,17 @@ function C.Float:print()
     if self.value==-math.huge then return '(-INFINITY)' end
     return string.format('%a',self.value)
 end
+function C.CString:print() return 'const char *' end
 function C.Boolean:print() return self.value and 'true' or 'false' end
 function C.String:print() return quoted(self.value) end
 function C.Name:print() return self.name end
 function C.Unary:print() return '(' .. self.operator .. self.operand:print() .. ')' end
 function C.Binary:print() return '(' .. self.left:print() .. ' ' .. self.operator .. ' ' .. self.right:print() .. ')' end
 function C.Cast:print() return '((' .. self.type:print() .. ')' .. self.value:print() .. ')' end
+function C.Comma:print()
+    local parts = {} for _, value in ipairs(self.values) do parts[#parts + 1] = value:print() end
+    return '(' .. table.concat(parts, ', ') .. ')'
+end
 function C.Conditional:print()
     return '(' .. self.condition:print() .. ' ? ' .. self.yes:print() .. ' : ' .. self.no:print() .. ')'
 end
@@ -118,12 +123,21 @@ local function parameters(list)
 end
 
 local function declaration(node,lines)
-    if C.Struct:isclassof(node) then
-        lines[#lines+1]='struct ' .. node.name .. ' {'
+    -- A union is a declaration like a struct, and §3.5's sum needs one: the payload is a union of
+    -- the alternatives because only one of them has ever been written.
+    if C.Struct:isclassof(node) or C.Union:isclassof(node) then
+        lines[#lines+1]=(C.Union:isclassof(node) and 'union ' or 'struct ') .. node.name .. ' {'
         for _,field in ipairs(node.fields) do lines[#lines+1]='    ' .. field.type:print() .. ' ' .. field.name .. ';' end
         lines[#lines+1]='};'
     elseif C.Function:isclassof(node) then
-        local prefix=node.external and 'extern ' or 'static '
+        -- `extern` is a host-provided symbol, `exported` is ours but reachable from outside, and
+        -- anything else is `static` -- **including a prototype**. A forward declaration and its
+        -- definition must agree on linkage, and demand order is not dependency order, so the
+        -- emitter needs prototypes for its own static functions.
+        local prefix
+        if node.external then prefix='extern '
+        elseif node.exported then prefix=''
+        else prefix='static ' end
         local head=prefix .. node.result:print() .. ' ' .. node.name .. '(' .. parameters(node.parameters) .. ')'
         if not node.body then lines[#lines+1]=head .. ';'; return end
         lines[#lines+1]=head .. ' {'
@@ -139,7 +153,16 @@ end
 -- A null body is a forward declaration; `external` marks a host-provided symbol.
 function C.Unit:print()
     local lines={}
-    for _,include in ipairs(self.includes) do lines[#lines+1]='#include <' .. include .. '>' end
+    -- An include is a name: `<x>` for a system header, and a QUOTED one when the spelling starts
+    -- with a quote, which is what a local header is. The distinction is C's, not ours, so the
+    -- spelling carries it rather than a second field.
+    for _,include in ipairs(self.includes) do
+        if include:sub(1, 1) == '"' then
+            lines[#lines+1]='#include ' .. include
+        else
+            lines[#lines+1]='#include <' .. include .. '>'
+        end
+    end
     if #lines>0 then lines[#lines+1]='' end
     for _,node in ipairs(self.declarations) do declaration(node,lines); lines[#lines+1]='' end
     return table.concat(lines,'\n')

@@ -1,0 +1,4 @@
+host Handle release
+extern pure made (n : Int) : Handle
+let h = made with 1
+; { let x = 1 }
