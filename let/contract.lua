@@ -513,7 +513,13 @@ return function(V)
                 if Judge.Return:isclassof(statement) then
                     local value = statement.value and type_of(statement.value) or Semantic.Unit
                     if not value then return nil end
-                    if not value:equals(result) then
+                    -- §3.5: a value whose type equals exactly ONE alternative of the result is
+                    -- INJECTED into it -- the same rule a binding and a stage argument already
+                    -- follow -- so this is `accepts` and not `equals`. With `equals`, `return { let at
+                    -- = p }` in a sum-returning word was `MismatchedType`, while the identical value
+                    -- bound first (`let r : Ok | Err = …  return r`) worked, and every parser had to
+                    -- grow `ok`/`fail` constructor words to say what the language already knew.
+                    if not accepts(result, value) then
                         return fail(Report.reject(Report.MismatchedType, statement.span))
                     end
                     -- §3.1 rule 3: "no use may place it in a longer-lived position". A return is the
@@ -809,6 +815,18 @@ return function(V)
                 interface = Judge.Interface(stages, result, declaration.word.terminal,
                     borrow_of(result) ~= nil)
                 types[id] = interface
+                -- §S110: a GENERIC word's body cannot be checked here -- its stages are type VARIABLES,
+                -- so `f(x)` on an `f : T` has no meaning until an instantiation supplies the type --
+                -- and that is not a hole: every INSTANCE is concrete, and `Contract` checks each one
+                -- when `Resolve` builds it. What the declaration publishes is still the whole truth
+                -- about its STAGES and RESULT (§S52).
+                local generic = result:mentions_variable()
+                if not generic then
+                    for _, stage in ipairs(stages) do
+                        if stage.type:mentions_variable() then generic = true break end
+                    end
+                end
+                if generic then body = nil end
                 if body then
                     if not check_body(body, result) then return nil end
                     if not terminates(body) and result ~= Semantic.Unit then

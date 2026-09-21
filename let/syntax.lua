@@ -19,6 +19,7 @@ module Syntax {
               | Arrow(TypeExpr from, TypeExpr to)
               | Sum(TypeExpr left, TypeExpr right)
               | Do(TypeExpr result)
+              | TypeApply(TypeExpr word, TypeExpr argument)
               attributes (Source.Span span)
     TypeField = (string name, boolean mutable, TypeExpr type, Source.Span span)
 
@@ -51,6 +52,7 @@ module Syntax {
               | Index(Expr base, Expr index)
               | Move(Expr place) | Borrow(Expr place)
               | TypeSum(TypeExpr left, TypeExpr right)
+              | TypeValue(TypeExpr type)
               attributes (Source.Span span)
 
     Stmt      = Local(Binding binding) | Assign(Expr place, Expr value)

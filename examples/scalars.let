@@ -1,4 +1,8 @@
-// Exported runtime words have scalar stage annotations.
+# A Let name reaches the emitted C, so it must not be a C keyword -- `double` was, and the unit did not
+# compile: `struct let_s2 double;` (see §S122).
+#
+# Cells and loops (§7.3): an assignable binding is storage, allocated once at its declaration, so the loop
+# needs no special treatment at all -- and a partial application is a word like any other.
 let fibonacci =
     let n : Int
     do : Int
@@ -19,6 +23,5 @@ let multiply =
     let y : Int
     do : Int return x * y end
 
-let double = multiply 2
-let answer = do : Int return double(21) end
-
+let twice = multiply with 2
+let answer = do : Int return twice(21) + fibonacci(10) end

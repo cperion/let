@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 struct let_s1 {
     uint8_t describe;
@@ -114,7 +115,7 @@ b6:;
             goto b2;
         }
 b2:;
-        return INT64_C(0);
+        abort();
 b4:;
         return INT64_C(1);
 b3:;

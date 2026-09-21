@@ -165,6 +165,20 @@ module Judge {
                         end
                     end
                 end
+                -- §S110: and a projection whose base is a STAGE -- `let p : { op : inc1 }` then `p.op(x)`
+                -- -- names the field's word through the DECLARED TYPE. That is the dictionary-as-a-record
+                -- pattern, and it works for the same reason a `Bound` does (§S99): a field whose type is
+                -- a WORD names that word, and the type is in the declaration, so nothing here needs
+                -- `Contract` to have run. The value path above and this one are the two ways a record
+                -- can be known: by what it HOLDS (an aggregate value) and by what it IS (a record type).
+                local declared = declaration and declaration.declared
+                if Semantic.Aggregate:isclassof(declared) then
+                    for _, field in ipairs(declared.fields) do
+                        if field.name == node.name and Semantic.Word:isclassof(field.type) then
+                            return field.type.template, field.type.prefix
+                        end
+                    end
+                end
                 return nil
             end
             if not J.Apply:isclassof(node) then return nil end

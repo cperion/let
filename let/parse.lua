@@ -110,9 +110,23 @@ return function(V)
             return from
         end
 
+        -- §2.4/§11.2: **type application is `with`**, the same form as any other application, so a type
+        -- expression HAS an application form (§S106 retired the sentence that said it had none). Both
+        -- sides are wrapped: the word is a VALUE (a type word) and the argument is a TYPE, which is
+        -- exactly what `Syntax.TypeValue` says.
+        local parse_type_application
+        parse_type_application = function()
+            local value = parse_type_atom()
+            while accept('with') do
+                local span = peek().span
+                value = Syntax.TypeApply(value, parse_type_atom(), span)
+            end
+            return value
+        end
+
         parse_type_sum = function()
-            local left = parse_type_atom()
-            while accept('|') do left = Syntax.Sum(left, parse_type_atom(), left.span) end
+            local left = parse_type_application()
+            while accept('|') do left = Syntax.Sum(left, parse_type_application(), left.span) end
             return left
         end
 
@@ -147,8 +161,18 @@ return function(V)
             end
             if t.kind == '(' then
                 at = at + 1
-                local elements = L{parse_type()}
-                while accept(',') do elements:insert(parse_type()) end
+                -- §3.3/§S88: `(` GROUPS in a type position exactly as it does in an expression, so
+                -- `(Int)` is `Int` and `(A, B)` is a tuple -- a one-element TUPLE would be a record
+                -- with one unnamed field, which is a different type and is not what a reader writes
+                -- brackets for. (A one-element tuple has no spelling, which matches a one-element
+                -- aggregate in the expression grammar: it needs its braces.)
+                local first = parse_type()
+                if not accept(',') then
+                    take(')')
+                    return first
+                end
+                local elements = L{first}
+                repeat elements:insert(parse_type()) until not accept(',')
                 take(')')
                 return Syntax.Tuple(elements, t.span)
             end
@@ -395,6 +419,21 @@ return function(V)
             return Syntax.Host(name.spelling, destroys, borrows, kw.span, name_range)
         end
 
+        -- §2.4 read through S106's decision: a binding annotated `: Type` holds a TYPE, so its value is
+        -- a type expression and not an expression. The test is SYNTACTIC (`Ref("Type")`) because that is
+        -- what the parser has -- the resolved type is `Contract`'s business -- and the sentence it makes
+        -- true is the reader's: `let P : Type = <a type>` is a name for a type.
+        local function is_type_annotation(annotation)
+            return annotation ~= nil and Syntax.Ref:isclassof(annotation)
+                and annotation.name == 'Type'
+        end
+        local function parse_value(constraint)
+            if not is_type_annotation(constraint) then return parse_chain() end
+            local span = peek().span
+            local type_ = parse_type()
+            return Syntax.Chain(L{}, Syntax.Data(Syntax.TypeValue(type_, span), span), span)
+        end
+
         local function parse_item()
             local kw = take('let')
             local name = take('name')
@@ -409,7 +448,7 @@ return function(V)
                 end
                 at = at + 1
                 return Syntax.Prelude(Syntax.Binding(name.spelling, mutable, constraint,
-                    parse_chain(), kw.span, name_range))
+                    parse_value(constraint), kw.span, name_range))
             end
 
             if not constraint then
@@ -440,7 +479,8 @@ return function(V)
                     local constraint = parse_annotation()
                     take('=')
                     statements:insert(Syntax.Local(Syntax.Binding(name.spelling, mutable,
-                        constraint, parse_chain(), kw.span, Source.Range(name.span, name.span)),
+                        constraint, parse_value(constraint), kw.span,
+                        Source.Range(name.span, name.span)),
                         kw.span))
                 elseif t.kind == 'return' then
                     at = at + 1
@@ -619,6 +659,37 @@ return function(V)
             local items = L()
             parse_items(items)
             separate()
+            -- §2.4 read through S106's decision: a chain with a `Type` DOMAIN is a TYPE word, so its
+            -- terminal is a TYPE and not a term -- and it needs no new spelling to say so, because the
+            -- domain already said it. The body stays UNRESOLVED here and is resolved per application,
+            -- which is what "evaluated at construction time" means: `Box with Int` is a TYPE.
+            -- §S110: a type parameter comes FIRST. An instantiation binds the `Type` stages and drops them
+            -- from the instance, so a `Type` stage AFTER a value stage would need that earlier stage bound
+            -- too -- and it is a runtime value. So the order is a rule of the GRAMMAR rather than a limit
+            -- of the compiler, and breaking it is a syntax error like any other.
+            local seen_value = false
+            for _, item in ipairs(items) do
+                if Syntax.Stage:isclassof(item) then
+                    if is_type_annotation(item.stage.constraint) then
+                        if seen_value then
+                            error(('%s: a `Type` stage must come before the stages that use it')
+                                :format(locate(peek())), 0)
+                        end
+                    else
+                        seen_value = true
+                    end
+                end
+            end
+            -- §2.4/§S110: a chain with a `Type` domain is a TYPE word when its terminal is a TYPE, and a
+            -- GENERIC word when its terminal is a body -- so `do` decides, and no other spelling is needed.
+            for _, item in ipairs(items) do
+                if Syntax.Stage:isclassof(item) and is_type_annotation(item.stage.constraint)
+                        and kind() ~= 'do' then
+                    local span = peek().span
+                    return Syntax.Chain(items,
+                        Syntax.Data(Syntax.TypeValue(parse_type(), span), span), first)
+                end
+            end
             return Syntax.Chain(items, parse_terminal(), first)
         end
 

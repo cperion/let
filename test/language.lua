@@ -448,4 +448,204 @@ end
 let answer = apply(add2, 5) + apply(mul3, 5)
 ]], show{ 'answer' }, '22\n', 'a partial application names a type, and two of them still inject apart')
 
+-- 33. A NAME FOR A TYPE (§2.4's ERASURE). `let P = Int` binds a name for a type: the name is STATIC --
+--     the type position reads the declaration -- so nothing is emitted for it and `P` still works
+--     wherever a type goes. Two defects stood in the way, and both were ONE rule written twice: the
+--     builders of a namespace and a body had to ask "is this erased?" (now one question, `erased`), and
+--     the ENTRY POINT re-derived "which definitions are members" instead of asking the record it was
+--     built from -- so with `P` erased the index counted it, the struct did not have it, and the host
+--     loaded a field past the end of the record (`emit.lua:31`).
+runs([[let P = Int
+let twice = let x : P do : P return x * 2 end
+let answer = twice with 21
+]], show{ 'answer' }, '42\n', 'a name for a bare type word is a type, and nothing is emitted for it')
+
+-- 34. A NAME FOR A TYPE (§2.4): `let Point : Type = { x : Int, y : Int }` binds a name for a type, and
+--     the `: Type` annotation is what makes the value a TYPE EXPRESSION rather than an expression -- so a
+--     record type is named once and used wherever a type goes. The binding itself is ERASED (§S107): it
+--     has no runtime presence, and `type_of_binding` reads the type back out of the declaration.
+runs([[let Point : Type = { x : Int, y : Int }
+let p : Point = { let x = 1 let y = 2 }
+let answer = p.x + p.y
+]], show{ 'answer' }, '3\n', 'a record type can be named, and the name IS a type')
+
+-- 35. TYPE WORDS (§2.4/§11.2): a chain with a `Type` domain is a TYPE word -- "evaluated at construction
+--     time and erased" -- whose body stays UNRESOLVED until the word is applied, and is then resolved with
+--     the stages bound. That is what makes `Box with Int` a type rather than an operation: the application
+--     happens in the type language, and nothing about it reaches the belt.
+runs([[let Box = let T : Type { a : T }
+let b : Box with Int = { let a = 1 }
+let answer = b.a
+]], show{ 'answer' }, '1\n', 'a `Type` domain makes a type word, and `with` applies it')
+
+-- 36. A PARENTHESISED TYPE IS A GROUP (§3.3, and §S88's rule read on the type side). `parse_type_atom`
+--     built a TUPLE for any parenthesised type, so `(Box with Int)` was a record with one unnamed field --
+--     a different type, spelled with brackets nobody writes brackets for. Expressions already treat
+--     `( … )` as a group, so the type grammar does too, and a one-element tuple now has no spelling
+--     (matching a one-element aggregate in the expression grammar, which needs its braces).
+runs([[let Box = let T : Type { value : T }
+let c : Box with (Box with Int) = { let value = { let value = 1 } }
+let answer = c.value.value
+]], show{ 'answer' }, '1\n', 'a parenthesised type is a group, not a one-element tuple')
+
+-- 37. GENERIC WORDS (§2.4/§S110). A chain with a `Type` domain and a BODY terminal is a generic word: it
+--     has no runtime form, and each application of a TYPE to it builds an INSTANCE by resolving the chain
+--     again with the parameter bound (`type_env`) -- so `twice` is ONE word in the source and TWO in the
+--     output, each with its own callee. That is the static half of §S100's trade, with no tag and no
+--     dispatch. Note the spelling: the word arrives TWICE, once as the TYPE (which names the callee, §S99)
+--     and once as the VALUE (whose packet the call carries) -- because a type parameter is erased.
+runs([[let twice = let F : Type let f : F let x : Int do : Int
+    return f(f(x))
+end
+let square = let x : Int do : Int return x * x end
+let inc = let x : Int do : Int return x + 1 end
+let a = twice with square with square with 3
+let b = twice with inc with inc with 3
+]], show{ 'a', 'b' }, '81 5\n', 'a generic word is instantiated per type, with no tag')
+
+-- 38. A DICTIONARY IS A RECORD OF WORDS (§S110's "constraints are stages", taken to a record). A field
+--     whose type is a WORD names that word, so `d.fold(...)` has a callee through the TYPE -- and that
+--     needed one fix: `Judge.word_of` reached a word through an aggregate VALUE (§S92) but not through a
+--     record TYPE, so a stage (or a type parameter) of dictionary type had no callee. A record can be
+--     known two ways, by what it HOLDS and by what it IS, and both are structural: the field's type is in
+--     the declaration, so nothing here needs the checker to have run. The cost is nothing at run time.
+runs([[let inc1 = let x : Int do : Int return x + 1 end
+let dbl = let x : Int do : Int return x * 2 end
+let Dict : Type = { bump : inc1, fold : dbl }
+let dict = { let bump = inc1 let fold = dbl }
+let use = let D : Type let d : D let x : Int do : Int
+    return d.fold(d.bump(x))
+end
+let answer = use with Dict with dict with 21
+]], show{ 'answer' }, '44\n', 'a record of words is a dictionary, and a type parameter can be one')
+
+-- 39. THE CALL FORM TAKES A TYPE ARGUMENT (§S88 read through §S110/S112). `f(a, b)` and `f with a with b`
+--     are the SAME operations, so `id(Bool, true)` must instantiate the way `id with Bool with true` does --
+--     and it does now, because the instantiation is ONE function (`instantiate`) that both forms ask. It
+--     was `MismatchedType`: the call form resolved every argument as a VALUE, so the type argument consumed
+--     a value stage and the next one landed on the wrong type. What the call form does NOT become is a
+--     partial application: §1.2 makes invocation transient SATURATION, so `sum(1)` stays `Undersaturated`
+--     (check #13) rather than turning into a partial word.
+runs([[let id = let T : Type let x : T do : T return x end
+let twice = let F : Type let f : F let x : Int do : Int return f(f(x)) end
+let square = let x : Int do : Int return x * x end
+let a = id(Int, 42)
+let b = twice(square, square, 3)
+]], show{ 'a', 'b' }, '42 81\n', 'the call form instantiates a Type argument, exactly as `with` does')
+
+-- 40. A TYPE ARGUMENT IS DEDUCED WHEN IT CAN BE (§S114): "a `Type` stage that appears in the declared type
+--     of a later stage is deduced from that stage's argument". So the continuations are mentioned ONCE --
+--     and because the deduction reads the VALUE, two dictionaries of one SHAPE with different words are two
+--     instances. That is the difference between reading a type and reading a type off a value.
+runs([[let on_ok = let n : Int do : Int return n + 1 end
+let on_err = let n : Int do : Int return 0 - n end
+let DivK = let Ok : Type let Err : Type { ok : Ok, err : Err }
+let divide = let Ok : Type let Err : Type let provide : DivK with Ok with Err let n : Int do : Int
+    return provide.ok(n)
+end
+let a = divide with { let ok = on_ok let err = on_err } with 41
+let b = divide with { let ok = on_err let err = on_ok } with 41
+]], show{ 'a', 'b' }, '42 -41\n', 'the type is deduced from the value, so each dictionary is its own instance')
+
+-- 41. And a deduced argument is NOT CONSUMED: `id(42)` deduces `T := Int` and still PASSES `42` to `x`.
+--     That is the state the first attempt got wrong (it answered `Undersaturated`), and the reason
+--     `instantiate` answers four states -- 'none', 'consumed', 'deduced' -- rather than a boolean.
+runs([[let id = let T : Type let x : T do : T return x end
+let answer = id(42)
+]], show{ 'answer' }, '42\n', 'a deduced type argument is applied to the instance, not consumed')
+
+-- 42. A DICTIONARY IS A RECORD OF WORDS (§S117's decision: the projection form, and only that form). A
+--     word that needs several operations takes them as one record-typed stage and binds each with a prelude
+--     whose value is a PROJECTION -- one `let` per name, as everywhere else in the language. The fields are
+--     words, and a field whose type is a word NAMES it, so `ok(n)` has a callee with no run-time lookup. The
+--     continuations are mentioned once because the type parameters are deduced from the record (§S115).
+runs([[let on_ok = let n : Int do : Int return n + 1 end
+let on_err = let n : Int do : Int return 0 - n end
+let divide = let Ok : Type let Err : Type
+    let provide : { ok : Ok, err : Err }
+    let ok = provide.ok
+    let err = provide.err
+    let n : Int do : Int
+    return ok(n)
+end
+let a = divide with { let ok = on_ok let err = on_err } with 41
+let b = divide with { let ok = on_err let err = on_ok } with 41
+]], show{ 'a', 'b' }, '42 -41\n', 'a dictionary is a record you name and project, one `let` per name')
+
+-- 43. A DICTIONARY CAN BE TYPED BY THE WORDS THEMSELVES (§S119): a name that denotes a word is a type
+--     (§3.2), so `{ ok : on_ok, err : on_err }` IS the dictionary's type -- no type parameters at all. The
+--     trade is that this `divide` accepts exactly those two continuations, because its type names them; the
+--     parameterised form is what you write when ONE word must take different dictionaries.
+runs([[let on_ok = let n : Int do : Int return n + 1 end
+let on_err = let n : Int do : Int return 0 - n end
+let divide = let provide : { ok : on_ok, err : on_err }
+    let ok = provide.ok
+    let err = provide.err
+    let n : Int do : Int
+    return ok(n)
+end
+let answer = divide with { let ok = on_ok let err = on_err } with 41
+]], show{ 'answer' }, '42\n', 'a dictionary typed by the words themselves needs no type parameters')
+
+-- 45. SHORT-CIRCUITING, both operators (§1.5; §S35 makes `and`/`or` the one place a value phi exists).
+--     The short arm merges the LEFT VALUE itself, so its EDGE must carry it -- and the branch was built
+--     before `short_arguments` existed, so the short arm read an uninitialised parameter. `and` passed by
+--     luck (its short value is false, which is what a fresh parameter held); `or` owed true and returned
+--     false. In a parser that meant `if q == 0 or q < min do break end` never broke at end of input, and
+--     the reader ran past the string. A MISCOMPILE, so the check is the answer, not the shape.
+runs([[let g = let a : Int do : Bool return a == 0 or a > 100 end
+let check = let a : Int do : Int
+    if g(a) do return 1 end
+    return 0
+end
+let a = check(0)
+let b = check(101)
+let c = check(5)
+]], show{ 'a', 'b', 'c' }, '1 1 0\n', '`or` is true when the left is true, and still reads the right when it is not')
+
+-- 46. A `return` INJECTS (§3.5 read through §9). `check_body` compared the value's type with `equals`,
+--     so a value whose type equals exactly ONE alternative of the result was refused -- while the
+--     IDENTICAL value bound first (`let r : Ok | Err = ...` then `return r`) worked. So every parser grew
+--     `ok`/`fail` constructor words to say what the language already knew. It is `accepts` now, which is
+--     the ONE place §3.5's rule lives, so an ambiguous sum is still refused.
+runs([[let g = let n : Int do : { a : Int, b : Bool } | Int
+    return { let a = n let b = true }
+end
+let use = let n : Int do : Int
+    switch g(n) do
+    case Int as v return v
+    case { a : Int, b : Bool } as p return p.a
+    end
+end
+let answer = use(42)
+]], show{ 'answer' }, '42\n', '`return` injects a value into one unambiguous alternative')
+
+-- 47. AN IMPOSSIBLE PATH IS A TRAP (§S66 and §3.6's trap). A body that falls off its end is only
+--     reachable when the result is Unit -- Contract refuses a non-Unit body that does not return -- so
+--     the fall-through of a word whose result is a SUM cannot be reached, and it emitted `return 0`: an
+--     `int64_t` literal from a function returning the sum struct, which `cc` rejected. (For an Int result
+--     it returned 0 in silence, which is worse.) The check is that this COMPILES and RUNS.
+runs([[let pick = let r : Int | Bool do : Int | Bool
+    switch r do
+    case Int as n
+        let out : Int | Bool = n
+        return out
+    case Bool
+        let out : Int | Bool = true
+        return out
+    end
+end
+let choose = let n : Int do : Int | Bool
+    let out : Int | Bool = n
+    return out
+end
+let use = let r : Int | Bool do : Int
+    switch r do
+    case Int as n return n
+    case Bool return 100
+    end
+end
+let answer = use(choose(7))
+]], show{ 'answer' }, '7\n', 'the impossible fall-through is a trap, and the unit still compiles')
+
 H.finish()

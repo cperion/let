@@ -3,148 +3,210 @@
 #include <stdbool.h>
 
 #include <stdint.h>
+#include <stdbool.h>
 
 struct let_s1 {
-    uint8_t square;
-    uint8_t sum;
-    int64_t juxtaposed;
-    int64_t invoked;
+    uint8_t sign;
+    uint8_t classify;
 };
 
 struct let_s2 {
-    int64_t x;
+    int64_t n;
 };
 
 struct let_s3 {
-    int64_t a;
-};
-
-struct let_s4 {
-    int64_t a;
-    int64_t b;
+    int64_t code;
 };
 
 struct let_s1 let_module_init(void);
 
-static uint8_t let_square_construct(void);
+static uint8_t let_sign_construct(void);
 
-static uint8_t let_sum_construct(void);
+static uint8_t let_classify_construct(void);
 
-static struct let_s2 let_square_advance_0(uint8_t p1, int64_t p2);
+int64_t let_sign_entry(struct let_s1 p1, int64_t p2);
 
-static int64_t let_square_run(struct let_s2 p1);
+static struct let_s2 let_sign_advance_0(uint8_t p1, int64_t p2);
 
-static struct let_s3 let_sum_advance_0(uint8_t p1, int64_t p2);
+static int64_t let_sign_run(struct let_s2 p1);
 
-static struct let_s4 let_sum_advance_1(struct let_s3 p1, int64_t p2);
+int64_t let_classify_entry(struct let_s1 p1, int64_t p2);
 
-static int64_t let_sum_run(struct let_s4 p1);
+static struct let_s3 let_classify_advance_0(uint8_t p1, int64_t p2);
 
-int64_t let_square_entry(struct let_s1 p1, int64_t p2);
-
-int64_t let_sum_entry(struct let_s1 p1, int64_t p2, int64_t p3);
+static int64_t let_classify_run(struct let_s3 p1);
 
 struct let_s1 let_module_init(void) {
     {
-        uint8_t v1 = let_square_construct();
-        uint8_t v2 = let_sum_construct();
-        uint8_t v4 = let_square_construct();
-        struct let_s2 v5 = let_square_advance_0(v4, INT64_C(4));
-        int64_t v6 = let_square_run(v5);
-        uint8_t v8 = let_square_construct();
-        struct let_s2 v9 = let_square_advance_0(v8, INT64_C(3));
-        int64_t v10 = let_square_run(v9);
-        uint8_t v11 = let_sum_construct();
-        struct let_s3 v12 = let_sum_advance_0(v11, v10);
-        struct let_s4 v13 = let_sum_advance_1(v12, v6);
-        int64_t v14 = let_sum_run(v13);
-        uint8_t v16 = let_square_construct();
-        struct let_s2 v17 = let_square_advance_0(v16, INT64_C(4));
-        int64_t v18 = let_square_run(v17);
-        uint8_t v20 = let_square_construct();
-        struct let_s2 v21 = let_square_advance_0(v20, INT64_C(3));
-        int64_t v22 = let_square_run(v21);
-        uint8_t v23 = let_sum_construct();
-        struct let_s3 v24 = let_sum_advance_0(v23, v22);
-        struct let_s4 v25 = let_sum_advance_1(v24, v18);
-        int64_t v26 = let_sum_run(v25);
-        struct let_s1 v27 = ((struct let_s1){v1, v2, v14, v26});
-        return v27;
+        uint8_t v1 = let_sign_construct();
+        uint8_t v2 = let_classify_construct();
+        struct let_s1 v3 = ((struct let_s1){v1, v2});
+        return v3;
     }
 }
 
-static uint8_t let_square_construct(void) {
+static uint8_t let_sign_construct(void) {
     {
         uint8_t v1 = INT64_C(0);
         return INT64_C(0);
     }
 }
 
-static uint8_t let_sum_construct(void) {
+static uint8_t let_classify_construct(void) {
     {
         uint8_t v1 = INT64_C(0);
         return INT64_C(0);
     }
 }
 
-static struct let_s2 let_square_advance_0(uint8_t p1, int64_t p2) {
+int64_t let_sign_entry(struct let_s1 p1, int64_t p2) {
+    {
+        uint8_t v3 = (p1).sign;
+        struct let_s2 v4 = let_sign_advance_0(v3, p2);
+        int64_t v5 = let_sign_run(v4);
+        return v5;
+    }
+}
+
+static struct let_s2 let_sign_advance_0(uint8_t p1, int64_t p2) {
     {
         struct let_s2 v3 = ((struct let_s2){p2});
         return v3;
     }
 }
 
-static int64_t let_square_run(struct let_s2 p1) {
+static int64_t let_sign_run(struct let_s2 p1) {
     {
-        int64_t v2 = (p1).x;
-        int64_t v3 = ((int64_t)(((uint64_t)v2) * ((uint64_t)v2)));
-        return v3;
+        int64_t b4_p1;
+        int64_t b7_p1;
+        int64_t b6_p1;
+        int64_t b3_p1;
+        int64_t v2 = (p1).n;
+        bool v4 = (v2 < INT64_C(0));
+        if (v4)
+        {
+            b3_p1 = v2;
+            goto b3;
+        }
+        else
+        {
+            b4_p1 = v2;
+            goto b4;
+        }
+b4:;
+        bool b4_v3 = (b4_p1 == INT64_C(0));
+        if (b4_v3)
+        {
+            b6_p1 = b4_p1;
+            goto b6;
+        }
+        else
+        {
+            b7_p1 = b4_p1;
+            goto b7;
+        }
+b7:;
+        return INT64_C(1);
+b6:;
+        return INT64_C(0);
+b3:;
+        return (-INT64_C(1));
     }
 }
 
-static struct let_s3 let_sum_advance_0(uint8_t p1, int64_t p2) {
+int64_t let_classify_entry(struct let_s1 p1, int64_t p2) {
+    {
+        uint8_t v3 = (p1).classify;
+        struct let_s3 v4 = let_classify_advance_0(v3, p2);
+        int64_t v5 = let_classify_run(v4);
+        return v5;
+    }
+}
+
+static struct let_s3 let_classify_advance_0(uint8_t p1, int64_t p2) {
     {
         struct let_s3 v3 = ((struct let_s3){p2});
         return v3;
     }
 }
 
-static struct let_s4 let_sum_advance_1(struct let_s3 p1, int64_t p2) {
+static int64_t let_classify_run(struct let_s3 p1) {
     {
-        int64_t v3 = (p1).a;
-        struct let_s4 v4 = ((struct let_s4){v3, p2});
-        return v4;
+        int64_t b6_p1;
+        int64_t b6_p2;
+        int64_t b7_p1;
+        int64_t b7_p2;
+        int64_t b8_p1;
+        int64_t b8_p2;
+        int64_t b5_p1;
+        int64_t b5_p2;
+        int64_t b4_p1;
+        int64_t b4_p2;
+        int64_t b3_p1;
+        int64_t b3_p2;
+        int64_t v2 = (p1).code;
+        {
+            b6_p1 = v2;
+            b6_p2 = v2;
+            goto b6;
+        }
+b6:;
+        bool b6_v4 = (b6_p1 == INT64_C(0));
+        if (b6_v4)
+        {
+            b3_p1 = b6_p1;
+            b3_p2 = b6_p2;
+            goto b3;
+        }
+        else
+        {
+            b7_p1 = b6_p1;
+            b7_p2 = b6_p2;
+            goto b7;
+        }
+b7:;
+        bool b7_v4 = (b7_p1 == INT64_C(1));
+        if (b7_v4)
+        {
+            b4_p1 = b7_p1;
+            b4_p2 = b7_p2;
+            goto b4;
+        }
+        else
+        {
+            b8_p1 = b7_p1;
+            b8_p2 = b7_p2;
+            goto b8;
+        }
+b8:;
+        bool b8_v4 = (b8_p1 == INT64_C(2));
+        if (b8_v4)
+        {
+            b4_p1 = b8_p1;
+            b4_p2 = b8_p2;
+            goto b4;
+        }
+        else
+        {
+            b5_p1 = b8_p1;
+            b5_p2 = b8_p2;
+            goto b5;
+        }
+b5:;
+        return INT64_C(30);
+b4:;
+        return INT64_C(20);
+b3:;
+        return INT64_C(10);
     }
 }
 
-static int64_t let_sum_run(struct let_s4 p1) {
-    {
-        int64_t v2 = (p1).a;
-        int64_t v3 = (p1).b;
-        int64_t v4 = ((int64_t)(((uint64_t)v2) + ((uint64_t)v3)));
-        return v4;
-    }
+int main(void) {
+    struct let_s1 m = let_module_init();
+    printf("%lld %lld %lld\n", (long long)let_sign_entry(m, 0 - 5), (long long)let_sign_entry(m, 0),
+        (long long)let_sign_entry(m, 7));
+    printf("%lld %lld %lld %lld\n", (long long)let_classify_entry(m, 0),
+        (long long)let_classify_entry(m, 1), (long long)let_classify_entry(m, 2),
+        (long long)let_classify_entry(m, 3));
+    return 0;
 }
-
-int64_t let_square_entry(struct let_s1 p1, int64_t p2) {
-    {
-        uint8_t v3 = (p1).square;
-        struct let_s2 v4 = let_square_advance_0(v3, p2);
-        int64_t v5 = let_square_run(v4);
-        return v5;
-    }
-}
-
-int64_t let_sum_entry(struct let_s1 p1, int64_t p2, int64_t p3) {
-    {
-        uint8_t v4 = (p1).sum;
-        struct let_s3 v5 = let_sum_advance_0(v4, p2);
-        struct let_s4 v6 = let_sum_advance_1(v5, p3);
-        int64_t v7 = let_sum_run(v6);
-        return v7;
-    }
-}
-
-int main(void){ struct let_s1 m = let_module_init();
-    printf("%lld %lld\n", (long long)m.juxtaposed, (long long)m.invoked);
-    return 0; }

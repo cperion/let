@@ -282,6 +282,34 @@ return function(V)
     local field_type_of
 
     -- What a name HOLDS, which is the question every packet field and every place's content asks.
+    -- §2.4's ERASURE, as ONE question: a type word is "evaluated at construction time and erased", so
+    -- a definition whose interface result is a type word has NO runtime presence -- no slot, no packet
+    -- member, nothing to materialize. `rep` answers nil for `TypeWord` and that is CORRECT (a type word
+    -- is not a layout); the builders ask THIS instead, which is why `let P = Int` then `x : P` compiles
+    -- while `P` never becomes a value. It was `Missing(TypeWordValue)` while the erasure was absent --
+    -- a name for a gap, not for a mechanism -- and the mechanism is what the callers now consult.
+    -- §S110: and a type that MENTIONS a variable is not a layout either -- `rep` answers nil for it,
+    -- correctly -- so a definition whose type mentions one (a generic word, or a binding of one) has no
+    -- runtime presence UNTIL IT IS INSTANTIATED, and an instance is concrete by construction because the
+    -- substitution happened in `Resolve`.
+    local function erased(L_, id)
+        local interface = L_.types[id]
+        if interface == nil then return false end
+        if Semantic.TypeWord:isclassof(interface.result) or interface.result:mentions_variable() then
+            return true
+        end
+        -- §S110: and a word whose STAGES do is erased for the same reason -- a `Type` stage is a
+        -- PARAMETER (there is nothing to store), and a stage typed by a variable has no layout until an
+        -- instantiation supplies one. So a generic word has no runtime presence at all: what runs is
+        -- the INSTANCE, and an instance is concrete by construction.
+        for _, stage in ipairs(interface.stages) do
+            if Semantic.TypeWord:isclassof(stage.type) or stage.type:mentions_variable() then
+                return true
+            end
+        end
+        return false
+    end
+
     local function belt_type_of(L_, id)
         local declaration = L_.declarations[id]
         if Judge.Bound:isclassof(declaration) then return rep(L_, declaration.declared) end
@@ -1923,9 +1951,16 @@ return function(V)
         -- nothing else, which is why this is one function and not two.
         local yes_block = is_and and long_block or short_block
         local no_block = is_and and short_block or long_block
+        -- The SHORT arm merges the left value itself -- `and` yields false, `or` yields true -- so its
+        -- edge carries one more argument than the long one, and the list has to exist BEFORE the branch
+        -- or the short arm reads an uninitialised parameter. That was a MISCOMPILE: `and` passed by
+        -- luck (its short value is false, which is what a fresh parameter held), and `or` returned
+        -- false where it owed true.
+        local short_arguments = arguments_of(C, carried)
+        short_arguments:insert(ref(C, left))
         C.state.block.exit = B.Branch(ref(C, left),
-            B.Edge(yes_block.id, arguments_of(C, carried)),
-            B.Edge(no_block.id, arguments_of(C, carried)))
+            B.Edge(yes_block.id, is_and and arguments_of(C, carried) or short_arguments),
+            B.Edge(no_block.id, is_and and short_arguments or arguments_of(C, carried)))
 
         -- The short arm: no statements at all, one extra parameter for the value it merges.
         local short = C:region()
@@ -1939,8 +1974,6 @@ return function(V)
             short.state.values[id] = parameter(short, types[id], Semantic.Read)
         end
         local merged = parameter(short, B.Bool, Semantic.Read)
-        local short_arguments = arguments_of(C, carried)
-        short_arguments:insert(ref(C, left))
         local short_out = L{ref(short, short.state.effect)}
         for _, id in ipairs(carried) do short_out:insert(ref(short, short.state.values[id])) end
         short_out:insert(ref(short, merged))
@@ -2059,14 +2092,19 @@ return function(V)
                 return nil, Report.bug(Report.NoLowering('statement after an exit'), span)
             end
             if Judge.Local:isclassof(statement) then
-                local value, diagnostic = materialize(L_, C, statement.definition, span)
-                if not value then return nil, diagnostic end
-                C.state.values[statement.definition] = value
+                -- §2.4: a local that names a TYPE has no slot to initialize -- the name is STATIC (the
+                -- type position reads the declaration) and there is no runtime value to bind.
+                if not erased(L_, statement.definition) then
+                    local value, diagnostic = materialize(L_, C, statement.definition, span)
+                    if not value then return nil, diagnostic end
+                    C.state.values[statement.definition] = value
+                end
             elseif Judge.Return:isclassof(statement) then
                 local value
                 if statement.value then
                     local diagnostic
-                    value, diagnostic = lower_initializer(L_, C, statement.value, result_type)
+                    value, diagnostic = lower_initializer(L_, C, statement.value, result_type,
+                        L_.word_result)
                     if not value then return nil, diagnostic end
                 else
                     value = pure(C, B.UnitLiteral, B.Unit)
@@ -2145,6 +2183,19 @@ return function(V)
     -- A definition's value, lowered on demand: an aggregate's member is a definition too, and it
     -- is scoped to the enclosing chain, so the top-level walk does not reach it (§S23).
     materialize = function(L_, C, id, span)
+        -- §2.4's erasure, on the other side: a type word has no representation, so a definition whose
+        -- value is one has no storage to give it. That is a MECHANISM the compiler lacks (`rep` answers
+        -- nil for `TypeWord`, correctly), not a fault in the program -- and this is the one place an id
+        -- becomes a value, so it is the one place that can say so. `let P = Int` then `x : P` works
+        -- because the type position reads the DECLARATION; using `P` where a runtime VALUE is wanted
+        -- needs the erasure to go further.
+        -- §2.4's erasure REACHES every builder now, so an erased definition arriving here is the
+        -- compiler disagreeing with itself -- the one shape that is a `Bug` rather than a `Missing`.
+        -- This was `Missing(TypeWordValue)`, which named a mechanism that was ABSENT; the mechanism is
+        -- here, so what is left is the invariant's backstop.
+        if erased(L_, id) then
+            return nil, Report.bug(Report.NoLowering('representation'), span)
+        end
         local declaration = L_.declarations[id]
         if not declaration then
             return nil, Report.reject(Report.UseBeforeInitializer, span)
@@ -2314,11 +2365,28 @@ return function(V)
             if not result then return nil, diagnostic end
             C.state.block.exit = B.Return(L{ref(C, result), ref(C, C.state.effect)})
         else
+            -- §S110/§S114: a `return` is a place where a value must BECOME the word's result, so it is
+            -- an injection site like a binding or a stage argument -- and the injection is a SEMANTIC
+            -- question (`Lower` cannot read an alternative off a representation). So the word's semantic
+            -- result travels beside the belt one while its body is lowered. Without it, `return { … }`
+            -- in a sum-returning word was `MismatchedType`, and every parser grew `ok`/`fail` words.
+            local saved_result = L_.word_result
+            L_.word_result = L_.types[template].result
             local ok, diagnostic = lower_body(L_, C, definition.declaration.terminal.statements,
                 type_, definition.span, function(region)
+                    -- §S66 + §3.6's trap: a body that FALLS OFF ITS END is only reachable when the
+                    -- result is Unit -- `Contract` refuses a non-Unit body that does not return -- so
+                    -- reaching this with any other result means the path is IMPOSSIBLE, and an
+                    -- impossible path is a TRAP, never a default value. It was `return 0`, which does
+                    -- not even compile for a sum result: the C returned `long int` from a function
+                    -- returning the sum struct.
+                    if type_ ~= B.Unit then
+                        return B.Trap(ref(region, region.state.effect), 'fell off the end')
+                    end
                     local unit = pure(region, B.UnitLiteral, B.Unit)
                     return B.Return(L{ref(region, unit), ref(region, region.state.effect)})
                 end)
+            L_.word_result = saved_result
             if not ok then return nil, diagnostic end
         end
         return freeze(C, L{type_, B.Effect}, false)
@@ -2359,14 +2427,14 @@ return function(V)
 
         -- The member's index in the namespace, which is source order among the top-level names --
         -- the same order `lower_module` builds the record in.
+        -- The member's index in the namespace, which is the order `lower_module` BUILT the record in --
+        -- asked of the RECORD rather than re-derived. The re-derivation was a second copy of "which
+        -- definitions are members", and it was missing §2.4's erasure: with `let P = Int` erased the
+        -- index counted it, the struct did not have it, and the entry point loaded a field past the
+        -- end of the record (`emit.lua:31`). One owner -- the list the record was built from.
         local index
-        for _, definition in ipairs(L_.definitions) do
-            if not definition.scope
-                and (Judge.Value:isclassof(definition.declaration)
-                     or Judge.Word:isclassof(definition.declaration)) then
-                index = (index or -1) + 1
-                if definition.id == template then break end
-            end
+        for position, member in ipairs(L_.namespace_members or {}) do
+            if member.id == template then index = position - 1 break end
         end
         if not index then
             return nil, Report.bug(Report.NoLowering('entry point'), L_.definitions[1].span)
@@ -2407,9 +2475,17 @@ return function(V)
 
         local members = L()
         for _, definition in ipairs(L_.definitions) do
-            if not definition.scope then
+            if not definition.scope and not erased(L_, definition.id) then
                 local declaration = definition.declaration
                 if Judge.Value:isclassof(declaration) then
+                    -- §2.4: "a type word is a chain with `Type` domains and a data terminal, evaluated
+                    -- at construction time and ERASED" -- and the ERASING is the part this compiler
+                    -- does not have, so a binding whose value is one has no storage to give it. `rep`
+                    -- answering nil for `TypeWord` is CORRECT (a type word is not a layout); calling
+                    -- that a `Bug` was not, because it blamed the compiler for a program the GRAMMAR
+                    -- accepts (§S99's lesson). The erasure has to reach the PACKET as well -- a word
+                    -- that captures such a binding still lists it -- and until it does, this is a
+                    -- `Missing`: the mechanism, not the program.
                     -- `field_type_of` and not `rep`: what a namespace member's SLOT holds is the same
                     -- question a capture's slot and a packet member's slot ask, and it is not the same
                     -- question as "what does this type look like" -- a WORD-typed value's layout is its
@@ -2417,14 +2493,16 @@ return function(V)
                     -- which is why binding a partial application was a `Bug(NoLowering)`.
                     local type_ = field_type_of(L_, definition.id)
                     if not type_ then
-                        return nil, Report.bug(Report.NoLowering('representation'), definition.span)
+                        return nil, Report.bug(Report.NoLowering('representation'),
+                            definition.span)
                     end
                     -- `materialize` and not `lower_initializer`: a top-level `mut` prelude is a CELL
                     -- exactly as a local one is, and this was the second place the cell was decided --
                     -- so the namespace held the value where every word's capture expected the address.
                     local value, diagnostic = materialize(L_, C, definition.id, definition.span)
                     if not value then return nil, diagnostic end
-                    members:insert({ name = definition.name, id = definition.id, span = definition.span })
+                    members:insert({ name = definition.name, id = definition.id,
+                        span = definition.span })
                 elseif Judge.Word:isclassof(declaration) then
                     -- §2.6: "all top-level names are visible through the module namespace", so a
                     -- top-level WORD is a value in it -- `R(t,0)`, which is what the name denotes
@@ -2601,7 +2679,11 @@ return function(V)
         if not root then return k_diag(unit, L_.diagnostic) end
         if not program.namespace then
             for _, definition in ipairs(L_.definitions) do
-                if not definition.scope and Judge.Word:isclassof(definition.declaration) then
+                -- §2.4: a TYPE word has no runtime terminal and its stages are types, so it is erased
+                -- (§S107) and must not be given an entry point -- the host calls words, and a type is
+                -- not one.
+                if not definition.scope and not erased(L_, definition.id)
+                        and Judge.Word:isclassof(definition.declaration) then
                     local entry = demand(L_, 'entry:' .. definition.id, function(M)
                         return lower_entry(M, definition.id, 0)
                     end)

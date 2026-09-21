@@ -1,8 +1,14 @@
+# Ownership (§3.6): a host type is DECLARED, its destructor is the host's, and a word that takes a value
+# says so with `own` -- which is why the caller writes `move`.
+host Buffer app_close
+
+extern open_buffer "app_open" (size : Int) : Buffer
+extern buffer_size "app_size" (b : Buffer) : Int
+
 let consume_buffer =
     let buffer own : Buffer
     do : Int
-        let size = buffer_size(buffer)
-        return size
+        return buffer_size(buffer)
     end
 
 let answer = do : Int
@@ -11,4 +17,3 @@ let answer = do : Int
     let left = consume_buffer(move first)
     return left + consume_buffer(move second)
 end
-

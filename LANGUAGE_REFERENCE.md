@@ -173,6 +173,19 @@ Invocation is the **same operation** with a different spelling — `f(a, b)` —
 that has no stages left. `f with a with b` and `f(a, b)` lower to identical code; the `()` spelling is
 the one `with` cannot write, because `with` always supplies an argument.
 
+The operations are identical; what differs is **when the word runs**. Invocation is **transient
+saturation** — `sum(1)` wants to run and still has a stage free, so it is `Undersaturated` — while
+`sum with 1` is a partial application, which is a word. And invocation takes a **type argument** the same
+way `with` does, so either spelling can instantiate a generic word:
+
+```let
+let sum = let a : Int let b : Int do : Int return a + b end
+let partial = sum with 1                      # a word: one stage still free
+let whole = sum(1, 2)                         # runs now
+let id = let T : Type let x : T do : T return x end
+let typed = id(Int, 42)                       # a Type argument works here too
+```
+
 ```let
 let add = let a : Int let b : Int do : Int return a + b end
 let a = add with 3 with 4
@@ -255,6 +268,104 @@ let answer = fact(5)
 
 ---
 
+### 3.5 A dictionary is a record of words
+
+A word that needs several operations takes them as a **record of words** — one stage of that record
+type — and binds each one with a prelude whose value is a **projection** of the stage. That is
+"polymorphism is words" with no dictionary object, and because a field whose type is a word NAMES that
+word, `ok(n)` has a callee with no lookup at run time:
+
+```let
+let on_ok  = let n : Int do : Int return n + 1 end
+let on_err = let n : Int do : Int return 0 - n end
+let divide = let Ok : Type let Err : Type
+    let provide : { ok : Ok, err : Err }
+    let ok = provide.ok
+    let err = provide.err
+    let n : Int do : Int
+    return ok(n)
+end
+let a = divide with { let ok = on_ok  let err = on_err } with 41
+let b = divide with { let ok = on_err let err = on_ok  } with 41
+```
+
+The record is **borrowed** (a `Read` stage), so nothing is moved out of the caller's aggregate, and
+the type parameters are **deduced** from it (§12) — which is why each continuation is mentioned once,
+and why the two calls above are two instances (`42` and `-41`).
+
+One `let` per name, always: a dictionary is a record you name and project, not a pattern that binds
+several names at once.
+
+**A dictionary can be typed by the words themselves**, which needs no type parameters at all — a name
+that denotes a word is a type (§3.2), so the record type IS the dictionary:
+
+```let
+let on_ok  = let n : Int do : Int return n + 1 end
+let on_err = let n : Int do : Int return 0 - n end
+let divide = let provide : { ok : on_ok, err : on_err }
+    let ok = provide.ok
+    let err = provide.err
+    let n : Int do : Int
+    return ok(n)
+end
+```
+
+That `divide` accepts exactly those two continuations, because its TYPE names them; the parameterised
+form above is what you write when ONE word must take different dictionaries. And a projected name may be
+**annotated** like any binding — `let ok : Ok = provide.ok` — which is checked rather than inferred.
+
+### 3.6 Generic words
+
+A `Type` domain on a chain whose terminal is a **body** is a generic word — one word in the source, one
+**INSTANCE** per type argument in the output, with no tag and no dispatch:
+
+```let
+let twice = let F : Type let f : F let x : Int do : Int
+    return f(f(x))
+end
+let square = let x : Int do : Int return x * x end
+let inc = let x : Int do : Int return x + 1 end
+let a = twice with square with square with 3
+let b = twice with inc with inc with 3
+```
+
+The type parameter is **erased**, and the word arrives TWICE: once as the *type* — which names the
+callee (§3.2), so there is no vtable — and once as the *value*, whose packet the call carries. A `Type`
+stage must come **first** (an instance drops it, and the stages after it are what remain), and the generic
+word itself has no runtime form: what runs is the instance, and an instance is concrete. **There is no
+runtime genericity** — the type must be known statically, and where it is not, the *data* must say what it
+is: a sum.
+
+The type argument may also be **deduced** from the value, so each continuation is mentioned once:
+
+```let
+let on_ok = let n : Int do : Int return n + 1 end
+let on_err = let n : Int do : Int return 0 - n end
+let DivK = let Ok : Type let Err : Type { ok : Ok, err : Err }
+let divide = let Ok : Type let Err : Type let provide : DivK with Ok with Err let n : Int do : Int
+    return provide.ok(n)
+end
+let a = divide with { let ok = on_ok let err = on_err } with 41
+```
+
+The rule: a `Type` stage that appears in the declared type of a **later** stage is filled from that
+stage's argument — here `provide : DivK with Ok with Err` is where `Ok` and `Err` appear, so the
+aggregate's own type names them. The deduction reads the **value**, so two dictionaries of one shape with
+different words are two instances; a deduced argument is **not consumed** — it is passed on to the stage
+it was deduced from, which is why `id(42)` is `42`. Where the argument's type is not derivable (a call's
+result, say), write the type.
+
+A dictionary is a **record of words**, and a `Type` parameter can be one — a field whose type is a word
+NAMES that word, so the callee comes from the type and costs nothing at run time:
+
+```let
+let inc1 = let x : Int do : Int return x + 1 end
+let dbl  = let x : Int do : Int return x * 2 end
+let Dict : Type = { bump : inc1, fold : dbl }
+let dict = { let bump = inc1 let fold = dbl }
+let use = let D : Type let d : D let x : Int do : Int return d.fold(d.bump(x)) end
+let answer = use with Dict with dict with 21
+```
 ## 4. Types
 
 ```text
@@ -262,6 +373,8 @@ TYPE = Int | U8 | U32 | Float | Float32 | Bool | Unit | Text | CString | CPointe
      | NAME                     a host type, or a name that denotes a word/value (§4.3)
      | { FIELD, ... }           a record       FIELD = NAME [mut] : TYPE
      | ( TYPE, ... )            a tuple (a record with unnamed fields)
+     | ( TYPE )                 a GROUP: `(T)` is `T`, exactly as in an expression
+     | TYPE with TYPE           a type application (`Box with Int`), §4.3
      | TYPE | TYPE              a sum
      | TYPE -> TYPE             an arrow  — a SHAPE (§3.3)
      | do TYPE                  a chain's type — a SHAPE (§3.3)
@@ -321,8 +434,54 @@ let small = ToU8 with 200
 
 ### 4.3 A name that denotes a value is a type
 
-A name in type position denotes **the type of the value that name denotes**. That is one rule, and it
-covers three cases that look different:
+A name in type position denotes a type, and the derivation is **structural** — it answers from what
+the DECLARATION already says, because the type position is read before the type checker runs:
+
+- `Int` denotes a *type word*, so `x : Int` means the type it **names**.
+- a name that denotes a **word** — including a **partial application** — denotes that word's
+  nominal type in `(template, prefix)` (§3.2).
+
+**What it cannot answer is the type of a datum.** `origin = Point with 0 with 0` is a value, and its
+type is what the checker computes, so `p : origin` is `UnknownType`: write the record type out.
+
+```let
+let Point = { let x : Int let y : Int }
+let origin = Point with 0 with 0
+let f = let p : { x : Int, y : Int } let n : Int do : Int return p.x end
+```
+
+```let refuse: UnknownType
+let Point = { let x : Int let y : Int }
+let origin = Point with 0 with 0
+let f = let p : origin let n : Int do : Int return p.x end
+```
+
+**A name for a bare type word works.** `let P = Int` binds a name for a type — §2.4's *erasure*: the
+name is static, so `P` never becomes a value and nothing is emitted for it — and `P` is usable wherever
+a type goes:
+
+```let
+let P = Int
+let twice = let x : P do : P return x * 2 end
+let answer = twice with 21
+```
+
+**And the general form works.** `let P : Type = <a type>` names a type, and a chain with a `Type`
+domain is a **type word**, applied with `with` — §2.4's *"evaluated at construction time and
+erased"*, so the application happens in the type language and nothing about it reaches the emitted
+code:
+
+```let
+let Point : Type = { x : Int, y : Int }
+let p : Point = { let x = 1 let y = 2 }
+
+let Box = let T : Type { a : T }
+let b : Box with Int = { let a = 1 }
+```
+
+A type word must be applied to **all** of its parameters, and an *unapplied* one is not a type —
+`p : Box` is a `MismatchedType`, because `Box` there denotes the nominal WORD type (§3.2) and not
+what it builds.
 
 - `Int` denotes a *type word*, so `x : Int` means the type it **names**.
 - `square` denotes a **word** whose type is nominal in `(template, prefix)` (§3.2).
@@ -785,14 +944,48 @@ These are the language's edges, stated here so that a reader does not have to di
 - **No float arithmetic**, and no implicit conversions of any kind (§4.2).
 - **No garbage collection**, by design: §7 is the whole story, and it is checked rather than inferred.
 - **`ToText` does not exist** (§4.2).
-- **Type-level words** — a word taking a *type* as a stage (`Box with Int` in type position) — are
-  described in `DESIGN.md` §11.2 and **not yet expressible**: there is no `Type`-domain stage spelling
-  and no `with` in a type position. This is a recorded divergence, not an accident.
+- **A name that denotes DATA is not a type** (§4.3). `let origin = Point with 0 with 0` then
+  `p : origin` is `UnknownType`, because the type position is resolved before the type checker runs
+  and only what a *declaration* says can be answered there. Write the record type out — or NAME the
+  type, which is what a type word is for.
+- **Generic words** (`Type` domains, and the deduction of a type argument) are not a gap — they WORK, and
+  §3.6 describes them. This section is the LIMITS, and a capability does not belong in it.
 - **A written terminal that leaves a top-level binding behind** is `Missing(ModuleState)`: the module
   value would have to become a pair rather than the terminal's value. A written terminal that *takes*
   everything it owns is fine and gets an `unload`.
 - **A `switch` whose arms disagree** about whether the subject is moved is refused rather than tracked
   per-path; the disagreement is only corrected where the paths rejoin.
+- **A word's name is visible only in its own body** (§3.4), so two words that call each other are
+  `UnknownName` — there is no forward declaration. A recursive-descent parser with several rules
+  therefore cannot be written directly: precedence climbing fits in one word, and a rule can be
+  reached through a stage. The way in is §S74's own rule one level up — a word's declaration is in the
+  SOURCE (a stage states its type, a `do` states its result), so a pass that published every
+  top-level declaration before resolving any body would make this work.
+
+```let refuse: UnknownName
+let even = let n : Int do : Bool
+    if n == 0 do return true end
+    return odd(n - 1)
+end
+let odd = let n : Int do : Bool
+    if n == 0 do return false end
+    return even(n - 1)
+end
+```
+
+- **There is no character literal.** A character is its code point — `c == 40` for `(`, `48`–`57` for
+  digits — so lexing code is written in numbers. It would be purely lexical (`'('` is another spelling
+  of `40`), and it is not built.
+
+Each entry in the inventory has a program here, so the claim that it is a closed set is checked rather
+than asserted -- and a `missing:` block that stops being reported fails the suite.
+
+```let missing: ModuleState
+host Handle release
+extern pure made (n : Int) : Handle
+let h = made with 1
+; { let x = 1 }
+```
 
 ---
 

@@ -9,6 +9,7 @@ local suites = {
     'test/language.lua',    -- one program per construct, compiled and RUN
     'test/bundle.lua',      -- the same compiler in one file, with no checkout on package.path
     'test/reference.lua',   -- LANGUAGE_REFERENCE.md's own examples: every one is compiled
+    'test/examples.lua',    -- the corpus: real programs in examples/, compiled and RUN
 }
 local interpreter = arg[-1] or 'luajit'
 local total, failed = 0, {}

@@ -85,7 +85,7 @@ module is invisible.
 luajit test/all.lua
 ```
 
-Four suites, and every check is a **program** rather than an assertion about a phase:
+Five suites, and every check is a **program** rather than an assertion about a phase:
 
 - `test/spec.lua` — the document and the vocabularies agree, declaration by declaration, as token
   sequences. It is what keeps `DESIGN.md`'s ASDL from drifting away from the code.
@@ -99,11 +99,14 @@ Four suites, and every check is a **program** rather than an assertion about a p
 ## What is not built
 
 The gap inventory is `Report.MissingWhy`: a `Missing` names a mechanism the compiler lacks, and §13
-keeps it apart from a `Reject`, which names a program that is wrong. The suite that reaches one program
-per alternative is part of the corpus still being rebuilt. The one entry is `ModuleState`: §2.6's `state`
+keeps it apart from a `Reject`, which names a program that is wrong. Each entry has a program in
+`LANGUAGE_REFERENCE.md` -- a `missing:` block that fails if the reason stops being reported -- so "the
+inventory is a closed set" is checked rather than asserted. The entry is `ModuleState`: §2.6's `state`
 member, needed when a written terminal leaves behind a top-level binding that owns a resource. The open
 questions and every decision that produced them are in `DESIGN.md` §17.
-produced them are in `DESIGN.md` §17.
+
+That inventory is the COMPILER's gaps. The LANGUAGE's own edges — what a program cannot say at all — are
+listed in `LANGUAGE_REFERENCE.md` §12.
 
 `legacy/` is the previous compiler. It is not a dependency and it is not the specification; it is kept
 because knowing what a rule replaced is what stops it being quietly undone.

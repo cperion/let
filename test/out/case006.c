@@ -3,158 +3,137 @@
 #include <stdbool.h>
 
 #include <stdint.h>
-#include <stdbool.h>
 
-struct let_s1 {
-    uint8_t total;
-    int64_t answer;
-};
+extern int64_t say(const char * a1);
 
 struct let_s2 {
-    int64_t n;
+    uint8_t say;
+};
+
+struct let_s1 {
+    uint8_t say;
+    struct let_s2 main;
+};
+
+struct let_s3 {
+    const char * s;
+};
+
+struct let_s4 {
+    const char * value;
 };
 
 struct let_s1 let_module_init(void);
 
-static uint8_t let_total_construct(void);
+static uint8_t let_say_construct(void);
 
-static struct let_s2 let_total_advance_0(uint8_t p1, int64_t p2);
+static struct let_s2 let_main_construct(uint8_t p1);
 
-static int64_t let_total_run(struct let_s2 p1);
+int64_t let_say_entry(struct let_s1 p1, const char * p2);
 
-int64_t let_total_entry(struct let_s1 p1, int64_t p2);
+static struct let_s3 let_say_advance_0(uint8_t p1, const char * p2);
+
+static int64_t let_say_run(struct let_s3 p1);
+
+uint8_t let_main_entry(struct let_s1 p1);
+
+static uint8_t let_main_run(struct let_s2 p1);
+
+static uint8_t let_ToCString_construct(void);
+
+static struct let_s4 let_ToCString_advance_0(uint8_t p1, const char * p2);
+
+static const char * let_ToCString_run(struct let_s4 p1);
 
 struct let_s1 let_module_init(void) {
     {
-        uint8_t v1 = let_total_construct();
-        uint8_t v3 = let_total_construct();
-        struct let_s2 v4 = let_total_advance_0(v3, INT64_C(5));
-        int64_t v5 = let_total_run(v4);
-        struct let_s1 v6 = ((struct let_s1){v1, v5});
-        return v6;
+        uint8_t v1 = let_say_construct();
+        struct let_s2 v2 = let_main_construct(v1);
+        struct let_s1 v3 = ((struct let_s1){v1, v2});
+        return v3;
     }
 }
 
-static uint8_t let_total_construct(void) {
+static uint8_t let_say_construct(void) {
     {
         uint8_t v1 = INT64_C(0);
         return INT64_C(0);
     }
 }
 
-static struct let_s2 let_total_advance_0(uint8_t p1, int64_t p2) {
+static struct let_s2 let_main_construct(uint8_t p1) {
     {
-        struct let_s2 v3 = ((struct let_s2){p2});
-        return v3;
+        struct let_s2 v2 = ((struct let_s2){p1});
+        return v2;
     }
 }
 
-static int64_t let_total_run(struct let_s2 p1) {
+int64_t let_say_entry(struct let_s1 p1, const char * p2) {
     {
-        int64_t b2_p1;
-        int64_t* b2_p2;
-        int64_t* b2_p3;
-        int64_t b3_p1;
-        int64_t* b3_p2;
-        int64_t* b3_p3;
-        int64_t b4_p1;
-        int64_t* b4_p2;
-        int64_t* b4_p3;
-        int64_t b7_p1;
-        int64_t* b7_p2;
-        int64_t* b7_p3;
-        int64_t b5_p1;
-        int64_t* b5_p2;
-        int64_t* b5_p3;
-        int64_t b6_p1;
-        int64_t* b6_p2;
-        int64_t* b6_p3;
-        int64_t v2 = (p1).n;
-        int64_t v4 = INT64_C(0);
-        int64_t v6 = INT64_C(0);
-        {
-            b2_p1 = v2;
-            b2_p2 = (&v4);
-            b2_p3 = (&v6);
-            goto b2;
-        }
-b2:;
-        int64_t b2_v4 = (*b2_p2);
-        bool b2_v5 = (b2_v4 < b2_p1);
-        if (b2_v5)
-        {
-            b4_p1 = b2_p1;
-            b4_p2 = b2_p2;
-            b4_p3 = b2_p3;
-            goto b4;
-        }
-        else
-        {
-            b3_p1 = b2_p1;
-            b3_p2 = b2_p2;
-            b3_p3 = b2_p3;
-            goto b3;
-        }
-b3:;
-        int64_t b3_v4 = (*b3_p3);
-        return b3_v4;
-b4:;
-        int64_t b4_v4 = (*b4_p2);
-        int64_t b4_v6 = ((int64_t)(((uint64_t)b4_v4) + ((uint64_t)INT64_C(1))));
-        (*b4_p2) = b4_v6;
-        int64_t b4_v8 = (*b4_p2);
-        bool b4_v10 = (b4_v8 == INT64_C(3));
-        if (b4_v10)
-        {
-            b6_p1 = b4_p1;
-            b6_p2 = b4_p2;
-            b6_p3 = b4_p3;
-            goto b6;
-        }
-        else
-        {
-            b7_p1 = b4_p1;
-            b7_p2 = b4_p2;
-            b7_p3 = b4_p3;
-            goto b7;
-        }
-b7:;
-        {
-            b5_p1 = b7_p1;
-            b5_p2 = b7_p2;
-            b5_p3 = b7_p3;
-            goto b5;
-        }
-b5:;
-        int64_t b5_v4 = (*b5_p3);
-        int64_t b5_v5 = (*b5_p2);
-        int64_t b5_v6 = ((int64_t)(((uint64_t)b5_v4) + ((uint64_t)b5_v5)));
-        (*b5_p3) = b5_v6;
-        {
-            b2_p1 = b5_p1;
-            b2_p2 = b5_p2;
-            b2_p3 = b5_p3;
-            goto b2;
-        }
-b6:;
-        {
-            b2_p1 = b6_p1;
-            b2_p2 = b6_p2;
-            b2_p3 = b6_p3;
-            goto b2;
-        }
-    }
-}
-
-int64_t let_total_entry(struct let_s1 p1, int64_t p2) {
-    {
-        uint8_t v3 = (p1).total;
-        struct let_s2 v4 = let_total_advance_0(v3, p2);
-        int64_t v5 = let_total_run(v4);
+        uint8_t v3 = (p1).say;
+        struct let_s3 v4 = let_say_advance_0(v3, p2);
+        int64_t v5 = let_say_run(v4);
         return v5;
     }
 }
 
-int main(void){ struct let_s1 m = let_module_init();
-    printf("%lld\n", (long long)m.answer);
-    return 0; }
+static struct let_s3 let_say_advance_0(uint8_t p1, const char * p2) {
+    {
+        struct let_s3 v3 = ((struct let_s3){p2});
+        return v3;
+    }
+}
+
+static int64_t let_say_run(struct let_s3 p1) {
+    {
+        const char * v2 = (p1).s;
+        int64_t v3 = say(v2);
+        return v3;
+    }
+}
+
+uint8_t let_main_entry(struct let_s1 p1) {
+    {
+        struct let_s2 v2 = (p1).main;
+        uint8_t v3 = let_main_run(v2);
+        return v3;
+    }
+}
+
+static uint8_t let_main_run(struct let_s2 p1) {
+    {
+        uint8_t v2 = (p1).say;
+        uint8_t v4 = let_ToCString_construct();
+        struct let_s4 v5 = let_ToCString_advance_0(v4, "\150\145\154\154\157\054\040\167\157\162\154\144");
+        const char * v6 = let_ToCString_run(v5);
+        struct let_s3 v7 = let_say_advance_0(v2, v6);
+        int64_t v8 = let_say_run(v7);
+        return INT64_C(0);
+    }
+}
+
+static uint8_t let_ToCString_construct(void) {
+    {
+        uint8_t v1 = INT64_C(0);
+        return INT64_C(0);
+    }
+}
+
+static struct let_s4 let_ToCString_advance_0(uint8_t p1, const char * p2) {
+    {
+        struct let_s4 v3 = ((struct let_s4){p2});
+        return v3;
+    }
+}
+
+static const char * let_ToCString_run(struct let_s4 p1) {
+    {
+        const char * v2 = (p1).value;
+        const char * v3 = ((const char *)v2);
+        return v3;
+    }
+}
+
+#include <stdio.h>
+int64_t say(const char *s) { puts(s); return 0; }
+int main(void) { struct let_s1 m = let_module_init(); let_main_entry(m); return 0; }

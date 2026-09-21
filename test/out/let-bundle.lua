@@ -956,6 +956,7 @@ module Semantic {
                | Do(Type result)
                | TypeWord
                | Word(number template, number prefix)
+               | Variable(number stage)
 }
     ]]
 
@@ -1079,6 +1080,36 @@ module Semantic {
     -- types, and refused a program in which the annotation and the value disagreed about nothing.
     -- A rule that has to hold for every member of a set is a rule about the SET: the tell for a
     -- missing member is a comparison that succeeds on values and fails on types.
+    -- §S110: a TYPE PARAMETER's identity is its STAGE, and the same rule as `Word` above applies -- two
+    -- occurrences of one variable are one type, so identity-based equality would make `let y : T = x` a
+    -- mismatch against the very stage it names.
+    function S.Variable:equals(other)
+        return S.Variable:isclassof(other) and self.stage == other.stage
+    end
+
+    -- §S110: does a type MENTION a type variable? That is one question with three askers -- `Lower`
+    -- (a definition whose type mentions one has no runtime presence: `erased`), `Contract` (a generic
+    -- word's BODY cannot be checked, because its stages are variables; each INSTANCE is checked
+    -- instead), and the reader of a diagnostic -- so it is a derived method beside `copyable`.
+    function S.Type:mentions_variable() return false end
+    function S.Variable:mentions_variable() return true end
+    function S.Aggregate:mentions_variable()
+        for _, field in ipairs(self.fields) do
+            if field.type:mentions_variable() then return true end
+        end
+        return false
+    end
+    function S.Sum:mentions_variable()
+        for _, alternative in ipairs(self.alternatives) do
+            if alternative:mentions_variable() then return true end
+        end
+        return false
+    end
+    function S.Arrow:mentions_variable()
+        return self.from:mentions_variable() or self.to:mentions_variable()
+    end
+    function S.Do:mentions_variable() return self.result:mentions_variable() end
+
     function S.Word:equals(other)
         return S.Word:isclassof(other) and self.template == other.template
             and self.prefix == other.prefix
@@ -1092,6 +1123,10 @@ module Semantic {
         Int = S.Int, U8 = S.U8, U32 = S.U32, Float = S.Float, Float32 = S.Float32,
         Bool = S.Bool, Unit = S.Unit, Text = S.Text,
         CString = S.CString, CPointer = S.CPointer,
+        -- §2.4's `Type` DOMAIN, and it is a NAME for an existing choice rather than a new one: a type
+        -- value's type is already `Semantic.TypeWord` (§11.1). That is what makes `let P : Type = <a
+        -- type>` a name for a type, and a `Type` domain is what makes a chain a TYPE word.
+        Type = S.TypeWord,
     }
 
     function S.Type:copyable() return COPYABLE[self] or false end
@@ -1235,6 +1270,7 @@ module Syntax {
               | Arrow(TypeExpr from, TypeExpr to)
               | Sum(TypeExpr left, TypeExpr right)
               | Do(TypeExpr result)
+              | TypeApply(TypeExpr word, TypeExpr argument)
               attributes (Source.Span span)
     TypeField = (string name, boolean mutable, TypeExpr type, Source.Span span)
 
@@ -1267,6 +1303,7 @@ module Syntax {
               | Index(Expr base, Expr index)
               | Move(Expr place) | Borrow(Expr place)
               | TypeSum(TypeExpr left, TypeExpr right)
+              | TypeValue(TypeExpr type)
               attributes (Source.Span span)
 
     Stmt      = Local(Binding binding) | Assign(Expr place, Expr value)
@@ -1556,6 +1593,20 @@ module Judge {
                     for _, member in ipairs(declaration.value.members) do
                         if member.name == node.name and J.Reference:isclassof(member.value) then
                             return walk(member.value, hops + 1)
+                        end
+                    end
+                end
+                -- §S110: and a projection whose base is a STAGE -- `let p : { op : inc1 }` then `p.op(x)`
+                -- -- names the field's word through the DECLARED TYPE. That is the dictionary-as-a-record
+                -- pattern, and it works for the same reason a `Bound` does (§S99): a field whose type is
+                -- a WORD names that word, and the type is in the declaration, so nothing here needs
+                -- `Contract` to have run. The value path above and this one are the two ways a record
+                -- can be known: by what it HOLDS (an aggregate value) and by what it IS (a record type).
+                local declared = declaration and declaration.declared
+                if Semantic.Aggregate:isclassof(declared) then
+                    for _, field in ipairs(declared.fields) do
+                        if field.name == node.name and Semantic.Word:isclassof(field.type) then
+                            return field.type.template, field.type.prefix
                         end
                     end
                 end
@@ -2006,9 +2057,23 @@ return function(V)
             return from
         end
 
+        -- §2.4/§11.2: **type application is `with`**, the same form as any other application, so a type
+        -- expression HAS an application form (§S106 retired the sentence that said it had none). Both
+        -- sides are wrapped: the word is a VALUE (a type word) and the argument is a TYPE, which is
+        -- exactly what `Syntax.TypeValue` says.
+        local parse_type_application
+        parse_type_application = function()
+            local value = parse_type_atom()
+            while accept('with') do
+                local span = peek().span
+                value = Syntax.TypeApply(value, parse_type_atom(), span)
+            end
+            return value
+        end
+
         parse_type_sum = function()
-            local left = parse_type_atom()
-            while accept('|') do left = Syntax.Sum(left, parse_type_atom(), left.span) end
+            local left = parse_type_application()
+            while accept('|') do left = Syntax.Sum(left, parse_type_application(), left.span) end
             return left
         end
 
@@ -2043,8 +2108,18 @@ return function(V)
             end
             if t.kind == '(' then
                 at = at + 1
-                local elements = L{parse_type()}
-                while accept(',') do elements:insert(parse_type()) end
+                -- §3.3/§S88: `(` GROUPS in a type position exactly as it does in an expression, so
+                -- `(Int)` is `Int` and `(A, B)` is a tuple -- a one-element TUPLE would be a record
+                -- with one unnamed field, which is a different type and is not what a reader writes
+                -- brackets for. (A one-element tuple has no spelling, which matches a one-element
+                -- aggregate in the expression grammar: it needs its braces.)
+                local first = parse_type()
+                if not accept(',') then
+                    take(')')
+                    return first
+                end
+                local elements = L{first}
+                repeat elements:insert(parse_type()) until not accept(',')
                 take(')')
                 return Syntax.Tuple(elements, t.span)
             end
@@ -2291,6 +2366,21 @@ return function(V)
             return Syntax.Host(name.spelling, destroys, borrows, kw.span, name_range)
         end
 
+        -- §2.4 read through S106's decision: a binding annotated `: Type` holds a TYPE, so its value is
+        -- a type expression and not an expression. The test is SYNTACTIC (`Ref("Type")`) because that is
+        -- what the parser has -- the resolved type is `Contract`'s business -- and the sentence it makes
+        -- true is the reader's: `let P : Type = <a type>` is a name for a type.
+        local function is_type_annotation(annotation)
+            return annotation ~= nil and Syntax.Ref:isclassof(annotation)
+                and annotation.name == 'Type'
+        end
+        local function parse_value(constraint)
+            if not is_type_annotation(constraint) then return parse_chain() end
+            local span = peek().span
+            local type_ = parse_type()
+            return Syntax.Chain(L{}, Syntax.Data(Syntax.TypeValue(type_, span), span), span)
+        end
+
         local function parse_item()
             local kw = take('let')
             local name = take('name')
@@ -2305,7 +2395,7 @@ return function(V)
                 end
                 at = at + 1
                 return Syntax.Prelude(Syntax.Binding(name.spelling, mutable, constraint,
-                    parse_chain(), kw.span, name_range))
+                    parse_value(constraint), kw.span, name_range))
             end
 
             if not constraint then
@@ -2336,7 +2426,8 @@ return function(V)
                     local constraint = parse_annotation()
                     take('=')
                     statements:insert(Syntax.Local(Syntax.Binding(name.spelling, mutable,
-                        constraint, parse_chain(), kw.span, Source.Range(name.span, name.span)),
+                        constraint, parse_value(constraint), kw.span,
+                        Source.Range(name.span, name.span)),
                         kw.span))
                 elseif t.kind == 'return' then
                     at = at + 1
@@ -2515,6 +2606,37 @@ return function(V)
             local items = L()
             parse_items(items)
             separate()
+            -- §2.4 read through S106's decision: a chain with a `Type` DOMAIN is a TYPE word, so its
+            -- terminal is a TYPE and not a term -- and it needs no new spelling to say so, because the
+            -- domain already said it. The body stays UNRESOLVED here and is resolved per application,
+            -- which is what "evaluated at construction time" means: `Box with Int` is a TYPE.
+            -- §S110: a type parameter comes FIRST. An instantiation binds the `Type` stages and drops them
+            -- from the instance, so a `Type` stage AFTER a value stage would need that earlier stage bound
+            -- too -- and it is a runtime value. So the order is a rule of the GRAMMAR rather than a limit
+            -- of the compiler, and breaking it is a syntax error like any other.
+            local seen_value = false
+            for _, item in ipairs(items) do
+                if Syntax.Stage:isclassof(item) then
+                    if is_type_annotation(item.stage.constraint) then
+                        if seen_value then
+                            error(('%s: a `Type` stage must come before the stages that use it')
+                                :format(locate(peek())), 0)
+                        end
+                    else
+                        seen_value = true
+                    end
+                end
+            end
+            -- §2.4/§S110: a chain with a `Type` domain is a TYPE word when its terminal is a TYPE, and a
+            -- GENERIC word when its terminal is a body -- so `do` decides, and no other spelling is needed.
+            for _, item in ipairs(items) do
+                if Syntax.Stage:isclassof(item) and is_type_annotation(item.stage.constraint)
+                        and kind() ~= 'do' then
+                    local span = peek().span
+                    return Syntax.Chain(items,
+                        Syntax.Data(Syntax.TypeValue(parse_type(), span), span), first)
+                end
+            end
             return Syntax.Chain(items, parse_terminal(), first)
         end
 
@@ -2658,6 +2780,19 @@ return function(V)
         local host_types = {}
         -- A type word, once per name: §2.4 makes a type an expression, so `Int` is a VALUE.
         local type_words = {}
+        -- §2.4: a TYPE word's body is a type expression that mentions its `Type` stages, so it cannot
+        -- be resolved when the word is DECLARED -- the stages have no meaning yet -- and is resolved
+        -- per APPLICATION instead, with `type_env` binding the stage names to the argument types.
+        -- "Evaluated at construction time" is exactly this: the application happens here, in the type
+        -- language, and nothing about `Box with Int` reaches the belt.
+        local type_bodies, type_env = {}, nil
+        -- §S110: a GENERIC word's syntax, the scope it was declared in, and the variables already bound.
+        -- An INSTANCE is built by resolving that chain again with the parameter bound -- not by copying
+        -- the resolved tree -- because then every nested binding, capture and annotation comes out with
+        -- the substitution applied, from the same code that made the original. The scope is only READ
+        -- during a re-resolution (a `resolve_value` pushes its own), so a shallow copy is enough, and the
+        -- env ACCUMULATES so that a second parameter sees what the first one bound.
+        local generic_bodies, instance_cache = {}, {}
         -- What a NAME denotes as a type: a primitive (§3.4), or a declared host type (§3.6).
         -- ONE owner, because this is asked wherever a name meets a type -- a written `: T`, a type
         -- name used as a value, and a `case` label -- and those must not disagree about `Int`.
@@ -2666,6 +2801,36 @@ return function(V)
             return PRIMITIVE[name] or (host_types[name] and host_types[name].type)
         end
         local function resolve_type(expr)
+            -- §2.4/§11.2: **type application is `with`**, evaluated at construction time -- so it is
+            -- resolved HERE, in the type language, and never reaches the belt. The spine is flattened
+            -- first, so `Box with Int with Text` is one application of two arguments, and the word's
+            -- body (kept UNRESOLVED in `type_bodies`) is resolved with its `Type` stages bound.
+            if Syntax.TypeApply:isclassof(expr) then
+                local arguments, callee = {}, expr
+                while Syntax.TypeApply:isclassof(callee) do
+                    table.insert(arguments, 1, callee.argument)
+                    callee = callee.word
+                end
+                local id = Syntax.Ref:isclassof(callee) and find(callee.name)
+                local body = id and type_bodies[id]
+                if not body or #arguments > #body.stages then
+                    return fail(Report.reject(Report.UnknownType, expr.span))
+                end
+                local env = {}
+                for index, name in ipairs(body.stages) do
+                    local argument = arguments[index]
+                    if not argument then return fail(Report.reject(Report.UnknownType, expr.span)) end
+                    local type_ = resolve_type(argument)
+                    if not type_ then return nil end
+                    env[name] = type_
+                end
+                local saved = type_env
+                type_env = env
+                local resolved = resolve_type(body.body)
+                type_env = saved
+                if not resolved then return nil end
+                return resolved
+            end
             -- §11.2's `TypeExpr`, all six alternatives, because a type is a WORD: `Box with Int` is
             -- `with` and a record type is a record. These are structural, so they are built
             -- here rather than looked up -- and a record type's `mut` field lands on the FIELD, since
@@ -2713,17 +2878,21 @@ return function(V)
                 return Semantic.Do(result)
             end
             if not Syntax.Ref:isclassof(expr) then
-                return fail(Report.bug(Report.NoLowering('type form'), program.file.span))
+                -- §S102: a program the grammar accepts is never the compiler's own fault. `parse_type`
+                -- can only build the six alternatives above, so this is reached by a caller that fed a
+                -- VALUE where a type was expected -- `divide with { … }` before deduction existed -- and
+                -- the honest answer is that the argument is not a type, not an internal error.
+                return fail(Report.reject(Report.UnknownType, expr.span))
             end
             -- A DECLARED host type (§3.6) is a type word like any other. It is `Named` rather than a
             -- new alternative because that is what it is: a type whose meaning the host owns, which
             -- is also why Copy cannot be derived for it (§2.5) and why it needs a destructor.
             --
-            -- The SAME instance every time, and that is not an optimisation. A nominal type is one
-            -- thing: two `Named('Handle')` values compare unequal, so building a fresh one per use
-            -- makes `touch(h)` a type error against the very declaration that produced `h`. Scalars
-            -- are single instances because ASDL makes a unique constructor one class; a declared
-            -- type has to be interned to match.
+            -- The type is built here and compared BY NAME (`Semantic.Named:equals`), so a fresh
+            -- `Named('Handle')` is the same type as the declared one: `equals` is what makes
+            -- nominality work, not the identity of the node. (This comment claimed the opposite --
+            -- "two `Named('Handle')` values compare unequal" -- which was true before the `equals`
+            -- existed and stayed after it: prose describing a mechanism the code no longer has.)
             -- §1.1 read through §S3's nominality: a word's type is `Semantic.Word(template, prefix)`,
             -- so a name that denotes a WORD may be used as a TYPE, and it means the type of that
             -- word's VALUE -- exactly the rule `Int` already follows, where the name denotes a type
@@ -2737,6 +2906,9 @@ return function(V)
             -- `Word(add, 1)`, and a stage typed `add2` is invocable exactly as one typed `square` is
             -- (§S99). A hand-rolled walk here stopped at the `Apply`, so `f : add2` was `UnknownType`
             -- while `add2 with 3` lowered -- one question with two answers.
+            -- A `Type` stage's name is bound while its word's body is being resolved (§2.4), and it is
+            -- a TYPE -- the only thing that can shadow a name from the type side.
+            if type_env and type_env[expr.name] then return type_env[expr.name] end
             local word_id = find(expr.name)
             if word_id then
                 local template, prefix = Judge.word_of(function(id)
@@ -2745,6 +2917,46 @@ return function(V)
                 end, Judge.Reference(word_id, expr.span))
                 if template then return Semantic.Word(template, prefix) end
             end
+            -- A name that denotes a TYPE WORD denotes the type it NAMES, so `let P = Int` makes `P`
+            -- usable as a type -- the same rule `Int` itself follows, where the name denotes a value
+            -- and the annotation means the type that value NAMES. This is "types are words" at the
+            -- level of NAMING, and it is where the rule stops: only what the DECLARATION already
+            -- says can be answered here, because this phase runs before `Contract`. A type word, a
+            -- host type's name, a stage's declared type -- yes; the type of a DATUM -- no, because
+            -- that is what the checker computes (`let origin = Point with 0 with 0` then `p : origin`
+            -- is `UnknownType`). The reference's type section states the boundary and the workaround.
+            local function type_of_binding(name)
+                local id = find(name)
+                local hops = 0
+                while id and hops < 8 do
+                    local definition = by_id[id]
+                    local declaration = definition and definition.declaration
+                    if not declaration then return nil end
+                    if Judge.Type:isclassof(declaration) then return declaration.denotes end
+                    if Judge.Host:isclassof(declaration) then
+                        return Semantic.Named(definition.name)
+                    end
+                    if Judge.Bound:isclassof(declaration) then
+                        -- §S110: a stage whose DECLARED type is a type word is a TYPE PARAMETER, so its
+                        -- name denotes a VARIABLE -- the place an instantiation will put the argument.
+                        -- That is what lets a generic word's body say `let x : T` and mean it.
+                        if Semantic.TypeWord:isclassof(declaration.declared) then
+                            return Semantic.Variable(id)
+                        end
+                        return declaration.declared
+                    end
+                    -- A binding is a second name for its value, so the walk follows it -- and stops
+                    -- at anything whose type is not known until `Contract` has run.
+                    if not (Judge.Value:isclassof(declaration)
+                            and Judge.Reference:isclassof(declaration.value)) then
+                        return nil
+                    end
+                    id, hops = declaration.value.definition, hops + 1
+                end
+                return nil
+            end
+            local denoted = type_of_binding(expr.name)
+            if denoted then return denoted end
             local type_ = type_of_name(expr.name)
             if type_ then return type_ end
             return fail(Report.reject(Report.UnknownType, expr.span))
@@ -2903,6 +3115,17 @@ return function(V)
             -- chain has no stages is a VALUE and takes the expression, while a word takes the
             -- terminal -- which is why both are kept here.
             local terminal, data, kind, declared
+            -- §S110: the `Type` stages' NAMES, in source order -- they are the parameters a generic
+            -- word's body may mention. Computed ONCE because two readers need it: a chain that is a TYPE
+            -- word (its terminal is a type) and one that is a GENERIC word (its terminal is a body).
+            local type_names = {}
+            for _, item in ipairs(chain.items) do
+                local constraint = Syntax.Stage:isclassof(item) and item.stage.constraint
+                if constraint and Syntax.Ref:isclassof(constraint)
+                        and constraint.name == 'Type' then
+                    type_names[#type_names + 1] = item.stage.name
+                end
+            end
             if not chain.terminal then
                 -- §2.6: "A file with no written terminal exposes the named aggregate of its own
                 -- prelude bindings, in source order." Read through §S26 -- an aggregate IS a chain
@@ -2913,10 +3136,29 @@ return function(V)
                 terminal = Judge.Data(data)
             elseif chain.terminal then
                 if Syntax.Data:isclassof(chain.terminal) then
-                    kind = Chain.Data
-                    data = resolve_initializer(chain.terminal.value, scope)
-                    if not data then pop(); return nil end
-                    terminal = Judge.Data(data)
+                    -- §2.4 read through S106's decision: a chain with `Type` domains and a data terminal
+                    -- that IS a type is a TYPE word -- "evaluated at construction time and erased" -- so
+                    -- its body is NOT resolved here. It is kept in `type_bodies` and resolved per
+                    -- APPLICATION, which is what makes `Box with Int` a type rather than an operation.
+                    -- `Judge.Word(template, nil)` is what a word with no runtime terminal already is (a
+                    -- host word is one), so this needs no new judge vocabulary -- and §S107's erasure
+                    -- keeps it out of every namespace and every packet.
+                    -- The stages the body may mention, in source order: a chain with a `Type` DOMAIN is
+                    -- a TYPE word, and one with none is a type VALUE (`let P : Type = { x : Int }`), which
+                    -- is the ordinary data path below.
+                    local type_value = Syntax.TypeValue:isclassof(chain.terminal.value)
+                        and chain.terminal.value or nil
+                    local names = type_names
+                    if type_value and #names > 0 then
+                        kind = Chain.Data
+                        declared = Semantic.TypeWord
+                        type_bodies[own] = { body = type_value.type, stages = names }
+                    else
+                        kind = Chain.Data
+                        data = resolve_initializer(chain.terminal.value, scope)
+                        if not data then pop(); return nil end
+                        terminal = Judge.Data(data)
+                    end
                 else
                     -- §3.1: "a runtime terminal MUST state its result" -- there is no term to read a
                     -- type from, so an unstated one is the program's fault, not a missing feature.
@@ -2964,6 +3206,17 @@ return function(V)
                 -- The declared result of a `do` terminal is what §11.3 makes the terminal's type:
                 -- "a runtime terminal `do : R` is checked against every `return`".
                 kind, declared, captures, Semantic.Runtime, Semantic.Ordered)
+            -- §S110: a chain with `Type` stages and a BODY terminal is a GENERIC word. It has no runtime
+            -- form -- the erasure keeps it out of every namespace and packet (§S107 as extended) -- and
+            -- each application of a TYPE to it builds an INSTANCE (`instantiate`, below). That is why the
+            -- SYNTAX, the SCOPE and the ENV are kept here: re-resolving is the whole mechanism.
+            if #type_names > 0 then
+                local snapshot, env = {}, {}
+                for index = 1, #scopes do snapshot[index] = scopes[index] end
+                for key, value in pairs(type_env or {}) do env[key] = value end
+                generic_bodies[own] = { items = chain.items, terminal = chain.terminal,
+                    scopes = snapshot, env = env, name = name }
+            end
             return Judge.Word(template, terminal)
         end
 
@@ -3070,7 +3323,210 @@ return function(V)
             return Judge.Reference(id, span)
         end
 
+        -- §S110/§S112: the INSTANTIATION, in ONE place, because two forms must ask it -- `f with T` and
+        -- the call form `f(T, ...)`. It answers TWO things: whether the argument was a TYPE argument at
+        -- all (`is_type`, which stays true when the instantiation FAILED, so a caller never falls back
+        -- to reading a type as a value), and the node the expression denotes (the INSTANCE).
+        --
+        -- A `Type` stage's argument is read AS A TYPE, exactly like the value of a `: Type` binding: a
+        -- NAME is the common case (`id with Int`), a type VALUE arrives as `TypeValue`, and a type
+        -- application as `TypeApply`. An instance is built by resolving the generic word's stored SYNTAX
+        -- again with the parameter bound -- exact by construction, and the reason the syntax and the
+        -- scope are kept -- and nothing about a type application reaches the belt: what runs is the
+        -- instance, and an instance is concrete.
+        -- §S114: the type of a VALUE when it can be read without `Contract` -- a word (nominal, §S99), a
+        -- record of those, or a literal. This is the derivation `word_of` already does, extended to an
+        -- aggregate; anything else has a type only the checker knows, and there the type is WRITTEN.
+        -- Nothing here reads an interface (§S52): every fact comes from a declaration.
+        local function derived_type(node)
+            if not node then return nil end
+            if Judge.Reference:isclassof(node) or Judge.Move:isclassof(node)
+                    or Judge.Project:isclassof(node) or Judge.Apply:isclassof(node) then
+                local template, prefix = Judge.word_of(function(id)
+                    local definition = by_id[id]
+                    return definition and definition.declaration
+                end, node)
+                if template then return Semantic.Word(template, prefix) end
+                return nil
+            end
+            if Judge.Literal:isclassof(node) then
+                local expr = node.value
+                if Syntax.Integer:isclassof(expr) then return Semantic.Int end
+                if Syntax.Boolean:isclassof(expr) then return Semantic.Bool end
+                if Syntax.Float:isclassof(expr) then return Semantic.Float end
+                if Syntax.Text:isclassof(expr) then return Semantic.Text end
+                if Syntax.Unit:isclassof(expr) then return Semantic.Unit end
+                return nil
+            end
+            if not Judge.Aggregate:isclassof(node) then return nil end
+            local fields = L()
+            for _, member in ipairs(node.members) do
+                local field_type = derived_type(member.value)
+                if not field_type then return nil end
+                fields:insert(Semantic.Field(member.name, field_type, member.mutable))
+            end
+            return Semantic.Aggregate(fields, nil)
+        end
+
+        -- §S114: fill the type parameters from a later stage's DECLARED type -- the reader's rule: "a
+        -- `Type` stage that appears in the declared type of a later stage is deduced from that stage's
+        -- argument". A `Variable` is the hole to fill; a record matches a record field by field, names
+        -- included; anything else must already be equal.
+        local function deduce_into(declared, derived, env, depth)
+            if not declared or not derived or depth > 8 then return false end
+            if Semantic.Variable:isclassof(declared) then
+                local definition = by_id[declared.stage]
+                if not definition then return false end
+                local bound = env[definition.name]
+                if bound then return bound:equals(derived) end
+                env[definition.name] = derived
+                return true
+            end
+            if Semantic.Aggregate:isclassof(declared) then
+                if not Semantic.Aggregate:isclassof(derived) then return false end
+                if #declared.fields ~= #derived.fields then return false end
+                for index, field in ipairs(declared.fields) do
+                    local peer = derived.fields[index]
+                    if field.name ~= peer.name then return false end
+                    if not deduce_into(field.type, peer.type, env, depth + 1) then return false end
+                end
+                return true
+            end
+            return declared:equals(derived)
+        end
+
+        -- §S110/§S114: the INSTANTIATION, in ONE place, because two forms must ask it -- `f with T` and
+        -- the call form `f(T, ...)` -- and it answers FOUR states, which is what the callers need:
+        --
+        --   'none'      not an instantiation: the caller resolves the argument as a VALUE and applies it
+        --   'consumed'  the argument WAS the type argument: `node` is the instance and nothing is left to
+        --               apply. `node == nil` means the type argument FAILED (a diagnostic is set), so the
+        --               caller must NOT fall back to reading a type as a value.
+        --   'deduced'   the parameters were filled from this argument's TYPE, so `node` is the instance
+        --               and the caller must STILL apply this argument to it -- `id(true)` is this case,
+        --               and getting it wrong is what made it `Undersaturated`.
+        --
+        -- A `Type` stage's argument is read AS A TYPE when it is written (a NAME, a type VALUE, a type
+        -- application); otherwise its type is DEDUCED -- the same argument, one mention per value. An
+        -- instance is built by resolving the generic word's stored SYNTAX again with the parameters
+        -- bound, exact by construction, and nothing about a type application reaches the belt.
+        instantiate = function(callee, argument_syntax, span, scope)
+            local template, prefix = nil, 0
+            if Judge.Reference:isclassof(callee) then
+                template, prefix = Judge.word_of(function(id)
+                    local definition = by_id[id]
+                    return definition and definition.declaration
+                end, callee)
+            end
+            local declaration = template and by_id[template] and by_id[template].declaration
+            local word = declaration and Judge.Word:isclassof(declaration) and declaration.word
+            local stage, ordinal = nil, 0
+            if word then
+                for _, item in ipairs(word.items) do
+                    if Chain.Stage:isclassof(item) then
+                        ordinal = ordinal + 1
+                        if ordinal == (prefix or 0) + 1 then stage = item break end
+                    end
+                end
+            end
+            if not (stage and Semantic.TypeWord:isclassof(stage.type)) then return nil, 'none' end
+            local body = generic_bodies[template]
+            if not body then return nil, 'none' end
+            -- EXPLICIT first: a written type argument names itself. NOTE which item list is which:
+            -- `word.items` are CHAIN stages (`.type`, `.binder`), while `body.items` below are SYNTAX
+            -- (`.stage.constraint`, `.stage.name`) -- mixing them is a crash, not a diagnostic.
+            local syntax = argument_syntax
+            if Syntax.Name:isclassof(syntax) then
+                syntax = Syntax.Ref(syntax.name, syntax.span)
+            elseif Syntax.TypeValue:isclassof(syntax) then
+                syntax = syntax.type
+            end
+            local bindings, argument, value = {}, nil, nil
+            if Syntax.Ref:isclassof(syntax) or Syntax.TypeApply:isclassof(syntax) then
+                argument = resolve_type(syntax)
+                if not argument then return nil, 'consumed' end
+                -- One written argument fills the FIRST `Type` stage that is not already bound.
+                for _, item in ipairs(word.items) do
+                    if Chain.Stage:isclassof(item) and Semantic.TypeWord:isclassof(item.type) then
+                        local definition = by_id[item.binder]
+                        local name = definition and definition.name
+                        if name and not (bindings[name] or body.env[name]) then
+                            bindings[name] = argument
+                            break
+                        end
+                    end
+                end
+                if not next(bindings) then return nil, 'none' end
+            else
+                -- DEDUCED: the argument is a VALUE and its type is read off it.
+                value = resolve_initializer(argument_syntax, scope)
+                if not value then return nil, 'consumed' end
+                local derived = derived_type(value)
+                if not derived then return nil, 'none' end
+                local later
+                for _, item in ipairs(word.items) do
+                    if Chain.Stage:isclassof(item) and item.type:mentions_variable() then
+                        later = item break
+                    end
+                end
+                if not later then return nil, 'none' end
+                local env = {}
+                if not deduce_into(later.type, derived, env, 0) then return nil, 'none' end
+                bindings, argument = env, derived
+            end
+            local instance
+            local cached = instance_cache[template]
+            for _, entry in ipairs(cached or {}) do
+                if entry.type:equals(argument) then instance = entry.id break end
+            end
+            if not instance then
+                -- A `Type` stage WITH A BINDING is not a stage of the instance -- which is what makes a
+                -- deduced parameter disappear exactly as a written one does, and what leaves a
+                -- partially applied generic word generic.
+                local items = L()
+                for _, item in ipairs(body.items) do
+                    local constraint = Syntax.Stage:isclassof(item) and item.stage.constraint
+                    local name = constraint and constraint.name == 'Type' and item.stage.name or nil
+                    if not (name and (bindings[name] or body.env[name])) then items:insert(item) end
+                end
+                local id = reserve()
+                local saved_scopes, saved_env = scopes, type_env
+                scopes = {}
+                for index = 1, #saved_scopes do scopes[index] = saved_scopes[index] end
+                type_env = {}
+                for key, bound in pairs(body.env) do type_env[key] = bound end
+                for key, bound in pairs(bindings) do type_env[key] = bound end
+                local made = resolve_value(Syntax.Chain(items, body.terminal, span),
+                    Judge.Lexical(id), body.name or '', false, nil, id)
+                scopes, type_env = saved_scopes, saved_env
+                if not made then return nil, 'consumed' end
+                declare(Judge.Definition(id, (body.name or 'word') .. '_' .. tostring(id),
+                    made, nil, span, Source.Range(span, span)))
+                instance = id
+                cached = instance_cache[template] or {}
+                cached[#cached + 1] = { type = argument, id = id }
+                instance_cache[template] = cached
+            end
+            local node = Judge.Reference(instance, span)
+            if value then return node, 'deduced', value end
+            return node, 'consumed'
+        end
+
         resolve_initializer = function(expr, scope)
+            -- §2.4/S106: a TYPE used as a value. It becomes a `Judge.Type` declaration like a bare type
+            -- NAME (`Int`), because that is what it is -- a type word -- and everything downstream already
+            -- knows what to do with one: `interface_of` gives it `Semantic.TypeWord`, `Contract` compares
+            -- that against the `: Type` annotation, the ERASURE keeps it out of every namespace and
+            -- packet (§S107), and `type_of_binding` reads the type back out of the declaration, which is
+            -- what makes `let Point : Type = { x : Int }` then `p : Point` work.
+            if Syntax.TypeValue:isclassof(expr) then
+                local type_ = resolve_type(expr.type)
+                if not type_ then return nil end
+                local id = reserve()
+                declare(Judge.Definition(id, '<type>', Judge.Type(type_), scope, expr.span,
+                    Source.Range(expr.span, expr.span)))
+                return Judge.Reference(id, expr.span)
+            end
             -- §3.3/§S26: an aggregate's members are declarations with their own names, visible to
             -- later members. The aggregate is not a scope-bearing definition, so the members record
             -- the *enclosing* scope; only the name scope below is the aggregate's.
@@ -3262,6 +3718,14 @@ return function(V)
             if Syntax.Specialize:isclassof(expr) then
                 local callee = resolve_initializer(expr.word, scope)
                 if not callee then return nil end
+                -- §S110/§S112: an application whose NEXT STAGE is a `Type` stage is an INSTANTIATION,
+                -- and `instantiate` is where that lives -- because the call form asks it too.
+                local node, disposition, value = instantiate(callee, expr.argument, expr.span, scope)
+                if disposition == 'consumed' then return node end
+                if disposition == 'deduced' then
+                    if not node then return nil end
+                    return Judge.Apply(node, value, expr.span)
+                end
                 local argument = resolve_initializer(expr.argument, scope)
                 if not argument then return nil end
                 return Judge.Apply(callee, argument, expr.span)
@@ -3276,9 +3740,24 @@ return function(V)
                 if not callee then return nil end
                 local arguments = L()
                 for _, argument in ipairs(expr.arguments) do
-                    local resolved = resolve_initializer(argument, scope)
-                    if not resolved then return nil end
-                    arguments:insert(resolved)
+                    -- §S112: a TYPE argument instantiates in the CALL form too -- `id(Bool, true)` is
+                    -- `id with Bool with true` (§S88). What the call form does NOT become is a partial
+                    -- application: §1.2 makes invocation transient SATURATION, so every stage is supplied
+                    -- or the program is `Undersaturated` (§S62) -- which is why this instantiates in
+                    -- place instead of desugaring into `Specialize`.
+                    local node, disposition, value = instantiate(callee, argument, expr.span, scope)
+                    if disposition == 'consumed' then
+                        if not node then return nil end
+                        callee = node
+                    elseif disposition == 'deduced' then
+                        if not node then return nil end
+                        callee = node
+                        arguments:insert(value)
+                    else
+                        local resolved = resolve_initializer(argument, scope)
+                        if not resolved then return nil end
+                        arguments:insert(resolved)
+                    end
                 end
                 return Judge.Invoke(callee, arguments, expr.span)
             end
@@ -3994,7 +4473,13 @@ return function(V)
                 if Judge.Return:isclassof(statement) then
                     local value = statement.value and type_of(statement.value) or Semantic.Unit
                     if not value then return nil end
-                    if not value:equals(result) then
+                    -- §3.5: a value whose type equals exactly ONE alternative of the result is
+                    -- INJECTED into it -- the same rule a binding and a stage argument already
+                    -- follow -- so this is `accepts` and not `equals`. With `equals`, `return { let at
+                    -- = p }` in a sum-returning word was `MismatchedType`, while the identical value
+                    -- bound first (`let r : Ok | Err = …  return r`) worked, and every parser had to
+                    -- grow `ok`/`fail` constructor words to say what the language already knew.
+                    if not accepts(result, value) then
                         return fail(Report.reject(Report.MismatchedType, statement.span))
                     end
                     -- §3.1 rule 3: "no use may place it in a longer-lived position". A return is the
@@ -4290,6 +4775,18 @@ return function(V)
                 interface = Judge.Interface(stages, result, declaration.word.terminal,
                     borrow_of(result) ~= nil)
                 types[id] = interface
+                -- §S110: a GENERIC word's body cannot be checked here -- its stages are type VARIABLES,
+                -- so `f(x)` on an `f : T` has no meaning until an instantiation supplies the type --
+                -- and that is not a hole: every INSTANCE is concrete, and `Contract` checks each one
+                -- when `Resolve` builds it. What the declaration publishes is still the whole truth
+                -- about its STAGES and RESULT (§S52).
+                local generic = result:mentions_variable()
+                if not generic then
+                    for _, stage in ipairs(stages) do
+                        if stage.type:mentions_variable() then generic = true break end
+                    end
+                end
+                if generic then body = nil end
                 if body then
                     if not check_body(body, result) then return nil end
                     if not terminates(body) and result ~= Semantic.Unit then
@@ -4613,6 +5110,34 @@ return function(V)
     local field_type_of
 
     -- What a name HOLDS, which is the question every packet field and every place's content asks.
+    -- §2.4's ERASURE, as ONE question: a type word is "evaluated at construction time and erased", so
+    -- a definition whose interface result is a type word has NO runtime presence -- no slot, no packet
+    -- member, nothing to materialize. `rep` answers nil for `TypeWord` and that is CORRECT (a type word
+    -- is not a layout); the builders ask THIS instead, which is why `let P = Int` then `x : P` compiles
+    -- while `P` never becomes a value. It was `Missing(TypeWordValue)` while the erasure was absent --
+    -- a name for a gap, not for a mechanism -- and the mechanism is what the callers now consult.
+    -- §S110: and a type that MENTIONS a variable is not a layout either -- `rep` answers nil for it,
+    -- correctly -- so a definition whose type mentions one (a generic word, or a binding of one) has no
+    -- runtime presence UNTIL IT IS INSTANTIATED, and an instance is concrete by construction because the
+    -- substitution happened in `Resolve`.
+    local function erased(L_, id)
+        local interface = L_.types[id]
+        if interface == nil then return false end
+        if Semantic.TypeWord:isclassof(interface.result) or interface.result:mentions_variable() then
+            return true
+        end
+        -- §S110: and a word whose STAGES do is erased for the same reason -- a `Type` stage is a
+        -- PARAMETER (there is nothing to store), and a stage typed by a variable has no layout until an
+        -- instantiation supplies one. So a generic word has no runtime presence at all: what runs is
+        -- the INSTANCE, and an instance is concrete by construction.
+        for _, stage in ipairs(interface.stages) do
+            if Semantic.TypeWord:isclassof(stage.type) or stage.type:mentions_variable() then
+                return true
+            end
+        end
+        return false
+    end
+
     local function belt_type_of(L_, id)
         local declaration = L_.declarations[id]
         if Judge.Bound:isclassof(declaration) then return rep(L_, declaration.declared) end
@@ -6254,9 +6779,16 @@ return function(V)
         -- nothing else, which is why this is one function and not two.
         local yes_block = is_and and long_block or short_block
         local no_block = is_and and short_block or long_block
+        -- The SHORT arm merges the left value itself -- `and` yields false, `or` yields true -- so its
+        -- edge carries one more argument than the long one, and the list has to exist BEFORE the branch
+        -- or the short arm reads an uninitialised parameter. That was a MISCOMPILE: `and` passed by
+        -- luck (its short value is false, which is what a fresh parameter held), and `or` returned
+        -- false where it owed true.
+        local short_arguments = arguments_of(C, carried)
+        short_arguments:insert(ref(C, left))
         C.state.block.exit = B.Branch(ref(C, left),
-            B.Edge(yes_block.id, arguments_of(C, carried)),
-            B.Edge(no_block.id, arguments_of(C, carried)))
+            B.Edge(yes_block.id, is_and and arguments_of(C, carried) or short_arguments),
+            B.Edge(no_block.id, is_and and short_arguments or arguments_of(C, carried)))
 
         -- The short arm: no statements at all, one extra parameter for the value it merges.
         local short = C:region()
@@ -6270,8 +6802,6 @@ return function(V)
             short.state.values[id] = parameter(short, types[id], Semantic.Read)
         end
         local merged = parameter(short, B.Bool, Semantic.Read)
-        local short_arguments = arguments_of(C, carried)
-        short_arguments:insert(ref(C, left))
         local short_out = L{ref(short, short.state.effect)}
         for _, id in ipairs(carried) do short_out:insert(ref(short, short.state.values[id])) end
         short_out:insert(ref(short, merged))
@@ -6390,14 +6920,19 @@ return function(V)
                 return nil, Report.bug(Report.NoLowering('statement after an exit'), span)
             end
             if Judge.Local:isclassof(statement) then
-                local value, diagnostic = materialize(L_, C, statement.definition, span)
-                if not value then return nil, diagnostic end
-                C.state.values[statement.definition] = value
+                -- §2.4: a local that names a TYPE has no slot to initialize -- the name is STATIC (the
+                -- type position reads the declaration) and there is no runtime value to bind.
+                if not erased(L_, statement.definition) then
+                    local value, diagnostic = materialize(L_, C, statement.definition, span)
+                    if not value then return nil, diagnostic end
+                    C.state.values[statement.definition] = value
+                end
             elseif Judge.Return:isclassof(statement) then
                 local value
                 if statement.value then
                     local diagnostic
-                    value, diagnostic = lower_initializer(L_, C, statement.value, result_type)
+                    value, diagnostic = lower_initializer(L_, C, statement.value, result_type,
+                        L_.word_result)
                     if not value then return nil, diagnostic end
                 else
                     value = pure(C, B.UnitLiteral, B.Unit)
@@ -6476,6 +7011,19 @@ return function(V)
     -- A definition's value, lowered on demand: an aggregate's member is a definition too, and it
     -- is scoped to the enclosing chain, so the top-level walk does not reach it (§S23).
     materialize = function(L_, C, id, span)
+        -- §2.4's erasure, on the other side: a type word has no representation, so a definition whose
+        -- value is one has no storage to give it. That is a MECHANISM the compiler lacks (`rep` answers
+        -- nil for `TypeWord`, correctly), not a fault in the program -- and this is the one place an id
+        -- becomes a value, so it is the one place that can say so. `let P = Int` then `x : P` works
+        -- because the type position reads the DECLARATION; using `P` where a runtime VALUE is wanted
+        -- needs the erasure to go further.
+        -- §2.4's erasure REACHES every builder now, so an erased definition arriving here is the
+        -- compiler disagreeing with itself -- the one shape that is a `Bug` rather than a `Missing`.
+        -- This was `Missing(TypeWordValue)`, which named a mechanism that was ABSENT; the mechanism is
+        -- here, so what is left is the invariant's backstop.
+        if erased(L_, id) then
+            return nil, Report.bug(Report.NoLowering('representation'), span)
+        end
         local declaration = L_.declarations[id]
         if not declaration then
             return nil, Report.reject(Report.UseBeforeInitializer, span)
@@ -6645,11 +7193,28 @@ return function(V)
             if not result then return nil, diagnostic end
             C.state.block.exit = B.Return(L{ref(C, result), ref(C, C.state.effect)})
         else
+            -- §S110/§S114: a `return` is a place where a value must BECOME the word's result, so it is
+            -- an injection site like a binding or a stage argument -- and the injection is a SEMANTIC
+            -- question (`Lower` cannot read an alternative off a representation). So the word's semantic
+            -- result travels beside the belt one while its body is lowered. Without it, `return { … }`
+            -- in a sum-returning word was `MismatchedType`, and every parser grew `ok`/`fail` words.
+            local saved_result = L_.word_result
+            L_.word_result = L_.types[template].result
             local ok, diagnostic = lower_body(L_, C, definition.declaration.terminal.statements,
                 type_, definition.span, function(region)
+                    -- §S66 + §3.6's trap: a body that FALLS OFF ITS END is only reachable when the
+                    -- result is Unit -- `Contract` refuses a non-Unit body that does not return -- so
+                    -- reaching this with any other result means the path is IMPOSSIBLE, and an
+                    -- impossible path is a TRAP, never a default value. It was `return 0`, which does
+                    -- not even compile for a sum result: the C returned `long int` from a function
+                    -- returning the sum struct.
+                    if type_ ~= B.Unit then
+                        return B.Trap(ref(region, region.state.effect), 'fell off the end')
+                    end
                     local unit = pure(region, B.UnitLiteral, B.Unit)
                     return B.Return(L{ref(region, unit), ref(region, region.state.effect)})
                 end)
+            L_.word_result = saved_result
             if not ok then return nil, diagnostic end
         end
         return freeze(C, L{type_, B.Effect}, false)
@@ -6690,14 +7255,14 @@ return function(V)
 
         -- The member's index in the namespace, which is source order among the top-level names --
         -- the same order `lower_module` builds the record in.
+        -- The member's index in the namespace, which is the order `lower_module` BUILT the record in --
+        -- asked of the RECORD rather than re-derived. The re-derivation was a second copy of "which
+        -- definitions are members", and it was missing §2.4's erasure: with `let P = Int` erased the
+        -- index counted it, the struct did not have it, and the entry point loaded a field past the
+        -- end of the record (`emit.lua:31`). One owner -- the list the record was built from.
         local index
-        for _, definition in ipairs(L_.definitions) do
-            if not definition.scope
-                and (Judge.Value:isclassof(definition.declaration)
-                     or Judge.Word:isclassof(definition.declaration)) then
-                index = (index or -1) + 1
-                if definition.id == template then break end
-            end
+        for position, member in ipairs(L_.namespace_members or {}) do
+            if member.id == template then index = position - 1 break end
         end
         if not index then
             return nil, Report.bug(Report.NoLowering('entry point'), L_.definitions[1].span)
@@ -6738,9 +7303,17 @@ return function(V)
 
         local members = L()
         for _, definition in ipairs(L_.definitions) do
-            if not definition.scope then
+            if not definition.scope and not erased(L_, definition.id) then
                 local declaration = definition.declaration
                 if Judge.Value:isclassof(declaration) then
+                    -- §2.4: "a type word is a chain with `Type` domains and a data terminal, evaluated
+                    -- at construction time and ERASED" -- and the ERASING is the part this compiler
+                    -- does not have, so a binding whose value is one has no storage to give it. `rep`
+                    -- answering nil for `TypeWord` is CORRECT (a type word is not a layout); calling
+                    -- that a `Bug` was not, because it blamed the compiler for a program the GRAMMAR
+                    -- accepts (§S99's lesson). The erasure has to reach the PACKET as well -- a word
+                    -- that captures such a binding still lists it -- and until it does, this is a
+                    -- `Missing`: the mechanism, not the program.
                     -- `field_type_of` and not `rep`: what a namespace member's SLOT holds is the same
                     -- question a capture's slot and a packet member's slot ask, and it is not the same
                     -- question as "what does this type look like" -- a WORD-typed value's layout is its
@@ -6748,14 +7321,16 @@ return function(V)
                     -- which is why binding a partial application was a `Bug(NoLowering)`.
                     local type_ = field_type_of(L_, definition.id)
                     if not type_ then
-                        return nil, Report.bug(Report.NoLowering('representation'), definition.span)
+                        return nil, Report.bug(Report.NoLowering('representation'),
+                            definition.span)
                     end
                     -- `materialize` and not `lower_initializer`: a top-level `mut` prelude is a CELL
                     -- exactly as a local one is, and this was the second place the cell was decided --
                     -- so the namespace held the value where every word's capture expected the address.
                     local value, diagnostic = materialize(L_, C, definition.id, definition.span)
                     if not value then return nil, diagnostic end
-                    members:insert({ name = definition.name, id = definition.id, span = definition.span })
+                    members:insert({ name = definition.name, id = definition.id,
+                        span = definition.span })
                 elseif Judge.Word:isclassof(declaration) then
                     -- §2.6: "all top-level names are visible through the module namespace", so a
                     -- top-level WORD is a value in it -- `R(t,0)`, which is what the name denotes
@@ -6932,7 +7507,11 @@ return function(V)
         if not root then return k_diag(unit, L_.diagnostic) end
         if not program.namespace then
             for _, definition in ipairs(L_.definitions) do
-                if not definition.scope and Judge.Word:isclassof(definition.declaration) then
+                -- §2.4: a TYPE word has no runtime terminal and its stages are types, so it is erased
+                -- (§S107) and must not be given an entry point -- the host calls words, and a type is
+                -- not one.
+                if not definition.scope and not erased(L_, definition.id)
+                        and Judge.Word:isclassof(definition.declaration) then
                     local entry = demand(L_, 'entry:' .. definition.id, function(M)
                         return lower_entry(M, definition.id, 0)
                     end)

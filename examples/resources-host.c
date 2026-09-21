@@ -6,9 +6,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* The unit NAMES this type -- `host Buffer app_close` -- so the host declares it (§S44). */
+typedef int64_t Buffer;
+
 static struct { bool live; int64_t size; } buffers[16];
 
-int64_t app_open(int64_t size) {
+Buffer app_open(int64_t size) {
     for (int i = 0; i < 16; ++i) {
         if (!buffers[i].live) {
             buffers[i].live = true; buffers[i].size = size;
@@ -18,20 +21,21 @@ int64_t app_open(int64_t size) {
     abort(); /* Explicit unrecoverable allocation trap in this tiny host. */
 }
 
-int64_t app_size(int64_t handle) {
+int64_t app_size(Buffer handle) {
     assert(handle > 0 && handle <= 16 && buffers[handle - 1].live);
     return buffers[handle - 1].size;
 }
 
-void app_close(int64_t handle) {
+void app_close(Buffer handle) {
     assert(handle > 0 && handle <= 16 && buffers[handle - 1].live);
     buffers[handle - 1].live = false;
 }
 
-extern int64_t let_answer(void);
 int main(void) {
-    printf("%" PRId64 "\n", let_answer());
+    struct let_s1 m = let_module_init();
+    printf("%" PRId64 "\n", let_answer_entry(m));
+    let_module_unload(m);
+    /* §3.6: the module owns what it opened, so `unload` must have closed BOTH buffers. */
     for (int i = 0; i < 16; ++i) assert(!buffers[i].live);
     return 0;
 }
-

@@ -1,20 +1,22 @@
-// Supply policies by juxtaposition; invoke them only on the selected path.
+# Supply policies as continuations, and invoke only the selected one.
+#
+# A stage typed by a WORD NAME is NOMINAL (§3.2): `ok` accepts `success` and nothing else, so the callee is
+# known at the call site -- and there is no vtable, no tag, and no lookup at run time.
 let success = let value : Int do : Int return value end
-let failure = let code : Int do : Int return -code end
+let failure = let code : Int do : Int return 0 - code end
 
 let checked_divide =
-    let ok : Int -> do Int
-    let bad : Int -> do Int
+    let ok : success
+    let bad : failure
     let numerator : Int
     let denominator : Int
     do : Int
         if denominator == 0 do
             return bad(1)
-        else
-            return ok(numerator / denominator)
         end
+        return ok(numerator / denominator)
     end
 
-let divide = checked_divide success failure
+# Supplying the two continuations leaves a word of two stages, which the host can also call.
+let divide = checked_divide with success with failure
 let answer = do : Int return divide(84, 2) end
-

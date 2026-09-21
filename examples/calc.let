@@ -1,0 +1,88 @@
+# A calculator: tokenless, precedence-climbing, over a C string.
+extern pure byte_at (s : CString, i : Int) : Int
+
+let Ok  : Type = { value : Int, pos : Int }
+let Err : Type = { at : Int }
+let Result : Type = Ok | Err
+
+let skip = let s : CString let i : Int do : Int
+    let p mut = i
+    while byte_at(s, p) == 32 do p = p + 1 end
+    return p
+end
+
+let is_digit = let c : Int do : Bool return c >= 48 and c <= 57 end
+
+let prec = let c : Int do : Int
+    switch c do
+    case 43, 45 return 1        # + -
+    case 42, 47, 37 return 2    # * / %
+    else return 0
+    end
+end
+
+let apply_op = let op : Int let a : Int let b : Int do : Int
+    switch op do
+    case 43 return a + b
+    case 45 return a - b
+    case 42 return a * b
+    case 47 return a / b
+    else return a % b
+    end
+end
+
+let expr = let s : CString let start : Int let min : Int do : Result
+    let p mut = skip(s, start)
+    let lhs mut = 0
+    let c = byte_at(s, p)
+    if c == 40 do
+        let inner = expr(s, p + 1, 1)
+        switch inner do
+        case Err as e return { let at = e.at }
+        case Ok as r
+            lhs = r.value
+            p = skip(s, r.pos)
+            if byte_at(s, p) != 41 do return { let at = p } end
+            p = p + 1
+        end
+    else if c == 45 do
+        let inner = expr(s, p + 1, 3)
+        switch inner do
+        case Err as e return { let at = e.at }
+        case Ok as r
+            lhs = 0 - r.value
+            p = r.pos
+        end
+    else if is_digit(c) do
+        while is_digit(byte_at(s, p)) do
+            lhs = lhs * 10 + byte_at(s, p) - 48
+            p = p + 1
+        end
+    else
+        return { let at = p }
+    end
+    while true do
+        p = skip(s, p)
+        let op = byte_at(s, p)
+        let q = prec(op)
+        if q == 0 or q < min do break end
+        let rhs = expr(s, p + 1, q + 1)
+        switch rhs do
+        case Err as e return { let at = e.at }
+        case Ok as r
+            lhs = apply_op(op, lhs, r.value)
+            p = r.pos
+        end
+    end
+    return { let value = lhs let pos = p }
+end
+
+let eval = let s : CString do : Int
+    let r = expr(s, 0, 1)
+    switch r do
+    case Ok as ok
+        if byte_at(s, skip(s, ok.pos)) != 0 do return 0 - 999999 end
+        return ok.value
+    case Err as e return 0 - 1000000 - e.at
+    end
+end

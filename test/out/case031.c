@@ -4,6 +4,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 
 union let_u2 {
     uint8_t f0;
@@ -257,7 +258,7 @@ b6:;
             goto b2;
         }
 b2:;
-        return INT64_C(0);
+        abort();
 b4:;
         uint8_t b4_v4 = ((b4_p1).payload).f1;
         struct let_s4 b4_v5 = let_inc_advance_0(b4_v4, b4_p3);

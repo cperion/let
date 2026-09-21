@@ -31,6 +31,7 @@ module Semantic {
                | Do(Type result)
                | TypeWord
                | Word(number template, number prefix)
+               | Variable(number stage)
 }
     ]]
 
@@ -154,6 +155,36 @@ module Semantic {
     -- types, and refused a program in which the annotation and the value disagreed about nothing.
     -- A rule that has to hold for every member of a set is a rule about the SET: the tell for a
     -- missing member is a comparison that succeeds on values and fails on types.
+    -- §S110: a TYPE PARAMETER's identity is its STAGE, and the same rule as `Word` above applies -- two
+    -- occurrences of one variable are one type, so identity-based equality would make `let y : T = x` a
+    -- mismatch against the very stage it names.
+    function S.Variable:equals(other)
+        return S.Variable:isclassof(other) and self.stage == other.stage
+    end
+
+    -- §S110: does a type MENTION a type variable? That is one question with three askers -- `Lower`
+    -- (a definition whose type mentions one has no runtime presence: `erased`), `Contract` (a generic
+    -- word's BODY cannot be checked, because its stages are variables; each INSTANCE is checked
+    -- instead), and the reader of a diagnostic -- so it is a derived method beside `copyable`.
+    function S.Type:mentions_variable() return false end
+    function S.Variable:mentions_variable() return true end
+    function S.Aggregate:mentions_variable()
+        for _, field in ipairs(self.fields) do
+            if field.type:mentions_variable() then return true end
+        end
+        return false
+    end
+    function S.Sum:mentions_variable()
+        for _, alternative in ipairs(self.alternatives) do
+            if alternative:mentions_variable() then return true end
+        end
+        return false
+    end
+    function S.Arrow:mentions_variable()
+        return self.from:mentions_variable() or self.to:mentions_variable()
+    end
+    function S.Do:mentions_variable() return self.result:mentions_variable() end
+
     function S.Word:equals(other)
         return S.Word:isclassof(other) and self.template == other.template
             and self.prefix == other.prefix
@@ -167,6 +198,10 @@ module Semantic {
         Int = S.Int, U8 = S.U8, U32 = S.U32, Float = S.Float, Float32 = S.Float32,
         Bool = S.Bool, Unit = S.Unit, Text = S.Text,
         CString = S.CString, CPointer = S.CPointer,
+        -- §2.4's `Type` DOMAIN, and it is a NAME for an existing choice rather than a new one: a type
+        -- value's type is already `Semantic.TypeWord` (§11.1). That is what makes `let P : Type = <a
+        -- type>` a name for a type, and a `Type` domain is what makes a chain a TYPE word.
+        Type = S.TypeWord,
     }
 
     function S.Type:copyable() return COPYABLE[self] or false end

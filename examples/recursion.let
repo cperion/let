@@ -1,4 +1,5 @@
-// Non-tail recursion gets a native helper with an inferred result shape.
+# Self-recursion (§3.4): a word's own name is visible in its `do` body and nowhere else, so the recursive
+# call is a direct one and the compiler needs no fixpoint.
 let factorial =
     let n : Int
     do : Int
@@ -6,7 +7,8 @@ let factorial =
         return n * factorial(n - 1)
     end
 
-// A direct-return self call is a block backedge, even at cc -O0.
+# Mutual recursion is NOT available -- a later word's declaration does not exist while an earlier body is
+# resolved -- so a second accumulating parameter is a second STAGE of one word rather than another word.
 let sum_to =
     let n : Int
     let acc : Int
@@ -15,6 +17,5 @@ let sum_to =
         return sum_to(n - 1, acc + n)
     end
 
-let sum_from_zero = sum_to 1_000_000
+let sum_from_zero = sum_to with 1_000_000
 let answer = do : Int return factorial(5) + sum_from_zero(0) end
-
