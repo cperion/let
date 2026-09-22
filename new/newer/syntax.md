@@ -540,6 +540,37 @@ Required reference tests include:
 - by-value cycles across one and several definitions (`type-cycle`), and a cycle broken only by a
   reference being accepted with a finite layout.
 
+### 8.3 Arrays
+
+An array is a fixed-length sequence of one element type. The type is `Array(T, N)`, an ordinary word
+applied to an element type and a length, and a literal is written with brackets:
+
+```
+let xs = [10, 20, 30]
+let ys: Array(U32, 3) = [10, 20, 30]
+let first = xs[0]
+let pick = |i: U32| -> xs[i]
+xs[1] = 99
+xs[0] += 5
+```
+
+The length is part of the type, so it is never inferred from a later assignment and a literal is
+checked against it. A literal takes its element type from its elements, or from an annotation, which
+is what an empty literal needs: `[]` with no element has nothing to infer from and rejects
+(`type-required`). A literal whose length does not match, whose elements do not share one type, or an
+`Array` whose length is not a positive literal rejects (`array-length`, `type-mismatch`).
+
+Indexing is `a[i]` for a `U32` `i`. A known index outside the array rejects while compiling
+(`index-range`); any other index is checked at run time and a failure aborts, exactly as a run-time
+zero divisor does. An element is assignable and every compound store form applies to it. Elements are
+values: reading one copies it, and an array is copied by value when it is passed, returned or assigned
+into a field.
+
+An array is a value with an identity, like a record instance. A local binding to one is an alias, so a
+write through either name is visible through both; passing an array to a word, returning it or storing
+it into a field copies it. A record field or a parameter may be of array type, and an array element may
+itself be an array, so `g[r][c]` indexes a grid.
+
 ## 9. Callables, captures and ownership
 
 Known executable arguments retain code identity and specialize. Unknown runtime implementations
@@ -761,7 +792,8 @@ return {
 
 No juxtaposition, layout blocks, implicit block returns, bare-name lambdas, mutable lexical bindings,
 general borrow parameters, reference arithmetic, null or dangling references, ownership through a
-reference, residual partial application, general tuple/array values, record-value literals without a
+reference, residual partial application, general tuple values, sparse or growing arrays or a
+zero-length array, record-value literals without a
 schema, non-exhaustive or recursive pattern matching, implicit type parameters, arbitrary foreign
 layouts, imports, pub or configurable traps are implied by this syntax. A reference is a checked
 borrow of a target that outlives it, not a pointer type a program may fabricate.

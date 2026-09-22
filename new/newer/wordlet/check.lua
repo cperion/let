@@ -68,7 +68,7 @@ function M.function_(fn, definitions, seeded)
                 end
                 bind(visible, stmt.value.id, stmt.type)
             elseif kind == "Read" then
-                local placeType = M.place(stmt.place, storages)
+                local placeType = M.place(stmt.place, storages, visible)
                 if placeType ~= stmt.type then
                     D.bug("ir-type", "Read type does not match the place's type")
                 end
@@ -84,7 +84,7 @@ function M.function_(fn, definitions, seeded)
                     end
                 end
             elseif kind == "Store" then
-                local placeType = M.place(stmt.place, storages)
+                local placeType = M.place(stmt.place, storages, visible)
                 if M.expr(stmt.value, visible, storages) ~= placeType then
                     D.bug("ir-type", "Store value does not match the place's type")
                 end
@@ -144,7 +144,7 @@ function M.function_(fn, definitions, seeded)
                             end
                         end
                         if arg.kind == "BorrowArg" and input.kind == "InPlace" then
-                            if M.place(arg.place, storages) ~= input.type then
+                            if M.place(arg.place, storages, visible) ~= input.type then
                                 D.bug("ir-type", "Borrowed argument type does not match the target input")
                             end
                         end
@@ -181,7 +181,7 @@ function M.function_(fn, definitions, seeded)
                     if slot.kind == "ValueArg" and M.expr(slot.value, visible, storages) ~= input.type then
                         D.bug("ir-type", "View slot type does not match the hidden input")
                     end
-                    if slot.kind == "BorrowArg" and M.place(slot.place, storages) ~= input.type then
+                    if slot.kind == "BorrowArg" and M.place(slot.place, storages, visible) ~= input.type then
                         D.bug("ir-type", "View slot place does not match the hidden input")
                     end
                     if #stmt.slots ~= 0 then end
@@ -290,6 +290,17 @@ function M.expr(expr, locals, storages)
         return expr.type
     elseif kind == "Make" then
         local record = S.environmentOf(expr.type)
+        if S.isArray(record) then
+            if #expr.fields ~= record.length then
+                D.bug("ir-arity", "Make element count does not match the array length")
+            end
+            for _, item in ipairs(expr.fields) do
+                if M.expr(item, locals, storages) ~= record.element then
+                    D.bug("ir-type", "Make element type does not match the array element")
+                end
+            end
+            return expr.type
+        end
         if not S.isRecord(record) then D.bug("ir-type", "Make needs a record or callable type") end
         if #expr.fields ~= #record.fields then
             D.bug("ir-arity", "Make field count does not match the record type")
@@ -305,7 +316,7 @@ function M.expr(expr, locals, storages)
         -- identity is a type-cell fact the verifier does not re-derive, so this checks the recorded
         -- type is a reference and that the place is well formed.
         if not S.isRef(expr.type) then D.bug("ir-type", "Addr needs a reference type") end
-        local placeType = M.place(expr.place, storages)
+        local placeType = M.place(expr.place, storages, locals)
         if placeType == nil then D.bug("ir-place", "Addr needs a place with a known type") end
         if not S.isNamed(expr.type.target) and placeType ~= expr.type.target then
             D.bug("ir-type", "Addr place type does not match the reference target")
@@ -354,12 +365,23 @@ function M.expr(expr, locals, storages)
 end
 
 -- Returns the type the place refers to, or nil for places without a known type yet.
-function M.place(place, storages)
+function M.place(place, storages, locals)
     local kind = place.kind
+    if kind == "Index" then
+        -- The element type is recorded on the node, so the base only has to be an array of it and the
+        -- index has to be a U32.
+        local base = M.place(place.base, storages, locals)
+        if not S.isArray(base) then D.bug("ir-place", "Index needs an array base") end
+        if base.element ~= place.type then D.bug("ir-type", "Index element type does not match") end
+        if M.expr(place.index, locals, storages) ~= S.U32 then
+            D.bug("ir-type", "Index needs a U32 index")
+        end
+        return place.type
+    end
     if kind == "Deref" then
         -- A reference names the place it points at. The pointee type is recorded on the node, and
         -- the base must itself be a place holding a reference.
-        local base = M.place(place.base, storages)
+        local base = M.place(place.base, storages, locals)
         if not S.isRef(base) then D.bug("ir-place", "Deref needs a reference place") end
         return place.type
     end
@@ -370,7 +392,7 @@ function M.place(place, storages)
     end
     if kind == "Captured" then return nil end
     if kind == "Project" then
-        local base = M.place(place.base, storages)
+        local base = M.place(place.base, storages, locals)
         if base == nil then return nil end
         if not S.isRecord(base) then D.bug("ir-type", "Project needs a record base") end
         local field = S.field(base, place.field.name)
@@ -382,7 +404,7 @@ end
 
 function M.arg(arg, locals, storages)
     if arg.kind == "ValueArg" then return M.expr(arg.value, locals, storages) end
-    if arg.kind == "BorrowArg" then return M.place(arg.place, storages) end
+    if arg.kind == "BorrowArg" then return M.place(arg.place, storages, locals) end
     if arg.kind == "BundleArg" then return true end
     D.bug("ir-arg", "Unknown argument variant " .. tostring(arg.kind))
 end

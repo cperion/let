@@ -27,6 +27,8 @@ module Ast {
        | Apply(Expr callee, Expr* arguments)
        | FieldSelect(Expr base, Name field)
        | RecordSupply(Expr schema, FieldSupply* fields)
+       | ArrayExpr(Expr* items)
+       | IndexExpr(Expr base, Expr index)
        | SchemaExpr(SchemaMember* members)
        | Lambda(Param* params, Body body)
        | SignatureExpr(Expr* inputs, ResultSpec results)

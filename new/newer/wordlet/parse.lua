@@ -163,6 +163,11 @@ function Parser:postfix()
         elseif self:at("{") then
             local fields = self:fieldSupplies()
             expr = A.c.RecordSupply(expr, fields, mergeSpan(expr.span, spanOf(fields)))
+        elseif self:at("[") then
+            self:next()
+            local index = self:expression()
+            local close = self:expect("]")
+            expr = A.c.IndexExpr(expr, index, mergeSpan(expr.span, close.span))
         elseif self:at(".") then
             self:next()
             local field = self:expectName("a field name")
@@ -206,6 +211,20 @@ function Parser:fieldSupplies()
     return list
 end
 
+-- `[e1, e2, ...]`: an array literal. Its length and element type are the elements unless an
+-- annotation says otherwise, so an empty literal needs one.
+function Parser:arrayLiteral()
+    local open = self:expect("[")
+    local items = {}
+    if not self:at("]") then
+        self:inBrackets(function()
+            repeat items[#items + 1] = self:expression() until not self:more("]")
+        end)
+    end
+    local close = self:expect("]")
+    return A.c.ArrayExpr(asList(items), mergeSpan(open.span, close.span))
+end
+
 function Parser:primary()
     local token = self:peek()
     if token.kind == "number" then
@@ -218,6 +237,8 @@ function Parser:primary()
         return self:parenOrSignature()
     elseif token.kind == "op" and token.text == "{" then
         return self:schema()
+    elseif token.kind == "op" and token.text == "[" then
+        return self:arrayLiteral()
     elseif token.kind == "op" and token.text == "|" then
         return self:lambda()
     elseif token.kind == "keyword" and token.text == "if" then

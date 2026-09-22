@@ -24,6 +24,8 @@ function M.close(compilation)
         viewOrder = {},
         records = {},       -- Ty.Record -> { name, fields }
         recordOrder = {},
+        arrays = {},        -- Ty.Array -> { name, element, length }
+        arrayOrder = {},
         sums = {},          -- Ty.Sum -> { name, cases }
         sumOrder = {},
         tagged = {},        -- Ty.Tagged -> { name, cases }
@@ -48,6 +50,20 @@ function M.close(compilation)
         return layout
     end
 
+
+    -- An array is a struct holding one C array, because a bare C array cannot be copied or
+    -- returned by value while a struct that contains one can.
+    local function arrayLayout(ty)
+        local existing = layouts.arrays[ty]
+        if existing then return existing end
+        local layout = { name = "wordletarray_" .. (#layouts.arrayOrder + 1), type = ty,
+            element = ty.element, length = ty.length }
+        layouts.arrays[ty] = layout
+        layouts.arrayOrder[#layouts.arrayOrder + 1] = layout
+        -- The element is embedded by value, so its layout must exist and be complete.
+        layouts:cType(ty.element)
+        return layout
+    end
 
     -- A sum and a tagged callable are both a tag plus a union of alternative payloads, so they share
     -- one layout: only the struct name and the table that owns it differ. Payloads are held by value
@@ -142,6 +158,7 @@ function M.close(compilation)
 
     layouts.recordLayout, layouts.resultLayout, layouts.viewLayout = recordLayout, resultLayout, viewLayout
     -- Either tagged family, which is what the variant statements name.
+    layouts.arrayLayout = arrayLayout
     layouts.sumLayout = sumLayout
     layouts.taggedLayout = taggedLayout
     function layouts.tagLayout(ty) return S.isTagged(ty) and taggedLayout(ty) or sumLayout(ty) end
@@ -167,6 +184,7 @@ function M.close(compilation)
         if S.isOwned(ty) and S.environmentOf(ty) ~= S.Unit then return layouts:cType(ty.environment) end
         if S.isOwned(ty) then return viewLayout(ty).name end
         if S.isRecord(ty) then return recordLayout(ty).name end
+        if S.isArray(ty) then return arrayLayout(ty).name end
         if S.isSum(ty) then return sumLayout(ty).name end
         if S.isTagged(ty) then return taggedLayout(ty).name end
         D.todo("c-type", "No C representation for " .. S.encode(ty))

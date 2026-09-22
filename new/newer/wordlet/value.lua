@@ -45,6 +45,12 @@ function M.ref(ty, place, schema, tied, record)
         record = record }
 end
 
+-- An array: a fixed-length sequence whose elements are values, with an optional place when it is
+-- backed by storage.
+function M.array(ty, items, place, borrowed)
+    return make{ tag = "array", ty = ty, items = items, place = place, borrowed = borrowed or false }
+end
+
 -- A constructor for one alternative of a sum type, named by member selection on the type.
 function M.ctor(sum, case, caseType)
     return make{ tag = "ctor", ty = S.Type, sum = sum, case = case, caseType = caseType }
@@ -95,6 +101,10 @@ function M.isKnown(v)
     if tag == "record" then
         for _, field in pairs(v.fields) do if not M.isKnown(field) then return false end end
     end
+    if tag == "array" then
+        if not v.items then return false end
+        for _, item in ipairs(v.items) do if not M.isKnown(item) then return false end end
+    end
     if tag == "variant" then return M.isKnown(v.payload) end
     return true
 end
@@ -111,6 +121,11 @@ function M.isStatic(v)
     end
     if tag == "word" then
         for _, arg in ipairs(v.args) do if not M.isStatic(arg) then return false end end
+        return true
+    end
+    if tag == "array" then
+        if not v.items then return false end
+        for _, item in ipairs(v.items) do if not M.isStatic(item) then return false end end
         return true
     end
     if tag == "closure" then
@@ -141,6 +156,16 @@ function M.encode(v)
             parts[#parts + 1] = encoded
         end
         return table.concat(parts, ",")
+    end
+    if tag == "array" then
+        if not v.items then return nil end
+        local parts = {}
+        for index, item in ipairs(v.items) do
+            local encoded = M.encode(item)
+            if not encoded then return nil end
+            parts[#parts + 1] = encoded
+        end
+        return "array:" .. S.encode(v.ty) .. "[" .. table.concat(parts, ",") .. "]"
     end
     if tag == "results" then
         local parts = {}
@@ -179,6 +204,7 @@ function M.describe(v)
     if v.tag == "ir" then return "residual<" .. S.encode(v.ty) .. ">#" .. tostring(v.expr.kind) end
     if v.tag == "object" then return "object<" .. S.encode(v.ty) .. ">" end
     if v.tag == "record" then return "record<" .. S.encode(v.ty) .. ">" end
+    if v.tag == "array" then return "array<" .. S.encode(v.ty) .. ">" end
     if v.tag == "schema" then return "schema<" .. tostring(v.def.name or v.def.id) .. ">" end
     if v.tag == "method" then return "method<" .. tostring(v.def.name) .. ">" end
     if v.tag == "closure" then return "closure<" .. tostring(v.plan.def.name) .. ">" end

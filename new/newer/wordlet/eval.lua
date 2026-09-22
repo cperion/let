@@ -118,6 +118,25 @@ function Eval:load(program)
     -- `OneOf(cases)` builds a sum type; the cases are a keyed schema whose fields are the
     -- alternatives. Nothing new is needed in the grammar: member selection names a constructor and
     -- keyed application matches on the tag.
+    -- `Array(T, N)` is a type: N elements of T, with the length part of the type so a static index is
+    -- checked while compiling and only a run-time index needs a bounds guard.
+    declare(top, "Array", { kind = "word", name = "Array",
+        def = self:builtin("Array", { { name = "element" }, { name = "length" } },
+            function(engine, ctx, values, span)
+                local element = engine:asType(values[1], span)
+                if not element then
+                    D.reject("type-required", "Array needs an element type", span)
+                end
+                S.checkRuntime(element, span)
+                local length = values[2]
+                if V.tag(length) ~= "u32" then
+                    D.reject("type-required", "Array needs a length as a literal U32", span)
+                end
+                if length.n < 1 then
+                    D.reject("array-length", "An array holds at least one element", span)
+                end
+                return V.type(S.array(element, length.n))
+            end) })
     declare(top, "OneOf", { kind = "word", name = "OneOf",
         def = self:builtin("OneOf", { { name = "cases" } }, function(engine, ctx, values, span)
             local cases = values[1]
@@ -187,8 +206,14 @@ function Eval:moduleInitialiser(modules, span)
         builder = builder, body = body, fn = fn }, Ctx)
     for _, module in ipairs(modules) do
         local fields = {}
-        for index, field in ipairs(module.type.fields) do
-            fields[index] = self:expression(ctx, module.initial.fields[field.name], field.type)
+        if S.isArray(module.type) then
+            for index, item in ipairs(module.initial.items or {}) do
+                fields[index] = self:expression(ctx, item, module.type.element)
+            end
+        else
+            for index, field in ipairs(module.type.fields) do
+                fields[index] = self:expression(ctx, module.initial.fields[field.name], field.type)
+            end
         end
         builder:store(body, Ir.Local(module.storage), builder:make(module.type, fields))
     end
@@ -217,12 +242,22 @@ end
 function Eval:moduleObject(slot, span)
     if slot.module then return slot.module.object end
     local value = slot.value
-    local schema = value.schema or { id = 0, fields = S.fieldsOf(value.ty),
-        fieldNames = S.fieldNames(value.ty), statics = {}, readonly = {}, methods = {} }
     -- Module storage ids live in a disjoint range so they can never collide with the
     -- function-local storage ids the builder hands out.
     self.nextModule = (self.nextModule or 0) + 1
     local storage = Ir.Storage(MODULE_STORAGE_BASE + self.nextModule)
+    if S.isArray(value.ty) then
+        local array = V.array(value.ty, nil, Ir.Local(storage))
+        array.module = true
+        array.backing = value
+        self.moduleStorages[#self.moduleStorages + 1] = {
+            storage = storage, type = value.ty, initial = value, name = slot.name,
+        }
+        slot.module = { object = array }
+        return array
+    end
+    local schema = value.schema or { id = 0, fields = S.fieldsOf(value.ty),
+        fieldNames = S.fieldNames(value.ty), statics = {}, readonly = {}, methods = {} }
     local object = V.object(value.ty, Ir.Local(storage), schema)
     object.module = true
     -- The interpreter reads and writes that record directly, so both modes observe one state.
@@ -606,6 +641,8 @@ function Eval:placeObject(value)
     end
     local object = V.object(target, value.place, schema, value.tied)
     object.backing = value.record
+    -- Reaching through the reference is reaching the storage it names, so the module rule applies.
+    object.module = value.module
     return object
 end
 
@@ -638,6 +675,30 @@ function Eval:isTypeDefinition(slot)
     return value.kind == "SchemaExpr" or value.kind == "Apply"
 end
 
+-- Where a place expression's storage comes from: "module" for a file-scope binding, "enclosing" for
+-- storage that belongs to an enclosing activation, and nil for storage this activation owns.
+function Eval:placeOrigin(ctx, expr)
+    if expr.kind == "Reference" then
+        local slot = lookup(ctx.scope, expr.name.text)
+        if not slot then return nil end
+        if slot.atTop then
+            -- A type or a scalar binding has no storage to name.
+            local held = self:demand(slot, expr.span).value
+            if held and (V.tag(held) == "record" or V.tag(held) == "array") then return "module" end
+            return nil
+        end
+        if slot.kind == "param" then return "enclosing" end
+        local record = slot.record
+        if record and record.module then return "module" end
+        if record and record.enclosing then return "enclosing" end
+        return nil
+    end
+    if expr.kind == "FieldSelect" or expr.kind == "IndexExpr" then
+        return self:placeOrigin(ctx, expr.base)
+    end
+    return nil
+end
+
 function Eval:evalRef(ctx, expr)
     local slot
     if expr.kind == "Reference" then
@@ -648,6 +709,24 @@ function Eval:evalRef(ctx, expr)
             if self.referencedCells == nil then self.referencedCells = {} end
             self.referencedCells[slot.cell] = true
             return V.type(S.ref(S.named(slot.cell)))
+        end
+    end
+    -- A place expression names storage directly, so the reference is that place.
+    if expr.kind == "Reference" or expr.kind == "FieldSelect" or expr.kind == "IndexExpr" then
+        local held = slot and self:demand(slot, expr.span).value or nil
+        local heldType = held and self:asType(held, expr.span) or nil
+        if heldType then return V.type(S.ref(self:canonicalize(heldType))) end
+        local origin = self:placeOrigin(ctx, expr)
+        if origin then
+            local reached = self:placeOf(ctx, expr, expr.span)
+            if reached.place then
+                local made = V.ref(S.ref(self:canonicalize(reached.ty)), reached.place, nil,
+                    origin == "enclosing", reached.value)
+                -- Building the reference is just an address, which is how a recursive structure is
+                -- built; reading or writing through it is what runtime code does.
+                made.module = origin == "module"
+                return made
+            end
         end
     end
     local value = self:evalExpr(ctx, expr)
@@ -685,6 +764,212 @@ function Eval:makeReference(ctx, target, span)
     local held = V.tag(target) == "record" and target or target.backing
     return V.ref(S.ref(self:canonicalize(target.ty)), target.place, target.schema,
         kind == "enclosing", held)
+end
+
+-- Arrays -----------------------------------------------------------------------------------------
+-- An array literal takes its type from its elements, or from the annotation it is checked against,
+-- which is what an empty literal needs. A residual array owns fresh local storage, so its elements
+-- are writable and a read goes to that storage rather than to the values it was built from.
+
+function Eval:evalArray(ctx, expr, expected)
+    local items = {}
+    for index, item in ipairs(expr.items) do items[index] = self:evalExpr(ctx, item) end
+    local ty = S.isArray(expected) and expected or nil
+    if not ty then
+        if #items == 0 then
+            D.reject("type-required",
+                "An empty array literal needs an annotation that gives its element type and length",
+                expr.span)
+        end
+        local element = items[1].ty
+        for _, item in ipairs(items) do
+            if item.ty ~= element then
+                D.reject("type-mismatch", "Array elements must share one type: " .. S.encode(element)
+                    .. " and " .. S.encode(item.ty), expr.span)
+            end
+        end
+        ty = S.array(element, #items)
+    end
+    if #items ~= ty.length then
+        D.reject("array-length", "An array of length " .. tostring(ty.length) .. " needs "
+            .. tostring(ty.length) .. " elements", expr.span)
+    end
+    for _, item in ipairs(items) do self:requireType(item, ty.element, expr.span) end
+    if ctx.mode ~= "residual" then return V.array(ty, items) end
+    local exprs, borrowed = {}, false
+    for index, item in ipairs(items) do
+        exprs[index] = self:expression(ctx, item, ty.element)
+        if self:isBorrowed(item) then borrowed = true end
+    end
+    local storage = ctx.builder:var(ctx.body, ty, ctx.builder:make(ty, exprs))
+    -- A residual array's storage is authoritative, so no stale element values are kept with it.
+    return V.array(ty, nil, Ir.Local(storage), borrowed)
+end
+
+-- The place an array value's elements live at. A value that only exists as an SSA value is spilled
+-- into storage once, which is what lets a parameter or a call result be indexed.
+function Eval:arrayPlace(ctx, value, span)
+    if value.place then return value.place end
+    if ctx.mode ~= "residual" then
+        D.reject("runtime-in-normalization", "A runtime array needs runtime code", span)
+    end
+    local storage = ctx.builder:var(ctx.body, value.ty, self:expression(ctx, value, value.ty))
+    value.place = Ir.Local(storage)
+    return value.place
+end
+
+-- An array expression. A value backed by storage is read whole, which is a struct copy in C; a
+-- compile-time array is built from its elements.
+function Eval:arrayExpr(ctx, value)
+    if not value.items then
+        D.bug("array-value", "An array with neither storage nor elements has no representation")
+    end
+    local exprs = {}
+    for index, item in ipairs(value.items) do
+        exprs[index] = self:expression(ctx, item, value.ty.element)
+    end
+    return ctx.builder:make(value.ty, exprs)
+end
+
+function Eval:requireArray(value, span)
+    if not S.isArray(value.ty) then
+        D.reject("type-mismatch", "Expected an array but found " .. S.encode(value.ty or S.Unit), span)
+    end
+    return value.ty
+end
+
+-- The place an lvalue expression names, without reading it. Every assignable target and every
+-- reference target is a chain of selections over a root, so this is the one place that knows how to
+-- reach storage. A concrete result describes a compile-time container; a residual one is an
+-- `Ir.Place` with the type it refers to.
+--   { concrete = "field", record = <value>, name = <field>, ty = <ty> }
+--   { concrete = "index", array = <value>, index = <n>, ty = <ty> }
+--   { place = <Ir.Place>, ty = <ty> }
+function Eval:placeOf(ctx, expr, span)
+    if expr.kind == "Reference" then
+        local slot = lookup(ctx.scope, expr.name.text)
+        if not slot then D.reject("unknown-name", "Unknown name: " .. expr.name.text, expr.name.span) end
+        if slot.atTop then
+            -- The binding is demanded first: its named storage is built from the value it computes.
+            local demanded = self:demand(slot, expr.name.span)
+            local held = demanded.value
+            if not held or (V.tag(held) ~= "record" and V.tag(held) ~= "array") then
+                D.reject("not-a-place", "Only a record or an array instance is storage: "
+                    .. expr.name.text, expr.name.span)
+            end
+            local object = self:moduleObject(demanded, expr.name.span)
+            -- `backing` is the value the storage stands for, which is what normalize code reads.
+            return { place = object.place, ty = object.ty, concrete = object.backing,
+                value = object.backing }
+        end
+        if slot.kind == "concrete-field" then
+            return { concrete = "field", record = slot.record, name = slot.name, ty = slot.ty }
+        end
+        if slot.kind == "concrete-index" then
+            return { concrete = "index", array = slot.array, index = slot.index, ty = slot.ty }
+        end
+        if slot.kind == "field" then return { place = slot.place, ty = slot.ty } end
+        if slot.kind == "param" then return { place = Ir.Local(slot.storage), ty = slot.ty } end
+        D.reject("not-a-place", "Only storage can be a place: " .. expr.name.text, expr.name.span)
+    end
+    if expr.kind == "FieldSelect" then
+        local container = self:containerOf(ctx, expr.base, expr.base.span)
+        local name = expr.field.text
+        local target = self:resolveType(S.environmentOf(container.ty))
+        local ty = S.field(target, name)
+        if not ty then D.reject("unknown-member", "Record has no field " .. name, expr.field.span) end
+        local place = container.place and Ir.Project(container.place, Ir.Field(name)) or nil
+        local held = container.concrete
+        if type(held) == "table" and held.tag == "record" and held.fields then
+            return { concrete = "field", record = held, name = name, ty = ty,
+                place = place, value = held.fields[name] }
+        end
+        if not place or ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization",
+                "A field of run-time storage is only reachable from runtime code", expr.span)
+        end
+        return { place = place, ty = ty }
+    end
+    if expr.kind == "IndexExpr" then
+        local container = self:containerOf(ctx, expr.base, expr.base.span)
+        if not S.isArray(container.ty) then
+            D.reject("type-mismatch",
+                "Expected an array but found " .. S.encode(container.ty or S.Unit), expr.span)
+        end
+        local index = self:evalExpr(ctx, expr.index)
+        self:requireType(index, S.U32, expr.index.span)
+        local length, element = container.ty.length, container.ty.element
+        if V.tag(index) == "u32" then
+            if index.n >= length then
+                D.reject("index-range", "Index " .. tostring(index.n) .. " is outside an array of "
+                    .. "length " .. tostring(length), expr.span)
+            end
+            -- A place needs a builder, so only residual code builds one; normalize code either uses
+            -- the value it names or reports that this storage is runtime-only.
+            local place = (container.place and ctx.mode == "residual")
+                and Ir.Index(container.place, ctx.builder:u32(index.n), element) or nil
+            local held = container.concrete
+            if type(held) == "table" and held.tag == "array" and held.items then
+                return { concrete = "index", array = held, index = index.n, ty = element,
+                    place = place, value = held.items[index.n + 1] }
+            end
+            if not place or ctx.mode ~= "residual" then
+                D.reject("runtime-in-normalization",
+                    "An element of run-time storage is only reachable from runtime code", expr.span)
+            end
+            return { place = place, ty = element }
+        end
+        if ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization", "A run-time index needs runtime code", expr.span)
+        end
+        -- A run-time index is checked before it is used, exactly as a run-time divisor is.
+        local indexExpr = self:expression(ctx, index, S.U32)
+        ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Ge", indexExpr,
+            ctx.builder:u32(length), S.Bool), "index-range"))
+        local place = container.place or self:arrayPlace(ctx, container.value, expr.span)
+        return { place = Ir.Index(place, indexExpr, element), ty = element }
+    end
+    D.reject("not-a-place", "This expression does not name storage", span or expr.span)
+end
+
+-- The container an element or field selection starts from: a compile-time value, or a place with the
+-- type it refers to. A selection over a selection does not read the intermediate value.
+function Eval:containerOf(ctx, expr, span)
+    if expr.kind == "Reference" or expr.kind == "FieldSelect" or expr.kind == "IndexExpr" then
+        local ok, reached = pcall(function() return self:placeOf(ctx, expr, span) end)
+        if ok then
+            if reached.concrete == "field" then
+                return { concrete = reached.record.fields[reached.name], ty = reached.ty }
+            end
+            if reached.concrete == "index" then
+                return { concrete = reached.array.items[reached.index + 1], ty = reached.ty }
+            end
+            -- A container that has both keeps both: a read uses the value and a reference uses the
+            -- place, so a chain of selections does not have to choose here.
+            return { place = reached.place, ty = reached.ty, concrete = reached.concrete,
+                value = reached.value }
+        end
+    end
+    local value = self:evalExpr(ctx, expr)
+    if value.place then return { value = value, place = value.place, ty = value.ty } end
+    return { concrete = value, value = value, ty = value.ty }
+end
+
+-- `a[i]`: an element read, through the place it names.
+function Eval:evalIndex(ctx, expr)
+    local reached = self:placeOf(ctx, expr, expr.span)
+    -- Residual code reads the storage it names; normalize code reads the value directly, but only
+    -- for storage this activation or an enclosing one owns. Module storage is runtime state, so
+    -- reading it while compiling would bake in a snapshot.
+    if ctx.mode ~= "residual" and self:placeOrigin(ctx, expr) ~= "module" then
+        if reached.concrete == "index" then return reached.array.items[reached.index + 1] end
+        if reached.concrete == "field" then return reached.record.fields[reached.name] or V.unit() end
+    end
+    if ctx.mode ~= "residual" then
+        D.reject("runtime-in-normalization", "Element is runtime storage", expr.span)
+    end
+    local read = ctx.builder:read(ctx.body, reached.ty, reached.place)
+    return V.ir(ctx.builder:ref(read, reached.ty), reached.ty, nil, reached.place)
 end
 
 -- Callable arms of a tagged callable -----------------------------------------------------------
@@ -878,6 +1163,18 @@ function Eval:expression(ctx, value, want)
     if tag == "u32" then return ctx.builder:u32(value.n) end
     if tag == "bool" then return ctx.builder:bool(value.b) end
     if tag == "record" or tag == "object" then return self:recordExpr(ctx, value) end
+    if tag == "array" then
+        if value.expr then return value.expr end
+        if value.place then
+            -- Storage is authoritative, so reading the array whole copies its current elements.
+            local read = ctx.builder:read(ctx.body, value.ty, value.place)
+            return ctx.builder:ref(read, value.ty)
+        end
+        if ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization", "An array needs runtime code", ctx.span)
+        end
+        return self:arrayExpr(ctx, value)
+    end
     if tag == "ref" then
         if value.place == nil then
             D.reject("ref-target", "A reference to a compile-time value has no address; it can only "
@@ -993,6 +1290,7 @@ end
 function Eval:isBorrowed(value)
     local tag = V.tag(value)
     if tag == "ref" then return value.tied == true end
+    if tag == "array" then return value.borrowed == true end
     if tag == "object" or tag == "record" or tag == "ir" then return value.borrowed == true end
     if tag == "closure" then return #(value.plan.borrowedOrder or {}) > 0 end
     return false
@@ -1017,6 +1315,8 @@ function Eval:evalExpr(ctx, expr)
     elseif kind == "Condition" then return self:evalCondition(ctx, expr, nil)
     elseif kind == "Apply" then return self:evalApply(ctx, expr)
     elseif kind == "SchemaExpr" then return self:evalSchema(ctx, expr)
+    elseif kind == "ArrayExpr" then return self:evalArray(ctx, expr, nil)
+    elseif kind == "IndexExpr" then return self:evalIndex(ctx, expr)
     elseif kind == "RecordSupply" then return self:evalSupply(ctx, expr)
     elseif kind == "FieldSelect" then return self:evalFieldSelect(ctx, expr)
     elseif kind == "Lambda" then return self:evalLambda(ctx, expr, nil)
@@ -1048,7 +1348,11 @@ function Eval:evalReference(ctx, expr)
     if slot.kind == "value" then
         local demanded = self:demand(slot, expr.name.span)
         if demanded.value == nil then D.reject("value-required", name .. " has no value", expr.name.span) end
-        if ctx.mode == "residual" and V.tag(demanded.value) == "record" then
+        if ctx.mode == "residual"
+            and (V.tag(demanded.value) == "record"
+                or (V.tag(demanded.value) == "array" and demanded.value.place == nil)) then
+            -- Runtime code reaches a file-scope binding through its named storage. Normalize code
+            -- keeps the value itself, so it can still specialise a call that reads one.
             return self:moduleObject(demanded, expr.name.span)
         end
         return demanded.value
@@ -1074,7 +1378,7 @@ function Eval:readFieldValue(ctx, slot, span)
     if ctx.mode ~= "residual" then
         -- Normalize code reads the frontend value a borrowed or module place stands for directly.
         local record = slot.record and slot.record.backing
-        if record then
+        if record and record.fields and not slot.record.module then
             local held = record.fields[slot.name]
             if held == nil then D.bug("module-field", "Module storage has no field " .. slot.name) end
             return held
@@ -1192,6 +1496,7 @@ end
 function Eval:evalExpected(ctx, expr, expected)
     if expected == nil then return self:evalExpr(ctx, expr) end
     if expr.kind == "Lambda" then return self:evalLambda(ctx, expr, expected) end
+    if expr.kind == "ArrayExpr" then return self:evalArray(ctx, expr, expected) end
     if expr.kind == "Condition" then return self:evalCondition(ctx, expr, expected) end
     return self:evalExpr(ctx, expr)
 end
@@ -1483,10 +1788,87 @@ end
 -- Either a residual IR place or a concrete interpreter field.
 function Eval:readSlot(ctx, slot, place, span)
     if slot.kind == "concrete-field" then return slot.record.fields[slot.name] or V.unit() end
+    if slot.kind == "concrete-index" then return slot.array.items[slot.index + 1] end
     return self:readFieldValue(ctx, slot, span)
 end
 
 function Eval:writeSlot(ctx, slot, place, value)
+    if slot.kind == "concrete-index" then
+        slot.array.items[slot.index + 1] = value
+        if self:isBorrowed(value) then slot.array.borrowed = true end
+        return
+    end
+    if slot.kind == "concrete-field" then
+        slot.record.fields[slot.name] = value
+        if self:isBorrowed(value) then slot.record.borrowed = true end
+        return
+    end
+    -- Assigning callable code to a signature-typed field builds a view whose environment is a
+    -- local adapter, so the assignment is a borrow even when the code itself is not.
+    local becomesBorrowed = self:isBorrowed(value) or S.isView(slot.ty)
+    if V.tag(value) == "ref" and value.tied and (slot.retaining or (slot.record and slot.record.module)) then
+        D.reject("ref-escape", self:refEscapeMessage(), ctx.span)
+    end
+    if becomesBorrowed and (slot.retaining or (slot.record and slot.record.module)) then
+        D.reject("borrow-escape",
+            "Module storage outlives the activation that made this borrow, so it cannot hold one",
+            ctx.span)
+    end
+    ctx.builder:store(ctx.body, place, self:expression(ctx, value, slot.ty))
+    -- Storing a borrow into an instance makes that instance non-retaining too.
+    if becomesBorrowed and slot.record then slot.record.borrowed = true end
+end
+
+-- Resolves a store target to a place, plus the slot describing it.
+function Eval:storeTarget(ctx, target)
+    if target.kind ~= "Reference" and target.kind ~= "FieldSelect" and target.kind ~= "IndexExpr" then
+        D.reject("not-a-place", "Only storage can be assigned", target.span)
+    end
+    -- A binding is immutable, so only a place beneath one can be written.
+    if target.kind == "Reference" then
+        local slot = lookup(ctx.scope, target.name.text)
+        if not slot then D.reject("unknown-name", "Unknown name: " .. target.name.text, target.name.span) end
+        if slot.kind ~= "field" and slot.kind ~= "concrete-field"
+            and slot.kind ~= "concrete-index" then
+            D.reject("not-a-place", "Only record fields and array elements can be assigned",
+                target.span)
+        end
+    end
+    local reached = self:placeOf(ctx, target, target.span)
+    -- A store in residual code goes to storage; normalize code writes the value it names, so a later
+    -- read in this mode observes it. Module storage is runtime state and only residual code writes
+    -- it, because a store performed while compiling would not appear in the generated code.
+    local origin = ctx.mode ~= "residual" and self:placeOrigin(ctx, target) or nil
+    if ctx.mode ~= "residual" and origin ~= "module" then
+        if reached.concrete == "field" then
+            return { kind = "concrete-field", name = reached.name, record = reached.record,
+                ty = reached.ty }, nil
+        end
+        if reached.concrete == "index" then
+            return { kind = "concrete-index", array = reached.array, index = reached.index,
+                ty = reached.ty }, nil
+        end
+    end
+    if not reached.place then
+        D.bug("not-a-place", "A store target in residual code must be storage")
+    end
+    return { kind = "field", name = target.kind == "IndexExpr" and "[index]" or "field",
+        ty = reached.ty, place = reached.place, static = nil, readonly = false }, reached.place
+end
+
+-- Either a residual IR place or a concrete interpreter field.
+function Eval:readSlot(ctx, slot, place, span)
+    if slot.kind == "concrete-field" then return slot.record.fields[slot.name] or V.unit() end
+    if slot.kind == "concrete-index" then return slot.array.items[slot.index + 1] end
+    return self:readFieldValue(ctx, slot, span)
+end
+
+function Eval:writeSlot(ctx, slot, place, value)
+    if slot.kind == "concrete-index" then
+        slot.array.items[slot.index + 1] = value
+        if self:isBorrowed(value) then slot.array.borrowed = true end
+        return
+    end
     if slot.kind == "concrete-field" then
         slot.record.fields[slot.name] = value
         if self:isBorrowed(value) then slot.record.borrowed = true end
@@ -1521,6 +1903,40 @@ function Eval:storeTarget(ctx, target)
         end
         if slot.kind == "concrete-field" then return slot, nil end
         D.reject("not-a-place", "Only record fields can be assigned", target.span)
+    elseif target.kind == "IndexExpr" then
+        local base = self:evalExpr(ctx, target.base)
+        if not S.isArray(base.ty) then
+            D.reject("not-a-place", "Only an array element can be assigned by index", target.span)
+        end
+        local index = self:evalExpr(ctx, target.index)
+        self:requireType(index, S.U32, target.index.span)
+        local array = base
+        if V.tag(index) == "u32" then
+            if index.n >= array.ty.length then
+                D.reject("index-range", "Index " .. tostring(index.n) .. " is outside an array of "
+                    .. "length " .. tostring(array.ty.length), target.span)
+            end
+            if array.items then
+                return { kind = "concrete-index", array = array, index = index.n,
+                    ty = array.ty.element }, nil
+            end
+            if ctx.mode ~= "residual" then
+                D.reject("runtime-in-normalization", "Element is runtime storage", target.span)
+            end
+            local place = Ir.Index(self:arrayPlace(ctx, array, target.span), ctx.builder:u32(index.n),
+                array.ty.element)
+            return { kind = "field", name = "[index]", ty = array.ty.element, place = place,
+                static = nil, readonly = false }, place
+        end
+        if ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization", "A run-time index needs runtime code", target.span)
+        end
+        local indexExpr = self:expression(ctx, index, S.U32)
+        ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Ge", indexExpr,
+            ctx.builder:u32(array.ty.length), S.Bool), "index-range"))
+        local place = Ir.Index(self:arrayPlace(ctx, array, target.span), indexExpr, array.ty.element)
+        return { kind = "field", name = "[index]", ty = array.ty.element, place = place,
+            static = nil, readonly = false }, place
     elseif target.kind == "FieldSelect" then
         local base = self:evalExpr(ctx, target.base)
         base = self:placeObject(base) or base
@@ -1553,7 +1969,7 @@ function Eval:storeTarget(ctx, target)
             -- Normalize code stores into the frontend value the place stands for, so every later
             -- read in this mode sees the store.
             local record = base.backing
-            if record and record.fields[name] ~= nil then
+            if record and record.fields[name] ~= nil and not base.module then
                 return { kind = "concrete-field", name = name, record = record, ty = def.fields[name] }, nil
             end
             D.reject("runtime-in-normalization", "Cannot store to runtime field " .. name, target.span)
@@ -2189,9 +2605,11 @@ function Eval:evalValueDef(ctx, def)
     -- Evaluate signature annotations first: they supply missing lambda parameter types.
     local expectations = {}
     for index, binder in ipairs(def.binders) do
-        if binder.annotation and binder.annotation.kind == "SignatureExpr" then
+        if binder.annotation then
             local ty = self:typeOf(binder.annotation, ctx.scope, binder.span)
-            if S.isSig(ty) then expectations[index] = ty end
+            -- A signature annotation types an unannotated lambda; any other annotation is what an
+            -- array literal with no elements of its own has to take its type from.
+            if S.isSig(ty) or S.isArray(ty) then expectations[index] = ty end
         end
     end
     local values = {}
@@ -2280,8 +2698,12 @@ function Eval:evalArguments(ctx, exprs, callee)
         if index < #exprs then
             local adjusted = self:first(value)
             values[#values + 1] = adjusted
-            if param then declare(sc, param.name.text, { kind = "value", name = param.name.text,
-                value = adjusted }, param.span) end
+            -- A builtin parameter is a plain name table, not a source binder, so there is nothing to
+            -- declare for it.
+            if param and param.name and param.name.text then
+                declare(sc, param.name.text, { kind = "value", name = param.name.text,
+                    value = adjusted }, param.span)
+            end
         else
             for _, item in ipairs(self:expand(value)) do values[#values + 1] = item end
         end
@@ -2425,6 +2847,11 @@ end
 -- Ordinary parameter binding copies record data; a local alias keeps its instance, an argument
 -- does not. Field values are immutable, so a shallow copy of the field table is a value copy.
 function Eval:copyArgument(value)
+    if V.tag(value) == "array" then
+        local items = {}
+        for index, item in ipairs(value.items or {}) do items[index] = item end
+        return V.array(value.ty, items, value.place)
+    end
     if V.tag(value) ~= "record" then return value end
     local fields = {}
     for name, field in pairs(value.fields) do fields[name] = field end
@@ -2665,7 +3092,13 @@ function Eval:buildInstance(key, def, values, span, receiver)
             -- The call site needs each input's type to materialise its argument, so the two lists
             -- are maintained together.
             instance.inputTypes[#instance.inputTypes + 1] = ty
-            if S.isRecord(ty) then
+            if S.isArray(ty) then
+                -- A by-value array parameter owns fresh local storage for the same reason.
+                local storage = builder:storageId()
+                setup[#setup + 1] = Ir.Var(storage, ty, Ir.Ref(value, ty))
+                declare(sc, param.name.text, { kind = "value", name = param.name.text,
+                    value = V.array(ty, nil, Ir.Local(storage)) }, param.span)
+            elseif S.isRecord(ty) then
                 -- A by-value record parameter owns fresh local storage, so field writes and method
                 -- calls do not touch the caller's instance.
                 local storage = builder:storageId()

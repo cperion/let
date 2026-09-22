@@ -243,7 +243,12 @@ These are the obligations `check.lua` verifies; the builder should not rely on t
 8. **Visible versus actual signature.** `Ty.Owned`/`Ty.View` carry the source-visible signature.
    `Ir.Fn.inputs` carries the actual ABI including the hidden owner/capture prefix. The two are
    related by `Meta.projections`/`hidden` and must not be conflated.
-10. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
+10. **Indexes.** `Ir.Place.Index(base, index, type)` names one element: the base must be an array,
+    the recorded type must be its element type, and the index expression must be a `U32`. A known
+    index is checked while compiling and rejected when it is out of range; any other index is preceded
+    on every path by `Trap(Ge(index, length), "index-range")`, which the builder emits and the
+    verifier does not re-derive, exactly as for a run-time divisor.
+11. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
    testing the same operand value.
 
 ## 7. Diagnostics

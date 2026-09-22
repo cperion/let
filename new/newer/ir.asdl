@@ -10,6 +10,7 @@ module Ty {
     | Sum(string meaning, Field* cases) unique
     | Tagged(Sig visible, Field* arms) unique
     | Ref(V target) unique
+    | Array(V element, number length) unique
     | Named(string cell) unique
   Field = (string name, V type) unique
   Input = InValue(V type) unique | InPlace(V type) unique | InBundle(V env) unique
@@ -45,6 +46,7 @@ module Ir {
         | Captured(Bundle bundle, number slot)
         | Project(Place base, Field field)
         | Deref(Place base, Ty.V type)
+        | Index(Place base, Expr index, Ty.V type)
 
   Arg = ValueArg(Expr value) | BorrowArg(Place place) | BundleArg(Bundle bundle)
 

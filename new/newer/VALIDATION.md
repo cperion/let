@@ -27,6 +27,10 @@ untrusted module source or manifest code.
   remain a snapshot despite the method call. At U32 maximum, increment wraps to zero.
 - examples/captures.let: run(5,7)=12. An exported make_adder result must remain callable after
   its creator returns and copy its captured value by value.
+- examples/arrays.let: literal_sum()=60, local_pick(2)=9, store(1,4)=643, grid(1,0)=3, via_parameter(5)=11,
+  aliased(3)=99099. A literal takes its type from its elements or an annotation, a known index is
+  checked while compiling, a run-time index is guarded, and a local binding aliases while a pass,
+  return or field store copies.
 - examples/references.let: read_shared(1)=6, bump_shared(1)=7, borrowed(2)=55, following()=10,
   bump_following()=15. A reference to module storage persists a store; a reference to a captured
   record is live for the caller; a recursive Node/Link reaches and mutates its neighbour through a
@@ -85,6 +89,12 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    forward-declared layout. A reference is also a parameter, a result and a field: a host may pass a
    pointer for `Ref(T)`, a reference to module storage may be returned from a call and followed, and
    a tied reference held in a local record reaches the enclosing instance.
+8c. **Arrays (implemented):** a literal with an inferred element type and an annotated one, a static
+   index, a run-time index with its guard (the guard aborts, asserted in C), element stores, nested
+   arrays, an array parameter (a copy) and a local alias (not a copy), an array result compared
+   element by element, a pool of nodes in module storage reached by `Ref(pool[i])`, and the
+   rejections `type-required` for an empty literal, `array-length`, `type-mismatch`, `index-range`
+   and `not-a-place`.
 9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.

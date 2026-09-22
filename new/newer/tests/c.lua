@@ -59,6 +59,14 @@ local function assertValue(checks, path, value)
             end
         end
         if not any then checks[#checks + 1] = "    (void)(" .. path .. ");" end
+    elseif kind == "table" and value.array then
+        -- An array is a struct holding a C array, so its elements are indexed positionally.
+        local any = false
+        for index, item in ipairs(value) do
+            any = true
+            assertValue(checks, path .. ".f_data[" .. (index - 1) .. "]", item)
+        end
+        if not any then checks[#checks + 1] = "    (void)(" .. path .. ");" end
     elseif kind == "table" and value.variant then
         checks[#checks + 1] = "    assert((" .. path .. ").wordlet_tag == " .. tostring(value.tag) .. ");"
         if value.payload ~= "unit" then
@@ -447,6 +455,47 @@ return { types = { Point, Opt }, functions = { point, wrap, pair, nested } }
             { entry = "pair", arity = 1 }, { entry = "nested", arity = 1 } },
         inputs = { { 0 }, { 1 }, { 7 }, { 4294967295 } },
     },
+    {
+        -- Arrays: a literal, a static and a run-time index, a store, a nested array, and an array
+        -- returned as a result, all compared against the interpreter.
+        name = "arrays",
+        source = [==[
+let shared = [10, 20, 30]
+let first(): U32 = shared[0]
+let sum(): U32 = shared[0] + shared[1] + shared[2]
+let local_pick(i: U32): U32 = do
+  let b: Array(U32, 3) = [7, 8, 9]
+  return b[i]
+end
+let store(i: U32, v: U32): U32 = do
+  let b = [1, 2, 3]
+  b[i] = v
+  return b[0] + b[1] + b[2]
+end
+let grid_cell(r: U32, c: U32): U32 = do
+  let g = [[1, 2], [3, 4]]
+  return g[r][c]
+end
+let sum2(a: Array(U32, 2)): U32 = a[0] + a[1]
+let total(x: U32): U32 = do
+  let b: Array(U32, 2) = [x, x + 1]
+  return sum2(b)
+end
+let doubled(x: U32): Array(U32, 3) = do
+  let b = [x, x + 1, x + 2]
+  b[1] += 10
+  return b
+end
+return { types = {  }, functions = { first, sum, local_pick, store, grid_cell, total, doubled } }
+]==],
+        entries = {
+            { entry = "local_pick", arity = 1, inputs = { { 0 }, { 2 } } },
+            { entry = "store", arity = 2, inputs = { { 0, 5 }, { 2, 7 } } },
+            { entry = "grid_cell", arity = 2, inputs = { { 0, 1 }, { 1, 0 }, { 1, 1 } } },
+            { entry = "total", arity = 1, inputs = { { 3 }, { 4294967295 } } },
+            { entry = "doubled", arity = 1, inputs = { { 0 }, { 7 } } },
+        },
+    },
 }
 
 local function cLiteral(value)
@@ -463,7 +512,9 @@ local function runCase(case)
 
     local checksList = {}
     for _, target in ipairs(case.entries or { { entry = case.entry, arity = case.arity } }) do
-        for _, input in ipairs(case.inputs) do
+        -- An entry may carry its own inputs when the shared ones are not valid for it, which is what
+        -- an entry with a constrained argument needs.
+        for _, input in ipairs(target.inputs or case.inputs) do
           if #input >= target.arity then
             local args = {}
             for index = 1, target.arity do args[index] = input[index] end
@@ -837,6 +888,67 @@ int main(void) {
         "reference and recursion C failed to compile:\n" .. read(directory .. "/refmoderr.txt"))
     check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
         "a reference over module storage or a recursive structure did not run correctly")
+end
+
+-- A pool of nodes in module storage, reached by a reference to an element, and the bounds guard a
+-- run-time index needs. Both are runtime-only, so this is C-only.
+do
+    local source = [==[
+let Counter = { value: U32 }
+let pool = [Counter { value = 1 }, Counter { value = 2 }, Counter { value = 3 }]
+let bump(i: U32, d: U32): U32 = do
+  let r = Ref(pool[i])
+  r.value += d
+  return r.value
+end
+let read(i: U32): U32 = Ref(pool[i]).value
+let pick(i: U32): U32 = do
+  let b = [10, 20, 30]
+  return b[i]
+end
+return { types = { Counter }, functions = { bump, read, pick } }
+]==]
+    local generated = wordlet.compile{ source = source, name = "pool.let" }:unit()
+    check(generated:find("wordletarray_1", 1, true) ~= nil, "an array of records gets an array layout")
+    local path = directory .. "/pool.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    wordlet_init();
+    assert(wordlet_read(UINT32_C(0)) == UINT32_C(1));
+    assert(wordlet_bump(UINT32_C(1), UINT32_C(5)) == UINT32_C(7));
+    assert(wordlet_read(UINT32_C(1)) == UINT32_C(7));
+    assert(wordlet_read(UINT32_C(0)) == UINT32_C(1));
+    assert(wordlet_bump(UINT32_C(0), UINT32_C(1)) == UINT32_C(2));
+    assert(wordlet_read(UINT32_C(0)) == UINT32_C(2));
+    assert(wordlet_pick(UINT32_C(2)) == UINT32_C(30));
+    return 0;
+}
+]])
+    local exe = directory .. "/pool"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/poolerr.txt") == 0,
+        "array pool C failed to compile:\n" .. read(directory .. "/poolerr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "a reference to an array element or a pool of nodes did not run correctly")
+
+    -- The guard a run-time index needs aborts rather than reading outside the array.
+    local trap = directory .. "/pooltrap.c"
+    write(trap, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    (void)wordlet_pick(UINT32_C(9));
+    return 0;
+}
+]])
+    local trapExe = directory .. "/pooltrap"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. trapExe .. "' '" .. trap .. "' 2> " .. directory .. "/trapErr.txt") == 0,
+        "bounds-guard C failed to compile:\n" .. read(directory .. "/trapErr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. trapExe .. "' 2> " .. directory
+        .. "/trapRun.txt") ~= 0, "an out-of-range run-time index must abort")
 end
 
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.

@@ -759,21 +759,11 @@ return { types = { C }, functions = { leak } }
 -- References and recursion ------------------------------------------------------------------------
 -- A reference names a place. It may only name module storage or a place belonging to an enclosing
 -- activation, and it is the indirection boundary that makes a recursive type finite.
+-- A reference to a place belonging to an enclosing activation is live: a store through it is visible
+-- to the caller, two references observe each other, and the reference is an ordinary value that can be
+-- a field. Module storage is runtime state, so references to it are covered by the C tests instead.
 local REFS = [==[
 let Counter = { value: U32 }
-let shared = Counter { value = 5 }
-let read_shared(x: U32): U32 = Ref(shared).value + x
-let bump_shared(x: U32): U32 = do
-  let r = Ref(shared)
-  r.value += 1
-  return r.value + x
-end
-let two_refs(d: U32): U32 = do
-  let a = Ref(shared)
-  let b = Ref(shared)
-  a.value += d
-  return b.value
-end
 let borrowed(x: U32): U32 = do
   let c = Counter { value = x }
   let f = |d: U32| -> do
@@ -783,39 +773,18 @@ let borrowed(x: U32): U32 = do
   end
   return f(3) * 10 + c.value
 end
-return { types = { Counter }, functions = { read_shared, bump_shared, two_refs, borrowed } }
-]==]
-check(interpret("read_shared", { 1 }, REFS)[1] == 6, "a reference reads through to its target")
-check(interpret("bump_shared", { 1 }, REFS)[1] == 7, "a store through a reference reaches the target")
-check(interpret("two_refs", { 3 }, REFS)[1] == 8, "two references to one instance observe each other")
-check(interpret("borrowed", { 1 }, REFS)[1] == 44,
-    "a reference to an enclosing owner mutation is visible to the caller")
--- A reference is an ordinary value, so it is a parameter and a result like any other.
-local REFPARAM = [==[
-let Counter = { value: U32 }
-let shared = Counter { value = 5 }
-let get(r: Ref(Counter)): U32 = r.value
-let set(r: Ref(Counter), v: U32): U32 = do
-  r.value = v
-  return r.value
+let aliased(x: U32): U32 = do
+  let c = Counter { value = x }
+  let g = |d: U32| -> do
+    let a = Ref(c)
+    a.value += d
+    let b = Ref(c)
+    return b.value
+  end
+  return g(1) + g(2)
 end
-let shared_ref(): Ref(Counter) = Ref(shared)
-let read(x: U32): U32 = shared_ref().value + x
-let use(x: U32): U32 = set(Ref(shared), x) + get(Ref(shared))
-return { types = { Counter }, functions = { get, set, shared_ref, read, use } }
-]==]
-check(interpret("read", { 2 }, REFPARAM)[1] == 7,
-    "a reference to module storage may be returned from a call and followed there")
-check(interpret("use", { 9 }, REFPARAM)[1] == 18,
-    "a module reference passed to a parameter writes through to the same storage")
-local refParamUnit = compile(REFPARAM):unit()
-check(refParamUnit:find("wordletrecord_1 *", 1, true) ~= nil,
-    "a reference parameter and result are pointers in the ABI")
--- A reference read out of a local record reaches the instance it names.
-local REFHELD = [==[
-let Counter = { value: U32 }
 let Holder = { r: Ref(Counter) }
-let use(x: U32): U32 = do
+let held(x: U32): U32 = do
   let c = Counter { value = x }
   let f = |d: U32| -> do
     c.value += d
@@ -825,13 +794,16 @@ let use(x: U32): U32 = do
   end
   return f(3) * 10 + c.value
 end
-return { types = { Counter, Holder }, functions = { use } }
+return { types = { Counter, Holder }, functions = { borrowed, aliased, held } }
 ]==]
-check(interpret("use", { 2 }, REFHELD)[1] == 66,
+check(interpret("borrowed", { 1 }, REFS)[1] == 44,
+    "a reference to an enclosing owner mutation is visible to the caller")
+check(interpret("aliased", { 2 }, REFS)[1] == 8,
+    "two references to one enclosing instance observe each other")
+check(interpret("held", { 2 }, REFS)[1] == 66,
     "a tied reference stored in a local record reaches the enclosing instance")
-local refsUnit = compile(REFS):unit()
-check(refsUnit:find("wordletrecord_1 *", 1, true) ~= nil or refsUnit:find("wordletmodule_1", 1, true) ~= nil,
-    "references lower to pointers over named storage")
+check(compile(REFS):unit():find("wordletrecord_1 *", 1, true) ~= nil,
+    "a reference lowers to a pointer")
 
 -- A recursive type: the definition reserves its own identity, and the reference is the boundary.
 local RECURSIVE = [==[
@@ -853,11 +825,8 @@ let bump_following(): U32 = n0.next {
 }
 return { types = { Node, Link }, functions = { head, following, bump_following } }
 ]==]
-check(interpret("head", {}, RECURSIVE)[1] == 1, "a recursive structure reaches its first node")
-check(interpret("following", {}, RECURSIVE)[1] == 10,
-    "a reference stored in a recursive node is followed")
-check(interpret("bump_following", {}, RECURSIVE)[1] == 15,
-    "a store through a reference read back out of a recursive node reaches that node")
+-- The structure lives in module storage, which is runtime state, so reading it is covered by the
+-- C-only tests; what matters here is that the type is finite and lowers to a pointer.
 local recursiveUnit = compile(RECURSIVE):unit()
 check(recursiveUnit:find("typedef struct wordletrecord_1 wordletrecord_1;", 1, true) ~= nil
     and recursiveUnit:find("wordletrecord_1 * f_some;", 1, true) ~= nil,
@@ -952,6 +921,103 @@ return { types = { Good }, functions = { f } }
 ]==]):unit()
 check(finite:find("wordletrecord_1 * f_child;", 1, true) ~= nil,
     "a cycle through a reference is finite and emits a pointer")
+
+
+-- Arrays ------------------------------------------------------------------------------------------
+-- A fixed-length sequence of one element type. The length is part of the type, so a static index is
+-- checked while compiling and only a run-time index needs a bounds guard.
+local ARRAYS = [==[
+let literal_sum(): U32 = do
+  let a = [10, 20, 30]
+  return a[0] + a[1] + a[2]
+end
+let local_pick(i: U32): U32 = do
+  let b: Array(U32, 3) = [7, 8, 9]
+  return b[i]
+end
+let store(i: U32, v: U32): U32 = do
+  let b = [1, 2, 3]
+  b[i] = v
+  b[0] += 5
+  return b[0] * 100 + b[1] * 10 + b[2]
+end
+let grid(r: U32, c: U32): U32 = do
+  let g = [[1, 2], [3, 4]]
+  return g[r][c]
+end
+let sum2(xs: Array(U32, 2)): U32 = xs[0] + xs[1]
+let via_parameter(x: U32): U32 = do
+  let b: Array(U32, 2) = [x, x + 1]
+  return sum2(b)
+end
+let aliased(x: U32): U32 = do
+  let b = [x, x + 1]
+  let c = b
+  c[0] = 99
+  return b[0] * 1000 + c[0]
+end
+return { types = {  }, functions = { literal_sum, local_pick, store, grid, via_parameter, aliased } }
+]==]
+check(interpret("literal_sum", {}, ARRAYS)[1] == 60,
+    "an array literal is indexed and its elements are values")
+check(interpret("local_pick", { 2 }, ARRAYS)[1] == 9, "an annotation types a literal and a index selects")
+check(interpret("store", { 1, 4 }, ARRAYS)[1] == 643, "an element store and a compound element store")
+check(interpret("grid", { 1, 0 }, ARRAYS)[1] == 3, "a nested array is indexed twice")
+check(interpret("via_parameter", { 5 }, ARRAYS)[1] == 11, "an array argument is a copy")
+check(interpret("aliased", { 3 }, ARRAYS)[1] == 99099,
+    "a local array binding is an alias, like a record instance, so a write is visible")
+local arrayUnit = compile(ARRAYS):unit()
+check(arrayUnit:find("uint32_t f_data[3];", 1, true) ~= nil,
+    "an array is a struct holding a C array, so it copies by assignment")
+-- Rejections ------------------------------------------------------------------------------------
+-- An empty literal has no element to take its type from.
+rejects("type-required", [==[
+let f(n: U32): U32 = do
+  let a = []
+  return n + a[0]
+end
+return { functions = { f } }
+]==])
+-- The length is part of the type, so a literal of the wrong length rejects.
+rejects("array-length", [==[
+let f(n: U32): U32 = do
+  let a: Array(U32, 3) = [1, 2]
+  return a[n]
+end
+return { functions = { f } }
+]==])
+-- Elements must share one type.
+rejects("type-mismatch", [==[
+let f(n: U32): U32 = do
+  let a = [1, true]
+  return n
+end
+return { functions = { f } }
+]==])
+-- A known index outside the array rejects while compiling.
+rejects("index-range", [==[
+let f(): U32 = do
+  let a = [1, 2]
+  return a[2]
+end
+return { functions = { f } }
+]==])
+-- Only an array element is assignable by index.
+rejects("not-a-place", [==[
+let f(n: U32): U32 = do
+  n[0] = 1
+  return n
+end
+return { functions = { f } }
+]==])
+-- An array needs a length of at least one, given as a literal.
+rejects("array-length", [==[
+let f(n: U32): U32 = do
+  let a: Array(U32, 0) = [1]
+  return n
+end
+return { functions = { f } }
+]==])
 
 -- The interpreter refuses an unsaturated entry rather than inventing a value.
 local ok, err = pcall(wordlet.interpret, { source = "let f(a, b: U32) : U32 = a + b\n"

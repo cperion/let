@@ -58,6 +58,12 @@ function Emitter:expr(expr)
             return "(uint32_t)((" .. left .. ") " .. cOp .. " (" .. right .. "))"
         end
         return "((" .. left .. ") " .. cOp .. " (" .. right .. "))"
+    elseif kind == "Make" and S.isArray(S.environmentOf(expr.type)) then
+        -- An array is a struct holding a C array, so its elements initialise that member.
+        local layout = self.layouts.arrayLayout(S.environmentOf(expr.type))
+        local items = {}
+        for index, item in ipairs(expr.fields) do items[index] = self:expr(item) end
+        return "(" .. layout.name .. "){ .f_data = { " .. table.concat(items, ", ") .. " } }"
     elseif kind == "Make" then
         -- An Owned callable is represented by its environment record.
         local record = S.environmentOf(expr.type)
@@ -89,6 +95,10 @@ function Emitter:placeC(place)
     end
     if place.kind == "Deref" then
         return "(*(" .. self:placeC(place.base) .. "))"
+    end
+    if place.kind == "Index" then
+        -- Elements live in the array member, and the index expression is a plain U32 value.
+        return self:placeC(place.base) .. ".f_data[" .. self:expr(place.index) .. "]"
     end
     D.todo("c-place", "No C lowering for place " .. tostring(place.kind))
 end
@@ -348,6 +358,7 @@ function M.typeDeclarations(layouts)
     local function forward(name) lines[#lines + 1] = "typedef struct " .. name .. " " .. name .. ";" end
     for _, layout in ipairs(layouts.tupleOrder) do forward(layout.name) end
     for _, layout in ipairs(layouts.recordOrder) do forward(layout.name) end
+    for _, layout in ipairs(layouts.arrayOrder) do forward(layout.name) end
     for _, layout in ipairs(layouts.sumOrder) do forward(layout.name) end
     for _, layout in ipairs(layouts.taggedOrder) do forward(layout.name) end
     for _, layout in ipairs(layouts.viewOrder) do forward(layout.name) end
@@ -412,6 +423,16 @@ function M.typeDeclarations(layouts)
     end
     for _, layout in ipairs(layouts.recordOrder) do
         defineAggregate(layout, layout.fields, false)
+    end
+    for _, layout in ipairs(layouts.arrayOrder) do
+        -- An array is a struct holding one C array, because a bare C array cannot be assigned or
+        -- returned by value while a struct that contains one can. The element is embedded, so its
+        -- layout is a completeness need.
+        define(layout, { layouts:cType(layout.element) }, function()
+            lines[#lines + 1] = "typedef struct " .. layout.name .. " {\n    "
+                .. layouts:cType(layout.element) .. " f_data[" .. tostring(layout.length)
+                .. "];\n} " .. layout.name .. ";"
+        end)
     end
     for _, layout in ipairs(layouts.sumOrder) do
         defineAggregate(layout, layout.cases, true)

@@ -63,6 +63,14 @@ assert(i.Ir.Expr:isclassof(i.Ir.Addr(refPlace, i.Ty.Ref(named))))
 assert(i.Ir.Place:isclassof(i.Ir.Deref(refPlace, named)))
 assert(i.Ir.Addr(refPlace, i.Ty.Ref(named)) ~= i.Ir.Addr(refPlace, i.Ty.Ref(i.Ty.U32)))
 
+-- An array interns by its element type and length, and its length is part of its identity.
+local array = i.Ty.Array(i.Ty.U32, 3)
+assert(array == i.Ty.Array(i.Ty.U32, 3) and array ~= i.Ty.Array(i.Ty.U32, 4))
+assert(array ~= i.Ty.Array(i.Ty.Bool, 3) and i.Ty.Array:isclassof(array))
+assert(i.Ir.Place:isclassof(i.Ir.Deref(i.Ir.Local(i.Ir.Storage(1)), named)))
+assert(i.Ir.Place:isclassof(i.Ir.Index(i.Ir.Local(i.Ir.Storage(1)),
+    i.Ir.Const(i.Ty.U32, i.Ir.UInt(0)), i.Ty.U32)))
+
 -- Function-local ID descriptors are interned so equality is cheap.
 assert(i.Ir.Value(1) == i.Ir.Value(1) and i.Ir.Storage(1) == i.Ir.Storage(1))
 assert(i.Ir.Bundle(1) == i.Ir.Bundle(1) and i.Ir.Field("x") == i.Ir.Field("x"))

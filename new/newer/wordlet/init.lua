@@ -123,6 +123,21 @@ local function describe(session, value, seen, depth)
         seen[value] = nil
         return out
     end
+    if tag == "array" then
+        local items = value.items
+        if not items then
+            local backing = value.backing
+            items = backing and backing.items or nil
+        end
+        if not items then
+            D.todo("interpret-result", "Cannot interpret an array with no readable elements")
+        end
+        local out = { array = true }
+        for index, item in ipairs(items) do
+            out[index] = describe(session, item, seen, depth + 1)
+        end
+        return out
+    end
     if tag == "variant" then
         local index = S.tagIndex(value.ty, value.case)
         if index == nil then D.bug("interpret-result", "A variant has no tag for its alternative") end

@@ -339,6 +339,7 @@ Key shapes (see `ir.asdl` for the exact fields):
 ```
 Ir.Expr  = Const | Ref | Un | Bin | Get | Make | Owned | Addr(Place)
 Ir.Place = Local(Storage) | Captured(Bundle, slot) | Project(Place, Field) | Deref(Place)
+         | Index(Place, Expr, Ty.V)
 Ir.Arg   = ValueArg | BorrowArg | BundleArg
 Ir.Stmt  = Let | Var | Read | Store | BundleDef | View | Call | Indirect
          | If | Loop | Next | Trap | Return
@@ -497,6 +498,7 @@ helpers. No historical helper names or facade signatures are compatibility requi
 | record value | struct, by value, fields in canonical name order |
 | sum value | struct with a tag plus a union of alternative payloads, by value |
 | reference | `T *`, with a forward declaration for a recursive target and no allocation |
+| array | a struct holding one C array, so it copies and returns by value |
 | tagged callable | the same tag plus union shape, holding each arm environment |
 | multiple runtime results | internal ordered result struct |
 | actual receiver borrow | typed pointer, optionally proven const |
@@ -511,6 +513,14 @@ alternative, and a `Unit` alternative contributes no payload member. Constructio
 literal with the tag and the one live payload member set by name, projection reads that member, and a
 tag test compares the tag word. Because the payload union is only ever read in an arm guarded by the
 matching tag test, an inactive payload is never interpreted.
+
+An array is a struct holding one C array of its element type, because a bare C array cannot be
+assigned or returned by value while a struct that contains one can. The element is embedded, so its
+layout must be complete before the array's. `Make` builds it with the elements in canonical order and
+`Ir.Place.Index` selects an element; the index travels as an expression, so a known index is a
+constant and a run-time index is the value the guard checks. A run-time index is preceded by a bounds
+`Trap`, in the same style as a run-time divisor: the builder emits it and the verifier does not
+re-derive it.
 
 A `Unit` parameter is erased rather than represented, exactly like a `Unit` result: it produces no
 `Ty.Input`, no `Ir.Param` and no C parameter, and a call site emits no argument for it. Erasure

@@ -131,6 +131,11 @@ end
 function M.ref(target) return Ty.Ref(target) end
 function M.isRef(t) return type(t) == "table" and t.kind == "Ref" end
 
+-- An array is a fixed-length sequence of one element type. Its length is part of the type, so a
+-- static index is checked while compiling and only a run-time index needs a bounds guard.
+function M.array(element, length) return Ty.Array(element, length) end
+function M.isArray(t) return type(t) == "table" and t.kind == "Array" end
+
 -- A named cell is the identity a recursive type definition reserves for itself while its own layout
 -- is still being computed. It may only appear as a reference target, so it is deliberately not a
 -- record, a sum or anything else a value could be built from.
@@ -178,6 +183,10 @@ function M.runtime(t, visiting)
         -- that was sealed, so the target's own runtime-ness was checked when it was defined.
         return M.isNamed(t.target) or M.runtime(t.target, visiting)
     end
+    if M.isArray(t) then
+        if t.length < 1 then return false end
+        return M.isNamed(t.element) or M.runtime(t.element, visiting)
+    end
     if M.isNamed(t) then
         -- A bare named cell must never reach a value position: it stands for a definition still
         -- being computed, and the definition decides. Rejecting it here keeps that invariant loud.
@@ -223,6 +232,7 @@ end
 -- pure code, and pure code already has a representation: the invocation pointer plus a null
 -- environment that a view is, so it is representable as well.
 function M.representable(t)
+    if M.isArray(t) then return M.runtime(t) end
     if M.isRef(t) then return M.runtime(t) end
     if M.isNamed(t) then return false end
     if M.isView(t) then return M.runtime(t) end
