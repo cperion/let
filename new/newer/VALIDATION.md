@@ -32,6 +32,9 @@ untrusted module source or manifest code.
 
 Each gate needs executable positive and negative cases. No gate means “keep an old suite green.”
 
+Gates 1–5 and 8–10 have their first executable form in `tests/parse.lua`, `tests/eval.lua` and
+`tests/c.lua`; gates 6 and 7 are partial (no records, closures or loop rewrite yet).
+
 1. **Concrete schemas:** `ast.asdl`/`ir.asdl` parse and construct (tests/schemas.lua); stable source
    spans; every semantic visitor covers every AST/IR variant; immutable canonical lists; no effect
    occurrence interning; builder-level per-function expression interning.

@@ -8,11 +8,16 @@ LICENSE and vendor/LICENSE, including in generated bundles.
 
 ## Status and tests
 
+The compiler pipeline is implemented for a subset of `syntax.md`: lexer, parser, evaluator, verifier
+and C11 backend for scalars, Bool, Unit, multiple results, calls, conditionals, static
+specialisation and recursion. Records, methods, lambdas, loops and field stores are parsed but not
+evaluated yet; they raise `todo` diagnostics rather than producing wrong code.
 Only the vendor libraries, U32 reference kernel, bundler, ASDL schemas and bootstrap tests are implemented.
 `wordletkit.lua` is NOT the compiler. The .let examples are acceptance fixtures, not currently runnable.
 Do not claim that toolkit/schema checks validate a parser, evaluator or C backend.
 
-Run `timeout --kill-after=2s 30s luajit tests/run.lua` for bootstrap changes. Report actual results and
+Run `timeout --kill-after=2s 180s luajit tests/run.lua` for everything (it bundles, generates C and
+runs the C under strict warnings). `tests/eval.lua` and `tests/c.lua` can also be run alone. Report actual results and
 wall time. Add new compiler tests against the documented semantics as compiler phases are built;
 there is no old-suite compatibility requirement. Never emit a fake success, stub or provisional
 value for an unimplemented phase.

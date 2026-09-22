@@ -23,7 +23,7 @@ module Ast {
        | BoolLiteral(boolean value)
        | UnitLiteral
        | Reference(Name name)
-       | Apply(Expr function, Expr* arguments)
+       | Apply(Expr callee, Expr* arguments)
        | FieldSelect(Expr base, Name field)
        | RecordSupply(Expr schema, FieldSupply* fields)
        | SchemaExpr(SchemaMember* members)

@@ -7,6 +7,29 @@ backend is C11.
 
 ## What exists
 
+The compiler is being built in vertical slices; `syntax.md` and `architecture.md` are the target, and
+this section states exactly how much of it runs today.
+
+| Area | Status |
+| --- | --- |
+| Lexer, parser, AST (`ast.asdl`) | implemented; `tests/parse.lua` |
+| Semantic types, structured IR (`ir.asdl`) | implemented |
+| Evaluator: static, normalization and residual execution | implemented for the subset below |
+| Verification (`check.lua`) | implemented: types, scope, definite initialisation, fall-through |
+| C ABI closure and C11 emission | implemented for scalars, Bool, Unit and multiple results |
+| Single-file bundle and CLI | implemented; `dist/wordlet.lua` |
+| Records, schemas and methods | **not implemented** (they parse; evaluation raises `todo`) |
+| Lambdas and closures | **not implemented** (they parse) |
+| Loops and the self-tail rewrite | **not implemented**; recursion stays ordinary C calls |
+| Field stores (`r.x = ...`), `Loop`/`Next` emission | **not implemented** |
+
+Working end to end today: U32/Bool/Unit, `let` bindings, named definitions with parameter and result
+annotations, arithmetic/comparison/bitwise/logical operators, expression and statement conditionals,
+multiple results and result-list binding, static partial application, automatic static
+specialisation, calls compiled to independently elaborated bodies, and recursion with an explicit
+result annotation. `tests/eval.lua` (74 checks) and `tests/c.lua` (93 checks) cover it.
+
+
 - [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.
 - [architecture.md](architecture.md): structured evaluator/IR implementation contract.
 - [interfaces.md](interfaces.md): pass order, module APIs, side tables, builder state, facade API.
@@ -23,9 +46,8 @@ backend is C11.
 - [LICENSE](LICENSE) and [vendor/LICENSE](vendor/LICENSE): project and upstream MIT notices.
 - [AGENTS.md](AGENTS.md): local implementation and validation instructions for coding agents.
 
-**Not implemented:** the Wordlet lexer, parser, resolver, evaluator, verifier, C backend or CLI. The
-schemas encode the data and `check` their field types; they do not implement the passes that fill
-them. Nothing here is passed off as an executable compiler.
+The `wordlet` namespace is the compiler. `wordletkit` remains the bootstrap toolkit (ASDL, List and
+the U32 reference kernel) and is not the compiler.
 
 ## Run the working tooling
 

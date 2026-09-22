@@ -36,6 +36,10 @@ nil and any. They check Lua categories, not semantic ranges. IDs need integral/r
 literals need 0..4294967295 checks. `c:Extern(name, predicate)` installs a custom field check before
 Define. Do not use any to bypass important compiler invariants.
 
+Field names must not be Lua keywords. `end`, `function`, `local`, `repeat`, `not` and friends are
+valid identifiers in ASDL but produce `node.function`, which is not valid Lua source. Prefer
+`callee` over `function`, `condition` over `if`, and so on.
+
 Schema comments start with `#` and end at a newline. Keep a final newline, including after a final
 comment. Constructor/product names share a namespace: two sums cannot both define Unknown in the
 same module. Namespacing must be designed, not inferred from an enclosing union.
