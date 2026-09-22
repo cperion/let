@@ -17,6 +17,8 @@ function M.close(compilation)
         compilation = compilation,
         tuples = {},        -- result vector -> { name, fields }
         tupleOrder = {},
+        views = {},         -- Ty.View -> invocation-pointer layout
+        viewOrder = {},
         records = {},       -- Ty.Record -> { name, fields }
         recordOrder = {},
         signatures = {},
@@ -34,6 +36,7 @@ function M.close(compilation)
         end
         return layout
     end
+
 
     local function resultLayout(results)
         if #results == 0 then return { kind = "void" } end
@@ -53,13 +56,41 @@ function M.close(compilation)
         return layout
     end
 
-    layouts.recordLayout = recordLayout
-    layouts.resultLayout = resultLayout
+    -- One C struct per distinct visible signature: an invocation pointer and an environment.
+    local function viewLayout(ty)
+        local existing = layouts.views[ty]
+        if existing then return existing end
+        local sig = ty.visible
+        local parameters = { "const void *environment" }
+        for index, input in ipairs(sig.inputs) do
+            if input.kind ~= "InValue" then
+                D.todo("view-input", "Only by-value callable inputs have a C representation yet")
+            end
+            parameters[#parameters + 1] = layouts:cType(input.type) .. " a" .. index
+        end
+        local results = resultLayout(sig.results)
+        local returns = results.kind == "void" and "void"
+            or (results.kind == "scalar" and layouts:cType(results.type) or results.name)
+        local types = { "const void *" }
+        for _, input in ipairs(sig.inputs) do types[#types + 1] = layouts:cType(input.type) end
+        local layout = {
+            name = "wordletview_" .. (#layouts.viewOrder + 1),
+            type = ty, parameters = parameters, results = results, returns = returns,
+            arguments = #sig.inputs,
+            invoke = "(" .. table.concat(types, ", ") .. ")",
+        }
+        layouts.views[ty] = layout
+        layouts.viewOrder[#layouts.viewOrder + 1] = layout
+        return layout
+    end
+
+    layouts.recordLayout, layouts.resultLayout, layouts.viewLayout = recordLayout, resultLayout, viewLayout
 
     function layouts:cType(ty)
         if ty == S.U32 then return "uint32_t" end
         if ty == S.Bool then return "bool" end
         if ty == S.Unit then return "void" end
+        if S.isView(ty) then return viewLayout(ty).name end
         if S.isOwned(ty) then return layouts:cType(ty.environment) end
         if S.isRecord(ty) then return recordLayout(ty).name end
         D.todo("c-type", "No C representation for " .. S.encode(ty))

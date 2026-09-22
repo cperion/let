@@ -50,8 +50,9 @@ Gates 1–5 and 8–10 have their first executable form in `tests/parse.lua`, `t
    multiplication, bounded changing-specialization recursion and complete annotated residual cycles.
 7. **Callables:** owned environments survive creator return (make_adder/run/compose/snap); a captured
    field is a snapshot while a captured receiver is a live borrow; distinct lambdas are distinct code
-   identities; escaping a borrowed closure is rejected, and an opaque function pointer is rejected
-   rather than mis-compiled.
+   identities; escaping a borrowed closure is rejected; an opaque callable uses a signature-specific
+   invocation pointer, and a callable with no known code and no view is rejected rather than
+   mis-compiled.
 8. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
 9. **C:** strict C11 compile/run, arithmetic boundary values, side-effect order, safe tail permutations,

@@ -309,8 +309,16 @@ function Eval:fieldExpr(ctx, value, name)
     return ctx.builder:ref(read, ty)
 end
 
-function Eval:expression(ctx, value)
+-- Materialises a value for a runtime position. `want` is the destination type when the context
+-- knows it, which is what lets an unrepresentable callable be rejected with a source diagnostic
+-- instead of building mistyped IR.
+function Eval:expression(ctx, value, want)
     local tag = V.tag(value)
+    if (tag == "closure" or tag == "word") and want and S.isSig(want) then
+        D.todo("callable-storage",
+            "A position typed only as a signature cannot store callable code: an owning erased "
+            .. "callable needs a storage policy, and a view would not be retained", ctx.span)
+    end
     if tag == "ir" then return value.expr end
     if tag == "u32" then return ctx.builder:u32(value.n) end
     if tag == "bool" then return ctx.builder:bool(value.b) end
@@ -591,6 +599,11 @@ function Eval:evalCondition(ctx, expr, expected)
         return V.unit()
     end
     if not yesTerminated and not noTerminated and yesValue.ty ~= noValue.ty then
+        if S.isOwned(yesValue.ty) and S.isOwned(noValue.ty) then
+            D.todo("callable-branch",
+                "Each arm returns a different callable, so the join would need a tagged callable "
+                .. "representation; an erased view is non-retaining and cannot be returned", expr.span)
+        end
         D.reject("branch-result", "Conditional arms have different types: "
             .. S.encode(yesValue.ty) .. " and " .. S.encode(noValue.ty), expr.span)
     end
@@ -705,7 +718,9 @@ function Eval:evalSupply(ctx, expr)
         return V.record(ty, fields, def)
     end
     local exprs = {}
-    for index, field in ipairs(ty.fields) do exprs[index] = self:expression(ctx, values[field.name]) end
+    for index, field in ipairs(ty.fields) do
+        exprs[index] = self:expression(ctx, values[field.name], field.type)
+    end
     local storage = ctx.builder:var(ctx.body, ty, ctx.builder:make(ty, exprs))
     return V.object(ty, Ir.Local(storage), def)
 end
@@ -778,7 +793,7 @@ function Eval:writeSlot(ctx, slot, place, value)
         slot.record.fields[slot.name] = value
         return
     end
-    ctx.builder:store(ctx.body, place, self:expression(ctx, value))
+    ctx.builder:store(ctx.body, place, self:expression(ctx, value, slot.ty))
 end
 
 -- Resolves a store target to a place, plus the slot describing it.
@@ -837,6 +852,35 @@ function Eval:applyClosure(ctx, plan, envExprs, args, span)
     end
     local callable = { plan = plan, env = self:closureEnvironment(plan, envExprs) }
     return self:callClosure(ctx, callable, args, span)
+end
+
+-- An opaque callable is invoked through its view: the environment pointer plus the argument list.
+function Eval:applyView(ctx, value, args, span)
+    if ctx.mode ~= "residual" then
+        D.reject("runtime-in-normalization", "An opaque callable needs runtime code", span)
+    end
+    local sig = value.ty.visible
+    if #args ~= #sig.inputs then D.reject("arity", "Opaque callable arity mismatch", span) end
+    local operands = {}
+    for index, input in ipairs(sig.inputs) do
+        if input.kind ~= "InValue" then
+            D.todo("view-input", "Only by-value callable inputs are supported", span)
+        end
+        self:requireType(args[index], input.type, span)
+        operands[#operands + 1] = Ir.ValueArg(self:expression(ctx, args[index]))
+    end
+    local results = {}
+    for _ = 1, #sig.results do results[#results + 1] = ctx.builder:valueId() end
+    ctx.builder:emit(ctx.body, Ir.Indirect(S.list(results), value.expr, S.list(operands)))
+    if #sig.results == 0 then return V.unit() end
+    if #sig.results == 1 then
+        return V.ir(ctx.builder:ref(results[1], sig.results[1]), sig.results[1])
+    end
+    local out = {}
+    for index, ty in ipairs(sig.results) do
+        out[index] = V.ir(ctx.builder:ref(results[index], ty), ty)
+    end
+    return V.results(out)
 end
 
 -- An Owned IR value carries its environment; the captured fields are its arguments.
@@ -1081,15 +1125,18 @@ end
 function Eval:emitCallableCall(ctx, instance, envArgs, args, span)
     local builder = ctx.builder
     local operands = {}
-    for _, arg in ipairs(envArgs) do
+    for index, arg in ipairs(envArgs) do
         if arg.kind == "place" then
             operands[#operands + 1] = Ir.BorrowArg(arg.place)
         else
-            operands[#operands + 1] = Ir.ValueArg(arg.expr or self:expression(ctx, arg.value))
+            operands[#operands + 1] = Ir.ValueArg(arg.expr or self:expression(ctx, arg.value,
+                instance.inputTypes[index]))
         end
     end
-    for _, position in ipairs(instance.paramPositions) do
-        operands[#operands + 1] = Ir.ValueArg(self:expression(ctx, args[position]))
+    for index, position in ipairs(instance.paramPositions) do
+        -- After the environment, the declared parameters follow in signature order.
+        operands[#operands + 1] = Ir.ValueArg(self:expression(ctx, args[position],
+            instance.inputTypes[#envArgs + index]))
     end
     local results = {}
     for _ = 1, #instance.results do results[#results + 1] = builder:valueId() end
@@ -1119,7 +1166,7 @@ function Eval:buildCallableInstance(key, callable, args, span)
     local plan, def = callable.plan, callable.plan.def
     self.nextFn = self.nextFn + 1
     local instance = { key = key, def = def, plan = plan, target = "wordletfn_" .. self.nextFn,
-        status = "building", args = args, paramPositions = {} }
+        status = "building", args = args, paramPositions = {}, inputTypes = {} }
     self.instances[key] = instance
     self.order[#self.order + 1] = instance
 
@@ -1135,6 +1182,7 @@ function Eval:buildCallableInstance(key, callable, args, span)
         params[#params + 1] = Ir.ValueParam(#inputs, value, ty)
         inputs[#inputs + 1] = S.inValue(ty)
         paramTypes[#paramTypes + 1] = ty
+        instance.inputTypes[#instance.inputTypes + 1] = ty
         declare(sc, name, { kind = "value", name = name, value = V.ir(Ir.Ref(value, ty), ty) }, span)
     end
     for _, name in ipairs(plan.borrowedOrder) do
@@ -1143,6 +1191,7 @@ function Eval:buildCallableInstance(key, callable, args, span)
         params[#params + 1] = Ir.PlaceParam(#inputs, storage, borrowed.ty)
         inputs[#inputs + 1] = S.inPlace(borrowed.ty)
         paramTypes[#paramTypes + 1] = borrowed.ty
+        instance.inputTypes[#instance.inputTypes + 1] = borrowed.ty
         local object = V.object(borrowed.ty, Ir.Local(storage), borrowed.schema)
         if borrowed.kind == "method" then
             declare(sc, name, { kind = "value", name = name,
@@ -1178,9 +1227,15 @@ function Eval:buildCallableInstance(key, callable, args, span)
                 end
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
                 ty = supplied.ty
+            elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isView(supplied.ty) then
+                ty = supplied.ty
+            elseif supplied == nil then
+                -- An entry face with no call site: the callable arrives from outside, so it needs
+                -- the invocation-pointer ABI rather than a code identity.
+                ty = S.view(ty)
             else
                 D.todo("opaque-callable",
-                    "A callable parameter with no known code needs a function-pointer ABI", param.span)
+                    "A callable argument with no known code needs a function-pointer ABI", param.span)
             end
         else
             S.checkRuntime(ty, param.span)
@@ -1268,7 +1323,8 @@ function Eval:execBlock(ctx, statements)
             if ctx.terminated then return true end
             ctx.terminated = savedTerminated
             if ctx.mode == "residual" then
-                ctx.builder:emit(ctx.body, Ir.Return(S.list(self:materializeAll(ctx, values))))
+                ctx.builder:emit(ctx.body, Ir.Return(S.list(self:materializeAll(ctx, values,
+                    ctx.instance and ctx.instance.results or nil))))
                 ctx.resultTypes = {}
                 for index, value in ipairs(values) do ctx.resultTypes[index] = value.ty end
             else
@@ -1288,9 +1344,11 @@ function Eval:execBlock(ctx, statements)
     return false
 end
 
-function Eval:materializeAll(ctx, values)
+function Eval:materializeAll(ctx, values, wants)
     local out = {}
-    for index, value in ipairs(values) do out[index] = self:expression(ctx, value) end
+    for index, value in ipairs(values) do
+        out[index] = self:expression(ctx, value, wants and wants[index] or nil)
+    end
     return out
 end
 
@@ -1415,9 +1473,8 @@ function Eval:evalApply(ctx, expr)
     if tag == "ir" and S.isOwned(callee.ty) then
         return self:applyOwned(ctx, callee, args, expr.span)
     end
-    if tag == "ir" and S.isSig(callee.ty) then
-        D.todo("opaque-callable", "Calling a callable with no known code needs a function-pointer ABI",
-            expr.callee.span)
+    if tag == "ir" and S.isView(callee.ty) then
+        return self:applyView(ctx, callee, args, expr.span)
     end
     D.reject("callable-required", "Only words, methods and closures can be applied", expr.callee.span)
 end
@@ -1587,11 +1644,12 @@ end
 function Eval:emitCall(ctx, instance, values, span, receiver)
     local builder = ctx.builder
     local args = {}
-    for _, input in ipairs(instance.inputPlan) do
+    for index, input in ipairs(instance.inputPlan) do
         if input.kind == "place" then
             args[#args + 1] = Ir.BorrowArg(receiver.place)
         else
-            args[#args + 1] = Ir.ValueArg(self:expression(ctx, values[input.position]))
+            args[#args + 1] = Ir.ValueArg(self:expression(ctx, values[input.position],
+                instance.inputTypes[index]))
         end
     end
     local results = {}
@@ -1661,7 +1719,7 @@ end
 function Eval:buildInstance(key, def, values, span, receiver)
     self.nextFn = self.nextFn + 1
     local instance = { key = key, def = def, target = "wordletfn_" .. self.nextFn,
-        status = "building", args = values, inputPlan = {} }
+        status = "building", args = values, inputPlan = {}, inputTypes = {} }
     self.instances[key] = instance
     self.order[#self.order + 1] = instance
 
@@ -1675,6 +1733,7 @@ function Eval:buildInstance(key, def, values, span, receiver)
         local rdef = receiver.schema
         local storage = builder:storageId()
         inputs[#inputs + 1] = S.inPlace(rdef.type)
+        instance.inputTypes[#instance.inputTypes + 1] = rdef.type
         params[#params + 1] = Ir.PlaceParam(#inputs - 1, storage, rdef.type)
         instance.inputPlan[#instance.inputPlan + 1] = { kind = "place" }
         for _, name in ipairs(rdef.fieldNames) do
@@ -1708,9 +1767,15 @@ function Eval:buildInstance(key, def, values, span, receiver)
                 end
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
                 ty = supplied.ty
+            elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isView(supplied.ty) then
+                ty = supplied.ty
+            elseif supplied == nil then
+                -- An entry face with no call site: the callable arrives from outside, so it needs
+                -- the invocation-pointer ABI rather than a code identity.
+                ty = S.view(ty)
             else
                 D.todo("opaque-callable",
-                    "A callable parameter with no known code needs a function-pointer ABI", param.span)
+                    "A callable argument with no known code needs a function-pointer ABI", param.span)
             end
         else
             S.checkRuntime(ty, param.span)
@@ -1856,7 +1921,8 @@ function Eval:execBodyResidual(ctx, body, span)
         if ctx.terminated then return end
         ctx.tail = false
         local values = self:expand(value)
-        ctx.builder:return_(ctx.body, self:materializeAll(ctx, values))
+        ctx.builder:return_(ctx.body, self:materializeAll(ctx, values,
+            ctx.instance and ctx.instance.results or nil))
         ctx.resultTypes = {}
         for index, item in ipairs(values) do ctx.resultTypes[index] = item.ty end
         return

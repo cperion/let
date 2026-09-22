@@ -134,6 +134,8 @@ function Emitter:statements(list)
             self:line("if (" .. self:expr(stmt.failure) .. ") abort();")
         elseif kind == "Call" then
             self:call(stmt)
+        elseif kind == "Indirect" then
+            self:indirect(stmt)
         elseif kind == "Return" then
             self:line(self:returnText(stmt.values))
         else
@@ -178,6 +180,32 @@ function Emitter:call(stmt)
     end
 end
 
+-- An opaque callable is invoked through the pointer its view carries.
+function Emitter:indirect(stmt)
+    local types = stmt.callable.type
+    if not S.isView(types) then D.bug("c-view", "Indirect needs a view-typed callable") end
+    local layout = self.layouts.viewLayout(types)
+    local args = {}
+    for _, arg in ipairs(stmt.arguments) do
+        if arg.kind ~= "ValueArg" then D.todo("c-arg", "Only by-value arguments are lowered yet") end
+        args[#args + 1] = self:expr(arg.value)
+    end
+    local callable = self:expr(stmt.callable)
+    local call = callable .. ".invoke(" .. callable .. ".environment"
+        .. (#args > 0 and (", " .. table.concat(args, ", ")) or "") .. ")"
+    if #stmt.results == 0 then
+        self:line(call .. ";")
+    elseif #stmt.results == 1 then
+        self:declare(layout.results.type, self:value(stmt.results[1].id), call)
+    else
+        self:line(layout.results.name .. " t" .. stmt.results[1].id .. " = " .. call .. ";")
+        for index = 1, #stmt.results do
+            self:declare(layout.results.fields[index].type, self:value(stmt.results[index].id),
+                "t" .. stmt.results[1].id .. ".f_" .. index)
+        end
+    end
+end
+
 function Emitter:returnText(values)
     if #values == 0 then return "return;" end
     if #values == 1 then return "return " .. self:expr(values[1]) .. ";" end
@@ -205,6 +233,11 @@ function M.typeDeclarations(layouts)
         end
         if not any then body[#body + 1] = "    unsigned char wordlet_pad;" end
         lines[#lines + 1] = "typedef struct " .. name .. " {\n" .. table.concat(body, "\n") .. "\n} " .. name .. ";"
+    end
+    for _, view in ipairs(layouts.viewOrder) do
+        lines[#lines + 1] = "typedef struct " .. view.name .. " {\n    "
+            .. view.returns .. " (*invoke)" .. view.invoke .. ";"
+            .. "\n    const void *environment;\n} " .. view.name .. ";"
     end
     for _, tuple in ipairs(layouts.tupleOrder) do aggregate(tuple.name, tuple.fields) end
     for _, record in ipairs(layouts.recordOrder) do aggregate(record.name, record.fields) end

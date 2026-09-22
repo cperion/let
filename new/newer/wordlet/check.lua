@@ -102,6 +102,23 @@ function M.function_(fn, definitions)
                 if target and #stmt.results ~= #target.results then
                     D.bug("ir-arity", "Call result count does not match " .. stmt.target)
                 end
+                if kind == "Indirect" then
+                    local callable = M.expr(stmt.callable, visible)
+                    if not S.isView(callable) then D.bug("ir-type", "Indirect needs a view-typed callable") end
+                    if #stmt.results ~= #callable.visible.results then
+                        D.bug("ir-arity", "Indirect result count does not match the view's signature")
+                    end
+                    for index, arg in ipairs(stmt.arguments) do
+                        local input = callable.visible.inputs[index]
+                        if not input then D.bug("ir-arity", "Indirect passes too many arguments") end
+                        if M.arg(arg, visible, storages) ~= input.type then
+                            D.bug("ir-type", "Indirect argument does not match the view's input")
+                        end
+                    end
+                    if #stmt.arguments ~= #callable.visible.inputs then
+                        D.bug("ir-arity", "Indirect argument count does not match the view's signature")
+                    end
+                end
                 for index, arg in ipairs(stmt.arguments) do
                     M.arg(arg, visible, storages)
                     if target then
@@ -131,7 +148,6 @@ function M.function_(fn, definitions)
                 if target and #stmt.arguments ~= #target.inputs then
                     D.bug("ir-arity", "Call argument count does not match " .. stmt.target)
                 end
-                if kind == "Indirect" then M.expr(stmt.callable, visible) end
             elseif kind == "Trap" then
                 M.expr(stmt.failure, visible)
             elseif kind == "Return" then

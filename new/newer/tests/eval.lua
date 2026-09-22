@@ -238,7 +238,7 @@ rejects("callable-shape", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
     .. "let a(x: U32): U32 = apply(|y: U32| -> true, x)\nreturn { functions = { a } }")
 -- Two different lambdas in one conditional have different code identities, so no single callable
 -- type describes the result; a tagged callable would need a variant representation.
-rejects("branch-result", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
+rejects("callable-branch", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
     .. "return { functions = { pick } }")
 
 -- Borrowed captures: a captured receiver is a place, not a copy --------------------------------
@@ -274,11 +274,45 @@ check(interpret("read_through", { 1 }, BORROWED)[1] == 106,
 rejects("borrow-escape", "let C = { v: U32, bump(): U32 = v }\n"
     .. "let bad(n: U32): (U32): U32 = do let c = C { v = n } return |k: U32| -> c.bump() + k end\n"
     .. "return { types = { C }, functions = { bad } }")
-rejects("borrow-escape", "let C = { v: U32, bump(): U32 = v }\nlet S = { f: (U32): U32 }\n"
+-- A signature-typed field cannot hold callable code at all, which is reported before the borrow.
+rejects("callable-storage", "let C = { v: U32, bump(): U32 = v }\nlet S = { f: (U32): U32 }\n"
     .. "let bad(n: U32): U32 = do let c = C { v = n } let s = S { f = |k: U32| -> c.bump() } return 0 end\n"
     .. "return { types = { C, S }, functions = { bad } }")
 
--- Rejections ---; non-tail recursion stays a call -------------------------------
+-- Opaque runtime callables: the invocation-pointer ABI -----------------------------------------
+local EXTERNAL = [==[
+let apply(f: (U32): U32, x: U32): U32 = f(x)
+let twice_apply(f: (U32): U32, x: U32): U32 = apply(f, apply(f, x))
+let compose(f: (U32): U32, g: (U32): U32, x: U32): U32 = f(g(x))
+let invoke(f: (U32): (), x: U32): U32 = do f(x) return x end
+let internal(x: U32): U32 = apply(|y: U32| -> y + 1, x)
+return { functions = { apply, twice_apply, compose, invoke, internal } }
+]==]
+-- An exported callable parameter has no call site, so it becomes an opaque view.
+local externalArtifact = wordlet.compile{ source = EXTERNAL, name = "external.let" }
+local externalUnit = externalArtifact:unit()
+check(externalUnit:find("typedef struct wordletview_1", 1, true) ~= nil, "a view struct is emitted")
+check(externalUnit:find("(*invoke)(const void *, uint32_t)", 1, true) ~= nil, "the view carries an invoke pointer")
+check(externalUnit:find(".invoke(", 1, true) ~= nil, "the opaque call goes through the pointer")
+check(#externalArtifact:exports() == 5, "the higher-order functions are exportable")
+
+local externalSession = Eval.session()
+externalSession:compile(Parse.source(EXTERNAL, "external.let"))
+local viewInputs, indirectInstances = 0, 0
+for _, instance in ipairs(externalSession.order) do
+    for _, input in ipairs(instance.fn.inputs) do
+        if S.isView(input.type) then viewInputs = viewInputs + 1 end
+    end
+    if A.dump(instance.fn):find("Indirect", 1, true) then indirectInstances = indirectInstances + 1 end
+end
+check(viewInputs == 5, "each opaque callable parameter is a view input")
+-- `apply`, `compose` and `invoke` call through the pointer; `twice_apply` instead forwards the
+-- view to `apply`, which is known code, so that call stays direct.
+check(indirectInstances == 3, "a body calls indirectly exactly when the callee is opaque")
+check(interpret("internal", { 4 }, EXTERNAL)[1] == 5,
+    "a call with known code still specialises to a direct call")
+
+-- Tail self-calls become loops; non-tail recursion stays a call -------------------------------
 local loopSession = Eval.session()
 loopSession:compile(Parse.source("let sum_to(n, acc: U32) : U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
     .. "return { functions = { sum_to } }", "l.let"))
@@ -332,7 +366,7 @@ rejects("callable-shape", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
     .. "let a(x: U32): U32 = apply(|y: U32| -> true, x)\nreturn { functions = { a } }")
 -- Two different lambdas in one conditional have different code identities, so no single callable
 -- type describes the result; a tagged callable would need a variant representation.
-rejects("branch-result", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
+rejects("callable-branch", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
     .. "return { functions = { pick } }")
 
 -- Rejections ------------------------------------------------------------------------------------
@@ -359,8 +393,12 @@ rejects("not-a-place", "let P = { x: U32 }\nlet f(a: U32) : U32 = do"
     .. " let p = P { x = a }\n let n = 3\n n = 4\n return p.x end\nreturn { functions = { f } }")
 rejects("type-mismatch", RECORDS, "bump", { 7 })
 -- A callable with no known code needs a function-pointer ABI.
-rejects("opaque-callable", "let apply(f: (U32): U32, x: U32) : U32 = f(x)\n"
-    .. "return { functions = { apply } }")
+-- Exporting a callable parameter is supported (it becomes a view); an argument that is neither
+-- known code nor a view is still rejected.
+rejects("callable-storage", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
+    .. "let S = { f: (U32): U32 }\n"
+    .. "let bad(s: U32): U32 = do let h = S { f = |y: U32| -> y + s } return apply(h.f, s) end\n"
+    .. "return { types = { S }, functions = { bad } }")
 
 rejects("callable-shape", "let apply(f: (U32): U32, x: U32) : U32 = f(x)\n"
     .. "let bad(x: U32) : U32 = apply(|y: U32| -> true, x)\nreturn { functions = { bad } }")

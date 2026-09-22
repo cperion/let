@@ -69,6 +69,7 @@ end
 function M.owned(key, visible, environment)
     return Ty.Owned(key, visible, environment or Ty.Unit)
 end
+function M.view(sig) return Ty.View(sig) end
 function M.isOwned(t) return type(t) == "table" and t.kind == "Owned" end
 -- The runtime representation of a type: an Owned callable is represented by its environment.
 function M.environmentOf(t) return M.isOwned(t) and t.environment or t end
@@ -106,6 +107,16 @@ function M.runtime(t, visiting)
     if t == Ty.U32 or t == Ty.Bool or t == Ty.Unit then return true end
     if t == Ty.Type then return false end
     if M.isOwned(t) then return M.runtime(t.environment, visiting) end
+    if M.isView(t) then
+        -- The runtime representation is an invocation pointer plus an environment pointer.
+        for _, input in ipairs(t.visible.inputs) do
+            if input.kind == "InValue" and not M.runtime(input.type, visiting) then return false end
+        end
+        for _, result in ipairs(t.visible.results) do
+            if not M.runtime(result, visiting) then return false end
+        end
+        return true
+    end
     if M.isSig(t) then
         -- A signature is a calling requirement, not a value; it only survives as a specialized
         -- Owned type once an argument fixes the code.
@@ -127,6 +138,7 @@ end
 -- A value that can actually appear in generated code. An Owned type with no environment is pure
 -- code identity, so it has no representation and must stay a compile-time fact.
 function M.representable(t)
+    if M.isView(t) then return M.runtime(t) end
     if M.isOwned(t) then
         if t.environment == Ty.Unit then return false end
         return M.runtime(t.environment)

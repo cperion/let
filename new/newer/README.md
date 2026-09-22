@@ -22,9 +22,10 @@ this section states exactly how much of it runs today.
 | Closures and higher-order words | implemented: by-value environments, direct calls, capture-free lambdas as static code |
 | Borrowed captures (a captured receiver or method) | implemented as a non-retaining place input. Such a closure cannot escape, be stored or be captured again (`borrow-escape`) |
 | Nested borrowed closures (a closure capturing another borrowed closure) | **rejected** (`borrow-escape`); needs a callable environment |
-| A callable with no known code (an opaque function pointer) | **rejected** (`opaque-callable`) |
+| Opaque runtime callables (`Ty.View`) | implemented: an invocation pointer plus an environment. An exported function with a callable parameter takes a view, and a view call goes through `Ir.Indirect` |
+| A callable stored in a signature-typed field or record | **rejected** (`callable-storage`); an owning erased callable needs a storage policy |
 | Contextual lambda parameter types | implemented: a binding annotation, a parameter requirement or a result contract supplies them. A lambda with no expectation anywhere is still rejected (`lambda-annotation`) |
-| Two different lambdas returned from one conditional | **rejected** (`branch-result`); a tagged callable needs a variant representation |
+| Two different lambdas returned from one conditional | **rejected** (`callable-branch`); the join would need a tagged callable |
 | Self-tail calls (`Loop`/`Next` back edges) | implemented; tails run at constant C stack depth |
 | Module-level mutable records captured by runtime code | **rejected** (`module-mutable-capture`); needs a runtime storage interface |
 
@@ -55,7 +56,12 @@ it observes later mutation — unlike a captured scalar field, which is a snapsh
 to the compiled lambda as a place input, and because the closure is tied to the activation that made
 it, returning, storing or re-capturing it is rejected.
 
-`tests/eval.lua` (183 checks) and `tests/c.lua` (234 checks, 17 programs) cover this.
+A callable whose code is not known in this compilation — an exported callable parameter or a
+callback supplied by C — uses the invocation-pointer ABI: `Ty.View(sig)` lowers to
+`{ invoke, environment }`, and calling it emits `Ir.Indirect`. A call to *known* code is still a
+direct call, so `internal(x) = apply(|y| -> y + 1, x)` emits no indirection.
+
+`tests/eval.lua` (190 checks) and `tests/c.lua` (236 checks, 17 programs) cover this.
 
 
 - [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.

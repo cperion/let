@@ -301,6 +301,44 @@ do
         "a self-tail call must run at constant C stack depth")
 end
 
+-- Opaque runtime callables: a C caller supplies the invocation pointer, so this is a C-only test.
+-- The reference interpreter has no callable values to supply.
+do
+    local source = "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
+        .. "let twice_apply(f: (U32): U32, x: U32): U32 = apply(f, apply(f, x))\n"
+        .. "let compose(f: (U32): U32, g: (U32): U32, x: U32): U32 = f(g(x))\n"
+        .. "let invoke(f: (U32): (), x: U32): U32 = do f(x) return x end\n"
+        .. "let internal(x: U32): U32 = apply(|y: U32| -> y + 1, x)\n"
+        .. "return { functions = { apply, twice_apply, compose, invoke, internal } }"
+    local generated = wordlet.compile{ source = source, name = "callbacks.let" }:unit()
+    local path = directory .. "/callbacks.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+static uint32_t plus1(const void *e, uint32_t x) { (void)e; return x + 1u; }
+static uint32_t times3(const void *e, uint32_t x) { (void)e; return x * 3u; }
+static uint32_t seen = 0;
+static void note(const void *e, uint32_t x) { (void)e; seen = x; }
+int main(void) {
+    wordletview_1 a = { .invoke = plus1, .environment = NULL };
+    wordletview_1 b = { .invoke = times3, .environment = NULL };
+    wordletview_2 n = { .invoke = note, .environment = NULL };
+    assert(wordlet_apply(a, UINT32_C(5)) == UINT32_C(6));
+    assert(wordlet_twice_5Fapply(a, UINT32_C(5)) == UINT32_C(7));
+    assert(wordlet_compose(a, b, UINT32_C(5)) == UINT32_C(16));
+    assert(wordlet_invoke(n, UINT32_C(42)) == UINT32_C(42) && seen == UINT32_C(42));
+    assert(wordlet_internal(UINT32_C(4)) == UINT32_C(5));
+    return 0;
+}
+]])
+    local exe = directory .. "/callbacks"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/cberr.txt") == 0,
+        "callback C failed to compile:\n" .. read(directory .. "/cberr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "the invocation-pointer ABI failed at run time")
+end
+
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.
 -- This checks the shipped artifact, not just the checkout modules.
 local root = (source:match("^(.*[/\\])") or "./") .. "../"
