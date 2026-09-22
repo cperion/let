@@ -8,7 +8,29 @@ luajit new/test/all.lua
 luajit new/wordc.lua new/examples/affine.lua > /tmp/word-affine.c
 cc -std=c11 -Wall -Wextra -Werror -pedantic -c /tmp/word-affine.c -o /tmp/word-affine.o
 luajit new/wordc.lua --todos
+luajit new/bundle.lua                 # writes dist/word.lua
+luajit dist/word.lua new/examples/affine.lua > /tmp/word-affine.c
 ```
+
+## Single-file compiler
+
+`luajit new/bundle.lua [output]` writes a deterministic compiler bundle; the default output is
+`dist/word.lua`, relative to the current working directory. Compiler sources are always found relative
+to `new/bundle.lua`, so the builder itself may be invoked from another directory. It follows literal
+`require` dependencies transitively instead of maintaining a module list and fails while building if a
+source dependency is missing. LuaJIT's `bit` and `jit.util` remain host dependencies.
+
+Run the generated file with exactly the `wordc.lua` interface, including `--todos` and diagnostic exit
+codes. Requiring it instead returns the Word API without running the command line:
+
+```lua
+package.path = "/path/containing/bundle/?.lua" -- when the bundle is word.lua
+local Word = require("word")
+local session = Word.new()
+```
+
+The bundle contains compiler modules only. DSL input programs are loaded at runtime and foreign host
+registration is not added by bundling.
 
 The generated C is a library fragment, not a program with `main`. Export names are prefixed with
 `word_`; non-alphanumeric bytes are escaped. For the example, call `word_affine(a, b, x)` or
