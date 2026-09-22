@@ -553,8 +553,11 @@ borrow checking, effect order or ABI layout. Those are properties of the languag
 
 The source rules are defined in syntax.md, not inferred from implementation conveniences:
 
-1. Lambdas always use pipes, including `|x| -> ...` and `|| -> ...`. A bare arrow forms a signature.
-   Missing lambda parameter types require an expected signature; explicit annotations are checked.
+1. Lambdas always use pipes, including `|x| -> ...` and `|| -> ...`, and `->` introduces only a
+   lambda body. Results and signatures use `::`: `let f(x: U32) :: U32` and `U32 :: U32`. Missing
+   lambda parameter types require an expected signature; explicit annotations are checked. Because
+   the two arrows differ, a signature inside a lambda's parameter list is unambiguous:
+   `|f: U32 :: U32| -> f`.
 2. Named parameters may share an annotation; ordinary result-binding names have individual optional
    annotations. Requirements are checked left-to-right, including dependencies on earlier Type inputs.
 3. Partial application accepts static supplies only. Saturated calls may have runtime arguments.

@@ -1,4 +1,5 @@
--- Values: concrete (u32/bool/unit/type/record) or residual (an Ir.Expr with a Ty).
+-- Values: concrete (u32/bool/unit/type/record), structural (schema/method) or residual (Ir.Expr,
+-- a storage-backed object).
 local S = require("wordlet.schema")
 local D = require("wordlet.diag")
 local M = {}
@@ -13,42 +14,55 @@ function M.u32(n) return make{ tag = "u32", ty = S.U32, n = n } end
 function M.bool(b) return make{ tag = "bool", ty = S.Bool, b = b } end
 function M.unit() return make{ tag = "unit", ty = S.Unit } end
 function M.type(ty) return make{ tag = "type", ty = S.Type, value = ty } end
-function M.record(ty, fields) return make{ tag = "record", ty = ty, fields = fields } end
 function M.ir(expr, ty) return make{ tag = "ir", ty = ty, expr = expr } end
 function M.results(values) return make{ tag = "results", values = values } end
-function M.callable(t, code) return make{ tag = "callable", ty = t, code = code } end
 function M.word(def, args, span) return make{ tag = "word", def = def, args = args or {}, span = span } end
+
+-- A concrete, immutable record: every field is a Value.
+function M.record(ty, fields, schema) return make{ tag = "record", ty = ty, fields = fields, schema = schema } end
+
+-- A schema: data fields, methods and any statically bound fields.
+function M.schema(def) return make{ tag = "schema", def = def, ty = S.Type } end
+
+-- A mutable instance in residual code: its fields live in `place`.
+function M.object(ty, place, schema) return make{ tag = "object", ty = ty, place = place, schema = schema } end
+
+-- A method selected on an actual receiver.
+function M.method(method, receiver) return make{ tag = "method", def = method, receiver = receiver } end
+
+function M.callable(t, code) return make{ tag = "callable", ty = t, code = code } end
 
 function M.is(v) return getmetatable(v) == V end
 function M.tag(v) return M.is(v) and v.tag or nil end
-function M.isConcrete(v) return M.is(v) and v.tag ~= "ir" end
 function M.isIr(v) return M.is(v) and v.tag == "ir" end
 
-function M.describe(v)
-    if not M.is(v) then return tostring(v) end
-    if v.tag == "type" then return "Type(" .. S.encode(v.value) .. ")" end
-    if v.tag == "ir" then return "residual<" .. S.encode(v.ty) .. ">#" .. tostring(v.expr.kind) end
-    if v.tag == "record" then return "record<" .. S.encode(v.ty) .. ">" end
-    if v.tag == "results" then
-        local parts = {}
-        for index, item in ipairs(v.values) do parts[index] = M.describe(item) end
-        return "(" .. table.concat(parts, ", ") .. ")"
-    end
-    return tostring(v.n ~= nil and v.n or v.b)
-end
-
--- A concrete value is fully known if it contains no residual component.
+-- Fully concrete: every component is known, so a static invocation can be evaluated now.
 function M.isKnown(v)
     if not M.is(v) then return false end
-    if v.tag == "ir" then return false end
-    if v.tag == "record" then
+    local tag = v.tag
+    if tag == "ir" or tag == "object" or tag == "method" or tag == "schema" or tag == "callable" then
+        return false
+    end
+    if tag == "record" then
         for _, field in pairs(v.fields) do if not M.isKnown(field) then return false end end
     end
     return true
 end
 
--- Canonical encoding of a frontend value for specialization keys. Returns nil for values that
--- cannot be part of a static key (residual values, places, borrowed callables).
+-- Usable as part of a specialization key. Mutable storage never qualifies: a record argument is
+-- passed by value as a runtime input instead of becoming a compile-time constant.
+function M.isStatic(v)
+    if not M.is(v) then return false end
+    local tag = v.tag
+    if tag == "u32" or tag == "bool" or tag == "unit" or tag == "type" then return true end
+    if tag == "word" then
+        for _, arg in ipairs(v.args) do if not M.isStatic(arg) then return false end end
+        return true
+    end
+    return false
+end
+
+-- Canonical encoding for specialization keys. Returns nil when the value is not static.
 function M.encode(v)
     if not M.is(v) then return S.encode(v) end
     local tag = v.tag
@@ -65,18 +79,6 @@ function M.encode(v)
         end
         return table.concat(parts, ",")
     end
-    if tag == "record" then
-        local parts = { "record:" .. S.encode(v.ty) }
-        local names = {}
-        for name in pairs(v.fields) do names[#names + 1] = name end
-        table.sort(names)
-        for _, name in ipairs(names) do
-            local encoded = M.encode(v.fields[name])
-            if not encoded then return nil end
-            parts[#parts + 1] = name .. "=" .. encoded
-        end
-        return table.concat(parts, ",")
-    end
     if tag == "results" then
         local parts = {}
         for index, item in ipairs(v.values) do
@@ -87,6 +89,22 @@ function M.encode(v)
         return "results:" .. table.concat(parts, ",")
     end
     return nil
+end
+
+function M.describe(v)
+    if not M.is(v) then return tostring(v) end
+    if v.tag == "type" then return "Type(" .. S.encode(v.value) .. ")" end
+    if v.tag == "ir" then return "residual<" .. S.encode(v.ty) .. ">#" .. tostring(v.expr.kind) end
+    if v.tag == "object" then return "object<" .. S.encode(v.ty) .. ">" end
+    if v.tag == "record" then return "record<" .. S.encode(v.ty) .. ">" end
+    if v.tag == "schema" then return "schema<" .. tostring(v.def.name or v.def.id) .. ">" end
+    if v.tag == "method" then return "method<" .. tostring(v.def.name) .. ">" end
+    if v.tag == "results" then
+        local parts = {}
+        for index, item in ipairs(v.values) do parts[index] = M.describe(item) end
+        return "(" .. table.concat(parts, ", ") .. ")"
+    end
+    return tostring(v.n ~= nil and v.n or v.b)
 end
 
 return M

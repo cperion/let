@@ -43,6 +43,12 @@ function M.encodeFields(fields)
     return table.concat(parts, ",")
 end
 
+function M.fieldsOf(t)
+    local map = {}
+    for _, field in ipairs(t.fields) do map[field.name] = field.type end
+    return map
+end
+
 function M.field(t, name)
     if not M.isRecord(t) then return nil end
     for _, field in ipairs(t.fields) do if field.name == name then return field.type end end

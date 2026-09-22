@@ -99,6 +99,9 @@ function Parser:expression()
     if self:at("if") then return self:ifExpression() end
     local left = self:binary(1)
     if self:at("->") then
+        D.reject("parse", "A signature is written 'A :: B'; '->' introduces a lambda body", self:peek().span)
+    end
+    if self:at("::") then
         self:next()
         local results = self:resultSpec()
         return A.c.SignatureExpr(asList({ left }), results, mergeSpan(left.span, spanOf(results) or left.span))
@@ -224,7 +227,7 @@ function Parser:primary()
     D.reject("parse", string.format("Expected an expression but found %q", token.text), token.span)
 end
 
--- `(e)` groups; `(a, b)` and `()` are signature input lists and require `->`.
+-- `(e)` groups; `(a, b)` and `()` are signature input lists and require `::`.
 function Parser:parenOrSignature()
     local open = self:expect("(")
     local items = {}
@@ -234,8 +237,8 @@ function Parser:parenOrSignature()
         end)
     end
     local close = self:expect(")")
-    if #items == 1 and not self:at("->") then return items[1] end
-    self:expect("->", "'->' after a parenthesized type list")
+    if #items == 1 and not self:at("::") then return items[1] end
+    self:expect("::", "'::' after a parenthesized type list")
     local results = self:resultSpec()
     return A.c.SignatureExpr(asList(items), results, mergeSpan(open.span, spanOf(results) or close.span))
 end
@@ -345,12 +348,14 @@ function Parser:declaration()
     return A.c.ValueDecl(def, mergeSpan(let.span, spanOf(values) or name.span))
 end
 
--- Shared tail of a named definition and a method: `-> result? = body`.
+-- Shared tail of a named definition and a method: `:: result? = body`.
 function Parser:definitionBody(name, params)
     local result = nil
-    if self:at("->") then
+    if self:at("::") then
         self:next()
         result = self:resultSpec()
+    elseif self:at("->") then
+        D.reject("parse", "A result is declared with '::'; '->' introduces a lambda body", self:peek().span)
     end
     self:expect("=")
     return A.c.WordDef(name, params, result, self:body())

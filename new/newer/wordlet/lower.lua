@@ -5,6 +5,13 @@ local M = {}
 
 local Ir = S.Ir
 
+-- Same injective escape as the ABI layer: every non-alphanumeric byte becomes _XX.
+function M.escape(name)
+    return (name:gsub("[^%w]", function(c) return string.format("_%02X", c:byte()) end))
+end
+
+local function fieldName(name) return "f_" .. M.escape(name) end
+
 local BINARY_OP = {
     Add = "+", Sub = "-", Mul = "*", Div = "/", Rem = "%",
     BitAnd = "&", BitOr = "|", BitXor = "^", Shl = "<<", Shr = ">>",
@@ -14,8 +21,9 @@ local UNARY_OP = { Neg = "-", BitNot = "~" }
 
 local Emitter = {}
 Emitter.__index = Emitter
-local function newEmitter(layouts)
-    return setmetatable({ layouts = layouts, lines = {}, indent = 1 }, Emitter)
+local function newEmitter(layouts, signature)
+    return setmetatable({ layouts = layouts, lines = {}, indent = 1,
+        placeParams = (signature and signature.placeParams) or {} }, Emitter)
 end
 function Emitter:line(text) self.lines[#self.lines + 1] = string.rep("    ", self.indent) .. text end
 function Emitter:raw(text) self.lines[#self.lines + 1] = text end
@@ -50,13 +58,33 @@ function Emitter:expr(expr)
             return "(uint32_t)((" .. left .. ") " .. cOp .. " (" .. right .. "))"
         end
         return "((" .. left .. ") " .. cOp .. " (" .. right .. "))"
+    elseif kind == "Make" then
+        local layout = self.layouts.recordLayout(expr.type)
+        local fields = {}
+        for index, field in ipairs(expr.type.fields) do
+            fields[#fields + 1] = "." .. layout.fields[index].name .. " = " .. self:expr(expr.fields[index])
+        end
+        return "(" .. layout.name .. "){" .. table.concat(fields, ", ") .. "}"
+    elseif kind == "Get" then
+        return "(" .. self:expr(expr.aggregate) .. ")." .. fieldName(expr.field.name)
     end
     D.todo("c-expr", "No C lowering for expression " .. tostring(kind))
 end
 
 function Emitter:placeC(place)
-    if place.kind == "Local" then return self:storage(place.storage.id) end
+    if place.kind == "Local" then
+        local name = self:storage(place.storage.id)
+        -- A place parameter is already a pointer; a Var is the storage itself.
+        return self.placeParams[place.storage.id] and ("(*" .. name .. ")") or name
+    end
+    if place.kind == "Project" then
+        return self:placeC(place.base) .. "." .. fieldName(place.field.name)
+    end
     D.todo("c-place", "No C lowering for place " .. tostring(place.kind))
+end
+
+function Emitter:borrow(place)
+    return "&(" .. self:placeC(place) .. ")"
 end
 
 function Emitter:declare(ty, name, initial)
@@ -109,8 +137,13 @@ function Emitter:call(stmt)
     if not signature then D.bug("c-target", "Call to unknown function " .. stmt.target) end
     local args = {}
     for _, arg in ipairs(stmt.arguments) do
-        if arg.kind ~= "ValueArg" then D.todo("c-arg", "Only by-value arguments are lowered yet") end
-        args[#args + 1] = self:expr(arg.value)
+        if arg.kind == "ValueArg" then
+            args[#args + 1] = self:expr(arg.value)
+        elseif arg.kind == "BorrowArg" then
+            args[#args + 1] = self:borrow(arg.place)
+        else
+            D.todo("c-arg", "No C lowering for argument " .. tostring(arg.kind))
+        end
     end
     local call = signature.name .. "(" .. table.concat(args, ", ") .. ")"
     -- Call results are Ir.Value ids; their types are the target's declared results, positionally.
@@ -119,6 +152,7 @@ function Emitter:call(stmt)
         self:line(call .. ";")
     elseif #stmt.results == 1 then
         self:declare(types[1], self:value(stmt.results[1].id), call)
+        self:line("(void)" .. self:value(stmt.results[1].id) .. ";")
     else
         local layout = self.layouts.resultLayout(types)
         if not layout.name then D.bug("c-results", "Multiple results need a tuple layout") end
@@ -128,6 +162,9 @@ function Emitter:call(stmt)
         for index = 1, #stmt.results do
             self:declare(types[index], self:value(stmt.results[index].id), packed .. ".f_" .. index)
         end
+        -- A discarded call still must not leave an unused local behind under -Werror.
+        self:line("(void)" .. packed .. ";")
+        for index = 1, #stmt.results do self:line("(void)" .. self:value(stmt.results[index].id) .. ";") end
     end
 end
 
@@ -161,6 +198,9 @@ function M.typeDeclarations(layouts)
     end
     for _, tuple in ipairs(layouts.tupleOrder) do aggregate(tuple.name, tuple.fields) end
     for _, record in ipairs(layouts.recordOrder) do aggregate(record.name, record.fields) end
+    for _, exported in ipairs(layouts.typeExports or {}) do
+        lines[#lines + 1] = "typedef " .. exported.layout.name .. " " .. exported.name .. ";"
+    end
     return lines
 end
 
@@ -168,7 +208,8 @@ function M.signatureText(layouts, signature)
     local parameters = {}
     if #signature.params == 0 then parameters[1] = "void" end
     for _, param in ipairs(signature.params) do
-        parameters[#parameters + 1] = layouts:cType(param.type) .. " " .. param.name
+        local pointer = param.pointer and " *" or " "
+        parameters[#parameters + 1] = layouts:cType(param.type) .. pointer .. param.name
     end
     local returns = "void"
     if signature.results.kind == "scalar" then returns = layouts:cType(signature.results.type) end
@@ -217,7 +258,7 @@ function M.bodies(layouts)
     local lines = {}
     for _, instance in ipairs(layouts.order) do
         local signature = layouts.signatures[instance.target]
-        local emitter = newEmitter(layouts)
+        local emitter = newEmitter(layouts, signature)
         emitter:raw(M.signatureText(layouts, signature) .. " {")
         emitter:statements(instance.fn.body)
         emitter:raw("}")

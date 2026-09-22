@@ -82,7 +82,7 @@ local ok, err = xpcall(function()
         "bundle must embed the project and vendored license notices")
     write(temp .. "/isolated.lua", first)
     -- The shipped bundle is the compiler itself: compile and interpret a program with no source tree.
-    local program = [==[let affine(a, b, x: U32) -> U32 = a * x + b
+    local program = [==[let affine(a, b, x: U32) :: U32 = a * x + b
 return { functions = { affine } }]==]
     write(temp .. "/program.let", program)
     run([[package.path=''; package.cpath=''; local w=assert(loadfile('isolated.lua'))();

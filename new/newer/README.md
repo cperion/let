@@ -18,16 +18,19 @@ this section states exactly how much of it runs today.
 | Verification (`check.lua`) | implemented: types, scope, definite initialisation, fall-through |
 | C ABI closure and C11 emission | implemented for scalars, Bool, Unit and multiple results |
 | Single-file bundle and CLI | implemented; `dist/wordlet.lua` |
-| Records, schemas and methods | **not implemented** (they parse; evaluation raises `todo`) |
+| Records, schemas, methods and field stores | implemented, including compound stores and by-value copy |
 | Lambdas and closures | **not implemented** (they parse) |
 | Loops and the self-tail rewrite | **not implemented**; recursion stays ordinary C calls |
-| Field stores (`r.x = ...`), `Loop`/`Next` emission | **not implemented** |
+| Module-level mutable records captured by runtime code | **rejected** (`module-mutable-capture`); needs a runtime storage interface |
 
 Working end to end today: U32/Bool/Unit, `let` bindings, named definitions with parameter and result
 annotations, arithmetic/comparison/bitwise/logical operators, expression and statement conditionals,
 multiple results and result-list binding, static partial application, automatic static
-specialisation, calls compiled to independently elaborated bodies, and recursion with an explicit
-result annotation. `tests/eval.lua` (74 checks) and `tests/c.lua` (93 checks) cover it.
+specialisation, calls compiled to independently elaborated bodies, recursion with an explicit result
+annotation, and records with methods, borrowed receivers, field reads and compound stores.
+
+Results and signatures are written with `::`; `->` introduces a lambda body and nothing else.
+`tests/eval.lua` (111 checks) and `tests/c.lua` (148 checks, 13 programs) cover this.
 
 
 - [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.

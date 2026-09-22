@@ -48,6 +48,12 @@ Lua-level signatures. `Diag` values are raised with `error`, not returned.
 | `wordlet/init.lua` | `compile(options) -> Artifact`, `compile_file(path, options)` | public facade |
 | `wordlet/cli.lua` | `function(api, argv) -> exit_status` | bundler CLI entry point |
 
+Current reality, so the table is not read as a promise of empty files: lexical resolution and
+primitive bootstrap live inside `wordlet/eval.lua` (`load`, `parameterScope`, `define`), and the
+schema text is served by the generated modules `wordlet/schema/ast.lua` and `wordlet/schema/ir.lua`
+produced from `ast.asdl`/`ir.asdl` by `tools/embed.lua`. Splitting `resolve.lua`/`builtins.lua` out
+is a refactor, not a missing behaviour.
+
 `Compilation = { program = Ir.Program, meta = Meta }`. `Meta` is compiler-private state that never
 reaches `Ir.Program`: projections, trap policy, export selection, source spans, provenance.
 
@@ -259,9 +265,9 @@ Two compilations of identical input produce byte-identical header and source.
 Source (`app.let`):
 
 ```
-let inc(x: U32) -> U32 = x + 1
-let apply(f: U32 -> U32, x: U32) -> U32 = f(x)
-let run(x: U32) -> U32 = apply(inc, x)
+let inc(x: U32) :: U32 = x + 1
+let apply(f: U32 :: U32, x: U32) :: U32 = f(x)
+let run(x: U32) :: U32 = apply(inc, x)
 return { functions = { inc, run } }
 ```
 

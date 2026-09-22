@@ -78,16 +78,22 @@ function M.close(compilation)
 
     local signatures = {}
     local function signature(fn, cName, hidden)
-        local params = {}
+        local params, placeParams = {}, {}
         for _, param in ipairs(fn.params) do
             if param.kind == "ValueParam" then
                 -- The C parameter is named after the SSA value so Ref() lowers directly.
                 params[#params + 1] = { name = "v" .. param.binding.id, type = param.type, input = param.input }
+            elseif param.kind == "PlaceParam" then
+                -- A borrowed receiver is a pointer; its storage id names the pointed-to object.
+                params[#params + 1] = { name = "s" .. param.binding.id, type = param.type,
+                    input = param.input, pointer = true }
+                placeParams[param.binding.id] = true
             else
-                D.todo("c-input", "Only by-value inputs have a C representation yet")
+                D.todo("c-input", "Only by-value and borrowed inputs have a C representation yet")
             end
         end
-        return { fn = fn, name = cName, params = params, results = resultLayout(fn.results), hidden = hidden or 0 }
+        return { fn = fn, name = cName, params = params, placeParams = placeParams,
+            results = resultLayout(fn.results), hidden = hidden or 0 }
     end
 
     for _, instance in ipairs(compilation.session.order) do
@@ -97,6 +103,14 @@ function M.close(compilation)
         signatures[instance.target].aliases = entry and entry.aliases or {}
     end
 
+    -- Exported record types get a public alias so consumers never name a numbered struct.
+    layouts.typeExports = {}
+    for _, entry in ipairs(compilation.types or {}) do
+        local layout = recordLayout(entry.type)
+        layouts.typeExports[#layouts.typeExports + 1] = {
+            name = "wordtype_" .. M.escape(entry.name), layout = layout, entry = entry,
+        }
+    end
     layouts.signatures = signatures
     layouts.order = compilation.session.order
     return layouts
