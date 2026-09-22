@@ -100,7 +100,7 @@ function Eval:compile(program)
         if V.tag(value) ~= "word" then
             D.reject("function-required", "Exported function " .. item.name.text .. " is not a word", item.name.span)
         end
-        exports.functions[#exports.functions + 1] = { name = item.name.text, word = value, span = item.span }
+        exports.functions[#exports.functions + 1] = { name = item.name.text, word = value, span = item.name.span }
     end
     for _, item in ipairs(program.export.types) do
         local value = resolve(item)
@@ -317,6 +317,11 @@ function Eval:expression(ctx, value)
     if tag == "record" or tag == "object" then return self:recordExpr(ctx, value) end
     if tag == "closure" then
         local plan = value.plan
+        if #plan.borrowedOrder > 0 then
+            D.reject("borrow-escape",
+                "A closure capturing mutable storage or a method cannot escape its activation; call it "
+                .. "where it was created, or pass the receiver instead", ctx.span)
+        end
         if #plan.runtimeOrder == 0 then
             D.reject("static-callable-value",
                 "A closure with no runtime environment has no runtime representation", ctx.span)
@@ -830,17 +835,17 @@ function Eval:applyClosure(ctx, plan, envExprs, args, span)
     if ctx.mode ~= "residual" then
         D.reject("runtime-in-normalization", "This closure call needs runtime code", span)
     end
-    local callable = { plan = plan, envValues = nil, envExprs = envExprs }
-    if envExprs == nil then
-        callable.envValues = {}
-        for _, name in ipairs(plan.runtimeOrder) do callable.envValues[#callable.envValues + 1] = plan.runtime[name] end
-    end
+    local callable = { plan = plan, env = self:closureEnvironment(plan, envExprs) }
     return self:callClosure(ctx, callable, args, span)
 end
 
 -- An Owned IR value carries its environment; the captured fields are its arguments.
 function Eval:applyOwned(ctx, value, args, span)
     local plan = self:planOf(value.ty, span)
+    if #plan.borrowedOrder > 0 then
+        D.bug("borrowed-callable-value",
+            "A closure with borrowed captures must not have a materialised value")
+    end
     local envTys = {}
     for _, field in ipairs(value.ty.environment.fields or {}) do envTys[field.name] = field.type end
     local envExprs = {}
@@ -853,6 +858,15 @@ end
 -- Evaluating a capture-free closure with known arguments produces a value, not a call.
 function Eval:applyClosureStatically(plan, args, span)
     local sc = scope(self.top)
+    for _, name in ipairs(plan.borrowedOrder) do
+        local borrowed = plan.borrowed[name]
+        if not borrowed.record then
+            D.bug("borrowed-capture", "A statically evaluated closure must borrow a concrete record")
+        end
+        local value = borrowed.kind == "method" and V.method(borrowed.method, borrowed.record)
+            or borrowed.record
+        declare(sc, name, { kind = "value", name = name, value = value }, span)
+    end
     for name, value in pairs(plan.static) do
         declare(sc, name, { kind = "value", name = name, value = value }, span)
     end
@@ -908,16 +922,38 @@ function Eval:evalLambda(ctx, expr, expected)
     local plan = { def = self:define(expr, self.top, nil, "|lambda|"), order = order, static = {},
         runtime = {}, runtimeOrder = {}, captures = order }
     plan.def.lambda = true
+    plan.borrowed, plan.borrowedOrder = {}, {}
     for _, name in ipairs(order) do
         local value = self:captureValue(ctx, name, expr.span)
+        local tag = V.tag(value)
         if V.isStatic(value) then
             plan.static[name] = value
-        else
-            if V.tag(value) == "object" or V.tag(value) == "method" then
-                D.todo("borrowed-capture",
-                    "Capturing mutable storage or a method needs a non-retaining environment, which is "
-                    .. "not implemented; capture a value instead", expr.span)
+        elseif tag == "object" or tag == "method" or tag == "record" then
+            -- A mutable instance or a method view is borrowed, never copied: the closure is tied to
+            -- the activation that created it. In residual code the place travels as a place input;
+            -- under the interpreter a concrete record is simply referred to.
+            local object = tag == "method" and value.receiver or value
+            if not object then
+                D.reject("missing-receiver", "A captured method needs its receiver", expr.span)
             end
+            local schema = object.schema or object.schema
+            plan.borrowedOrder[#plan.borrowedOrder + 1] = name
+            plan.borrowed[name] = {
+                kind = tag == "method" and "method" or "object",
+                ty = object.ty, schema = schema or { id = 0, fields = S.fieldsOf(object.ty),
+                    fieldNames = S.fieldNames(object.ty), statics = {}, readonly = {}, methods = {} },
+                place = object.place, record = object.place == nil and object or nil,
+                method = tag == "method" and value.def or nil,
+            }
+            if ctx.mode == "residual" and not plan.borrowed[name].place then
+                D.reject("runtime-in-normalization", "Cannot capture runtime storage " .. name, expr.span)
+            end
+        elseif tag == "closure" then
+            -- A nested borrowed closure would need a place for a callable environment.
+            D.reject("borrow-escape",
+                "Capturing a borrowed closure needs a callable environment, which is not supported; "
+                .. "capture its receiver instead", expr.span)
+        else
             if ctx.mode ~= "residual" then
                 D.reject("runtime-in-normalization", "This closure captures runtime value " .. name, expr.span)
             end
@@ -963,9 +999,15 @@ function Eval:evalLambda(ctx, expr, expected)
     plan.envTy = #plan.runtimeOrder > 0 and S.record(envFields) or S.Unit
     plan.key = "closure:" .. tostring(plan.def.id)
     for _, capture in ipairs(order) do
-        local static = plan.static[capture]
-        plan.key = plan.key .. (static and ("|" .. capture .. "=" .. (V.encode(static) or "?"))
-            or ("|" .. capture .. "=#"))
+        local static, borrowed = plan.static[capture], plan.borrowed[capture]
+        if borrowed then
+            local shape = tostring(borrowed.kind) .. ":" .. tostring(borrowed.schema.id)
+            if borrowed.method then shape = shape .. ":" .. tostring(borrowed.method.id) end
+            plan.key = plan.key .. "|" .. capture .. "=@" .. shape
+        else
+            plan.key = plan.key .. (static and ("|" .. capture .. "=" .. (V.encode(static) or "?"))
+                or ("|" .. capture .. "=#"))
+        end
     end
     self.plans = self.plans or {}
     self.plans[plan.key] = plan
@@ -1010,22 +1052,41 @@ function Eval:callableKey(plan, args)
     return table.concat(parts, "/")
 end
 
+-- The environment arguments, in the order the lambda instance expects: by-value captures first,
+-- then borrowed places.
+function Eval:closureEnvironment(plan, envExprs)
+    local entries = {}
+    for _, name in ipairs(plan.runtimeOrder) do
+        if envExprs then
+            entries[#entries + 1] = { kind = "value", expr = envExprs[name] or envExprs[#entries + 1] }
+        else
+            entries[#entries + 1] = { kind = "value", value = plan.runtime[name] }
+        end
+    end
+    for _, name in ipairs(plan.borrowedOrder) do
+        entries[#entries + 1] = { kind = "place", place = plan.borrowed[name].place }
+    end
+    return entries
+end
+
 function Eval:callClosure(ctx, callable, args, span)
     local instance = self:callableInstance(callable, args, span)
     if instance.status == "building" and not instance.results then
         D.reject("recursive-result", "Recursive closure needs an explicit result annotation", span)
     end
     -- Environment arguments precede the declared parameters for the compiled lambda.
-    local envArgs = callable.envValues or callable.envExprs
-    return self:emitCallableCall(ctx, instance, envArgs, args, span)
+    return self:emitCallableCall(ctx, instance, callable.env, args, span)
 end
 
 function Eval:emitCallableCall(ctx, instance, envArgs, args, span)
     local builder = ctx.builder
     local operands = {}
-    for index = 1, #envArgs do
-        local arg = envArgs[index]
-        operands[#operands + 1] = Ir.ValueArg(arg.expr or arg)
+    for _, arg in ipairs(envArgs) do
+        if arg.kind == "place" then
+            operands[#operands + 1] = Ir.BorrowArg(arg.place)
+        else
+            operands[#operands + 1] = Ir.ValueArg(arg.expr or self:expression(ctx, arg.value))
+        end
     end
     for _, position in ipairs(instance.paramPositions) do
         operands[#operands + 1] = Ir.ValueArg(self:expression(ctx, args[position]))
@@ -1075,6 +1136,20 @@ function Eval:buildCallableInstance(key, callable, args, span)
         inputs[#inputs + 1] = S.inValue(ty)
         paramTypes[#paramTypes + 1] = ty
         declare(sc, name, { kind = "value", name = name, value = V.ir(Ir.Ref(value, ty), ty) }, span)
+    end
+    for _, name in ipairs(plan.borrowedOrder) do
+        local borrowed = plan.borrowed[name]
+        local storage = builder:storageId()
+        params[#params + 1] = Ir.PlaceParam(#inputs, storage, borrowed.ty)
+        inputs[#inputs + 1] = S.inPlace(borrowed.ty)
+        paramTypes[#paramTypes + 1] = borrowed.ty
+        local object = V.object(borrowed.ty, Ir.Local(storage), borrowed.schema)
+        if borrowed.kind == "method" then
+            declare(sc, name, { kind = "value", name = name,
+                value = V.method(borrowed.method, object) }, span)
+        else
+            declare(sc, name, { kind = "value", name = name, value = object }, span)
+        end
     end
     for name, value in pairs(plan.static) do
         declare(sc, name, { kind = "value", name = name, value = value }, span)

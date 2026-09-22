@@ -47,7 +47,8 @@ function M.isKnown(v)
         return false
     end
     if tag == "closure" then
-        if #v.plan.runtimeOrder > 0 then return false end
+        -- A closure that borrows storage is never a compile-time constant.
+        if #v.plan.runtimeOrder > 0 or #(v.plan.borrowedOrder or {}) > 0 then return false end
         for _, capture in ipairs(v.plan.order) do
             local value = v.plan.static[capture]
             if value and not M.isKnown(value) then return false end

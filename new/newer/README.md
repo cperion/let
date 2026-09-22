@@ -20,7 +20,8 @@ this section states exactly how much of it runs today.
 | Single-file bundle and CLI | implemented; `dist/wordlet.lua` |
 | Records, schemas, methods and field stores | implemented, including compound stores and by-value copy |
 | Closures and higher-order words | implemented: by-value environments, direct calls, capture-free lambdas as static code |
-| Borrowed captures (a captured receiver or method) | **rejected** (`borrowed-capture`); needs a non-retaining environment |
+| Borrowed captures (a captured receiver or method) | implemented as a non-retaining place input. Such a closure cannot escape, be stored or be captured again (`borrow-escape`) |
+| Nested borrowed closures (a closure capturing another borrowed closure) | **rejected** (`borrow-escape`); needs a callable environment |
 | A callable with no known code (an opaque function pointer) | **rejected** (`opaque-callable`) |
 | Contextual lambda parameter types | implemented: a binding annotation, a parameter requirement or a result contract supplies them. A lambda with no expectation anywhere is still rejected (`lambda-annotation`) |
 | Two different lambdas returned from one conditional | **rejected** (`branch-result`); a tagged callable needs a variant representation |
@@ -49,7 +50,12 @@ annotation (`let inc: (U32): U32 = |x| -> x + 1`), a parameter requirement
 (`twice(|y| -> y + 1, x)`) or a result contract (`let adder(n: U32): (U32): U32 = |x| -> x + n`,
 where the signature also becomes a checked requirement on what the body returns).
 
-`tests/eval.lua` (176 checks) and `tests/c.lua` (217 checks, 16 programs) cover this.
+A lambda that captures a mutable instance or a method view keeps a **borrow** rather than a copy, so
+it observes later mutation — unlike a captured scalar field, which is a snapshot. The borrow travels
+to the compiled lambda as a place input, and because the closure is tied to the activation that made
+it, returning, storing or re-capturing it is rejected.
+
+`tests/eval.lua` (183 checks) and `tests/c.lua` (234 checks, 17 programs) cover this.
 
 
 - [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.

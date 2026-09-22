@@ -187,6 +187,24 @@ local CASES = {
         inputs = { { 3, 4 }, { 0, 0 }, { 7, 5 }, { 5 }, { 0 }, { 10 } },
     },
     {
+        name = "borrowed",
+        source = "let Counter = {\n  value: U32,\n"
+            .. "  bump(): U32 = do value += 1 return value end,\n}\n"
+            .. "let local_bumps(n: U32): U32 = do\n"
+            .. "  let c = Counter { value = n }\n"
+            .. "  let f = |k: U32| -> c.bump() + k\n  return f(1) + f(2)\nend\n"
+            .. "let method_view(n: U32): U32 = do\n"
+            .. "  let c = Counter { value = n }\n  let g = c.bump\n"
+            .. "  let h = |u: U32| -> g() + u\n  return h(10)\nend\n"
+            .. "let read_through(n: U32): U32 = do\n"
+            .. "  let c = Counter { value = n }\n  let peek = |u: U32| -> c.value + u\n"
+            .. "  c.value += 5\n  return peek(100)\nend\n"
+            .. "return { types = { Counter }, functions = { local_bumps, method_view, read_through } }",
+        entries = { { entry = "local_bumps", arity = 1 }, { entry = "method_view", arity = 1 },
+            { entry = "read_through", arity = 1 } },
+        inputs = { { 0 }, { 5 }, { 1 }, { 100 }, { 4294967295 } },
+    },
+    {
         name = "alias",
         source = "let inc(x: U32) : U32 = x + 1\nreturn { functions = { a = inc, b = inc } }",
         entries = { { entry = "a", arity = 1 }, { entry = "b", arity = 1 } },

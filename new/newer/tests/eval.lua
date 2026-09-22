@@ -241,6 +241,43 @@ rejects("callable-shape", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
 rejects("branch-result", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
     .. "return { functions = { pick } }")
 
+-- Borrowed captures: a captured receiver is a place, not a copy --------------------------------
+local BORROWED = [==[
+let Counter = {
+  value: U32,
+  bump(): U32 = do value += 1 return value end,
+}
+let local_bumps(n: U32): U32 = do
+  let c = Counter { value = n }
+  let f = |k: U32| -> c.bump() + k
+  return f(1) + f(2)
+end
+let method_view(n: U32): U32 = do
+  let c = Counter { value = n }
+  let g = c.bump
+  let h = |u: U32| -> g() + u
+  return h(10)
+end
+let read_through(n: U32): U32 = do
+  let c = Counter { value = n }
+  let peek = |u: U32| -> c.value + u
+  c.value += 5
+  return peek(100)
+end
+return { types = { Counter }, functions = { local_bumps, method_view, read_through } }
+]==]
+check(interpret("local_bumps", { 5 }, BORROWED)[1] == 16, "a captured receiver mutates through the closure")
+check(interpret("method_view", { 5 }, BORROWED)[1] == 16, "a captured method view keeps its receiver")
+check(interpret("read_through", { 1 }, BORROWED)[1] == 106,
+    "a borrowed receiver is live, unlike a captured field snapshot")
+
+rejects("borrow-escape", "let C = { v: U32, bump(): U32 = v }\n"
+    .. "let bad(n: U32): (U32): U32 = do let c = C { v = n } return |k: U32| -> c.bump() + k end\n"
+    .. "return { types = { C }, functions = { bad } }")
+rejects("borrow-escape", "let C = { v: U32, bump(): U32 = v }\nlet S = { f: (U32): U32 }\n"
+    .. "let bad(n: U32): U32 = do let c = C { v = n } let s = S { f = |k: U32| -> c.bump() } return 0 end\n"
+    .. "return { types = { C, S }, functions = { bad } }")
+
 -- Rejections ---; non-tail recursion stays a call -------------------------------
 local loopSession = Eval.session()
 loopSession:compile(Parse.source("let sum_to(n, acc: U32) : U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
@@ -321,10 +358,6 @@ rejects("static-required", "let P = { x: U32, y: U32 }\nlet f(a: U32) : U32 = do
 rejects("not-a-place", "let P = { x: U32 }\nlet f(a: U32) : U32 = do"
     .. " let p = P { x = a }\n let n = 3\n n = 4\n return p.x end\nreturn { functions = { f } }")
 rejects("type-mismatch", RECORDS, "bump", { 7 })
--- A captured record instance or method retains a place, which needs a non-retaining environment.
-rejects("borrowed-capture", "let C = { v: U32, inc() : U32 = v }\n"
-    .. "let f(x: U32) : U32 = do let c = C { v = x } let g = |y: U32| -> c.inc() return g(1) end\n"
-    .. "return { types = { C }, functions = { f } }")
 -- A callable with no known code needs a function-pointer ABI.
 rejects("opaque-callable", "let apply(f: (U32): U32, x: U32) : U32 = f(x)\n"
     .. "return { functions = { apply } }")
