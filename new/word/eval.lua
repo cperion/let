@@ -8,6 +8,7 @@ local IR = require("word.ir")
 local Data = require("word.data")
 local Trace = require("word.trace")
 local Callable = require("word.callable")
+local Owner = require("word.owner")
 local E = {}
 E.__index = E
 
@@ -121,7 +122,7 @@ function E:define(args)
         for name in pairs(Host.environment_names(terminal)) do
             if parent.owner and frame.has_member(name) then
                 def.lexical_owner = parent.owner
-                return self:bind_method(word, parent.owner, parent.receiver)
+                return self:bind_method(word, parent.owner, parent.receiver, parent.scope_path)
             end
         end
     end
@@ -145,7 +146,7 @@ function E:demand_key(w)
     local p = self:word_payload(w)
     local key = self:key(p.definition, p.static)
     if p.owner then
-        key = "receiver/" .. Model.key(p.owner) .. "/" .. Model.key(p.receiver) .. "/" .. key
+        key = "receiver/" .. Model.key(p.owner) .. "/" .. Model.key(p.receiver) .. "/" .. Owner.path_key(p.scope_path) .. "/" .. key
     end
     return key
 end
@@ -198,7 +199,7 @@ function E:static_call(w)
     return result
 end
 
-function E:normalize(value)
+function E:normalize(value, lexical_names)
     return self.scope:with({ context = self:normal_context() }, function()
         local seen = {}
         while true do
@@ -213,7 +214,7 @@ function E:normalize(value)
             end
             self:check_word(value)
             local def = p.definition
-            if def.shape == "keyed" then return self:as_type(value) end
+            if def.shape == "keyed" then return self:as_type(value, lexical_names) end
             if Model.primitive(value) or not def.terminal or #p.static < #def.inputs then return value end
             local key = self:demand_key(value)
             if seen[key] then D.reject("normalization-cycle", "Static word results form a demand cycle") end
@@ -256,7 +257,7 @@ function E:intern_schema(fields, order, bindings, methods, tuple_arity)
     return self.schemas[key]
 end
 
-function E:as_type(w)
+function E:as_type(w, lexical_names)
     local p = Model.get(w)
     if p and p.engine ~= self then D.reject("foreign-session", "Type belongs to a different session") end
     if not p or p.tag ~= "word" then D.reject("type-required", "Expected a static type word") end
@@ -267,6 +268,7 @@ function E:as_type(w)
     if def.shape == "keyed" then
         return self:stage(def.source, "type_word", w, function()
             local fields, order, methods = {}, {}, {}
+            local child_names = Owner.child_names(lexical_names, def.fields)
             for _, name in ipairs(def.order) do
                 local field = def.fields[name]
                 local fp = self:word_payload(field)
@@ -278,8 +280,8 @@ function E:as_type(w)
                         local need_receiver = D.control()
                         local ok, result = pcall(function()
                             return self.scope:with({context = self:normal_context(), source = fp.definition.source,
-                                classifying_word = field, classifying_fields = def.fields, need_receiver = need_receiver},
-                                function() return self:normalize(field) end)
+                                classifying_word = field, classifying_fields = child_names, need_receiver = need_receiver},
+                                function() return self:normalize(field, child_names) end)
                         end)
                         if not ok then
                             if result ~= need_receiver and not (D.is(result) and result.id == "runtime-in-normalization") then error(result, 0) end
@@ -293,26 +295,26 @@ function E:as_type(w)
                     end
                 end
                 if method then methods[name] = field
-                else fields[name] = self:requirement_type(meaning); order[#order + 1] = name end
+                else fields[name] = self:requirement_type(meaning, child_names); order[#order + 1] = name end
             end
             return self:intern_schema(fields, order, nil, methods)
         end)
     end
     if def.terminal and #p.static == #def.inputs then
-        local result = self:normalize(w)
+        local result = self:normalize(w, lexical_names)
         if result == w and p.owner and not p.receiver then
             D.reject("missing-receiver", "Bind the receiver before demanding the method result as a type")
         end
         local rp = Model.word(result)
-        if rp and (Model.primitive(result) or rp.definition.shape == "keyed") then return self:as_type(result) end
+        if rp and (Model.primitive(result) or rp.definition.shape == "keyed") then return self:as_type(result, lexical_names) end
     end
     D.reject("type-required", "Word does not denote a concrete static type")
 end
 
-function E:requirement_type(w)
+function E:requirement_type(w, lexical_names)
     local p = self:word_payload(w)
     if not Model.primitive(w) and p.definition.shape == "ordered" and
-        p.definition.terminal and #p.static == #p.definition.inputs then w = self:normalize(w) end
+        p.definition.terminal and #p.static == #p.definition.inputs then w = self:normalize(w, lexical_names) end
     if Model.callable(w) then return w end
     if Model.calling_requirement(w) then
         self:check_word(w)
@@ -321,7 +323,7 @@ function E:requirement_type(w)
         if result then return Callable.type(self, w, result) end
         return w
     end
-    return self:as_type(w)
+    return self:as_type(w, lexical_names)
 end
 
 -- Positional requirements constrain remaining inputs, not the result or behavior.
@@ -396,13 +398,14 @@ function E:member(w, name)
 end
 
 -- A transient selection, never interned with static specialization metadata.
-function E:bind_method(method, owner, receiver)
+function E:bind_method(method, owner, receiver, scope_path)
     -- Every data input is already supplied: bind immutable metadata, not invented
     -- runtime storage. Empty namespace instances have the same erased semantics.
     if #Model.record(owner).runtime_order == 0 then receiver = Data.constant(self, owner, {}) end
     local p = self:word_payload(method)
     return Model.wrap({ tag = "word", engine = self, definition = p.definition, static = p.static,
-        method = method, owner = owner, receiver = receiver }, self.word_mt)
+        method = method, owner = owner, receiver = receiver,
+        scope_path = scope_path and {table.unpack(scope_path)} or nil }, self.word_mt)
 end
 
 function E:coerce(t, value)
@@ -486,7 +489,7 @@ function E:specialize(w, args)
         static[#static + 1] = value
     end
     local specialized = self:handle(def, static)
-    if p.owner then return self:bind_method(specialized, p.owner, p.receiver) end
+    if p.owner then return self:bind_method(specialized, p.owner, p.receiver, p.scope_path) end
     return specialized
 end
 
@@ -619,7 +622,8 @@ end
 -- Different instances still inline until they encounter an unsupported cycle.
 function E:recursive_args(w, args, entry)
     local p, ep = self:word_payload(w), self:word_payload(entry.word)
-    if p.owner ~= ep.owner or p.definition ~= ep.definition or #p.static > #ep.static then return nil end
+    if p.owner ~= ep.owner or p.definition ~= ep.definition or #p.static > #ep.static or
+        Owner.path_key(p.scope_path) ~= Owner.path_key(ep.scope_path) then return nil end
     if p.owner then
         local actual, expected = Model.get(p.receiver), Model.get(ep.receiver)
         if expected and expected.tag == "known" then
@@ -706,7 +710,7 @@ function E:execute(w, args, context)
                             for _, t in ipairs(self:call_inputs(active.invoked)) do
                                 t = self:requirement_type(t)
                                 if t == self.Type then D.reject("static-required", "Bind helper Type inputs with :of before outlining recursion") end
-                                if Model.calling_requirement(t) then D.todo("callable-inputs", "Bind helper callable inputs with :of until a runtime callable ABI is available") end
+                                Callable.check_results(t)
                             end
                             context.need_helper.word = key
                             error(context.need_helper, 0)
@@ -728,10 +732,10 @@ function E:execute(w, args, context)
         lookup_names = context.mode == "normalize" and {} or nil }
     if p.owner and not def.capture_fields then
         if not p.receiver then D.reject("missing-receiver", "Select the method on an instance") end
-        local schema = Model.record(p.owner)
-        frame.has_member = function(name) return schema.fields[name] ~= nil or schema.methods[name] ~= nil end
-        frame.read_member = function(name) return Data.read(self, p.receiver, name) end
-        frame.write_member = function(name, value) return Data.write(self, p.receiver, name, value) end
+        local function member_scope(name) return Data.member_scope(self, p.receiver, p.scope_path, name) end
+        frame.has_member = function(name) return member_scope(name) ~= nil end
+        frame.read_member = function(name) return Data.read(self, member_scope(name), name) end
+        frame.write_member = function(name, value) return Data.write(self, member_scope(name), name, value) end
     else
         local classifier = self.scope:find("classifying_word", w)
         if classifier then
@@ -907,13 +911,13 @@ function E:compile_word(w, graph, one_call, reservation)
                     if p.owner then
                         local owner = p.receiver and p.owner or self:requirement_type(p.owner)
                         local receiver = p.receiver or Data.receiver(self, owner, builder)
-                        invoked = self:bind_method(p.method, owner, receiver)
+                        invoked = self:bind_method(p.method, owner, receiver, p.scope_path)
                     end
                     local args = { n = #def.inputs - #p.static }
                     for i = 1, args.n do
                         local t = self:requirement_type(def.inputs[#p.static + i])
                         if t == self.Type then D.reject("static-required", "Bind Type inputs with :of before C export") end
-                        if Model.calling_requirement(t) then D.todo("callable-inputs", "Bind executable inputs with :of; runtime callable parameters need an ABI") end
+                        Callable.check_results(t)
                         if not Model.runtime_type(t) then D.reject("runtime-type", "Parameter has no runtime representation") end
                         if t == self.Unit then args[i] = self:known(nil, t)
                         else args[i] = self:symbol(builder:parameter(t), t, builder) end
@@ -1018,8 +1022,8 @@ function E:compile(spec)
         local p = engine:word_payload(word)
         if not p.owner then return word end
         local receiver = p.receiver and Model.get(p.receiver).tag == "known" and p.receiver or nil
-        local key = Model.key(p.owner) .. ":" .. Model.key(p.method) .. ":" .. (receiver and Model.key(receiver) or "storage")
-        if not self.methods[key] then self.methods[key] = engine:bind_method(p.method, p.owner, receiver) end
+        local key = Model.key(p.owner) .. ":" .. Model.key(p.method) .. ":" .. Owner.path_key(p.scope_path) .. ":" .. (receiver and Model.key(receiver) or "storage")
+        if not self.methods[key] then self.methods[key] = engine:bind_method(p.method, p.owner, receiver, p.scope_path) end
         return self.methods[key]
     end
     function graph:parameters(entry, parameters, receiver)
@@ -1066,6 +1070,7 @@ function E:compile(spec)
     end
     function graph:require(word, one_call)
         local p = engine:word_payload(word)
+        require("word.closure").check_lexical_outline(word)
         if p.owner then
             if not one_call and p.receiver and Model.get(p.receiver).tag ~= "known" then
                 D.reject("bound-method-export", "Export the unbound Type.method with a receiver parameter, not a method bound to mutable Lua storage")

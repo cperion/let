@@ -3,6 +3,18 @@ local Model = require("word.model")
 local Data = require("word.data")
 local M = {}
 
+-- An input-only requirement is useful for known code, but cannot describe an
+-- unknown runtime call until its result contract has been supplied.
+function M.check_results(t, seen)
+    if Model.calling_requirement(t) then
+        D.reject("callable-result", "Runtime callable result is undetermined; declare results[signature] = ResultType (or a result type list)")
+    end
+    local def = Model.record(t)
+    if not def then return end
+    seen = seen or {}; if seen[t] then return end; seen[t] = true
+    for _, name in ipairs(def.runtime_order) do M.check_results(def.fields[name], seen) end
+end
+
 function M.type(engine, signature, result)
     engine.callable_types = engine.callable_types or {}
     local inputs, parameters, parts = engine:call_inputs(signature), {}, {Model.key(result)}
@@ -13,6 +25,7 @@ function M.type(engine, signature, result)
     local key = table.concat(parts, "/")
     if engine.callable_types[key] then return engine.callable_types[key] end
     for _, t in ipairs(inputs) do
+        M.check_results(t)
         if not Model.runtime_type(t) then D.reject("runtime-type", "Callable input needs a concrete runtime type") end
         if t ~= engine.Unit then parameters[#parameters + 1] = {type = t} end
     end
@@ -158,6 +171,7 @@ function M.result(engine, requirement)
         end
         t = n == 0 and engine.Unit or (n == 1 and fields.r1 or engine:intern_schema(fields, order, nil, nil, n))
     else t = engine:requirement_type(requirement) end
+    M.check_results(t)
     if not Model.runtime_type(t) then D.reject("runtime-type", "Declared result needs a concrete runtime representation") end
     return t
 end

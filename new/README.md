@@ -13,7 +13,11 @@ luajit new/wordc.lua --todos
 The generated C is a library fragment, not a program with `main`. Export names are prefixed with
 `word_`; non-alphanumeric bytes are escaped. For the example, call `word_affine(a, b, x)` or
 `word_transform(x)`. The test runner compiles and executes temporary C programs outside the repository.
-Set `CC` to select the test compiler.
+Set `CC` to select the test compiler. C integration tests require GNU `timeout`: each compiler process
+has a 15-second deadline and each generated executable a 5-second deadline, with forced termination
+after a further second if needed. Override with positive seconds in `WORD_TEST_COMPILE_TIMEOUT` and
+`WORD_TEST_RUN_TIMEOUT`. These are test-only subprocess limits, not compiler-installed Lua hooks.
+For an overall test deadline (including host Lua execution), use `timeout 90s luajit new/test/all.lua`.
 
 ## Implemented slices
 
@@ -45,7 +49,8 @@ C exports return a by-value struct named `wordresult_<escaped export name>`; use
 `Word.c_result_type_name(name)` to obtain that name. Fields are `f_r1`, `f_r2`, etc.; Unit fields
 are erased without renumbering later fields. All-Unit packs use the existing empty-record padding.
 Arity and component types must agree across branches and recursive calls. Static word results can
-be consumed locally; escaping executable C results still need the separate runtime closure ABI.
+be consumed locally; immutable escaping executable results use typed by-value environments as described
+in [closure-abi.md](closure-abi.md). Borrowed executable values cannot escape.
 See `new/examples/results.lua`.
 
 ### U32 arithmetic
@@ -300,8 +305,12 @@ caller's receiver. Local self-recursive words keep the same typed receiver ABI.
 
 Such mutable receiver views remain borrowed. To return an immutable snapshot closure, first read the
 field into a Lua local and capture that scalar value instead. See `new/examples/lexical_locals.lua`.
-Lexical member occurrences across nested keyed record definitions remain incomplete.
-See `new/examples/method_exports.lua` and `new/examples/closed_methods.lua`.
+Nested mutable keyed places retain their actual root and field path. Their methods can read/write
+nearest lexical fields and call outer sibling methods; recursive occurrences share owner storage, not
+lexical paths. Outlined methods needing outer names take a root receiver pointer. Shared definitions
+never acquire mutable parent links. A detached nested copy cannot reconstruct a missing outer owner.
+Nested immutable-snapshot owner bindings and unbound outer-dependent interfaces remain incomplete.
+See `new/examples/lexical_owners.lua`, `new/examples/method_exports.lua` and `new/examples/closed_methods.lua`.
 
 ## Executable inputs
 
@@ -324,7 +333,9 @@ can satisfy their own calling shapes (`U32` takes U32; `Unit` takes no inputs).
 
 Concrete executable arguments remain known and their calls inline through the evaluator. Runtime
 callable inputs and fields use a signature-specific borrowed calling ABI; declare `results[signature]`
-when the signature alone does not determine a result. See `new/examples/runtime_callables.lua` and
+when the signature alone does not determine a result. Missing runtime result contracts reject with
+`callable-result`; input-only requirements remain valid for statically known implementations.
+See `new/examples/runtime_callables.lua` and
 `new/examples/callable_members.lua`.
 
 Concrete executable results retain code identity in their type; capture-free results need no environment.
@@ -363,7 +374,9 @@ solver, so even contradictory symbolic paths must type-check.
 Receiver storage is recreated per trace, never simulated by mutating a host instance. Capture checks
 also run when a fork unwinds a terminal. Arbitrary host effects, mutation, helpers, and user exception
 handlers remain outside the supported staging subset. Prefix validation is not a general purity proof
-or rollback mechanism. Runtime executable-definition construction still traps `staged-definitions`.
+or rollback mechanism. Runtime executable-definition construction and immutable capture conversion work.
+The remaining `staged-definitions` trap is outlining a lexical word that captures immutable runtime
+values alongside its borrowed receiver; that combination still works locally when inlined.
 Try `new/examples/branches.lua` for scalar, Bool, Unit, record, and receiver-effect branches.
 
 ## Executable TODOs as a progress ledger
@@ -492,8 +505,9 @@ Try `new/examples/recursive_helpers.lua`.
 
 ## Deliberate limits
 
-Escaping receiver/closure support, recursive reference types,
-and runtime closures are not implemented. See `--todos` for executable gaps.
+Mutable receiver views cannot escape by design. Immutable runtime closures and borrowed runtime
+callbacks work. Recursive reference types, explicit host registration and the remaining owner/capture
+combinations in [STATUS.md](STATUS.md) are not implemented. See `--todos` for the completion frontier.
 
 Use `x:eq(y)` for equality. Ordering operators work with two typed operands, e.g. `x < U32(10)`.
 LuaJIT does not dispatch mixed proxy/number comparisons: use `x:lt(10)`, `:le`, `:gt` or `:ge`.

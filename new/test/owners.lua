@@ -1,0 +1,110 @@
+local H = ...
+local Word = require("word")
+local Model = require("word.model")
+local IR = require("word.ir")
+
+H.test("nested keyed selections bind actual outer state and survive field replacement", function()
+    local s = Word.new(); local m = s:load(H.root .. "examples/lexical_owners.lua")
+    local O = m.types.Outer
+    local a = O{bias = 3, left = {value = 1}, right = {value = 9}}
+    local b = O{bias = 30, left = {value = 2}, right = {value = 8}}
+    local ar, br = a.left.read, b.left.read
+    H.eq(s:value(ar()), 4); H.eq(s:value(br()), 32)
+    a.left = {value = 7}
+    H.eq(s:value(ar()), 10); H.eq(s:value(br()), 32)
+    local step = a.left.step:of(2)
+    H.eq(s:value(step()), 16); H.eq(s:value(a.bias), 5)
+    H.eq(s:value(b.bias), 30)
+    H.eq(s:value(m.functions.replace(50)), 53)
+end)
+
+H.test("recursive sibling occurrences share storage without sharing lexical paths", function()
+    local s = Word.new(); local m = s:load(H.root .. "examples/lexical_owners.lua")
+    local a, b, bias, left, right = m.functions.run(4)
+    H.eq(s:value(a), 23); H.eq(s:value(b), 46); H.eq(s:value(bias), 18)
+    H.eq(s:value(left), 9); H.eq(s:value(right), 28)
+    local p = s:compile(m); assert(IR.verify(p))
+    local receivers = 0
+    for _, fn in ipairs(p.functions) do
+        if fn.receiver then
+            receivers = receivers + 1
+            H.eq(fn.receiver.type, s:type(m.types.Outer))
+        end
+    end
+    H.eq(receivers, 2) -- left.step and right.step have distinct occurrences.
+    H.eq(s:emit_c(m), s:emit_c(m))
+end)
+
+H.test("nearest keyed scope shadows outer fields and outer sibling methods retain their owner", function()
+    local s = Word.new(); local m = s:load_string([[
+        local O = word{value = U32, bias = U32,
+            bump = word(U32, function(n) bias = bias + n end),
+            middle = word{value = U32, inner = word{
+                value = U32,
+                read = word(function() return value + bias end),
+                call = word(U32, function(n) bump(n); return read() end),
+            }},
+        }
+        return {O = O, run = word(O, U32, function(o, n) return o.middle.inner.call(n) end)}
+    ]])
+    local o = m.O{value = 100, bias = 3, middle = {value = 50, inner = {value = 7}}}
+    H.eq(s:value(o.middle.inner.call(2)), 12); H.eq(s:value(o.bias), 5)
+    H.eq(s:value(m.run(o, 3)), 15); H.eq(s:value(o.bias), 5) -- argument copy
+    assert(IR.verify(s:compile{functions = {run = m.run}}))
+end)
+
+H.test("shared child definitions do not retain a last parent or inherit dynamic callers", function()
+    local s = Word.new(); local m = s:load_string([[
+        local read = word(function() return bias + value end)
+        local Child = word{value = U32, read = read}
+        local A = word{bias = U32, child = Child}
+        local B = word{bias = U32, other = Child}
+        local outside = word(Unit, function() return bias end)
+        local Caller = word{bias = U32, call = word(Unit, function() return outside(nil) end)}
+        return {A = A, B = B, Caller = Caller, read = read,
+            run = word(A, B, function(a, b) return a.child.read() + b.other.read() end)}
+    ]])
+    local a = m.A{bias = 2, child = {value = 3}}
+    local b = m.B{bias = 20, other = {value = 4}}
+    H.eq(s:value(a.child.read()), 5); H.eq(s:value(b.other.read()), 24)
+    H.eq(s:value(a.child.read()), 5)
+    H.eq(Model.word(m.read).owner, nil); H.eq(Model.word(m.read).definition.parent, nil)
+    H.raises("reject", "unknown-name", function() m.Caller{bias = 7}.call(nil) end)
+    assert(IR.verify(s:compile{functions = {run = m.run}}))
+end)
+
+H.test("deferred child schemas inherit declared owners but unrelated type demands do not", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Child = word(function()
+            return word{value = U32, read = word(function() return bias + value end)}
+        end)
+        local O = word{bias = U32, child = Child}
+        local Unrelated = word{read = word(function() return bias end)}
+        local Bad = word{bias = U32, child = word(function()
+            local read = Unrelated.read
+            return word{value = U32}
+        end)}
+        return {O = O, Bad = Bad, run = word(O, function(o) return o.child.read() end)}
+    ]])
+    H.eq(s:value(m.O{bias = 4, child = {value = 3}}.child.read()), 7)
+    assert(IR.verify(s:compile{functions = {run = m.run}}))
+    H.raises("reject", "unknown-name", function() s:type(m.Bad) end)
+    H.eq(s._engine.scope:current(), nil)
+end)
+
+H.test("nested keyed method views cannot escape and detached copies do not invent owners", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Inner = word{value = U32, read = word(Unit, function() return bias + value end)}
+        local O = word{bias = U32, child = Inner}
+        local consume = word(Inner, function(child) return child.read(nil) end)
+        return {O = O,
+            escape = word(O, function(o) return o.child.read end),
+            detached = word(O, function(o) return consume(o.child) end)}
+    ]])
+    local o = m.O{bias = 2, child = {value = 3}}
+    H.raises("reject", "borrow-escape", function() m.escape(o) end)
+    H.raises("reject", "borrow-escape", function() s:compile{functions = {f = m.escape}} end)
+    H.raises("reject", "unknown-name", function() m.detached(o) end)
+    H.raises("reject", "unknown-name", function() s:compile{functions = {f = m.detached}} end)
+    H.eq(s._engine.scope:current(), nil)
+end)

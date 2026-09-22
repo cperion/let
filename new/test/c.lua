@@ -7,17 +7,35 @@ local function quote(s) return "'" .. s:gsub("'", "'\\''") .. "'" end
 local function read(path)
     local f = assert(io.open(path, "r")); local text = f:read("a"); f:close(); return text
 end
-local function run_c(source, expect_abort)
+local function duration(name, default)
+    local value = tonumber(os.getenv(name) or default)
+    assert(value and value > 0 and value < math.huge, name .. " must be positive finite seconds")
+    return value
+end
+local compile_timeout = duration("WORD_TEST_COMPILE_TIMEOUT", "15")
+local run_timeout = duration("WORD_TEST_RUN_TIMEOUT", "5")
+local function bounded(command, seconds, label)
+    -- Bound the whole process group, including compiler children. Escalate if
+    -- a broken generated program ignores SIGTERM. These are test-only limits.
+    local status = os.execute("timeout --kill-after=1s " .. seconds .. "s sh -c " .. quote(command))
+    if status == 124 * 256 or status == 137 * 256 or status == 9 then
+        error(label .. " timed out after " .. seconds .. "s", 0)
+    end
+    return status
+end
+local function run_c(source, expect_abort, timeout)
     local stem = os.tmpname()
     local paths = { stem, stem .. ".c", stem .. ".exe", stem .. ".log", stem .. ".out" }
     local ok, result = pcall(function()
         local f = assert(io.open(stem .. ".c", "w")); f:write(source); f:close()
         local cc = os.getenv("CC") or "cc"
-        local built = os.execute(cc .. " -std=c11 -O2 -Wall -Wextra -Werror -pedantic " ..
-            quote(stem .. ".c") .. " -o " .. quote(stem .. ".exe") .. " >" .. quote(stem .. ".log") .. " 2>&1")
+        local built = bounded(cc .. " -std=c11 -O2 -Wall -Wextra -Werror -pedantic " ..
+            quote(stem .. ".c") .. " -o " .. quote(stem .. ".exe") .. " >" .. quote(stem .. ".log") .. " 2>&1",
+            compile_timeout, "C test compilation")
         assert(built == 0, read(stem .. ".log"))
-        local status = os.execute("ulimit -c 0; " .. quote(stem .. ".exe") ..
-            " >" .. quote(stem .. ".out") .. " 2>" .. quote(stem .. ".log"))
+        local status = bounded("ulimit -c 0; " .. quote(stem .. ".exe") ..
+            " >" .. quote(stem .. ".out") .. " 2>" .. quote(stem .. ".log"),
+            timeout or run_timeout, "Generated C test")
         if expect_abort then
             assert(status == 134 * 256 or status == 6, "Expected checked arithmetic abort, got " .. tostring(status))
         else assert(status == 0, read(stem .. ".log")) end
@@ -27,6 +45,11 @@ local function run_c(source, expect_abort)
     assert(ok, result)
     return result
 end
+
+H.test("a nonterminating generated C program fails with a deadline diagnostic", function()
+    local ok, err = pcall(function() run_c("int main(void) { for (;;) {} }", false, 0.1) end)
+    assert(not ok and tostring(err):find("Generated C test timed out after 0.1s", 1, true), tostring(err))
+end)
 
 H.test("compiled C agrees with concrete U32 execution across boundaries", function()
     local s = Word.new(); local m = s:load(H.root .. "examples/affine.lua")
@@ -955,6 +978,22 @@ H.test("by-value environments interoperate with borrowed runtime callback inputs
         int main(void) {
             wordtype_Unary f = {.invoke = twice, .environment = NULL};
             assert(wordcall_make(word_make(4), f, 7) == 18);
+            return 0;
+        }
+    ]]), "")
+end)
+
+H.test("nested keyed owners compile to root receiver parameters with distinct recursive occurrences", function()
+    local s = Word.new(); local m = s:load(H.root .. "examples/lexical_owners.lua")
+    local c = s:emit_c(m)
+    assert(not c:find("malloc", 1, true))
+    H.eq(run_c(c .. [[
+        #include <assert.h>
+        int main(void) {
+            wordresult_run r = word_run(10000);
+            assert(r.f_r1 == 30011 && r.f_r2 == 40030);
+            assert(r.f_r3 == 20010 && r.f_r4 == 20001 && r.f_r5 == 20020);
+            assert(word_replace(50) == 53);
             return 0;
         }
     ]]), "")

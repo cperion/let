@@ -168,6 +168,27 @@ function M.instantiate(engine, word)
     end
 end
 
+-- A lexical word can inline with both its borrowed receiver and trace-local
+-- captures. Its current outlined ABI transports only the receiver. Do not let
+-- the source closure's symbols masquerade as parameters of the new trace.
+function M.check_lexical_outline(word)
+    local p = Model.word(word)
+    if not p.definition.lexical_owner then return end
+    local i = 1
+    while true do
+        local name, value = debug.getupvalue(p.definition.terminal, i)
+        if not name then return end
+        local captured = Model.get(value)
+        local self_link = captured and captured.definition == p.definition and captured.owner == p.owner
+        if captured and not self_link and
+            (captured.tag == "symbol" or captured.tag == "place" or captured.tag == "callable_known" or
+            (captured.receiver and Model.get(captured.receiver).tag ~= "known")) then
+            D.todo("staged-definitions", "Outlining a lexical word needs capture parameters alongside its borrowed receiver (capture: " .. name .. ")")
+        end
+        i = i + 1
+    end
+end
+
 -- A lexical self-call uses this activation's receiver, not the construction trace's place.
 function M.lexical(engine, word)
     local p = Model.word(word)
@@ -177,7 +198,7 @@ function M.lexical(engine, word)
         if not name then break end
         local captured = Model.word(value)
         if captured and captured.definition == p.definition and captured.owner == p.owner then
-            value = engine:bind_method(captured.method, p.owner, p.receiver)
+            value = engine:bind_method(captured.method, p.owner, p.receiver, p.scope_path)
         end
         debug.setupvalue(terminal, i, value); expected[i] = {value = value}; i = i + 1
     end

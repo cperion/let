@@ -30,6 +30,7 @@ local function validate(engine, value)
     return p
 end
 local function wrap(engine, t, root, path)
+    root.type = root.type or t
     return Model.wrap({ tag = "place", engine = engine, type = t, root = root, path = path or {} }, engine.place_mt)
 end
 local function at(p)
@@ -170,7 +171,12 @@ end
 function M.read(engine, value, name)
     local p = validate(engine, value)
     local method = Model.record(p.type).methods[name]
-    if method then return engine:bind_method(method, p.type, value) end
+    if method then
+        if p.tag == "place" and #p.path > 0 and require("word.owner").needs_outer(p.type, p.root.type, p.path) then
+            return engine:bind_method(method, p.root.type, wrap(engine, p.root.type, p.root), p.path)
+        end
+        return engine:bind_method(method, p.type, value)
+    end
     local t, path = project(p, name)
     local bound = Model.record(p.type).bindings[name]
     if bound then return bound end
@@ -180,6 +186,17 @@ function M.read(engine, value, name)
     if p.root.builder then return engine:symbol(p.root.builder:load(t, p.root.id, path), t, p.root.builder) end
     return at(p)[name] -- A scalar snapshot, not a delayed place read.
 end
+-- Resolve nearest lexical scope from the selected occurrence's actual root.
+-- No inverse pointer arithmetic and no caller-frame lookup is involved.
+function M.member_scope(engine, receiver, path, name)
+    local scopes = {receiver}
+    for _, field in ipairs(path or {}) do scopes[#scopes + 1] = M.read(engine, scopes[#scopes], field) end
+    for i = #scopes, 1, -1 do
+        local def = Model.record(Model.get(scopes[i]).type)
+        if def.fields[name] or def.methods[name] then return scopes[i] end
+    end
+end
+
 function M.write(engine, value, name, incoming)
     local p = validate(engine, value)
     if Model.record(p.type).methods[name] then D.reject("method-write", "Cannot replace a method: " .. name) end

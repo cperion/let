@@ -24,6 +24,7 @@ function M.describe(value)
     if p.tag == "callable_known" then return {tag = p.tag, type = p.type, code = M.describe(p.code)} end
     if p.tag == "word" then
         return {tag = "word", key = Model.key(p.method or value), owner = p.owner,
+            scope_path = require("word.owner").path_key(p.scope_path),
             receiver = p.receiver and M.describe(p.receiver) or nil}
     elseif p.tag == "place" then
         return {tag = "place", type = p.type, root = p.root.id, path = {table.unpack(p.path)}}

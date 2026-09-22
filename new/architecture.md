@@ -399,7 +399,8 @@ For the first implementation:
 - nested raw helpers do not implicitly acquire receiver lookup merely by being created inside a terminal.
 
 The installed LuaJIT exposes the caller function through `debug.getinfo` at the hook.
-This restricted hook protocol is implemented for immediate receivers, not arbitrary Lua lexical scope.
+This restricted hook protocol handles immediate receivers and retained-root nested keyed occurrences,
+not arbitrary Lua lexical scope. `word/owner.lua` carries occurrence paths without modifying definitions.
 If this boundary proves unacceptable, change the loader/receiver design rather than silently introducing dynamic scope.
 Executed word terminals always install their own frame, including concrete recursion; residual calls
 emit typed operations rather than executing another host terminal.
@@ -415,7 +416,11 @@ Direct `outer.inner.method` selection can retain both inner and outer places in 
 A plain `Ref(Inner)` carrying only `Inner *` cannot reconstruct an arbitrary outer instance.
 Pass required owners explicitly when available; reject a missing owner binding.
 Do not add hidden back-pointers to every record or infer parent objects from C addresses.
-The first state slice should require only the immediate receiver.
+Nested mutable field places now retain their actual aggregate root and occurrence path. When outer
+names are required, private functions receive that root and select the lexical scopes along the path.
+Closed child classification receives ancestor names explicitly along declared field edges, not from the
+dynamic invocation or type-demand stack. Nested immutable snapshots and unbound outer-dependent
+interfaces still need additional owner-binding work.
 Escaping bound words and references to dead local storage are not made safe by C-representability.
 Initially reject unsupported escapes rather than adding implicit allocation or claiming ownership safety.
 
@@ -425,8 +430,8 @@ The comparison/branch-tree protocol below is now implemented in `trace.lua`. It 
 instruction and word-call events, uses fresh deterministic trace-local numbering, and renames values
 when assembling shared prefixes and disjoint suffix blocks. C emits nested conditionals. Defaults are
 128 potential leaf paths, depth 32, and 10,000 residual values/instructions across the assembled tree.
-General joins, feasibility solving, sums and executable construction during tracing remain outside this
-implemented slice. Grounded entry calls are supported separately as described in section 9.
+General joins, feasibility solving and sums remain outside this implemented slice. Executable
+construction during tracing has stable construction events and checked immutable capture conversion. Grounded entry calls are supported separately as described in section 9.
 
 A terminal execution creates a trace containing ordered instructions and decision events.
 On a symbolic comparison, create a typed predicate and consult a boolean decision tape.
@@ -472,10 +477,11 @@ Apply explicit limits to residual IR size, explored paths, recursion depth, and 
 Symbolic loops that extend the trace reach these structural limits. Ordinary Lua execution has no
 instruction quota; loops that emit no trace events can run indefinitely.
 
-Definition construction during replay is also an event.
-For the first slice, allow word/schema construction during static normalization, but reject path-dependent
-creation of new executable definitions during residual tracing until stable construction/capture keys exist.
-Otherwise replay would manufacture a new callee identity on every pass.
+Definition construction during replay is also an event. Stable construction keys identify replayed
+occurrences; capture templates retain static code metadata while each trace receives fresh capture values.
+Locally constructed lexical words can inline with receiver and immutable runtime captures together.
+Outlining that combination still traps `staged-definitions`: its ABI must transport capture operands
+alongside the receiver, rather than retaining symbols from the construction trace.
 
 All runtime effects must be residual operations. Arbitrary host-upvalue mutation, I/O, randomness, and time
 are not rolled back by this algorithm. Prefix comparison can detect some divergence, not prove purity.
@@ -542,7 +548,8 @@ is a runtime type or a dense list of result types, including erased Unit slots. 
 word instance, including local/static calls; cached outer normalization results are rechecked by
 re-execution when declarations are present. Closed declared exports denote a single runtime invocation.
 Unannotated ambiguous cycles reject with `recursive-result`, explaining how to provide a declaration.
-Remaining helper Type inputs require :of; runtime callable inputs require the separate callable ABI.
+Remaining helper Type inputs require :of. Runtime callable inputs use the checked callable ABI;
+undetermined callable results reject with `callable-result` and require a result declaration.
 Changing-instance graphs remain subject to structural function/depth limits.
 Concrete recursion has an invocation-depth limit, but no Lua VM instruction quota.
 
@@ -623,7 +630,8 @@ C now emits function prototypes before bodies, including private `wordfn_` helpe
 verified against their target signatures; only self calls qualify for the implemented tail-loop rewrite.
 Reachability starts at explicit export roots; unused definitions need not be traced or emitted.
 Foreign operations require registered type/effect/lowering implementations; an arbitrary Lua call is not an FFI declaration.
-First-class executable runtime storage stays unsupported until its representation and lifetime are explicit.
+Signature-valued fields use the explicit borrowed callable ABI; immutable executable results use
+by-value environments. Non-retention checks enforce the storage/lifetime contract.
 
 ## 11. The first vertical slices
 
@@ -679,7 +687,8 @@ and nested field receivers. Closed children normalize to a data type requirement
 when they require receiver/storage access or yield a non-type result. Private control unwinding supplies
 no dummy receiver value. Immediate-terminal environment-read names accompany successful normalization
 results so owner shadowing cannot reuse an inappropriate cached meaning; no trace/storage is retained.
-Signature members have a typed callable ABI. Outer-owner binding remains incomplete.
+Signature members have a typed callable ABI. Retained mutable roots support nested lexical owners;
+immutable nested snapshot bindings and unbound outer-dependent interfaces remain incomplete.
 Escaping mutable receiver views are forbidden by the language; factories return their records by value.
 Unbound methods export with a typed receiver pointer; immutable snapshot receivers can erase it.
 Mutable bound Lua receivers cannot export. Methods start inline, while recursive selections use the

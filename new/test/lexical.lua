@@ -31,6 +31,20 @@ H.test("nested words bind their defining method receiver and sibling methods", f
     assert(require("word.ir").verify(s:compile(m)))
 end)
 
+H.test("local lexical words can inline immutable snapshots alongside their receiver", function()
+    local s = Word.new(); local m = s:load_string([[
+        local C = word{value = U32, run = word(U32, function(n)
+            local before = value
+            local f = word(U32, function(x) value = value + x; return value + before end)
+            return f(n)
+        end)}
+        return {C = C, run = C.run}
+    ]])
+    local c = m.C{value = 3}
+    H.eq(s:value(c.run(2)), 8); H.eq(s:value(c.value), 5)
+    assert(require("word.ir").verify(s:compile{functions = {run = m.run}}))
+end)
+
 H.test("nested lexical receiver views cannot escape", function()
     local s = Word.new(); local m = s:load_string([[
         local C = word{count = U32, escape = word(Unit, function()

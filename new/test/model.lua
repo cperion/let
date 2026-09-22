@@ -193,15 +193,34 @@ H.test("recursive results require grounding or an explicit declaration", functio
     H.raises("reject", "recursive-result", function() s:compile{functions = {f = f}} end)
     assert(IR.verify(s:compile{functions = {f = f}, results = {[f] = s.U32}}))
 end)
+H.gap("staged-definitions", function()
+    local s = Word.new(); local m = s:load_string([[
+        local C = word{value = U32, run = word(U32, function(n)
+            local before = value
+            local loop
+            loop = word(U32, function(x)
+                if x:eq(0) then return value + before end
+                return loop(x - 1)
+            end)
+            return loop(n)
+        end)}
+        return {run = C.run}
+    ]])
+    s:compile{functions = m}
+end)
 H.test("local staged definitions compile", function()
     local s = Word.new()
     local m = s:load_string("return { f = word(U32, function(x) local g = word(U32, function(y) return y end); return g(x) end) }")
     s:compile{ functions = { f = m.f } }
 end)
-H.gap("callable-inputs", function()
+H.test("unknown runtime callable results require a declaration, not a missing ABI", function()
     local s = Word.new(); local signature = s.word(s.U32)
     local f = s.word(signature, function(g) return g(1) end)
-    s:compile{ functions = { f = f } }
+    local err = H.raises("reject", "callable-result", function()
+        s:compile{ functions = { f = f } }
+    end)
+    assert(err.message:find("results[signature]", 1, true))
+    assert(IR.verify(s:compile{functions = {f = f}, results = {[signature] = s.U32}}))
 end)
 H.test("capture-free executable results compile", function()
     local s = Word.new(); local f = affine(s)

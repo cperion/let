@@ -2,9 +2,8 @@
 local M = {}
 local features = {
     ["host-captures"] = "Define freezing/registration for host tables, functions, and foreign environments.",
-    ["keyed-words"] = "Implement signature-valued members and lexical outer-owner bindings.",
-    ["callable-inputs"] = "Represent runtime callable parameters with an explicit calling/environment ABI.",
-    ["staged-definitions"] = "Give definitions created during staging stable identities and captures.",
+    ["keyed-words"] = "Complete outer-owner bindings for nested immutable snapshots and unbound nested member interfaces.",
+    ["staged-definitions"] = "Transport immutable runtime captures alongside outlined lexical receiver parameters.",
 }
 local mt = { __tostring = function(d)
     local text = string.format("%s [%s] %s", d.kind:upper(), d.id, d.message)
