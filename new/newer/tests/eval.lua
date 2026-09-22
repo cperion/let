@@ -479,9 +479,16 @@ rejects("duplicate", "let P = { x: U32 }\nlet f(a: U32) : U32 = do"
 local moduleBinding = wordlet.compile{ source = "let P = { x: U32 }\nlet m = P { x = 1 }\n"
     .. "let f(a: U32): U32 = do m.x += a return m.x end\nreturn { functions = { f } }" }
 check(moduleBinding:unit():find("wordletmodule_1", 1, true) ~= nil, "a module binding gets its own storage")
-check(interpret("f", { 4 },
-    "let P = { x: U32 }\nlet m = P { x = 1 }\nlet f(a: U32): U32 = do m.x += a return m.x end\n"
-    .. "return { functions = { f } }")[1] == 5, "module state mutates through a field store")
+-- Module storage is runtime state: mutating it while compiling would drop the store from the
+-- generated code, so reaching it in normalize code rejects. The C tests cover the runtime path.
+do
+    local ok, err = pcall(function()
+        return interpret("f", { 4 }, "let P = { x: U32 }\nlet m = P { x = 1 }\n"
+            .. "let f(a: U32): U32 = do m.x += a return m.x end\nreturn { functions = { f } }")
+    end)
+    check(not ok and D.is(err) and err.code == "runtime-in-normalization",
+        "a module field store is rejected while compiling and only runs at run time")
+end
 
 
 -- Sum types (variants) --------------------------------------------------------------------------
@@ -1002,8 +1009,8 @@ let f(): U32 = do
 end
 return { functions = { f } }
 ]==])
--- Only an array element is assignable by index.
-rejects("not-a-place", [==[
+-- Only an array can be indexed at all.
+rejects("type-mismatch", [==[
 let f(n: U32): U32 = do
   n[0] = 1
   return n
@@ -1014,6 +1021,91 @@ return { functions = { f } }
 rejects("array-length", [==[
 let f(n: U32): U32 = do
   let a: Array(U32, 0) = [1]
+  return n
+end
+return { functions = { f } }
+]==])
+
+
+-- Narrower integers -------------------------------------------------------------------------------
+-- The width is part of the type: arithmetic wraps at that width, widening is implicit, and narrowing
+-- needs an explicit conversion unless a known value fits.
+local WIDTHS = [==[
+let wrap8(n: U32): U32 = do
+  let a: U8 = U8(n)
+  let b = a + 200
+  return U32(b)
+end
+let wrap16(n: U32): U32 = do
+  let a: U16 = U16(n)
+  let b = a * 3
+  return U32(b)
+end
+let widen(n: U32): U32 = do
+  let a: U8 = U8(n)
+  let b: U16 = a
+  let c: U32 = b
+  return c
+end
+let compare(n: U32): Bool = do
+  let a: U8 = U8(n)
+  let b: U16 = U16(n)
+  return a == b and a <= b
+end
+let shift8(n: U32): U32 = do
+  let a: U8 = U8(n)
+  return U32(a << 1) + U32(a >> 1)
+end
+let negate8(n: U32): U32 = do
+  let a: U8 = U8(n)
+  let b = -a
+  return U32(b)
+end
+return { types = {  }, functions = { wrap8, wrap16, widen, compare, shift8, negate8 } }
+]==]
+check(interpret("wrap8", { 100 }, WIDTHS)[1] == 44, "U8 arithmetic wraps at 8 bits")
+check(interpret("wrap8", { 255 }, WIDTHS)[1] == 199, "a U8 value of 255 plus 200 wraps")
+check(interpret("wrap16", { 40000 }, WIDTHS)[1] == 54464, "U16 arithmetic wraps at 16 bits")
+check(interpret("widen", { 200 }, WIDTHS)[1] == 200, "narrowing widens back without change")
+check(interpret("compare", { 7 }, WIDTHS)[1] == true, "widths compare after widening")
+check(interpret("shift8", { 130 }, WIDTHS)[1] == 4 + 65, "a U8 shift wraps at its own width")
+check(interpret("negate8", { 1 }, WIDTHS)[1] == 255, "a negated U8 is its own complement")
+local widthUnit = compile(WIDTHS):unit()
+check(widthUnit:find("uint8_t", 1, true) ~= nil and widthUnit:find("uint16_t", 1, true) ~= nil,
+    "the widths lower to their C types")
+-- Rejections ------------------------------------------------------------------------------------
+-- A known value that does not fit rejects while compiling, whether it is an annotation or a conversion.
+rejects("numeric-range", [==[
+let f(n: U32): U32 = do
+  let a: U8 = 300
+  return n + U32(a)
+end
+return { functions = { f } }
+]==])
+rejects("numeric-range", [==[
+let f(n: U32): U32 = do
+  let a = U8(300)
+  return n + U32(a)
+end
+return { functions = { f } }
+]==])
+-- A run-time value needs the conversion to say what to do; an annotation will not narrow it.
+rejects("numeric-range", [==[
+let f(n: U32): U32 = do
+  let a: U8 = n
+  return U32(a)
+end
+return { functions = { f } }
+]==])
+-- Two run-time widths mix by widening, which loses nothing, so the sum is the wider one.
+check(interpret("mixed", { 200 },
+    "let mixed(n: U32): U32 = do\n  let a: U8 = U8(n)\n  let b: U16 = U16(n)\n"
+    .. "  return U32(a + b)\nend\nreturn { functions = { mixed } }")[1] == 400,
+    "a narrower value widens to meet a wider one")
+-- A conversion needs an integer.
+rejects("type-mismatch", [==[
+let f(n: U32): U32 = do
+  let a = U8(true)
   return n
 end
 return { functions = { f } }

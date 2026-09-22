@@ -275,8 +275,13 @@ end
 function M.expr(expr, locals, storages)
     local kind = expr.kind
     if kind == "Const" then
-        if expr.type == S.U32 then
-            if expr.literal.kind ~= "UInt" then D.bug("ir-literal", "U32 constant needs a UInt literal") end
+        if S.isInteger(expr.type) then
+            if expr.literal.kind ~= "UInt" then
+                D.bug("ir-literal", "An integer constant needs a UInt literal")
+            end
+            if expr.literal.value > S.maxOf(expr.type) then
+                D.bug("ir-literal", "A constant does not fit in its own width")
+            end
         elseif expr.type == S.Bool then
             if expr.literal.kind ~= "Boolean" then D.bug("ir-literal", "Bool constant needs a Boolean literal") end
         else
@@ -329,13 +334,22 @@ function M.expr(expr, locals, storages)
         if not field then D.bug("ir-field", "Get names an unknown field " .. expr.field.name) end
         if field ~= expr.type then D.bug("ir-type", "Get type does not match the field type") end
         return expr.type
+    elseif kind == "Convert" then
+        -- A conversion is between integer widths, and its type is the width it converts to.
+        local operand = M.expr(expr.operand, locals, storages)
+        if not S.isInteger(operand) or not S.isInteger(expr.type) then
+            D.bug("ir-type", "Convert needs two integer widths")
+        end
+        return expr.type
     elseif kind == "Un" then
         local operand = M.expr(expr.operand, locals, storages)
         local op = expr.op.kind
         if op == "Not" then
             if operand ~= S.Bool or expr.type ~= S.Bool then D.bug("ir-type", "Not requires Bool") end
         elseif op == "Neg" or op == "BitNot" then
-            if operand ~= S.U32 or expr.type ~= S.U32 then D.bug("ir-type", "Unary " .. op .. " requires U32") end
+            if not S.isInteger(operand) or operand ~= expr.type then
+                D.bug("ir-type", "Unary " .. op .. " requires one integer width")
+            end
         else
             D.bug("ir-op", "Unknown unary operation " .. tostring(op))
         end
@@ -345,16 +359,21 @@ function M.expr(expr, locals, storages)
         local right = M.expr(expr.right, locals, storages)
         local op = expr.op.kind
         local arithmetic = { Add = true, Sub = true, Mul = true, Div = true, Rem = true, Pow = true,
-            BitAnd = true, BitOr = true, BitXor = true, Shl = true, Shr = true }
+            BitAnd = true, BitOr = true, BitXor = true }
         if arithmetic[op] then
-            if left ~= S.U32 or right ~= S.U32 or expr.type ~= S.U32 then
-                D.bug("ir-type", "Arithmetic " .. op .. " requires U32")
+            if not S.isInteger(left) or left ~= right or expr.type ~= left then
+                D.bug("ir-type", "Arithmetic " .. op .. " requires one integer width")
+            end
+        elseif op == "Shl" or op == "Shr" then
+            -- The amount is a plain U32; the value keeps its own width.
+            if not S.isInteger(left) or right ~= S.U32 or expr.type ~= left then
+                D.bug("ir-type", "A shift needs an integer value and a U32 amount")
             end
         elseif op == "Eq" or op == "Ne" then
             if left ~= right or expr.type ~= S.Bool then D.bug("ir-type", "Equality requires matching types") end
         elseif op == "Lt" or op == "Le" or op == "Gt" or op == "Ge" then
-            if left ~= S.U32 or right ~= S.U32 or expr.type ~= S.Bool then
-                D.bug("ir-type", "Ordering requires U32")
+            if not S.isInteger(left) or not S.isInteger(right) or expr.type ~= S.Bool then
+                D.bug("ir-type", "Ordering requires two integers")
             end
         else
             D.bug("ir-op", "Unknown binary operation " .. tostring(op))

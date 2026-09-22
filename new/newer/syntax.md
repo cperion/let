@@ -26,9 +26,18 @@ lambda. Reserved keywords are `let`, `do`, `end`, `if`, `then`, `else`, `return`
 `true`, and `false`. Primitive names U32, Bool, Unit and Type are predefined bindings, as is the
 type constructor `OneOf` (section 8.1).
 
-Numeric literals are decimal integers or hexadecimal integers prefixed by 0x. They denote U32 and
-must be in 0..4294967295; an out-of-range literal rejects rather than wrapping. A leading minus is
-an operator, not part of a literal. There are no float, string, nil or implicit tuple literals.
+Numeric literals are decimal integers or hexadecimal integers prefixed by 0x. They are written as
+U32 and must be in 0..4294967295; an out-of-range literal rejects rather than wrapping. A leading
+minus is an operator, not part of a literal. There are no float, string, nil or implicit tuple
+literals.
+
+The integer types are `U8`, `U16` and `U32`. A literal adapts to a narrower operand when it fits, so
+`U8` values mix with small literals directly; any other operation between different widths widens to
+the wider one, which never loses a value. Narrowing is explicit and checked: `U8(x)` and `U16(x)`
+convert, rejecting a known value that does not fit and stopping a run-time value that does not fit,
+while `U32(x)` widens. Arithmetic wraps at the width its type names, comparisons widen first, and a
+shift amount is a plain U32. Assigning a run-time value to a narrower annotation rejects
+(`numeric-range`) rather than truncating it silently.
 `true` and `false` are Bool. `Unit()` is the Unit value.
 
 Comments begin with `--` and continue to the next newline. This is the only newline-sensitive lexical

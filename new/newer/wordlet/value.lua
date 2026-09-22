@@ -10,7 +10,13 @@ V.__index = V
 
 local function make(t) return setmetatable(t, V) end
 
-function M.u32(n) return make{ tag = "u32", ty = S.U32, n = n } end
+-- An integer value of a given width. Its type says which width, so the arithmetic and the
+-- conversions are decided by the type rather than by a separate kind.
+function M.int(ty, n) return make{ tag = "int", ty = ty, n = n } end
+function M.u32(n) return M.int(S.U32, n) end
+function M.u8(n) return M.int(S.U8, n) end
+function M.u16(n) return M.int(S.U16, n) end
+function M.isInteger(v) return v.tag == "int" end
 function M.bool(b) return make{ tag = "bool", ty = S.Bool, b = b } end
 function M.unit() return make{ tag = "unit", ty = S.Unit } end
 function M.type(ty) return make{ tag = "type", ty = S.Type, value = ty } end
@@ -116,7 +122,7 @@ function M.isStatic(v)
     local tag = v.tag
     -- A schema and a type are compile-time descriptions: capturing one is a static fact, not a
     -- runtime environment entry.
-    if tag == "u32" or tag == "bool" or tag == "unit" or tag == "type" or tag == "schema" then
+    if tag == "int" or tag == "bool" or tag == "unit" or tag == "type" or tag == "schema" then
         return true
     end
     if tag == "word" then
@@ -144,7 +150,7 @@ end
 function M.encode(v)
     if not M.is(v) then return S.encode(v) end
     local tag = v.tag
-    if tag == "u32" then return "u32:" .. tostring(v.n) end
+    if tag == "int" then return S.encode(v.ty) .. ":" .. tostring(v.n) end
     if tag == "bool" then return "bool:" .. tostring(v.b) end
     if tag == "unit" then return "unit" end
     if tag == "type" then return "type:" .. S.encode(v.value) end

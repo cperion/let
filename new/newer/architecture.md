@@ -337,7 +337,7 @@ interns expressions per function (`interfaces.md` §4).
 Key shapes (see `ir.asdl` for the exact fields):
 
 ```
-Ir.Expr  = Const | Ref | Un | Bin | Get | Make | Owned | Addr(Place)
+Ir.Expr  = Const | Ref | Un | Bin | Get | Make | Owned | Addr(Place) | Convert(Expr, Ty.V)
 Ir.Place = Local(Storage) | Captured(Bundle, slot) | Project(Place, Field) | Deref(Place)
          | Index(Place, Expr, Ty.V)
 Ir.Arg   = ValueArg | BorrowArg | BundleArg
@@ -493,7 +493,8 @@ helpers. No historical helper names or facade signatures are compatibility requi
 
 | Entity | C representation |
 | --- | --- |
-| U32 / Bool | uint32_t / bool |
+| U32 / U16 / U8 | uint32_t / uint16_t / uint8_t |
+| Bool | bool |
 | Unit | erased payload, while logical result positions remain tracked |
 | record value | struct, by value, fields in canonical name order |
 | sum value | struct with a tag plus a union of alternative payloads, by value |
@@ -513,6 +514,13 @@ alternative, and a `Unit` alternative contributes no payload member. Constructio
 literal with the tag and the one live payload member set by name, projection reads that member, and a
 tag test compares the tag word. Because the payload union is only ever read in an arm guarded by the
 matching tag test, an inactive payload is never interpreted.
+
+An integer conversion is an expression, and the cast is the whole of it: widening to a wider type is
+lossless, and narrowing to a narrower one masks to that width after the value has been checked. A
+narrowing of a run-time value is checked by a `Trap` in the same style as a run-time divisor or index,
+so a value that does not fit aborts rather than being silently truncated. Arithmetic is computed in a
+wide enough intermediate and cast to the result's own type, which is what makes a narrower width wrap
+at its own width rather than at 32 bits.
 
 An array is a struct holding one C array of its element type, because a bare C array cannot be
 assigned or returned by value while a struct that contains one can. The element is embedded, so its

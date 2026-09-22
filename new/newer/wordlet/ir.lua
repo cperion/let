@@ -26,6 +26,8 @@ function M.eachExpr(expr, fn)
         for _, field in ipairs(expr.fields) do M.eachExpr(field, fn) end
     elseif kind == "Owned" then
         M.eachExpr(expr.environment, fn)
+    elseif kind == "Convert" then
+        M.eachExpr(expr.operand, fn)
     elseif kind == "Addr" then
         -- An address is a pure computation over a place, which is a root plus field names; there is
         -- no sub-expression to walk and nothing is read.
@@ -117,6 +119,7 @@ function Builder:const(ty, literal)
     end)
 end
 function Builder:u32(n) return self:const(S.U32, Ir.UInt(n)) end
+function Builder:int(ty, n) return self:const(ty, Ir.UInt(n)) end
 function Builder:bool(b) return self:const(S.Bool, Ir.Boolean(b)) end
 function Builder:ref(value, ty)
     return self:intern("ref|" .. value.id .. "|" .. S.encode(ty), function()
@@ -134,8 +137,24 @@ end
 local function foldBinary(op, ty, a, b)
     if a.kind ~= "Const" or b.kind ~= "Const" then return nil end
     if a.literal.kind ~= "UInt" or b.literal.kind ~= "UInt" then return nil end
-    local U = require("wordletkit.u32")
     local x, y = a.literal.value, b.literal.value
+    if S.isInteger(ty) and ty ~= S.U32 then
+        -- A narrower width wraps at its own width, so the exact 32-bit kernel does not apply.
+        local modulus, bit = S.maxOf(ty) + 1, require("bit")
+        if op == "Add" then return (x + y) % modulus end
+        if op == "Sub" then return (x - y) % modulus end
+        if op == "Mul" then return (x * y) % modulus end
+        if op == "Div" then if y == 0 then return nil end return math.floor(x / y) end
+        if op == "Rem" then if y == 0 then return nil end return x % y end
+        -- The bit operations yield a signed 32-bit value, so the width normalises it again.
+        if op == "BitAnd" then return bit.band(x, y) % modulus end
+        if op == "BitOr" then return bit.bor(x, y) % modulus end
+        if op == "BitXor" then return bit.bxor(x, y) % modulus end
+        if op == "Shl" then return (x * 2 ^ y) % modulus end
+        if op == "Shr" then return math.floor(x / 2 ^ y) end
+        return nil   -- Power and the rest are left to the evaluator's own folding.
+    end
+    local U = require("wordletkit.u32")
     local ok, result = pcall(function()
         if op == "Add" then return U.add(x, y) end
         if op == "Sub" then return U.sub(x, y) end
@@ -176,6 +195,13 @@ function Builder:get(aggregate, name, ty)
 end
 
 function Builder:make(ty, fields) return Ir.Make(ty, S.list(fields)) end
+-- An integer conversion, interned like every other pure expression.
+function Builder:convert(operand, ty)
+    if operand.type == ty then return operand end
+    return self:intern("convert|" .. S.encode(operand) .. "|" .. S.encode(ty), function()
+        return Ir.Convert(operand, ty)
+    end)
+end
 function Builder:addr(place, ty)
     return self:intern("addr|" .. S.encode(place) .. "|" .. S.encode(ty), function()
         return Ir.Addr(place, ty)

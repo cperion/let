@@ -99,7 +99,7 @@ function Eval:load(program)
             slot.atTop = true
         end
     end
-    for _, name in ipairs({ "U32", "Bool", "Unit", "Type" }) do
+    for _, name in ipairs({ "U32", "U8", "U16", "Bool", "Unit", "Type" }) do
         declare(top, name, { kind = "value", name = name, value = V.type(S[name]) })
     end
     -- `Ref(T)` is a type and `Ref(place)` is a reference to that place. Both are the same ordinary
@@ -129,7 +129,7 @@ function Eval:load(program)
                 end
                 S.checkRuntime(element, span)
                 local length = values[2]
-                if V.tag(length) ~= "u32" then
+                if not V.isInteger(length) or length.ty ~= S.U32 then
                     D.reject("type-required", "Array needs a length as a literal U32", span)
                 end
                 if length.n < 1 then
@@ -858,9 +858,11 @@ function Eval:placeOf(ctx, expr, span)
                     .. expr.name.text, expr.name.span)
             end
             local object = self:moduleObject(demanded, expr.name.span)
-            -- `backing` is the value the storage stands for, which is what normalize code reads.
+            -- `backing` is the value the storage stands for, which is what normalize code reads;
+            -- `container` is the object whose storage holds the selection, which is what the borrow
+            -- rules inspect.
             return { place = object.place, ty = object.ty, concrete = object.backing,
-                value = object.backing }
+                value = object.backing, container = object }
         end
         if slot.kind == "concrete-field" then
             return { concrete = "field", record = slot.record, name = slot.name, ty = slot.ty }
@@ -873,7 +875,8 @@ function Eval:placeOf(ctx, expr, span)
         D.reject("not-a-place", "Only storage can be a place: " .. expr.name.text, expr.name.span)
     end
     if expr.kind == "FieldSelect" then
-        local container = self:containerOf(ctx, expr.base, expr.base.span)
+        local container = self:derefContainer(ctx, self:containerOf(ctx, expr.base, expr.base.span),
+            expr.span)
         local name = expr.field.text
         local target = self:resolveType(S.environmentOf(container.ty))
         local ty = S.field(target, name)
@@ -882,24 +885,26 @@ function Eval:placeOf(ctx, expr, span)
         local held = container.concrete
         if type(held) == "table" and held.tag == "record" and held.fields then
             return { concrete = "field", record = held, name = name, ty = ty,
-                place = place, value = held.fields[name] }
+                place = place, value = held.fields[name], container = container.container }
         end
         if not place or ctx.mode ~= "residual" then
             D.reject("runtime-in-normalization",
                 "A field of run-time storage is only reachable from runtime code", expr.span)
         end
-        return { place = place, ty = ty }
+        return { place = place, ty = ty, container = container.container }
     end
     if expr.kind == "IndexExpr" then
-        local container = self:containerOf(ctx, expr.base, expr.base.span)
+        local container = self:derefContainer(ctx, self:containerOf(ctx, expr.base, expr.base.span),
+            expr.span)
         if not S.isArray(container.ty) then
             D.reject("type-mismatch",
                 "Expected an array but found " .. S.encode(container.ty or S.Unit), expr.span)
         end
         local index = self:evalExpr(ctx, expr.index)
+        -- A narrower integer index widens, which is free.
         self:requireType(index, S.U32, expr.index.span)
         local length, element = container.ty.length, container.ty.element
-        if V.tag(index) == "u32" then
+        if V.isKnown(index) and V.isInteger(index) then
             if index.n >= length then
                 D.reject("index-range", "Index " .. tostring(index.n) .. " is outside an array of "
                     .. "length " .. tostring(length), expr.span)
@@ -911,13 +916,13 @@ function Eval:placeOf(ctx, expr, span)
             local held = container.concrete
             if type(held) == "table" and held.tag == "array" and held.items then
                 return { concrete = "index", array = held, index = index.n, ty = element,
-                    place = place, value = held.items[index.n + 1] }
+                    place = place, value = held.items[index.n + 1], container = container.container }
             end
             if not place or ctx.mode ~= "residual" then
                 D.reject("runtime-in-normalization",
                     "An element of run-time storage is only reachable from runtime code", expr.span)
             end
-            return { place = place, ty = element }
+            return { place = place, ty = element, container = container.container }
         end
         if ctx.mode ~= "residual" then
             D.reject("runtime-in-normalization", "A run-time index needs runtime code", expr.span)
@@ -932,22 +937,56 @@ function Eval:placeOf(ctx, expr, span)
     D.reject("not-a-place", "This expression does not name storage", span or expr.span)
 end
 
+-- A selection whose container is a reference selects through it: the reference names the instance,
+-- so the container becomes that instance. A runtime reference is a pointer, so its place is one
+-- dereference further on, and it is conservatively retaining because the storage it points at is not
+-- known here.
+function Eval:derefContainer(ctx, container, span)
+    local held = container.value
+    if type(held) == "table" and V.tag(held) == "ref" then
+        local object = self:placeObject(held)
+        if not object then return container end
+        return { concrete = object.backing, value = object.backing, place = object.place,
+            ty = object.ty, container = object }
+    end
+    if held and held.ty and S.isRef(held.ty) and V.tag(held) == "ir" then
+        local target = self:refTargetType(held.ty)
+        local place = ctx.mode == "residual" and self:derefPlace(ctx, held, span) or nil
+        return { place = place, ty = target, container = { retaining = true } }
+    end
+    -- A selection directly off a reference field or a runtime reference: the place holds the
+    -- pointer, so the target is one dereference further on. This is checked after the value cases,
+    -- because a frontend reference already names the target place.
+    if container.ty and S.isRef(container.ty) then
+        local target = self:refTargetType(container.ty)
+        if not container.place then return container end
+        return { place = Ir.Deref(container.place, target), ty = target,
+            container = { retaining = true } }
+    end
+    return container
+end
+
 -- The container an element or field selection starts from: a compile-time value, or a place with the
 -- type it refers to. A selection over a selection does not read the intermediate value.
 function Eval:containerOf(ctx, expr, span)
     if expr.kind == "Reference" or expr.kind == "FieldSelect" or expr.kind == "IndexExpr" then
         local ok, reached = pcall(function() return self:placeOf(ctx, expr, span) end)
         if ok then
+            -- The value the selection names travels too, so a reference in it can be dereferenced.
             if reached.concrete == "field" then
-                return { concrete = reached.record.fields[reached.name], ty = reached.ty }
+                local held = reached.record.fields[reached.name]
+                return { concrete = held, value = held, ty = reached.ty, place = reached.place,
+                    container = reached.container }
             end
             if reached.concrete == "index" then
-                return { concrete = reached.array.items[reached.index + 1], ty = reached.ty }
+                local held = reached.array.items[reached.index + 1]
+                return { concrete = held, value = held, ty = reached.ty, place = reached.place,
+                    container = reached.container }
             end
             -- A container that has both keeps both: a read uses the value and a reference uses the
             -- place, so a chain of selections does not have to choose here.
             return { place = reached.place, ty = reached.ty, concrete = reached.concrete,
-                value = reached.value }
+                value = reached.value, container = reached.container or reached.value }
         end
     end
     local value = self:evalExpr(ctx, expr)
@@ -1159,8 +1198,14 @@ function Eval:expression(ctx, value, want)
         end
         return self:makeView(ctx, value, S.isView(want) and want.visible or want)
     end
-    if tag == "ir" then return value.expr end
-    if tag == "u32" then return ctx.builder:u32(value.n) end
+    if tag == "ir" then
+        if value.cast then
+            value.cast = nil
+            value.expr = ctx.builder:convert(value.expr, value.ty)
+        end
+        return value.expr
+    end
+    if tag == "int" then return ctx.builder:int(value.ty, value.n) end
     if tag == "bool" then return ctx.builder:bool(value.b) end
     if tag == "record" or tag == "object" then return self:recordExpr(ctx, value) end
     if tag == "array" then
@@ -1296,10 +1341,38 @@ function Eval:isBorrowed(value)
     return false
 end
 
-function Eval:requireType(value, ty, span)
-    if value.ty ~= ty then
-        D.reject("type-mismatch", "Expected " .. S.encode(ty) .. " but found " .. S.encode(value.ty), span)
+-- Converts a value to another integer width. Widening is implicit because a wider integer holds
+-- every value of a narrower one. Narrowing is only implicit for a known value that fits, which is
+-- what lets a literal satisfy a narrower annotation; anything else needs an explicit conversion.
+function Eval:convert(value, ty, span)
+    if value.ty == ty then return value end
+    if not (S.isInteger(value.ty) and S.isInteger(ty)) then return nil end
+    if S.widthOf(ty) > S.widthOf(value.ty) then
+        -- The cast is applied where the value is materialised, once.
+        if V.tag(value) == "ir" then value.cast = true end
+        value.ty = ty
+        return value
     end
+    if V.isKnown(value) then
+        if value.n > S.maxOf(ty) then
+            D.reject("numeric-range", "Value " .. tostring(value.n) .. " does not fit in "
+                .. S.encode(ty), span)
+        end
+        value.ty = ty
+        return value
+    end
+    return nil
+end
+
+function Eval:requireType(value, ty, span)
+    if value.ty == ty then return end
+    if self:convert(value, ty, span) then return end
+    if S.isInteger(value.ty) and S.isInteger(ty) then
+        D.reject("numeric-range", "Expected " .. S.encode(ty) .. " but found " .. S.encode(value.ty)
+            .. "; narrow a run-time value with an explicit conversion such as "
+            .. S.encode(ty):lower() .. "(x)", span)
+    end
+    D.reject("type-mismatch", "Expected " .. S.encode(ty) .. " but found " .. S.encode(value.ty), span)
 end
 
 -- Expressions ---------------------------------------------------------------------------------
@@ -1307,7 +1380,11 @@ end
 function Eval:evalExpr(ctx, expr)
     self:step(expr.span)
     local kind = expr.kind
-    if kind == "U32Literal" then return V.u32(expr.value)
+    if kind == "U32Literal" then
+        -- A literal adapts to a narrower operand when it fits, which is decided from the syntax.
+        local literal = V.u32(expr.value)
+        literal.literal = true
+        return literal
     elseif kind == "BoolLiteral" then return V.bool(expr.value)
     elseif kind == "Reference" then return self:evalReference(ctx, expr)
     elseif kind == "UnaryExpr" then return self:evalUnary(ctx, expr)
@@ -1398,12 +1475,15 @@ function Eval:evalUnary(ctx, expr)
         if V.tag(value) == "bool" then return V.bool(not value.b) end
         return V.ir(ctx.builder:un("Not", self:expression(ctx, value), S.Bool), S.Bool)
     end
-    self:requireType(value, S.U32, expr.operand.span)
-    if V.tag(value) == "u32" then
-        local U = require("wordletkit.u32")
-        return V.u32(op == "-" and U.neg(value.n) or U.bnot(value.n))
+    if not S.isInteger(value.ty) then
+        D.reject("type-mismatch", "Expected an integer but found " .. S.encode(value.ty), expr.operand.span)
     end
-    return V.ir(ctx.builder:un(op == "-" and "Neg" or "BitNot", self:expression(ctx, value), S.U32), S.U32)
+    local ty = value.ty
+    if V.isInteger(value) then
+        local n = op == "-" and wrap(ty, -value.n) or wrap(ty, bit.bnot(value.n))
+        return V.int(ty, n)
+    end
+    return V.ir(ctx.builder:un(op == "-" and "Neg" or "BitNot", self:expression(ctx, value), ty), ty)
 end
 
 function Eval:evalBinary(ctx, expr)
@@ -1418,9 +1498,17 @@ end
 function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
     leftSpan, rightSpan, span = leftSpan or ctx.span, rightSpan or ctx.span, span or ctx.span
     if COMPARE[op] then
-        self:requireType(left, S.U32, leftSpan)
-        self:requireType(right, S.U32, rightSpan)
-        if V.tag(left) == "u32" and V.tag(right) == "u32" then
+        -- A comparison widens both sides, which is always safe and never narrows.
+        if S.isInteger(left.ty) and S.isInteger(right.ty) and left.ty ~= right.ty then
+            local wider = S.widerThan(left.ty, right.ty) or left.ty
+            self:requireType(left, wider, leftSpan)
+            self:requireType(right, wider, rightSpan)
+        end
+        if not S.isInteger(left.ty) or left.ty ~= right.ty then
+            D.reject("type-mismatch", "Comparison needs two integers of one width, found "
+                .. S.encode(left.ty or S.Unit) .. " and " .. S.encode(right.ty or S.Unit), span)
+        end
+        if V.isInteger(left) and V.isInteger(right) then
             local a, b = left.n, right.n
             local result
             if op == "==" then result = a == b
@@ -1436,34 +1524,56 @@ function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
     end
     local irOp = ARITH[op]
     if not irOp then D.bug("operator", "Unknown binary operator " .. tostring(op)) end
-    self:requireType(left, S.U32, leftSpan)
-    self:requireType(right, S.U32, rightSpan)
-    if (op == "/" or op == "%") and V.tag(right) == "u32" and right.n == 0 then
+    -- A shift takes its amount as a plain U32; every other operator needs both sides at one width.
+    if op == "<<" or op == ">>" then
+        if not S.isInteger(left.ty) then
+            D.reject("type-mismatch", "A shift needs an integer to shift, found "
+                .. S.encode(left.ty or S.Unit), leftSpan)
+        end
+        self:requireType(right, S.U32, rightSpan)
+    else
+        if not S.isInteger(left.ty) or not S.isInteger(right.ty) then
+            D.reject("type-mismatch", "Arithmetic needs two integers, found "
+                .. S.encode(left.ty or S.Unit) .. " and " .. S.encode(right.ty or S.Unit), span)
+        end
+        -- Which width the result has is decided by what is written, not by what is known, so the
+        -- interpreter and the generated code agree: a literal adopts the other operand's width when
+        -- it fits, and otherwise the wider width wins.
+        if left.ty ~= right.ty then
+            local ty = left.ty
+            if left.literal and not right.literal then ty = right.ty
+            elseif right.literal and not left.literal then ty = left.ty
+            else ty = S.widerThan(left.ty, right.ty) or left.ty end
+            self:requireType(left, ty, leftSpan)
+            self:requireType(right, ty, rightSpan)
+        end
+    end
+    local ty = left.ty
+    if (op == "/" or op == "%") and V.isInteger(right) and right.n == 0 then
         D.reject("division-zero", "Known zero divisor", rightSpan)
     end
-    if V.tag(left) == "u32" and V.tag(right) == "u32" then
-        local U = require("wordletkit.u32")
+    if V.isInteger(left) and V.isInteger(right) then
         local x, y = left.n, right.n
         local result
-        if op == "+" then result = U.add(x, y)
-        elseif op == "-" then result = U.sub(x, y)
-        elseif op == "*" then result = U.mul(x, y)
-        elseif op == "/" then result = U.div(x, y)
-        elseif op == "%" then result = U.mod(x, y)
-        elseif op == "^" then result = U.pow(x, y)
-        elseif op == "<<" then result = U.shl(x, y)
-        elseif op == ">>" then result = U.shr(x, y)
-        elseif op == "&" then result = U.band(x, y)
-        elseif op == "|" then result = U.bor(x, y)
-        else result = U.bxor(x, y) end
-        return V.u32(result)
+        if op == "+" then result = wrap(ty, x + y)
+        elseif op == "-" then result = wrap(ty, x - y)
+        elseif op == "*" then result = exact(ty, "*", x, y)
+        elseif op == "/" then result = math.floor(x / y)
+        elseif op == "%" then result = x - y * math.floor(x / y)
+        elseif op == "^" then result = pow(ty, x, y)
+        elseif op == "<<" then result = wrap(ty, x * 2 ^ y)
+        elseif op == ">>" then result = math.floor(x / 2 ^ y)
+        elseif op == "&" then result = wrap(ty, bit.band(x, y))
+        elseif op == "|" then result = wrap(ty, bit.bor(x, y))
+        else result = wrap(ty, bit.bxor(x, y)) end
+        return V.int(ty, result)
     end
     local builder = ctx.builder
     local leftExpr, rightExpr = self:expression(ctx, left), self:expression(ctx, right)
-    if (op == "/" or op == "%") and V.tag(right) ~= "u32" then
+    if (op == "/" or op == "%") and not V.isInteger(right) then
         builder:emit(ctx.body, Ir.Trap(builder:bin("Eq", rightExpr, builder:u32(0), S.Bool), "division-zero"))
     end
-    return V.ir(builder:bin(irOp, leftExpr, rightExpr, S.U32), S.U32)
+    return V.ir(builder:bin(irOp, leftExpr, rightExpr, ty), ty)
 end
 
 function Eval:evalShortCircuit(ctx, expr)
@@ -1852,8 +1962,12 @@ function Eval:storeTarget(ctx, target)
     if not reached.place then
         D.bug("not-a-place", "A store target in residual code must be storage")
     end
+    -- The container is the object or array whose storage is selected, so the borrow rules can see
+    -- whether it is module storage or a borrowed receiver.
     return { kind = "field", name = target.kind == "IndexExpr" and "[index]" or "field",
-        ty = reached.ty, place = reached.place, static = nil, readonly = false }, reached.place
+        ty = reached.ty, place = reached.place, static = nil, readonly = false,
+        record = reached.container, retaining = (reached.container and reached.container.enclosing)
+            and true or false }, reached.place
 end
 
 -- Either a residual IR place or a concrete interpreter field.
@@ -1890,94 +2004,6 @@ function Eval:writeSlot(ctx, slot, place, value)
     if becomesBorrowed and slot.record then slot.record.borrowed = true end
 end
 
--- Resolves a store target to a place, plus the slot describing it.
-function Eval:storeTarget(ctx, target)
-    if target.kind == "Reference" then
-        local slot = lookup(ctx.scope, target.name.text)
-        if not slot then D.reject("unknown-name", "Unknown name: " .. target.name.text, target.name.span) end
-        if slot.kind == "field" then
-            if ctx.mode ~= "residual" then
-                D.reject("runtime-in-normalization", "Cannot store to runtime field " .. slot.name, target.span)
-            end
-            return slot, slot.place
-        end
-        if slot.kind == "concrete-field" then return slot, nil end
-        D.reject("not-a-place", "Only record fields can be assigned", target.span)
-    elseif target.kind == "IndexExpr" then
-        local base = self:evalExpr(ctx, target.base)
-        if not S.isArray(base.ty) then
-            D.reject("not-a-place", "Only an array element can be assigned by index", target.span)
-        end
-        local index = self:evalExpr(ctx, target.index)
-        self:requireType(index, S.U32, target.index.span)
-        local array = base
-        if V.tag(index) == "u32" then
-            if index.n >= array.ty.length then
-                D.reject("index-range", "Index " .. tostring(index.n) .. " is outside an array of "
-                    .. "length " .. tostring(array.ty.length), target.span)
-            end
-            if array.items then
-                return { kind = "concrete-index", array = array, index = index.n,
-                    ty = array.ty.element }, nil
-            end
-            if ctx.mode ~= "residual" then
-                D.reject("runtime-in-normalization", "Element is runtime storage", target.span)
-            end
-            local place = Ir.Index(self:arrayPlace(ctx, array, target.span), ctx.builder:u32(index.n),
-                array.ty.element)
-            return { kind = "field", name = "[index]", ty = array.ty.element, place = place,
-                static = nil, readonly = false }, place
-        end
-        if ctx.mode ~= "residual" then
-            D.reject("runtime-in-normalization", "A run-time index needs runtime code", target.span)
-        end
-        local indexExpr = self:expression(ctx, index, S.U32)
-        ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Ge", indexExpr,
-            ctx.builder:u32(array.ty.length), S.Bool), "index-range"))
-        local place = Ir.Index(self:arrayPlace(ctx, array, target.span), indexExpr, array.ty.element)
-        return { kind = "field", name = "[index]", ty = array.ty.element, place = place,
-            static = nil, readonly = false }, place
-    elseif target.kind == "FieldSelect" then
-        local base = self:evalExpr(ctx, target.base)
-        base = self:placeObject(base) or base
-        local name = target.field.text
-        if V.tag(base) == "record" then
-            local ty = S.field(base.ty, name)
-            if not ty then D.reject("unknown-member", "Record has no field " .. name, target.field.span) end
-            return { kind = "concrete-field", name = name, record = base, ty = ty }, nil
-        end
-        if V.tag(base) == "ir" and S.isRef(base.ty) then
-            local targetTy = self:refTargetType(base.ty)
-            local ty = S.field(targetTy, name)
-            if not ty then D.reject("unknown-member", "Record has no field " .. name, target.field.span) end
-            if ctx.mode ~= "residual" then
-                D.reject("runtime-in-normalization", "Cannot store through a runtime reference here",
-                    target.span)
-            end
-            local place = Ir.Project(self:derefPlace(ctx, base, target.span), Ir.Field(name))
-            return { kind = "field", name = name, ty = ty, place = place, static = nil, readonly = false },
-                place
-        end
-        if V.tag(base) ~= "object" then
-            D.reject("not-a-place", "Only a mutable record instance has assignable fields", target.span)
-        end
-        local def = base.schema
-        if not def.fields[name] then
-            D.reject("unknown-member", "Record has no field " .. name, target.field.span)
-        end
-        if ctx.mode ~= "residual" then
-            -- Normalize code stores into the frontend value the place stands for, so every later
-            -- read in this mode sees the store.
-            local record = base.backing
-            if record and record.fields[name] ~= nil and not base.module then
-                return { kind = "concrete-field", name = name, record = record, ty = def.fields[name] }, nil
-            end
-            D.reject("runtime-in-normalization", "Cannot store to runtime field " .. name, target.span)
-        end
-        return self:fieldSlot(def, base, name), Ir.Project(base.place, Ir.Field(name))
-    end
-    D.reject("not-a-place", "Only record fields can be assigned", target.span)
-end
 
 -- Closure application: a static closure is evaluated now; otherwise a direct call carries the
 -- captured environment as leading arguments.
@@ -2668,6 +2694,39 @@ function Eval:requirement(def, index, sc, span)
     return self:typeOf(param.annotation, sc, param.span)
 end
 
+-- Integer arithmetic -------------------------------------------------------------------------------
+-- One implementation of the per-width rules, shared by the interpreter and by the builder when it
+-- folds constants. Wrapping is masked at the type's own width, so a narrower integer wraps the way
+-- U32 wraps at 32 bits.
+
+local U32Kernel = require("wordletkit.u32")
+
+-- Modulus rather than a bit mask: Lua's bit operations are signed 32-bit, so masking a value at or
+-- above 2^31 would turn it negative.
+function wrap(ty, n)
+    return n % (S.maxOf(ty) + 1)
+end
+
+-- A product and a power can exceed what a Lua number holds exactly for a 32-bit width, so those two
+-- go through the exact kernel; the narrower widths fit exactly either way.
+function exact(ty, op, x, y)
+    if ty == S.U32 then
+        if op == "*" then return U32Kernel.mul(x, y) end
+    end
+    return wrap(ty, x * y)
+end
+
+function pow(ty, base, exponent)
+    if ty == S.U32 then return U32Kernel.pow(base, exponent) end
+    local result, b, e = 1, base, exponent
+    while e > 0 do
+        if e % 2 == 1 then result = wrap(ty, result * b) end
+        e = math.floor(e / 2)
+        if e > 0 then b = wrap(ty, b * b) end
+    end
+    return result
+end
+
 -- Application ---------------------------------------------------------------------------------
 
 -- Argument expectations come from parameters whose annotation is written as a signature, so an
@@ -2711,6 +2770,29 @@ function Eval:evalArguments(ctx, exprs, callee)
     return values
 end
 
+-- `U8(x)`, `U16(x)` and `U32(x)` convert between integer widths: widening is free, narrowing traps
+-- when the value does not fit, and a known value outside the target is rejected while compiling.
+function Eval:applyConversion(ctx, ty, args, span)
+    if #args ~= 1 then D.reject("arity", "A conversion takes one value", span) end
+    local value = args[1]
+    if not S.isInteger(value.ty) then
+        D.reject("type-mismatch", S.encode(ty) .. " needs an integer, found "
+            .. S.encode(value.ty or S.Unit), span)
+    end
+    if S.widthOf(value.ty) <= S.widthOf(ty) then return self:convert(value, ty, span) end
+    if V.isInteger(value) then
+        if value.n > S.maxOf(ty) then
+            D.reject("numeric-range", "Value " .. tostring(value.n) .. " does not fit in "
+                .. S.encode(ty), span)
+        end
+        return V.int(ty, value.n)
+    end
+    local expr = self:expression(ctx, value)
+    ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Gt", expr,
+        ctx.builder:u32(S.maxOf(ty)), S.Bool), "numeric-range"))
+    return V.ir(ctx.builder:convert(expr, ty), ty)
+end
+
 function Eval:evalApply(ctx, expr)
     local callee = self:evalExpr(ctx, expr.callee)
     if V.tag(callee) == "word" and callee.def.refOf and #callee.args == 0 and #expr.arguments == 1 then
@@ -2731,6 +2813,14 @@ function Eval:evalApply(ctx, expr)
     end
     if (tag == "ir" or tag == "variant") and callee.ty and S.isTagged(callee.ty) then
         return self:applyTagged(ctx, callee, args, expr.span)
+    end
+    if tag == "type" then
+        -- Applying an integer type converts; applying any other type is not a call.
+        if S.isInteger(callee.value) then
+            return self:applyConversion(ctx, callee.value, args, expr.span)
+        end
+        D.reject("callable-required", S.encode(callee.value) .. " is a type, not a callable",
+            expr.callee.span)
     end
     if tag == "ctor" then
         -- An alternative whose payload is not a record takes one positional argument; a Unit

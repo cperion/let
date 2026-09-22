@@ -496,6 +496,45 @@ return { types = {  }, functions = { first, sum, local_pick, store, grid_cell, t
             { entry = "doubled", arity = 1, inputs = { { 0 }, { 7 } } },
         },
     },
+    {
+        -- Narrower integers: arithmetic wraps at the width the type names, widening is implicit, and
+        -- a run-time narrowing conversion is checked, which is why each entry has its own inputs.
+        name = "widths",
+        source = [==[
+let wrap8(n: U32): U32 = do
+  let a: U8 = U8(n)
+  let b = a + 200
+  return U32(b)
+end
+let mix8(n: U32): U32 = do
+  let a: U8 = U8(n)
+  return U32(a * 3) + U32(a / 2) + U32(a % 7)
+end
+let wrap16(n: U32): U32 = do
+  let a: U16 = U16(n)
+  let b = a * 3
+  return U32(b)
+end
+let chain(n: U32): U32 = do
+  let a: U8 = U8(n)
+  let b: U16 = a
+  let c: U32 = b
+  return c
+end
+let bits(n: U32): U32 = do
+  let a: U8 = U8(n)
+  return U32(a & 15) + U32(a | 16) + U32(a ^ 255)
+end
+return { types = {  }, functions = { wrap8, mix8, wrap16, chain, bits } }
+]==],
+        entries = {
+            { entry = "wrap8", arity = 1, inputs = { { 0 }, { 100 }, { 255 } } },
+            { entry = "mix8", arity = 1, inputs = { { 0 }, { 7 }, { 200 }, { 255 } } },
+            { entry = "wrap16", arity = 1, inputs = { { 0 }, { 40000 }, { 65535 } } },
+            { entry = "chain", arity = 1, inputs = { { 0 }, { 200 } } },
+            { entry = "bits", arity = 1, inputs = { { 0 }, { 1 }, { 130 }, { 255 } } },
+        },
+    },
 }
 
 local function cLiteral(value)
@@ -628,7 +667,8 @@ do
     local source = "let Counter = { value: U32, bump(): U32 = do value += 1 return value end }\n"
         .. "let shared = Counter { value = 100 }\n"
         .. "let bump_twice(x: U32): U32 = do shared.bump() shared.bump() return shared.value + x end\n"
-        .. "return { types = { Counter }, functions = { bump_twice } }"
+        .. "let bump_field(a: U32): U32 = do shared.value += a return shared.value end\n"
+        .. "return { types = { Counter }, functions = { bump_twice, bump_field } }"
     local generated = wordlet.compile{ source = source, name = "module.let" }:unit()
     local path = directory .. "/module.c"
     write(path, generated .. [[
@@ -949,6 +989,32 @@ int main(void) {
         "bounds-guard C failed to compile:\n" .. read(directory .. "/trapErr.txt"))
     check(shell("timeout --kill-after=2s 10s '" .. trapExe .. "' 2> " .. directory
         .. "/trapRun.txt") ~= 0, "an out-of-range run-time index must abort")
+end
+
+-- A run-time narrowing conversion that does not fit aborts, like a run-time zero divisor.
+do
+    local source = [==[
+let narrow(n: U32): U8 = U8(n)
+let read(n: U32): U32 = U32(narrow(n))
+return { functions = { narrow, read } }
+]==]
+    local generated = wordlet.compile{ source = source, name = "narrow.let" }:unit()
+    local path = directory .. "/narrow.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    assert(wordlet_read(UINT32_C(255)) == UINT32_C(255));
+    (void)wordlet_read(UINT32_C(256));
+    return 0;
+}
+]])
+    local exe = directory .. "/narrow"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/narrowErr.txt") == 0,
+        "conversion C failed to compile:\n" .. read(directory .. "/narrowErr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "' 2> " .. directory
+        .. "/narrowRun.txt") ~= 0, "a run-time conversion that does not fit must abort")
 end
 
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.

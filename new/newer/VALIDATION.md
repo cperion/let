@@ -95,6 +95,11 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    element by element, a pool of nodes in module storage reached by `Ref(pool[i])`, and the
    rejections `type-required` for an empty literal, `array-length`, `type-mismatch`, `index-range`
    and `not-a-place`.
+8d. **Integer widths (implemented):** `U8`/`U16` literals by annotation, wrapping arithmetic at the
+   named width (compared against the interpreter and the generated C), implicit widening, a literal
+   adopting a narrower operand, mixed run-time widths widening, a checked conversion that rejects a
+   known value out of range and aborts a run-time one, a non-integer conversion rejected, and the
+   rejections `numeric-range` for an out-of-range annotation or conversion.
 9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.

@@ -97,7 +97,7 @@ end
 local function describe(session, value, seen, depth)
     if depth > 64 then D.resource("interpret-depth", "Interpreted value nests too deeply") end
     local tag = V.tag(value)
-    if tag == "u32" then return value.n end
+    if tag == "int" then return value.n end
     if tag == "bool" then return value.b end
     if tag == "unit" then return "unit" end
     if tag == "ref" then

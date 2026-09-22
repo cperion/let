@@ -178,6 +178,8 @@ function M.close(compilation)
             return layouts:cType(ty.target) .. " *"
         end
         if ty == S.U32 then return "uint32_t" end
+        if ty == S.U8 then return "uint8_t" end
+        if ty == S.U16 then return "uint16_t" end
         if ty == S.Bool then return "bool" end
         if ty == S.Unit then return "void" end
         if S.isView(ty) then return viewLayout(ty).name end

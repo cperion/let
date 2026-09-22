@@ -243,12 +243,18 @@ These are the obligations `check.lua` verifies; the builder should not rely on t
 8. **Visible versus actual signature.** `Ty.Owned`/`Ty.View` carry the source-visible signature.
    `Ir.Fn.inputs` carries the actual ABI including the hidden owner/capture prefix. The two are
    related by `Meta.projections`/`hidden` and must not be conflated.
-10. **Indexes.** `Ir.Place.Index(base, index, type)` names one element: the base must be an array,
+10. **Integer widths.** `Ir.Expr.Convert(operand, type)` is the only conversion, and both its operand
+    and its type are integer widths. Arithmetic and bitwise operators take both operands at one width
+    and yield it; a shift takes an integer value and a `U32` amount and yields the value's width; a
+    comparison takes two integers of any widths and yields `Bool`. Which width an operand needs is
+    decided from the source: a literal adopts the other operand's width when it fits, and otherwise
+    the wider width wins, so the decision never depends on what happens to be known at compile time.
+11. **Indexes.** `Ir.Place.Index(base, index, type)` names one element: the base must be an array,
     the recorded type must be its element type, and the index expression must be a `U32`. A known
     index is checked while compiling and rejected when it is out of range; any other index is preceded
     on every path by `Trap(Ge(index, length), "index-range")`, which the builder emits and the
     verifier does not re-derive, exactly as for a run-time divisor.
-11. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
+12. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
    testing the same operand value.
 
 ## 7. Diagnostics

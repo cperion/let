@@ -44,18 +44,26 @@ function Emitter:expr(expr)
         return "((uint32_t)(" .. UNARY_OP[op] .. "(" .. self:expr(expr.operand) .. ")))"
     elseif kind == "Bin" then
         local op, left, right = expr.op.kind, self:expr(expr.left), self:expr(expr.right)
-        if op == "Pow" then return "wordlet_pow(" .. left .. ", " .. right .. ")" end
+        if op == "Pow" then
+            local resultType = self.layouts:cType(expr.type)
+            if resultType == "uint32_t" then return "wordlet_pow(" .. left .. ", " .. right .. ")" end
+            return "(" .. resultType .. ")wordlet_pow(" .. left .. ", " .. right .. ")"
+        end
         local cOp = BINARY_OP[op]
         if not cOp then D.bug("c-op", "No C operator for " .. tostring(op)) end
+        local resultType = self.layouts:cType(expr.type)
         if op == "Add" or op == "Sub" or op == "Mul" then
-            return "(uint32_t)((uint64_t)(" .. left .. ") " .. cOp .. " (uint64_t)(" .. right .. "))"
+            -- The intermediate is wide enough for every width here, and the cast is the wrap.
+            return "(" .. resultType .. ")((uint64_t)(" .. left .. ") " .. cOp .. " (uint64_t)("
+                .. right .. "))"
         end
         if op == "Shl" or op == "Shr" then
-            return "(uint32_t)((" .. right .. ") >= UINT32_C(32) ? UINT32_C(0) : ((uint64_t)("
+            return "(" .. resultType .. ")((" .. right .. ") >= UINT32_C("
+                .. tostring(S.widthOf(expr.type) or 32) .. ") ? UINT32_C(0) : ((uint64_t)("
                 .. left .. ") " .. cOp .. " (" .. right .. ")))"
         end
         if op == "BitAnd" or op == "BitOr" or op == "BitXor" then
-            return "(uint32_t)((" .. left .. ") " .. cOp .. " (" .. right .. "))"
+            return "(" .. resultType .. ")((" .. left .. ") " .. cOp .. " (" .. right .. "))"
         end
         return "((" .. left .. ") " .. cOp .. " (" .. right .. "))"
     elseif kind == "Make" and S.isArray(S.environmentOf(expr.type)) then
@@ -75,6 +83,9 @@ function Emitter:expr(expr)
         return "(" .. layout.name .. "){" .. table.concat(fields, ", ") .. "}"
     elseif kind == "Get" then
         return "(" .. self:expr(expr.aggregate) .. ")." .. fieldName(expr.field.name)
+    elseif kind == "Convert" then
+        -- The cast is what makes the conversion exact: a narrower type masks to its own width.
+        return "(" .. self.layouts:cType(expr.type) .. ")(" .. self:expr(expr.operand) .. ")"
     elseif kind == "Addr" then
         -- The address of a place: a root plus field names, with no load.
         return "&(" .. self:placeC(expr.place) .. ")"
@@ -113,7 +124,7 @@ function Emitter:declare(ty, name, initial)
         self:line(cType .. " " .. name .. " = " .. initial .. ";")
     else
         -- An aggregate without an initialiser still needs a valid C initialiser.
-        local zero = (ty == S.U32 and "UINT32_C(0)") or (ty == S.Bool and "false") or "{0}"
+        local zero = (S.isInteger(ty) and "0") or (ty == S.Bool and "false") or "{0}"
         self:line(cType .. " " .. name .. " = " .. zero .. ";")
     end
 end
