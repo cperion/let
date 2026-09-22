@@ -1,0 +1,609 @@
+# Wordlet — syntax and semantic contract
+
+Wordlet owns its syntax. This document specifies the surface language for `architecture.md`.
+Examples are specification examples, not claims that a parser/compiler already implements them.
+
+The core is a word with ordered or keyed requirements, an optional result contract, and an optional
+terminal. Application supplies requirements; saturation invokes an implementation. A signature has
+requirements and a result contract but no implementation. A record schema has keyed requirements
+and an intrinsic construction terminal. A method is an executable word with an implicitly bound
+actual receiver.
+
+Owning syntax changes application and control-flow elaboration, not just punctuation. This document
+makes those changes explicit. There is no compatibility requirement with the old Lua grammar.
+
+## 1. Lexical rules and item boundaries
+
+The grammar is free-form. Newlines and indentation are whitespace. Keywords and delimiters determine
+structure. Semicolons are optional separators between complete statements/declarations, not within
+expressions. Commas separate parameters, arguments, fields and result-list items; trailing commas
+are allowed in delimited lists.
+
+Identifiers use ASCII letters or underscore followed by ASCII letters, digits or underscore. Names
+are case-sensitive; capitalization never distinguishes a type from a value or a signature from a
+lambda. Reserved keywords are `let`, `do`, `end`, `if`, `then`, `else`, `return`, `and`, `or`, `not`,
+`true`, and `false`. Primitive names U32, Bool, Unit and Type are predefined bindings.
+
+Numeric literals are decimal integers or hexadecimal integers prefixed by 0x. They denote U32 and
+must be in 0..4294967295; an out-of-range literal rejects rather than wrapping. A leading minus is
+an operator, not part of a literal. There are no float, string, nil or implicit tuple literals.
+`true` and `false` are Bool. `Unit()` is the Unit value.
+
+Comments begin with `--` and continue to the next newline. This is the only newline-sensitive lexical
+rule. Operators use longest-token matching, so `!=`, `<<=` and `->` are single tokens.
+
+An item boundary is grammatical, not visual. In a block, `let`, `return`, statement `if`, and `end`
+cannot continue an ordinary expression. Adjacent names do not apply functions. A postfix `(` or `{`
+CAN continue the preceding expression across a newline; use `;` if separation is intended. A return
+of Unit before an expression statement must be written `return;` (the following statement is then
+unreachable), not inferred from a line break.
+
+## 2. Bindings and named definitions
+
+```
+let x = 42
+let flag: Bool = true
+let affine(a, b, x: U32) -> U32 = a * x + b
+```
+
+`let` introduces an immutable lexical binding. An optional annotation checks its value; it is not a
+conversion chosen by the backend. Bindings cannot be reassigned. A binding can hold a mutable record
+instance, however: binding immutability does not freeze that instance's fields.
+
+A named definition is sugar for binding a word. Parameters are ordered and have immutable bindings.
+Adjacent names share the following annotation: `(a, b, x: U32)` declares three U32 parameters. Every
+named-definition parameter must have an annotation. The result annotation is optional except where
+section 10 requires it. Duplicate parameter names reject.
+
+Type requirements are evaluated left-to-right when arguments are supplied. An earlier parameter may
+appear in a later requirement:
+
+```
+let identity(T: Type, x: T) = x
+```
+
+T must be known before checking x's requirement. This is ordinary type demand, not an implicit type
+parameter or a new `static` keyword.
+
+Top-level binding names are mutually visible; their initializers are demanded lazily and evaluated
+once. A cycle demanding a value before its initializer completes rejects. Creating a word does not
+execute its body, so mutually recursive word definitions need no forward declaration.
+
+Local bindings are visible after their initializer, not throughout the block. A local named word
+also sees its own name in its BODY, permitting self recursion; this does not make an arbitrary local
+initializer self-referential. Mutually recursive local declarations are not introduced by this syntax.
+Shadowing an outer binding is allowed; duplicate declarations in one lexical scope reject. Parameters
+and body declarations follow that same rule.
+
+## 3. Application and partial supply
+
+Application uses parentheses, never juxtaposition:
+
+```
+let transform = affine(4, 3)
+let nineteen = transform(4)
+```
+
+Evaluate the callee, then arguments left-to-right. Adjust result lists as in section 6, check the
+supplied requirements, append those arguments, THEN test saturation.
+
+- Fewer arguments than remaining requirements: return a specialized word. All supplied arguments
+  must be static values, free of runtime captures and mutable storage bindings.
+- Exactly the remaining requirements: invoke the word's terminal. Arguments may be static or runtime.
+- More than the remaining requirements: reject. Arguments are not implicitly forwarded to a result.
+- No arguments with outstanding requirements: return the same word; no terminal executes.
+- No arguments with no outstanding requirements: invoke the nullary terminal once.
+
+A signature without an implementation can describe/check a calling requirement but cannot be
+invoked to fabricate a result. Fully supplying such a descriptor does not supply its missing code.
+
+Partial supply is static specialization, not an implicit closure allocation. To capture an immutable
+runtime value, write a lambda explicitly:
+
+```
+let add(a, b: U32) = a + b
+let add_runtime(n: U32) = |x: U32| -> add(n, x)
+```
+
+Inside a residual function `add(n)` rejects if n is runtime; `add(n, x)` is a valid saturated call.
+Capturing a borrowed method in a lambda yields a borrowed lambda, with the escape restrictions of
+section 9. It does not make an owning closure by spelling the operation differently.
+
+At a saturated call, known arguments specialize automatically. `affine(4, 3, x)` and `transform(x)`
+share the same residual specialization when their other bindings agree. Staticness is a property of
+the complete invocation, including receiver/captures. Empty-argument `r.draw()` is not static if r is
+runtime storage. Known current contents do not make a mutable record a static argument.
+
+## 4. Anonymous words and signatures
+
+Every lambda uses pipes:
+
+```
+|x| -> x + 1
+|a, b| -> a ~ b
+|x: U32| -> x + 1
+|a, b: U32| -> do let t = a * a  return t + b end
+|| -> Unit()
+```
+
+Bare `x -> ...` is NOT a lambda form. Consequently a plain arrow unambiguously constructs a
+signature, including when type aliases are lowercase:
+
+```
+let number = U32
+let Endo = number -> number
+```
+
+Lambda parameters use the same grouping rule as named parameters. Missing annotations require an
+expected callable signature, supplied by an annotated binding, a parameter requirement or a result
+contract. Every missing parameter type must be determined by that context; arbitrary body-based
+parameter inference is not performed. An untyped standalone lambda rejects.
+
+```
+let inc: U32 -> U32 = |x| -> x + 1
+let twice(f: U32 -> U32, x: U32) = f(f(x))
+let inc_2x = twice(|x| -> x + 1)
+```
+
+Expected callable types are passed to lambda arguments as their corresponding requirements become
+known. This is checking, not permission to reorder argument effects. In a conditional checked against
+a signature, propagate that expectation into both value-producing arms.
+
+A lambda's arrow introduces its BODY, not its result annotation. An annotated binding supplies a
+standalone lambda's result contract. Typed lambda parameters plus an inferred result are also valid.
+
+Signature forms are:
+
+```
+U32 -> U32                    -- one input, one result
+(U32, U32) -> U32             -- two inputs
+() -> U32                    -- no inputs
+U32 -> (U32, U32)             -- two results
+U32 -> ()                    -- Unit result contract
+U32 -> (U32 -> U32)           -- one callable result
+```
+
+A single type on either side means one slot. Parenthesized comma lists are allowed ONLY as signature
+input/result lists and named-definition result annotations; they do not create tuple values. An empty
+result list denotes one Unit result. A parenthesized single type is grouping and is equivalent to
+that type. The arrow is right-associative: `U32 -> U32 -> U32` has one callable result, not two results.
+
+A signature is a calling requirement, not executable code. Checking known code against it verifies
+parameter and result requirements without arbitrarily erasing known implementation identity. Unknown
+runtime code needs a complete signature and uses the non-retaining callable ABI. A signature alone
+is not an assertion that a callable owns an environment.
+
+## 5. Bodies, blocks and conditionals
+
+A word body is an expression or a `do ... end` block:
+
+```
+let square(x: U32) = x * x
+let square_block(x: U32) = do
+  let result = x * x
+  return result
+end
+```
+
+An expression body returns that expression's result vector. A block has no implicit last-expression
+result: every reachable function path must return. A bare `return` returns Unit. A declaration or
+call statement at the end does not imply a return. Code after a definitely terminating statement in
+the same list is rejected as unreachable.
+
+Blocks may contain declarations, field assignments, compound field assignments, call statements,
+statement conditionals and returns. A call statement must be saturated; it evaluates the call and
+discards its result vector. Discarding an incomplete word is an error, not a call for effects.
+Arbitrary unused arithmetic expressions are not statements. `do ... end` is a body form, not a
+standalone value expression or a declaration-scope statement.
+
+Conditionals have two grammatical forms:
+
+```
+let chosen = if condition then a else b
+
+if condition then
+  r.draw()
+else
+  r.draw()
+  r.draw()
+end
+```
+
+An expression conditional requires else and has no trailing end. Its arms are expressions, each
+producing a result vector. A statement conditional has statement-list arms, optional else, and a
+terminating end. After then/else, statement versus expression parsing is determined by which form
+was entered; a leading statement-position if is never guessed to be an expression statement.
+
+Conditions must be Bool. A known condition evaluates only the selected arm; the other arm is parsed
+and lexically resolved but not semantically evaluated. An unknown condition elaborates both arms once.
+Continuing expression arms must agree in source result arity and compatible component types. Identical
+known components remain known; differing representable values require runtime result slots. Different
+static-only type values cannot be turned into a runtime Type.
+
+Each arm has a child lexical scope. Declarations inside an arm do not escape. An arm that returns
+from the enclosing word does not reach the continuation. A missing statement else is an empty
+continuing arm. Thus this is complete without any fictitious value from the first arm:
+
+```
+let skip(s, n: U32) -> U32 = do
+  if n == 0 then return s end
+  return skip(next32(s), n - 1)
+end
+```
+
+## 6. Multiple results and adjustment
+
+Multiple results are an ordered result vector, not a tuple value:
+
+```
+let divmod(a, b: U32) -> (U32, U32) = do
+  return a / b, a % b
+end
+
+let quotient, remainder = divmod(17, 5)
+let q: U32, r: U32 = divmod(17, 5)
+```
+
+For ordinary bindings, each name has its OWN optional annotation. `let a, b: U32 = ...` annotates b
+only; shared annotations are restricted to parameter lists. Each bound name is fresh and immutable.
+This is result-list binding, not recursive destructuring or a pattern language.
+
+Expression evaluation has a result vector. Scalar contexts take its first value: arithmetic,
+comparison, condition, callee selection, field base, record-field initializer and a supplied type
+requirement. Extra values are discarded AFTER the expression executes. Parenthesizing an ordinary
+expression explicitly adjusts it to one result: `(divmod(a, b))` yields only the quotient.
+
+In an argument list, return list or binding initializer list, all expressions except the final one
+contribute one result. The final expression contributes its complete vector. Evaluate expressions
+left-to-right before adjustment. Named record initializer items each contribute one value and never
+expand a result vector across fields.
+
+```
+let forward(a, b: U32) = divmod(a, b)        -- forwards both results
+let first(a, b: U32) = (divmod(a, b))        -- returns one result
+```
+
+Binding lists discard surplus values and fill missing values with Unit. An annotation incompatible
+with that Unit rejects. Call argument lists do NOT fill missing parameters: after expansion they
+follow partial/saturated application rules. Return vectors must match the enclosing declared or
+inferred result contract exactly; they are not padded to satisfy it.
+
+Zero results and a bare return denote one Unit result in Wordlet. Explicit Unit slots in multiple
+results remain logical slots even though C erases their payloads. `return Unit(), 3` has arity two.
+A callable expression returning multiple results as an expression body forwards all of them.
+
+## 7. Operators and evaluation order
+
+Tightest first:
+
+| Level | Operators | Associativity |
+| --- | --- | --- |
+| postfix | `f(...)`, `T {...}`, `.name` | left |
+| power | `^` | right |
+| unary | `-`, `~`, `not` | prefix |
+| multiplicative | `*`, `/`, `%` | left |
+| additive | `+`, `-` | left |
+| shift | `<<`, `>>` | left |
+| bitwise and | `&` | left |
+| bitwise xor | `~` | left |
+| bitwise or | `\|` | left |
+| comparison | `==`, `!=`, `<`, `<=`, `>`, `>=` | non-associative |
+| logical and | `and` | left |
+| logical or | `or` | left |
+| signature | `->` | right |
+
+Pipes in prefix position introduce a lambda; infix pipe is bitwise-or. Lambda parameter annotations
+stop at the closing pipe; a bitwise-or expression inside such an annotation would require grouping.
+The lambda body extends as a full body/expression to its enclosing delimiter. Signature arrows do
+not introduce parameter names or executable bodies.
+
+Power binds tighter than unary on its left: `-x ^ 2` means `-(x ^ 2)`. Unary is allowed on the right
+of power, so `x ^ -1` means `x ^ (-1)`. Here -1 is modular U32 negation, not a signed exponent. Two
+comparisons cannot chain without explicit grouping; `a < b < c` rejects.
+
+Arithmetic and bitwise operators require U32. Add/subtract/multiply/negate/power operate modulo 2^32.
+`0 ^ 0` is 1. Division is unsigned integer quotient; remainder is unsigned remainder. A known zero
+divisor rejects; a dynamic zero divisor aborts at runtime. Shifts are logical; an amount at least 32
+yields zero. Raw literals outside the U32 range reject before operations. No implicit Bool/integer
+conversion exists.
+
+Ordered comparison requires U32. Equality requires equal scalar types U32, Bool or Unit; Unit equals
+Unit. Record, word, type and callable equality are not added by the equality tokens.
+
+`and`, `or`, `not` require Bool and produce Bool. There is no truthiness and no operand-valued Lua
+and/or behavior. `and` and `or` short-circuit. Other binary operators evaluate operands left-to-right;
+all source call and initializer evaluation order is preserved by generated C.
+
+Supported compound field stores are exactly `+=`, `-=`, `*=`, `/=`, `%=`, `^=`, `&=`, `|=`, `~=`,
+`<<=`, and `>>=`. Their operand rules are those of the corresponding operation. There is no comparison
+assignment, logical assignment, `:=`, increment operator or rebinding assignment.
+
+For `base.field op= rhs`, evaluate the target base/path once, read the old field value once, then
+evaluate rhs, compute the operation and store. If rhs mutates that field, the final operation still
+uses the earlier snapshot. Plain field assignment evaluates its target once, then rhs, then stores.
+
+## 8. Records, keyed supply and methods
+
+```
+let Point = { x: U32, y: U32 }
+let p = Point { x = 3, y = 4 }
+let old = p.x
+p.x = 20
+```
+
+A schema literal contains named data requirements and optional methods. A named initializer occurs
+only AFTER a word expression, as postfix keyed application. Bare `{x=3}` is not an untyped record
+value. Bare `{}` is the empty record schema; `Point {}` is an empty keyed supply. Schema field order
+does not determine identity or layout. Duplicate names and reserved-member collisions reject.
+
+Keyed application accepts named supplies, not positional arguments. Unknown names and resupplying a
+bound field reject. An incomplete keyed supply produces a specialized schema word and requires all
+supplied values to be static. Bound fields are static, readable and non-writable. Saturation constructs
+a fresh record with its remaining data fields initialized. Ordinary saturated constructor arguments
+that happen to be known do NOT thereby turn those source fields into readonly static fields.
+
+```
+let AtX3 = Point { x = 3 }
+let p = AtX3 { y = 4 }           -- x is statically bound; y is an instance field
+```
+
+Initializer expressions execute in written order even though fields are stored canonically. Methods
+are code members, not initializer fields or stored function pointers. Record arguments, assignments
+into fields and returns have value-copy semantics; local aliases to an instance retain that instance.
+
+```
+let Rng = {
+  state: U32,
+  draw() -> U32 = do
+    state = next32(state)
+    return state
+  end,
+}
+
+let draw_once(s: U32) -> U32 = do
+  let r = Rng { state = s }
+  let before = r.state
+  r.draw()                      -- saturated call statement; result discarded
+  return before
+end
+```
+
+An immutable binding to r permits writes to r.state; `r = ...` rejects. Bare `state = ...` inside a
+method resolves to its receiver field, not a local binding. Ordinary locals/parameters shadow field
+names; assigning a shadowing immutable binding rejects rather than falling through to the field.
+Explicit `r.state` selection uses r's actual instance.
+
+A method borrows its actual receiver. Selecting it on an instance binds that receiver. Selecting it
+on a schema produces an unbound method interface useful for export, but it cannot be called without
+an actual receiver. No source `&T` parameter or guessed dynamic caller supplies one.
+
+Nested lexical owners use actual enclosing records and explicit occurrence routes. Copying a child
+record alone does not invent its former parent. Source definitions do not acquire mutable parent
+pointers. Missing required owner bindings reject.
+
+## 9. Callables, captures and ownership
+
+Known executable arguments retain code identity and specialize. Unknown runtime implementations
+are checked against a complete calling signature and use a non-retaining callable view. There is
+no `dyn` keyword; binding time and representation requirements decide which is needed.
+
+Lambda captures follow lexical bindings. A captured scalar/read snapshot is an immutable value.
+Capturing a mutable record instance or a method retains its actual place; copying its binding does
+not secretly copy its state. Owned value captures form a by-value environment. A closure containing
+any receiver/place borrow or another borrowed callable is borrowed.
+
+Owned closures may return and copy. Borrowed closures/methods can be invoked locally or passed to
+non-retaining callable parameters, but cannot return or be stored in ordinary record fields, including
+through nested aggregates/results. Returning the stateful record and selecting its methods afterwards
+is valid. An opaque signature does not prove ownership; its runtime symbols are conservatively borrowed.
+
+A result annotation that is a signature checks callable shape; it is not permission to erase an owned
+environment into a dangling pointer. A concrete owned result also needs a known code/environment ABI.
+If a recursive result contract cannot establish that ABI, compilation rejects the unresolved recursive
+representation rather than pretending the signature alone specifies ownership or environment size.
+
+## 10. Results, recursion and generics
+
+Result annotations constrain every reachable result vector. Without an annotation, acyclic bodies
+infer their result types and any common static components. A known condition need not evaluate an
+unselected branch, but all returning arms of an unknown condition must agree as specified above.
+
+Every word in a residual recursive strongly connected component requires a complete result contract,
+from its definition/binding annotation or the module's results table. All applicable contracts must
+agree. This intentionally replaces the earlier inference-only-when-ungrounded rule.
+
+Static recursive evaluation can run without a residual result contract, subject to interpreter depth
+and work bounds. A source recursive function whose static arguments change may produce distinct keys;
+that is bounded specialization, not automatically a same-key tail loop.
+
+Generics are ordinary words with Type parameters:
+
+```
+let identity(T: Type, x: T) = x
+let twice(T: Type, f: T -> T, x: T) = f(f(x))
+let identity_u32 = identity(U32)
+```
+
+There is no implicit generic parameter inference. A runtime value cannot supply Type. Static types
+are compile-time values and may be returned by private helpers when all their returning paths agree;
+they cannot occupy an external C value slot. Public callable signatures must have a closed runtime ABI.
+
+## 11. Modules and export configuration
+
+A Wordlet source file uses the `.let` extension and contains top-level let declarations followed by
+exactly one final module export declaration:
+
+```
+return {
+  types = { Rng },
+  functions = { next32, seed, skip },
+  results = { [Endo] = U32 },
+}
+```
+
+This final construct is MODULE CONFIGURATION, not a general source record expression or a runtime
+return. Its brace/list/bracket forms are parsed by a separate configuration grammar. It is never
+stored in a Wordlet record or emitted as a C value. There are no strings, arrays or general indexing
+operators introduced into source expressions by this notation.
+
+Allowed sections are types, functions and results, each optional and present at most once. Unknown
+sections reject. List entries in types/functions are names, or named aliases:
+
+```
+return {
+  functions = { next32, d6 = roll(6) },
+  types = { Rng, Counter = SomeCounter },
+  results = { [helper] = (U32, Bool) },
+}
+```
+
+A bare identifier exports under its own spelling. `alias = expression` gives an explicit public name;
+its expression must yield a known type or executable selection appropriate to the section. Duplicate
+public names within a section reject. Qualified selections require aliases, such as `draw = Rng.draw`.
+Method exports expose their receiver as the C entry's receiver parameter, not as an invented source
+argument. A view bound to mutable module-evaluation storage cannot be exported as implicit C global
+state.
+
+Results entries use `[word-or-signature-expression] = result-spec`. A result-spec is one type, an
+ordered parenthesized type list, or () for Unit. Known code contracts and structural signature contracts
+are distinct: a signature entry constrains that calling interface; a code entry constrains that word
+specialization and compiler-derived refinements. Explicitly partial-specialized words have their own
+contracts; implementation must check all applicable contracts and reject contradictions, never silently
+override an annotation. No static-result assertion syntax is introduced by this table.
+
+Module initialization is compile-time interpreter execution. It may build concrete temporary records
+and use them during initialization; it does not declare runtime globals or emit a hidden C initializer.
+Returned exported code cannot retain a mutable module instance without a specified runtime storage
+interface. Immutable scalar snapshots and static definitions are valid captured metadata. Top-level
+initializers are demanded in declaration order after names are registered; dependency demands may
+force a later initializer first. Each initializer executes once, and dependency cycles reject.
+
+There is no import or pub syntax in this version. There is no traps section: known zero division
+rejects, dynamic zero division aborts. Configurable failure handling and module imports need separate
+language decisions.
+
+## 12. Grammar outline
+
+This grammar fixes the previously overlapping forms. Expression productions use the precedence table
+in section 7. Semantic arity/staticness/type checks are not disguised as parser decisions.
+
+```
+module          := top-let* export-config EOF
+local-let       := named-definition | value-binding
+named-definition:= 'let' Name parameters result-annotation? '=' body
+value-binding   := 'let' binder (',' binder)* '=' expression-list
+binder          := Name (':' type-expression)?
+parameters      := '(' parameter-groups? ')'
+parameter-group := Name (',' Name)* ':' type-expression
+result-annotation := '->' result-spec
+result-spec     := type-expression | '(' type-list? ')'
+body            := expression | 'do' statement* 'end'
+statement       := local-let | field-store | call-statement | return-statement
+                 | 'if' expression 'then' statement* ('else' statement*)? 'end'
+return-statement:= 'return' expression-list?
+expression-list := expression (',' expression)*
+lambda          := '|' lambda-parameters? '|' '->' body
+lambda-parameters := parameter groups, with annotations optionally supplied by context
+postfix         := atom (arguments | initializer | '.' Name)*
+arguments       := '(' expression-list? ')'
+initializer     := '{' (Name '=' expression) (',' Name '=' expression)* ','? '}' | '{' '}'
+schema          := '{' schema-members? '}'
+schema-member   := Name ':' type-expression | Name parameters result-annotation? '=' body
+if-expression   := 'if' expression 'then' expression 'else' expression
+signature       := signature-input '->' result-spec
+signature-input := an expression evaluating to one type | '(' type-list? ')'
+```
+
+Top-let has local-let's syntax but module visibility rules. Optional semicolons delimit complete
+items. Delimited comma lists permit a trailing comma; empty parameter/argument/lambda lists are valid.
+Parameter groups end after an annotation; a following comma begins the next group. For instance,
+`(a, b: U32, c: Bool)` is two groups. In a binding list, annotations belong to individual binders.
+
+A parenthesized comma sequence is legal only as a signature side/result-spec, never as a general
+expression. Parser lookahead over balanced parentheses can recognize an input type list followed by
+an arrow; scalar grouping otherwise adjusts its expression to one value. Pipe lambdas remove the need
+to guess whether a name before an arrow binds a variable or denotes a type.
+
+Type expressions use expression syntax but must evaluate to a type/calling requirement. There is no
+separate capitalization rule or implicit conversion of a value into its type. Their surrounding
+colon, arrow or list delimiter determines where they end. A result-spec's comma list is distinct
+from a single signature-valued result, e.g. `-> (U32 -> U32)`.
+
+`if a then if b then x else y else z` associates each else with its structurally pending expression
+conditional. Statement conditionals have explicit end tokens and cannot consume an expression's else
+by switching grammar forms. Semicolons are required to prevent any otherwise valid postfix continuation
+across an intended item boundary. Full grammar/parser tests must cover these boundary cases.
+
+## 13. Worked example
+
+```
+let xorshift(a, b, c, s: U32) -> U32 = do
+  let s1 = s ~ (s << a)
+  let s2 = s1 ~ (s1 >> b)
+  return s2 ~ (s2 << c)
+end
+
+let next32 = xorshift(13, 17, 5)
+let seed(s: U32) = if s == 0 then 2463534242 else s
+
+let skip(s, n: U32) -> U32 = do
+  if n == 0 then return s end
+  return skip(next32(s), n - 1)
+end
+
+let step(s: U32) -> (U32, U32) = do
+  let t = next32(s)
+  return t, t
+end
+
+let roll(bound, s: U32) -> (U32, U32) = do
+  let t = next32(s)
+  return t, t % bound + 1
+end
+
+let d6 = roll(6)
+let d20 = roll(20)
+
+let Rng = {
+  state: U32,
+  draw() -> U32 = do
+    state = next32(state)
+    return state
+  end,
+}
+
+let roll_then_step(s: U32) -> (U32, U32) = do
+  let next, face = d6(s)
+  return next32(next), face
+end
+
+return {
+  types = { Rng },
+  functions = { seed, next32, skip, step, roll, d6, d20, roll_then_step },
+}
+```
+
+## 14. Explicit exclusions and validation
+
+No juxtaposition, layout blocks, implicit block returns, bare-name lambdas, mutable lexical bindings,
+general borrow parameters, residual partial application, general tuple/array values, record-value
+literals without a schema, pattern matching, implicit type parameters, arbitrary foreign layouts,
+imports, pub or configurable traps are implied by this syntax.
+
+Required syntax/semantic tests include:
+
+- whitespace/one-line equivalence, explicit separators, maximal tokens and comments;
+- pipe lambdas versus lowercase type aliases/signatures; grouped and nested signature arrows;
+- shared parameter annotations versus per-binder annotations; contextual lambda typing;
+- static partial supply, residual saturated calls, overapplication and nullary calls;
+- multiple-result forwarding/grouping, Unit fill, exact return contracts and result annotations;
+- expression/statement conditionals, early returns, short circuit and child lexical scopes;
+- immutable bindings versus record stores; compound target/RHS evaluation order;
+- keyed partial supply versus mutable fields initialized by a saturated constructor;
+- owned scalar captures, borrowed receiver captures and invalid escapes;
+- lazy mutually visible module definitions, initializer cycles and exported runtime ABI demands;
+- recursive contract requirements and conflicting annotation/configuration contracts;
+- configuration forms rejected in runtime expressions and unknown module sections rejected.
+
+This specifies the language choices; it does not replace executable parser, evaluator and C differential
+tests. `architecture.md` defines the implementation obligations supporting them.

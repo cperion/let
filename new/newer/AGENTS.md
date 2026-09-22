@@ -1,0 +1,42 @@
+# Working on this standalone Wordlet project
+
+Read README.md, syntax.md, architecture.md, interfaces.md, ast.asdl, ir.asdl, ASDL.md, U32.md and
+VALIDATION.md before implementing
+compiler components. These files are local authorities, not links to an old checkout. THIRD_PARTY.md
+records verified Terra origins and local changes. The project and vendored code use MIT; preserve
+LICENSE and vendor/LICENSE, including in generated bundles.
+
+## Status and tests
+
+Only the vendor libraries, U32 reference kernel, bundler, ASDL schemas and bootstrap tests are implemented.
+`wordletkit.lua` is NOT the compiler. The .let examples are acceptance fixtures, not currently runnable.
+Do not claim that toolkit/schema checks validate a parser, evaluator or C backend.
+
+Run `timeout --kill-after=2s 30s luajit tests/run.lua` for bootstrap changes. Report actual results and
+wall time. Add new compiler tests against the documented semantics as compiler phases are built;
+there is no old-suite compatibility requirement. Never emit a fake success, stub or provisional
+value for an unimplemented phase.
+
+## Architecture boundaries
+
+- Wordlet owns its syntax: no Lua proxy/metamethod frontend, replay oracle or debug-stack reconciliation.
+- Use ASDL from the beginning for AST, semantic descriptors and structured IR. Canonicalize/copy lists;
+  interned does not mean immutable. Keep effects/storage reads as occurrences.
+- Separate immutable values from mutable places. Snapshot reads immediately; preserve call/store order.
+- Compile each residual specialization independently. Known code identity is not a borrowed receiver
+  address, nor proof that an invocation is static or effect-free.
+- Check real lexical owners, result contracts and transitive borrowed captures. Do not invent heap
+  ownership for a signature-erased environment pointer.
+- Checking/ABI/emission consume compiler data, not source expressions to evaluate again.
+- Source choices are in syntax.md. If a rule changes, update the architecture and tests with it.
+
+## Standalone distribution
+
+All project dependencies must live here or be documented external host tools/modules. Never reach into
+an enclosing checkout. Keep bundled modules explicit in bundle-manifest.lua; use its host allowlist for
+built-ins such as bit. The isolation test copies this project to a temporary directory and clears Lua
+search paths. If you add required project files, update its copy manifest too.
+
+Keep compiler code separate from the vendored libraries. Record any vendor edits and provenance in
+THIRD_PARTY.md. Preserve upstream attribution. Do not install process-global ASDL caches retaining
+source programs forever.

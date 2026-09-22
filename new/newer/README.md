@@ -1,0 +1,115 @@
+# Wordlet — standalone compiler project seed
+
+This directory can be copied to an empty repository. No file above this directory is required.
+The implementation host is **LuaJIT 2.1**, not the speculative LuaJIT 3.0 syntax referenced in earlier
+language discussions. Wordlet source (`.let` files) is parsed by its own future frontend. The target
+backend is C11.
+
+## What exists
+
+- [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.
+- [architecture.md](architecture.md): structured evaluator/IR implementation contract.
+- [interfaces.md](interfaces.md): pass order, module APIs, side tables, builder state, facade API.
+- `ast.asdl`, `ir.asdl`: concrete ASDL schemas, parsed and checked by `tests/schemas.lua`.
+- `vendor/asdl.lua`, `vendor/terralist.lua`: working ASDL and list implementation.
+- `tools/bundle.lua`: working manifest-driven single-file Lua bundler.
+- `wordletkit.lua`: a tooling API exporting ASDL, List and U32, NOT the Wordlet compiler.
+- `wordletkit/u32.lua`: checked exact concrete U32 operations; [U32.md](U32.md) explains host/C rules.
+- `examples/*.let`: source acceptance fixtures, not programs runnable by the bootstrap.
+- `tests/run.lua`: executable bootstrap and relocation checks.
+- [ASDL.md](ASDL.md): the actual vendored API, limitations and integration rules.
+- [VALIDATION.md](VALIDATION.md): tooling tests and future compiler acceptance obligations.
+- [THIRD_PARTY.md](THIRD_PARTY.md): verified Terra origins, local changes and MIT attribution.
+- [LICENSE](LICENSE) and [vendor/LICENSE](vendor/LICENSE): project and upstream MIT notices.
+- [AGENTS.md](AGENTS.md): local implementation and validation instructions for coding agents.
+
+**Not implemented:** the Wordlet lexer, parser, resolver, evaluator, verifier, C backend or CLI. The
+schemas encode the data and `check` their field types; they do not implement the passes that fill
+them. Nothing here is passed off as an executable compiler.
+
+## Run the working tooling
+
+From this directory, using LuaJIT and POSIX utilities:
+
+```sh
+luajit tests/run.lua
+luajit tools/bundle.lua
+luajit -e 'local k = dofile("dist/wordletkit.lua"); print(k.List{1,2,3})'
+```
+
+The default bundle is `dist/wordletkit.lua`. It exports the bootstrap API. It does not compile Wordlet.
+Running tests requires `cp`, `mkdir`, `rm`, and GNU-compatible `timeout`. `LUAJIT` may name the LuaJIT
+executable. Future C tests additionally need a C11 compiler, preferably selected through `CC`.
+The bootstrap has no LuaRocks, network, external Lua library or C compiler dependency. Its bit module
+is supplied by LuaJIT itself.
+
+The builder locates its default manifest beside the project, not relative to the invocation cwd:
+
+```sh
+cd /tmp
+luajit /path/to/project/tools/bundle.lua
+```
+
+Copy this entire directory to start the new repository; do not create symlinks back to the old one.
+Initialize Git there normally. Generated `dist/` output is ignored. The project uses MIT, like Terra;
+retain the project and vendored copyright/license notices when redistributing. The default bundle
+embeds them, so single-file distribution keeps the attribution.
+
+## Bundler contract
+
+`bundle-manifest.lua` is a trusted Lua table with these fields:
+
+```lua
+return {
+    entry = "wordletkit",              -- required module whose value the bundle returns
+    output = "dist/wordletkit.lua",    -- default output, relative to manifest
+    licenses = {"LICENSE", "vendor/LICENSE"}, -- embedded as comments in the bundle
+    modules = {
+        wordletkit = "wordletkit.lua", -- every bundled module is explicitly listed
+        ["wordletkit.u32"] = "wordletkit/u32.lua",
+        ["vendor.asdl"] = "vendor/asdl.lua",
+        ["vendor.terralist"] = "vendor/terralist.lua",
+    },
+    external = {"bit"},                -- built into LuaJIT; used by wordletkit.u32
+    -- cli = "wordlet.cli",            -- OPTIONAL; add only once that module exists
+}
+```
+
+Module source paths must remain inside the manifest directory (no absolute paths or parent traversal).
+The build includes all listed modules in sorted name order. It does not scan source with regular
+expressions pretending to discover every require. List dynamically required internal modules too.
+An unlisted require fails at runtime unless explicitly external; it never accidentally loads code
+from the surrounding checkout. This is loader isolation, not a sandbox against arbitrary Lua.
+
+```sh
+luajit tools/bundle.lua path/to/manifest.lua path/to/output.lua
+```
+
+An explicit output argument is relative to the caller's cwd (or absolute). The default manifest output
+is relative to the manifest. Parent directories are created with safely quoted POSIX mkdir. Module
+syntax and assembled syntax are checked before output is written. License notices are validated and
+embedded as comments. A failed write reports nonzero; output replacement is not promised atomic.
+Manifests and module source are trusted build inputs.
+
+Factories receive local `require`, local `package` with a private `loaded` table, and the module name
+as `...`. Modules should return their API. Legacy `package.loaded[...] = value` is supported inside
+the private table. Failed loads clear private state so a later attempt can retry. Cycles reject unless
+a module deliberately installs a usable value before requiring the cycle. False module results follow
+Lua require's reload behavior. Global side effects, `module()`, source-relative runtime asset loading,
+searcher customization and arbitrary manipulation of the host package table are not isolated APIs.
+
+An optional CLI module must return `function(api, argv) -> exit_status`. The generated bundle invokes
+it only when executed as the script; require/loadfile usage otherwise returns the entry API. CLI tests
+exercise this using fixtures, not a fictitious compiler. Normal executable dispatch expects the usual
+LuaJIT `arg[0]` and chunk filename agreement; custom launchers can call the CLI module explicitly.
+
+When the real compiler exists, change the release manifest's entry to its `wordlet` facade module,
+list its modules, add `cli = "wordlet.cli"`, and choose `dist/wordlet.lua`. Do not ship empty compiler
+modules simply to make that manifest appear ready.
+
+## Document authority
+
+The syntax document defines source behavior. The architecture defines how compiler data preserves it.
+Both are self-contained; numbered sections refer to those local files only. Algorithm changes must
+update both where they alter a language rule. Old implementations/tests are not a compatibility gate.
+The validation document distinguishes working tooling checks from unimplemented compiler obligations.
