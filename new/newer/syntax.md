@@ -26,12 +26,12 @@ lambda. Reserved keywords are `let`, `do`, `end`, `if`, `then`, `else`, `return`
 `true`, and `false`. Primitive names U32, Bool, Unit and Type are predefined bindings, as is the
 type constructor `OneOf` (section 8.1).
 
-Numeric literals are decimal integers or hexadecimal integers prefixed by 0x. They are written as
-U32 and must be in 0..4294967295; an out-of-range literal rejects rather than wrapping. A leading
-minus is an operator, not part of a literal. There are no float, string, nil or implicit tuple
-literals.
+Numeric literals are decimal integers or hexadecimal integers prefixed by 0x. A literal that fits a
+word is a U32 and one that does not is a U64, so 0xFFFFFFFFFFFFFFFF can be written directly; a
+literal above 64 bits rejects rather than wrapping. A leading minus is an operator, not part of a
+literal. There are no float, string, nil or implicit tuple literals.
 
-The integer types are `U8`, `U16`, `U32` and `I32`. `I32` is
+The integer types are `U8`, `U16`, `U32`, `I32`, `U64` and `I64`. `I32` is
 two's complement, so it wraps, its division truncates toward zero with the remainder taking the
 dividend's sign, its right shift is arithmetic, and the most negative value divided by -1 wraps to
 itself rather than being undefined. Its negation wraps too, and a signed power needs a power that is
@@ -47,13 +47,16 @@ Arithmetic wraps at the width its type names, comparisons widen first, and a shi
 U32. Assigning a run-time value to a narrower annotation rejects (`numeric-range`) rather than
 truncating it silently.
 
-The wider families are specified as: `U64` and `I64`, held as two 32-bit words with the same rules,
-including the `I64` boundary cases above; and `F64`, IEEE-754 double, whose arithmetic follows IEEE
-754 rather than the integer rules, so division by zero is an infinity or a NaN and not a trap, a NaN
-comparison is false, an integer converts to a float by rounding and a float to an integer by
-truncation, with a value outside the integer's range rejected when known and stopped when not. There
-is no `F32` in this language. `I32` is implemented; `U64`, `I64` and `F64` are specified above and are
-the next thing this compiler builds, in the order the two-word integer kernel and then the float.
+`U64` and `I64` are 64 bits wide and follow the same rules, including the `I64` boundary cases above.
+Their bounds are not Lua numbers, so a conversion that changes width is checked against the target's
+range rather than truncated, and a conversion that only changes signedness at one width still
+reinterprets.
+
+`F64` is IEEE-754 double and follows IEEE 754 rather than the integer rules: division by zero is an
+infinity or a NaN rather than a trap, a NaN comparison is false, an integer converts to a float by
+rounding to nearest with ties to even and a float to an integer by truncation, with a value outside
+the integer's range rejected when known and stopped when not. There is no `F32`, and no float literal
+syntax in this version: a float value is produced by a conversion, such as `F64(1) / F64(3)`.
 `true` and `false` are Bool. `Unit()` is the Unit value.
 
 Comments begin with `--` and continue to the next newline. This is the only newline-sensitive lexical

@@ -1,0 +1,130 @@
+# Target compiler data. Normative contracts are in target-architecture.md.
+# This schema is not imported by the current compiler.
+
+module Identity {
+  Token = (string domain, number serial) unique
+  Select = Name(string name) unique | Index(number index) unique
+  Static = UInt(number value) unique | Boolean(boolean value) unique | Unit
+         | Type(Token meaning) unique
+         | Word(Source key) unique
+         | Aggregate(Token meaning, Static* values) unique
+  Binding = Pos(number index, Static value) unique
+          | Named(string name, Static value) unique
+  Owner = (Token meaning, Select* path, Static? snapshot) unique
+  Source = (Token definition, Binding* bindings, Owner* owners) unique
+  Role = Argument | CaptureRole | OwnerRole
+  Site = (Role role, Select* path) unique
+  Fact = KnownAt(Site site, Static value) unique | CodeAt(Site site, Source code) unique
+  Runtime = (Site site, Ty.Input type) unique
+  Instance = (Token definition, Owner* owners, Fact* facts, Runtime* runtime) unique
+}
+
+module Ty {
+  V = U32 | Bool | Unit
+    | Record(string meaning, Field* fields) unique
+    | Tuple(V* fields) unique
+    | Owned(string target, Sig signature, V environment) unique
+    | View(Sig signature) unique
+  Field = (string name, V type) unique
+  Input = InValue(V type) unique | InPlace(V type) unique | InBundle(Env type) unique
+  Env = (Slot* slots) unique
+  Slot = Saved(V type) unique | Reference(V type) unique
+  Sig = (Input* inputs, V* results) unique
+}
+
+module IR {
+  Value = (number id) unique
+  Bundle = (number id) unique
+  Decl = (Value value, Ty.V type)
+  Input = ValueInput(Decl decl)
+        | PlaceInput(number id, Ty.V type)
+        | BundleInput(Bundle bundle, Ty.Env type)
+  Place = Local(number allocation)
+        | Borrowed(number input)
+        | Captured(Bundle bundle, number slot)
+        | Field(Place base, Identity.Select selector)
+  Arg = ValueArg(Value value) | PlaceArg(Place place) | BundleArg(Bundle bundle)
+  Literal = UInt(number value) | Boolean(boolean value) | Unit
+  Unary = Neg | BitNot
+  Binary = Add | Sub | Mul | Quot | Rem | Pow
+         | BitAnd | BitOr | BitXor | Shl | Shr
+         | Eq | Lt | Le
+  Instruction = Constant(Decl out, Literal literal)
+              | UnaryOp(Decl out, Unary op, Value value)
+              | BinaryOp(Decl out, Binary op, Value left, Value right)
+              | Construct(Decl out, Value* fields)
+              | Extract(Decl out, Value aggregate, Identity.Select selector)
+              | Alloc(number id, Ty.V type, Value initial)
+              | Load(Decl out, Place place)
+              | Store(Place place, Value value)
+              | Call(Decl* out, string target, Arg* arguments)
+              | Indirect(Decl* out, Value callable, Arg* arguments)
+              | MakeOwned(Decl out, Value environment)
+              | OwnedEnvironment(Decl out, Value callable)
+              | MakeBundle(Bundle out, Ty.Env type, Arg* fields)
+              | BundleValue(Decl out, Bundle bundle, number slot)
+              | MakeView(Decl out, string target, Arg* bindings)
+              | Check(Value failure, string reason)
+  Edge = (number target, Value* arguments)
+  Terminator = Return(Value* values)
+             | Jump(Edge edge)
+             | Branch(Value condition, Edge yes, Edge no)
+  Block = (number id, Decl* parameters, Instruction* instructions, Terminator exit)
+  FunctionRole = Body | Entry
+  Function = (string id, FunctionRole role, Ty.Sig signature, number hidden, Input* inputs,
+              number entry, Block* blocks)
+  FunctionExport = (string name, string target)
+  TypeExport = (string name, Ty.V type)
+  Program = (Function* functions, FunctionExport* exports, TypeExport* types)
+}
+
+# Frontend-only records. These MUST NOT be reachable from an IR.Program/artifact.
+module Source {
+  Purpose = Run | Normalize | Residualize
+  Location = (string file, number line)
+  Terminal = Lua(function code) | Intrinsic(string name)
+  Member = (string name, Identity.Source word)
+  Shape = Ordered(Identity.Source* requirements, Terminal? terminal)
+        | Keyed(Member* members)
+  Definition = (Identity.Token id, Shape shape, Location location)
+  Raw = Number(number value) | Boolean(boolean value) | Text(string value) | Nil
+  Value = Known(Identity.Static value, Occurrence? occurrence)
+        | Word(Ref word)
+        | Callable(Ref word, Ty.V type)
+        | Symbol(string attempt, IR.Value value, Ty.V type)
+        | RunPlace(table storage, Identity.Select* path, Identity.Token meaning)
+        | ResidualPlace(string attempt, IR.Place place, Ty.V type)
+        | RawValue(Raw value)
+        | Results(Value* values)
+  Occurrence = (Value root, Identity.Select* path)
+  Binding = Owner(number index, Value root) | Capture(string name, Value value)
+  Ref = (Identity.Source key, Binding* bindings, Occurrence? occurrence)
+  Need = ValueNeed | TypeNeed | CallableNeed | LayoutNeed
+       | MemberNeed(Identity.Select selector)
+  CallPlan = Concrete(Ref callee, Value* arguments)
+           | StaticCall(Ref callee, Value* arguments)
+           | Boundary(Ref callee, Identity.Instance instance, Value* arguments)
+           | Demand(Ref callee, Need need)
+  Outcome = Returned(Value* values) | Forked(IR.Value predicate) | Waiting(string target)
+  Contract = DynamicContract(Identity.Source requirement) | StaticContract(Identity.Static value)
+  Frame = (Purpose purpose, Ref selected, Value* arguments, Binding* bindings,
+           Location location)
+}
+
+# Normalized, data-only trap policy. Handler targets are checked Entry functions.
+module Policy {
+  Action = Abort | Unchecked | Handler(string target)
+  Trap = (string function, string reason, Action action)
+}
+
+module Analysis {
+  ResultSlot = StaticResult(string atom, Ty.V? representation) unique
+             | DynamicResult(Ty.V type) unique
+  Results = Unknown | Profile(ResultSlot* slots) | Conflict
+  Origin = Incoming(number input) unique
+         | IncomingBundle(number input, number slot) unique
+         | Local(number allocation) unique
+         | Temporary(number instruction) unique
+         | UnknownOrigin
+  Tail = (string function, number block, number call)
+}

@@ -109,6 +109,11 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    literal adapting to a signed operand, the `int32_t` representation and the reinterpretation helper,
    and the rejections `type-mismatch` for mixing signed and unsigned and `numeric-range` for a
    negative value narrowed to an unsigned type or a negative signed power.
+8g. **64-bit integers (implemented):** the exact kernel's own checks, then 64-bit literals (`0xFFFFFFFFFFFFFFFF`
+   and a decimal one), widening, narrowing (rejected when known and trapped at run time), products
+   that need both words, division and remainder of a signed value, a shift into the high word, and a
+   `numeric-range` rejection for a known value that does not fit. The differential case compares all
+   of it against the interpreter.
 9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
