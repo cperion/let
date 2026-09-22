@@ -70,6 +70,34 @@ function M.owned(key, visible, environment)
     return Ty.Owned(key, visible, environment or Ty.Unit)
 end
 function M.view(sig) return Ty.View(sig) end
+
+-- A sum type: an unordered set of named alternatives, exactly like a record's fields but read as
+-- a tag plus a payload.
+function M.sum(cases)
+    local names = {}
+    for name in pairs(cases) do names[#names + 1] = name end
+    table.sort(names)
+    local list = {}
+    for _, name in ipairs(names) do list[#list + 1] = Ty.Field(name, cases[name]) end
+    return Ty.Sum(M.encodeFields(list), ASDL.List(list))
+end
+
+function M.isSum(t) return type(t) == "table" and t.kind == "Sum" end
+
+-- The case names of a sum type, in the canonical order that fixes its tag numbering.
+function M.casesOf(t)
+    local names = {}
+    for _, field in ipairs(t.cases) do names[#names + 1] = field.name end
+    return names
+end
+
+function M.caseOf(t, name)
+    for _, field in ipairs(t.cases) do if field.name == name then return field.type end end
+end
+
+function M.tagIndex(t, name)
+    for index, field in ipairs(t.cases) do if field.name == name then return index - 1 end end
+end
 function M.isOwned(t) return type(t) == "table" and t.kind == "Owned" end
 -- The runtime representation of a type: an Owned callable is represented by its environment.
 function M.environmentOf(t) return M.isOwned(t) and t.environment or t end
@@ -107,6 +135,13 @@ function M.runtime(t, visiting)
     if t == Ty.U32 or t == Ty.Bool or t == Ty.Unit then return true end
     if t == Ty.Type then return false end
     if M.isOwned(t) then return M.runtime(t.environment, visiting) end
+    if M.isSum(t) then
+        -- A tag plus a payload whose size is the largest alternative.
+        for _, field in ipairs(t.cases) do
+            if not M.runtime(field.type, visiting) then return false end
+        end
+        return true
+    end
     if M.isView(t) then
         -- The runtime representation is an invocation pointer plus an environment pointer.
         for _, input in ipairs(t.visible.inputs) do
@@ -139,6 +174,7 @@ end
 -- code identity, so it has no representation and must stay a compile-time fact.
 function M.representable(t)
     if M.isView(t) then return M.runtime(t) end
+    if M.isSum(t) then return M.runtime(t) end
     if M.isOwned(t) then
         if t.environment == Ty.Unit then return false end
         return M.runtime(t.environment)

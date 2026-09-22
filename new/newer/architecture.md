@@ -76,7 +76,13 @@ RecordPlace(root, field_path, type_meaning, actual_owner_route)
 ConcreteStorage(root, field_path, type_meaning)
 OwnedCallable(code_identity, environment)
 BorrowedCallable(code_identity_or_signature, environment_bindings)
+Sum(alternative_names_and_payload_types)
 ```
+
+A sum value is a tag plus one payload. Its alternatives are canonical (sorted by name), so two
+spellings of the same alternatives are the same type and one layout. It is immutable and copies by
+value, exactly like a record. There is no owning erasure and no open variant: an alternative's
+payload type must be fully known, which is why a sum cannot mention itself in this version.
 
 These are ASDL semantic variants behind the evaluator interface. A runtime value is immutable. A
 place identifies mutable storage; it is not an unevaluated value read.
@@ -329,9 +335,20 @@ Ir.Place = Local(Storage) | Captured(Bundle, slot) | Project(Place, Field)
 Ir.Arg   = ValueArg | BorrowArg | BundleArg
 Ir.Stmt  = Let | Var | Read | Store | BundleDef | View | Call | Indirect
          | If | Loop | Next | Trap | Return
+         | ConstructVariant | VariantMatches | VariantPayload
 Ir.Param = ValueParam | PlaceParam | BundleParam
 Ir.Fn    = (id, role, hidden, Ty.Input* inputs, Ty.V* results, Param* params, Stmt* body)
 ```
+
+A sum is the one aggregate family whose alternatives are selected by a tag rather than by a static
+field name, so it has three statements of its own. `ConstructVariant(value, Ty.Sum, tag, Expr?)`
+builds one alternative; the payload expression is absent for a `Unit` alternative.
+`VariantMatches(value, variant, Ty.Sum, tag)` tests the tag and defines a `Bool`.
+`VariantPayload(value, variant, Ty.Sum, tag)` projects the payload of an alternative that the
+matching arm has already established, defining a value of that alternative's type. All three name
+their `Ty.Sum`, so the checker can reject a tag or a projection that does not belong to the type,
+and a match on a value that is not of that type. Nothing in the IR reads a tag without a matching
+test in an enclosing arm, which is what keeps payload projection sound.
 
 There is no separate receiver operand: a receiver is a `PlaceParam`, so `Place.Local` names it. This
 replaces the earlier `Receiver(parameter_id)` sketch, which duplicated `Place.Local`.
@@ -450,6 +467,7 @@ helpers. No historical helper names or facade signatures are compatibility requi
 | U32 / Bool | uint32_t / bool |
 | Unit | erased payload, while logical result positions remain tracked |
 | record value | struct, by value, fields in canonical name order |
+| sum value | struct with a tag plus a union of alternative payloads, by value |
 | multiple runtime results | internal ordered result struct |
 | actual receiver borrow | typed pointer, optionally proven const |
 | concrete owned callable | inline environment struct; static code identity |
@@ -457,7 +475,16 @@ helpers. No historical helper names or facade signatures are compatibility requi
 | captured borrowed bindings | compiler-private local bundle with typed pointers and saved values |
 
 Empty/all-Unit aggregates need one private padding byte in C11. Unit erasure must not accidentally
-change source arity. A view adapter casts its environment to its exact private layout, then invokes
+change source arity. A sum's tag is the alternative's canonical index; its union holds one member per
+alternative, and a `Unit` alternative contributes no payload member. Construction is a compound
+literal with the tag and the one live payload member set by name, projection reads that member, and a
+tag test compares the tag word. Because the payload union is only ever read in an arm guarded by the
+matching tag test, an inactive payload is never interpreted.
+
+A `Unit` parameter is erased rather than represented, exactly like a `Unit` result: it produces no
+`Ty.Input`, no `Ir.Param` and no C parameter, and a call site emits no argument for it. Erasure
+happens when the input plan is built, so the IR argument list, `Ty.Input*`, `Ir.Param*` and the C
+signature stay positionally consistent. A view adapter casts its environment to its exact private layout, then invokes
 the concrete entry with saved bindings and current arguments. Const access to the adapter does not
 make its borrowed referents immutable.
 

@@ -8,6 +8,7 @@ module Ty {
     | Sig(Input* inputs, V* results) unique
     | Owned(string entry, Sig visible, V environment) unique
     | View(Sig visible) unique
+    | Sum(string meaning, Field* cases) unique
   Field = (string name, V type) unique
   Input = InValue(V type) unique | InPlace(V type) unique | InBundle(V env) unique
   Env = (Slot* slots) unique
@@ -56,6 +57,9 @@ module Ir {
        | Loop(Stmt* body)
        | Next
        | Trap(Expr failure, string reason)
+       | ConstructVariant(Value value, Ty.V type, string tag, Expr? payload)
+       | VariantMatches(Value value, Value variant, Ty.V sum, string tag)
+       | VariantPayload(Value value, Value variant, Ty.V sum, string tag)
        | Return(Expr* values)
 
   # Actual ABI inputs, including the hidden owner/capture prefix at input 0..hidden-1.

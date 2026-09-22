@@ -27,13 +27,17 @@ untrusted module source or manifest code.
   remain a snapshot despite the method call. At U32 maximum, increment wraps to zero.
 - examples/captures.let: run(5,7)=12. An exported make_adder result must remain callable after
   its creator returns and copy its captured value by value.
+- examples/sums.let: area_of_circle(5)=25, area_of_round(6)=36, area_of_box(4)=12, scaled(3)=36,
+  total(0)=6, total(4)=16, unwrap_or(0,9)=9, unwrap_or(4,9)=4. A known alternative resolves its
+  match while compiling; a run-time alternative becomes a C tag test; a Unit alternative carries no
+  payload and its handler takes no C argument.
 
 ## Implementation gates for the owned-syntax compiler
 
 Each gate needs executable positive and negative cases. No gate means “keep an old suite green.”
 
-Gates 1–5 and 8–10 have their first executable form in `tests/parse.lua`, `tests/eval.lua` and
-`tests/c.lua`; gates 6 and 7 are partial (no records, closures or loop rewrite yet).
+Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `tests/eval.lua` and
+`tests/c.lua`. Gate 6 is partial (no bounded changing-specialization growth check yet).
 
 1. **Concrete schemas:** `ast.asdl`/`ir.asdl` parse and construct (tests/schemas.lua); stable source
    spans; every semantic visitor covers every AST/IR variant; immutable canonical lists; no effect
@@ -48,18 +52,25 @@ Gates 1–5 and 8–10 have their first executable form in `tests/parse.lua`, `t
    joins, initialization on every continuing arm, no arm-local definitions leaked outside scope.
 6. **Instances:** canonical known argument/code/capture bindings, shared helper bodies, no caller path
    multiplication, bounded changing-specialization recursion and complete annotated residual cycles.
-7. **Callables:** owned environments survive creator return (make_adder/run/compose/snap); a captured
+7. **Sums:** `OneOf(schema)` builds one canonical sum; member selection constructs an alternative by
+   keyed supply, positionally for a non-record payload, or with no value for `Unit`; matching requires
+   exactly one callable handler per alternative, all with the same result type. A known tag elaborates
+   only its own handler; an opaque tag emits a tag test per alternative with the payload projected
+   inside the arm. C lowers to a tag plus a union and a `Unit` parameter is erased. Non-schema cases,
+   an empty schema, unknown alternatives, missing or duplicated handlers, unknown payload fields and
+   disagreeing arm types all reject.
+8. **Callables:** owned environments survive creator return (make_adder/run/compose/snap); a captured
    field is a snapshot while a captured receiver is a live borrow; distinct lambdas are distinct code
    identities; escaping a borrowed closure is rejected; an opaque callable uses a signature-specific
    invocation pointer, and a callable with no known code and no view is rejected rather than
    mis-compiled.
-8. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
+9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
-9. **C:** strict C11 compile/run, arithmetic boundary values, side-effect order, safe tail permutations,
+10. **C:** strict C11 compile/run, arithmetic boundary values, side-effect order, safe tail permutations,
    constant-stack self-tails (5,000,000 iterations),
    no dangling environment, separate header/source consumer, stable names and Unit erasure.
-10. **Distribution:** replace wordletkit with the REAL facade/CLI in the manifest; bundle parity with the
+11. **Distribution:** replace wordletkit with the REAL facade/CLI in the manifest; bundle parity with the
     checkout implementation; clean relocated builds and runtime execution without source search paths.
 
 Use concrete interpreter behavior and generated C on the same programs, comparing returned vectors

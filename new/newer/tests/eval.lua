@@ -465,6 +465,138 @@ check(interpret("f", { 4 },
     "let P = { x: U32 }\nlet m = P { x = 1 }\nlet f(a: U32): U32 = do m.x += a return m.x end\n"
     .. "return { functions = { f } }")[1] == 5, "module state mutates through a field store")
 
+
+-- Sum types (variants) --------------------------------------------------------------------------
+-- `OneOf(cases)` builds a sum from a keyed schema; member selection names a constructor and keyed
+-- application either constructs one alternative or matches on the tag.
+local shapes = [==[
+let Circle = { radius: U32 }
+let Rect = { width: U32, height: U32 }
+let Shape = OneOf({ circle: Circle, rect: Rect })
+let area(s: Shape): U32 = s {
+  circle = |c: Circle| -> c.radius * c.radius,
+  rect = |r: Rect| -> r.width * r.height,
+}
+let round(n: U32): Shape = Shape.circle { radius = n }
+let box(n: U32): Shape = Shape.rect { width = n, height = 3 }
+let area_of_circle(n: U32): U32 = area(Shape.circle { radius = n })
+let area_of_round(n: U32): U32 = area(round(n))
+let tag_of(n: U32): U32 = round(n) {
+  circle = |c: Circle| -> c.radius,
+  rect = |r: Rect| -> r.width,
+}
+return { types = { Circle, Rect, Shape }, functions = { area, round, box, area_of_circle, area_of_round, tag_of } }
+]==]
+check(interpret("area_of_circle", { 5 }, shapes)[1] == 25, "a known alternative is selected statically")
+check(interpret("area_of_round", { 6 }, shapes)[1] == 36, "a statically tagged value matches directly")
+check(interpret("tag_of", { 7 }, shapes)[1] == 7, "matching reads the payload of the held alternative")
+check(compile(shapes):unit():find("wordletsum_1", 1, true) ~= nil, "a sum type gets a tagged C layout")
+
+-- A Unit alternative takes no payload, and its match arm is applied with none.
+local OPTION = [==[
+let Opt = OneOf({ none: Unit, some: U32 })
+let or_else(o: Opt, d: U32): U32 = o {
+  none = |u: Unit| -> d,
+  some = |v: U32| -> v,
+}
+let wrap(n: U32): Opt = if n == 0 then Opt.none() else Opt.some(n)
+let unwrap_or(n: U32, d: U32): U32 = or_else(wrap(n), d)
+return { functions = { or_else, wrap, unwrap_or } }
+]==]
+check(interpret("unwrap_or", { 0, 9 }, OPTION)[1] == 9, "a Unit alternative matches with no payload")
+check(interpret("unwrap_or", { 4, 9 }, OPTION)[1] == 4, "a payload alternative projects its payload")
+
+-- A scalar alternative is applied positionally rather than by named supply.
+check(interpret("id", { 3 },
+    "let Opt = OneOf({ some: U32 })\nlet id(n: U32): U32 = Opt.some(n) { some = |v: U32| -> v }\n"
+    .. "return { functions = { id } }")[1] == 3, "a non-record alternative is applied to one value")
+
+-- Rejections -----------------------------------------------------------------------------------
+rejects("variant-match", [==[
+let A = { x: U32 }
+let B = { y: U32 }
+let S = OneOf({ a: A, b: B })
+let f(s: S): U32 = s { a = |v: A| -> v.x }
+let g(n: U32): U32 = f(S.a { x = n })
+return { functions = { g } }
+]==], "g", { 1 })
+-- A sum value has no direct members at all: an alternative is reached by matching, not by name.
+rejects("member-required", [==[
+let A = { x: U32 }
+let S = OneOf({ a: A })
+let f(n: U32): U32 = do let s = S.a { x = n } return s.b end
+return { functions = { f } }
+]==], "f", { 1 })
+-- A match must name only the type's alternatives.
+rejects("unknown-member", [==[
+let A = { x: U32 }
+let S = OneOf({ a: A })
+let f(n: U32): U32 = S.a { x = n } { a = |v: A| -> v.x, c = |v: A| -> v.x }
+return { functions = { f } }
+]==], "f", { 1 })
+rejects("unknown-member", [==[
+let A = { x: U32 }
+let S = OneOf({ a: A })
+let f(n: U32): U32 = S.a { y = n }
+return { functions = { f } }
+]==], "f", { 1 })
+rejects("variant-payload", [==[
+let A = { x: U32 }
+let S = OneOf({ a: A })
+let f(n: U32): U32 = S.a { }
+return { functions = { f } }
+]==], "f", { 1 })
+-- A scalar alternative is not built from named fields.
+rejects("variant-payload", [==[
+let S = OneOf({ a: U32 })
+let f(n: U32): U32 = S.a { x = n } { a = |v: U32| -> v }
+return { functions = { f } }
+]==], "f", { 1 })
+-- A record alternative expects its own payload type, not an unrelated value.
+rejects("type-mismatch", [==[
+let A = { x: U32 }
+let S = OneOf({ a: A })
+let f(n: U32): U32 = S.a(n) { a = |v: A| -> v.x }
+return { functions = { f } }
+]==], "f", { 1 })
+rejects("arity", [==[
+let A = { x: U32 }
+let S = OneOf({ a: A })
+let f(n: U32): U32 = S.a(n, n) { a = |v: A| -> v.x }
+return { functions = { f } }
+]==], "f", { 1 })
+-- A top-level binding is evaluated on demand, so each rejection below uses the binding.
+rejects("type-required", [==[
+let S = OneOf(3)
+let f(n: U32): U32 = do let x = S return n end
+return { functions = { f } }
+]==], "f", { 1 })
+rejects("type-required", [==[
+let S = OneOf({ })
+let f(n: U32): U32 = do let x = S return n end
+return { functions = { f } }
+]==], "f", { 1 })
+rejects("unknown-member", [==[
+let S = OneOf({ a: U32 })
+let f(n: U32): U32 = do let x = S.b return n end
+return { functions = { f } }
+]==], "f", { 1 })
+rejects("callable-required", [==[
+let A = { x: U32 }
+let S = OneOf({ a: A })
+let f(n: U32): U32 = do let s = S.a { x = n } return s { a = 3 } end
+return { functions = { f } }
+]==], "f", { 1 })
+-- Two alternatives whose arms disagree must be rejected, not silently joined. An exported sum
+-- parameter has no known tag, so the match becomes a runtime switch.
+rejects("branch-result", [==[
+let A = { x: U32 }
+let B = { y: U32 }
+let S = OneOf({ a: A, b: B })
+let f(s: S): U32 = s { a = |v: A| -> v.x, b = |v: B| -> true }
+return { functions = { f } }
+]==])
+
 -- The interpreter refuses an unsaturated entry rather than inventing a value.
 local ok, err = pcall(wordlet.interpret, { source = "let f(a, b: U32) : U32 = a + b\n"
     .. "return { functions = { f } }", entry = "f", args = { 1 } })

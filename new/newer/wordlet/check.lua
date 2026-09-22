@@ -46,13 +46,16 @@ end
 function M.function_(fn, definitions, seeded)
     -- `visible` is the set of values in scope at this point. Arm bodies get a copy so an
     -- arm-local definition cannot be referenced from the continuation.
-    local function bind(visible, id)
+    -- `visible` maps each value in scope to its type, so later statements can cross-check the
+    -- values they refer to. Only truthiness of the entry is used for scope tests.
+    local function bind(visible, id, ty)
         if visible[id] then D.bug("value-duplicate", "IR defines value " .. id .. " twice") end
-        visible[id] = true
+        visible[id] = ty or true
     end
+    -- Arm bodies get a copy of the scope; the mapped types must travel with it.
     local function copy(set)
         local out = {}
-        for key in pairs(set) do out[key] = true end
+        for key, value in pairs(set) do out[key] = value end
         return out
     end
     local function checkList(list, inputs, visible, storages, inLoop)
@@ -63,7 +66,7 @@ function M.function_(fn, definitions, seeded)
                 if M.expr(stmt.expr, visible) ~= stmt.type then
                     D.bug("ir-type", "Let type does not match its expression")
                 end
-                bind(visible, stmt.value.id)
+                bind(visible, stmt.value.id, stmt.type)
             elseif kind == "Read" then
                 local placeType = M.place(stmt.place, storages)
                 if placeType ~= stmt.type then
@@ -72,7 +75,7 @@ function M.function_(fn, definitions, seeded)
                 if stmt.place.kind == "Local" and not storages[stmt.place.storage.id] then
                     D.bug("ir-place", "Read of undeclared storage " .. stmt.place.storage.id)
                 end
-                bind(visible, stmt.value.id)
+                bind(visible, stmt.value.id, stmt.type)
             elseif kind == "Var" then
                 storages[stmt.storage.id] = stmt.type
                 if stmt.initial then
@@ -94,7 +97,6 @@ function M.function_(fn, definitions, seeded)
                 -- it with a Return or a Next, so an empty body is the only rejected shape.
                 checkList(stmt.body, set, copy(visible), storages, true)
             elseif kind == "Call" or kind == "Indirect" then
-                for _, result in ipairs(stmt.results) do bind(visible, result.id) end
                 local target = definitions[stmt.target]
                 if kind == "Call" and not target then
                     D.bug("ir-target", "Call to unknown function " .. stmt.target)
@@ -117,6 +119,9 @@ function M.function_(fn, definitions, seeded)
                     end
                     if #stmt.arguments ~= #callable.visible.inputs then
                         D.bug("ir-arity", "Indirect argument count does not match the view's signature")
+                    end
+                    for index, result in ipairs(stmt.results) do
+                        bind(visible, result.id, callable.visible.results[index])
                     end
                 end
                 for index, arg in ipairs(stmt.arguments) do
@@ -147,6 +152,11 @@ function M.function_(fn, definitions, seeded)
                 end
                 if target and #stmt.arguments ~= #target.inputs then
                     D.bug("ir-arity", "Call argument count does not match " .. stmt.target)
+                end
+                if kind == "Call" then
+                    for index, result in ipairs(stmt.results) do
+                        bind(visible, result.id, target.results[index])
+                    end
                 end
             elseif kind == "View" then
                 -- A view binds a known callable's hidden prefix in a local adapter.
@@ -179,7 +189,45 @@ function M.function_(fn, definitions, seeded)
                         D.bug("ir-type", "View signature does not match the remaining inputs")
                     end
                 end
-                bind(visible, stmt.value.id)
+                bind(visible, stmt.value.id, stmt.type)
+            elseif kind == "ConstructVariant" then
+                if not S.isSum(stmt.type) then
+                    D.bug("ir-type", "ConstructVariant needs a sum type")
+                end
+                local caseType = S.caseOf(stmt.type, stmt.tag)
+                if not caseType then D.bug("ir-type", "Sum type has no alternative " .. stmt.tag) end
+                if caseType == S.Unit then
+                    if stmt.payload then
+                        D.bug("ir-type", "A Unit alternative must not carry a payload")
+                    end
+                else
+                    if not stmt.payload then
+                        D.bug("ir-type", "Alternative " .. stmt.tag .. " needs a payload")
+                    end
+                    if M.expr(stmt.payload, visible) ~= caseType then
+                        D.bug("ir-type", "Variant payload does not match alternative " .. stmt.tag)
+                    end
+                end
+                bind(visible, stmt.value.id, stmt.type)
+            elseif kind == "VariantMatches" then
+                if not S.isSum(stmt.sum) then D.bug("ir-type", "VariantMatches needs a sum type") end
+                if not S.caseOf(stmt.sum, stmt.tag) then
+                    D.bug("ir-type", "Sum type has no alternative " .. stmt.tag)
+                end
+                if visible[stmt.variant.id] ~= stmt.sum then
+                    D.bug("ir-type", "VariantMatches tests a value that is not of that sum type")
+                end
+                bind(visible, stmt.value.id, S.Bool)
+            elseif kind == "VariantPayload" then
+                local caseType = S.caseOf(stmt.sum, stmt.tag)
+                if not caseType then D.bug("ir-type", "Sum type has no alternative " .. stmt.tag) end
+                if caseType == S.Unit then
+                    D.bug("ir-type", "A Unit alternative has no payload to project")
+                end
+                if visible[stmt.variant.id] ~= stmt.sum then
+                    D.bug("ir-type", "VariantPayload projects a value that is not of that sum type")
+                end
+                bind(visible, stmt.value.id, caseType)
             elseif kind == "Trap" then
                 M.expr(stmt.failure, visible)
             elseif kind == "Return" then
@@ -204,7 +252,7 @@ function M.function_(fn, definitions, seeded)
         if param.kind ~= "ValueParam" and param.kind ~= "PlaceParam" and param.kind ~= "BundleParam" then
             D.bug("ir-param", "Unknown parameter variant " .. tostring(param.kind))
         end
-        if param.kind == "ValueParam" then bind(visible, param.binding.id) end
+        if param.kind == "ValueParam" then bind(visible, param.binding.id, param.type) end
     end
     local storages = {}
     for id, ty in pairs(seeded or {}) do storages[id] = ty end

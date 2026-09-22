@@ -96,7 +96,8 @@ function Emitter:declare(ty, name, initial)
     if initial then
         self:line(cType .. " " .. name .. " = " .. initial .. ";")
     else
-        local zero = (ty == S.U32 and "UINT32_C(0)") or (ty == S.Bool and "false") or "0"
+        -- An aggregate without an initialiser still needs a valid C initialiser.
+        local zero = (ty == S.U32 and "UINT32_C(0)") or (ty == S.Bool and "false") or "{0}"
         self:line(cType .. " " .. name .. " = " .. zero .. ";")
     end
 end
@@ -134,6 +135,18 @@ function Emitter:statements(list)
             self:line("continue;")
         elseif kind == "Trap" then
             self:line("if (" .. self:expr(stmt.failure) .. ") abort();")
+        elseif kind == "ConstructVariant" then
+            self:construct(stmt)
+        elseif kind == "VariantMatches" then
+            local layout = self.layouts.sumLayout(stmt.sum)
+            local tag = S.tagIndex(stmt.sum, stmt.tag)
+            self:declare(S.Bool, self:value(stmt.value.id),
+                "(" .. self:value(stmt.variant.id) .. ".wordlet_tag == " .. tag .. ")")
+        elseif kind == "VariantPayload" then
+            local case = S.caseOf(stmt.sum, stmt.tag)
+            local cased = self.layouts.sumLayout(stmt.sum).cases[S.tagIndex(stmt.sum, stmt.tag) + 1]
+            self:declare(case, self:value(stmt.value.id),
+                "(" .. self:value(stmt.variant.id) .. ".payload." .. cased.name .. ")")
         elseif kind == "Call" then
             self:call(stmt)
         elseif kind == "Indirect" then
@@ -146,6 +159,17 @@ function Emitter:statements(list)
             D.todo("c-stmt", "No C lowering for statement " .. tostring(kind))
         end
     end
+end
+
+-- A variant is a compound literal with the tag and the one payload member set by name.
+function Emitter:construct(stmt)
+    local layout = self.layouts.sumLayout(stmt.type)
+    local cased = layout.cases[S.tagIndex(stmt.type, stmt.tag) + 1]
+    local text = "(" .. layout.name .. "){ .wordlet_tag = " .. cased.tag
+    if stmt.payload then
+        text = text .. ", .payload." .. cased.name .. " = " .. self:expr(stmt.payload)
+    end
+    self:declare(stmt.type, self:value(stmt.value.id), text .. " }")
 end
 
 function Emitter:call(stmt)
@@ -330,6 +354,26 @@ function M.typeDeclarations(layouts)
     end
     for _, tuple in ipairs(layouts.tupleOrder) do aggregate(tuple.name, tuple.fields) end
     for _, record in ipairs(layouts.recordOrder) do aggregate(record.name, record.fields) end
+    for _, sum in ipairs(layouts.sumOrder) do
+        local body = { "    uint32_t wordlet_tag;" }
+        if #sum.cases == 0 then
+            body[#body + 1] = "    unsigned char wordlet_pad;"
+        else
+            local members = {}
+            for _, cased in ipairs(sum.cases) do
+                if cased.type == S.Unit then
+                    members[#members + 1] = "        unsigned char " .. cased.name .. ";"
+                else
+                    members[#members + 1] = "        " .. layouts:cType(cased.type) .. " " .. cased.name .. ";"
+                end
+            end
+            body[#body + 1] = "    union {"
+            for _, member in ipairs(members) do body[#body + 1] = member end
+            body[#body + 1] = "    } payload;"
+        end
+        lines[#lines + 1] = "typedef struct " .. sum.name .. " {\n"
+            .. table.concat(body, "\n") .. "\n} " .. sum.name .. ";"
+    end
     for _, exported in ipairs(layouts.typeExports or {}) do
         lines[#lines + 1] = "typedef " .. exported.layout.name .. " " .. exported.name .. ";"
     end

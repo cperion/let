@@ -21,6 +21,8 @@ function M.close(compilation)
         viewOrder = {},
         records = {},       -- Ty.Record -> { name, fields }
         recordOrder = {},
+        sums = {},          -- Ty.Sum -> { name, cases }
+        sumOrder = {},
         signatures = {},
     }
 
@@ -41,6 +43,22 @@ function M.close(compilation)
         return layout
     end
 
+
+    -- A sum is a tag plus a union of the alternative payloads. Payloads are held by value so that
+    -- construction and projection are plain assignments.
+    local function sumLayout(ty)
+        local existing = layouts.sums[ty]
+        if existing then return existing end
+        local layout = { name = "wordletsum_" .. (#layouts.sumOrder + 1), type = ty, cases = {} }
+        layouts.sums[ty] = layout
+        layouts.sumOrder[#layouts.sumOrder + 1] = layout
+        for index, field in ipairs(ty.cases) do
+            layout.cases[#layout.cases + 1] = { name = "f_" .. M.escape(field.name), type = field.type,
+                tag = index - 1 }
+            if field.type ~= S.Unit and S.runtime(field.type) then layouts:cType(field.type) end
+        end
+        return layout
+    end
 
     local function resultLayout(results)
         if #results == 0 then return { kind = "void" } end
@@ -109,6 +127,7 @@ function M.close(compilation)
     end
 
     layouts.recordLayout, layouts.resultLayout, layouts.viewLayout = recordLayout, resultLayout, viewLayout
+    layouts.sumLayout = sumLayout
 
     function layouts:cType(ty)
         if ty == S.U32 then return "uint32_t" end
@@ -117,6 +136,7 @@ function M.close(compilation)
         if S.isView(ty) then return viewLayout(ty).name end
         if S.isOwned(ty) then return layouts:cType(ty.environment) end
         if S.isRecord(ty) then return recordLayout(ty).name end
+        if S.isSum(ty) then return sumLayout(ty).name end
         D.todo("c-type", "No C representation for " .. S.encode(ty))
     end
 
@@ -163,7 +183,8 @@ function M.close(compilation)
     -- Exported record types get a public alias so consumers never name a numbered struct.
     layouts.typeExports = {}
     for _, entry in ipairs(compilation.types or {}) do
-        local layout = recordLayout(entry.type)
+        -- A sum is nameable too; only the numbered layout name differs.
+        local layout = S.isSum(entry.type) and sumLayout(entry.type) or recordLayout(entry.type)
         layouts.typeExports[#layouts.typeExports + 1] = {
             name = "wordtype_" .. M.escape(entry.name), layout = layout, entry = entry,
         }
@@ -186,6 +207,7 @@ function M.close(compilation)
             layouts:cType(signature.results.type)
         end
     end
+    -- Sum layouts are reached through cType, which may run while the statements are emitted.
     layouts.signatures = signatures
     -- Module-level storages are file-scope objects; the emitter names them here.
     layouts.modules = {}

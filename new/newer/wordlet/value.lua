@@ -29,6 +29,16 @@ function M.object(ty, place, schema, borrowed)
     return make{ tag = "object", ty = ty, place = place, schema = schema, borrowed = borrowed or false }
 end
 
+-- A constructor for one alternative of a sum type, named by member selection on the type.
+function M.ctor(sum, case, caseType)
+    return make{ tag = "ctor", ty = S.Type, sum = sum, case = case, caseType = caseType }
+end
+
+-- A sum value: which alternative it holds, and that alternative's payload.
+function M.variant(ty, tag, payload, expr)
+    return make{ tag = "variant", ty = ty, case = tag, payload = payload, expr = expr }
+end
+
 -- A method selected on an actual receiver.
 function M.method(method, receiver) return make{ tag = "method", def = method, receiver = receiver } end
 
@@ -62,6 +72,7 @@ function M.isKnown(v)
     if tag == "record" then
         for _, field in pairs(v.fields) do if not M.isKnown(field) then return false end end
     end
+    if tag == "variant" then return M.isKnown(v.payload) end
     return true
 end
 

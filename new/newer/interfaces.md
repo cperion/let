@@ -39,7 +39,6 @@ Lua-level signatures. `Diag` values are raised with `error`, not returned.
 | `wordlet/lex.lua` | `tokens(source, name) -> Token[]` | free-form lexer; every token has a span |
 | `wordlet/parse.lua` | `program(Token[]) -> Ast.Program` | builds `ast.asdl` nodes; exports are a separate grammar |
 | `wordlet/resolve.lua` | `module(Ast.Program) -> Resolution` | scopes, bindings, captures, tail positions |
-| `wordlet/builtins.lua` | `environment() -> Env` | U32, Bool, Unit, Type primitive definitions |
 | `wordlet/eval.lua` | `program(Ast.Program, Resolution, Options) -> Compilation` | keys, instances, IR, projections |
 | `wordlet/check.lua` | `program(Ir.Program, Meta)` | raises `bug` diagnostics only |
 | `wordlet/cabi.lua` | `close(Ir.Program, Meta) -> Layouts` | record layouts, callable ABIs, C names |
@@ -56,7 +55,11 @@ Current reality, so the table is not read as a promise of empty files:
   value, a schema or a field depending on values that only exist at evaluation time, so a static
   pass would have to duplicate that. The architecture gives `resolve` bindings as well; this is the
   one deliberate deviation, and it is why `Resolution` has no `bindings` table here.
-- Primitive bootstrap lives in `wordlet/eval.lua` (`load`) rather than a `builtins.lua`.
+- Primitive bootstrap lives in `wordlet/eval.lua` (`load`) rather than a `builtins.lua`: the names
+  U32, Bool, Unit and Type, plus the `OneOf` type constructor. `OneOf` is an ordinary word with a
+  compiler-provided terminal (`Eval:builtin`), so it is applied, partially supplied and type-checked
+  through the same path as any other word; its terminal receives the keyed schema and returns a
+  `Ty.Sum` type value.
 - The schema text is served by the generated modules `wordlet/schema/ast.lua` and
   `wordlet/schema/ir.lua`, produced from `ast.asdl`/`ir.asdl` by `tools/embed.lua`.
 
@@ -143,6 +146,15 @@ Key points:
 `emitCall`, `emitIf`, `emitLoop`, `emitReturn`, `emitTrap`. Every emitter that allocates uses
 `ctx.next` so IDs are unique within the `Ir.Fn`.
 
+Two rules are easy to get wrong and are therefore explicit:
+
+- **Materialise an arm's value under that arm's context.** A value is canonicalised into reads of the
+  storage it lives in (`recordExpr`/`fieldExpr`), so those reads belong to the arm that built it.
+  Storing an arm result with the enclosing context leaks reads of arm-local storage into the
+  continuation. `evalCondition` and sum matching pass `yesCtx`/`noCtx`/the arm's context.
+- **Never write `cond and nil or x`.** When the `and` branch yields `nil` the `or` branch runs
+  anyway, which silently defeats an erasure guard such as a `Unit` payload. Use an explicit `if`.
+
 ### 4.2 Self-tail rewrite at build time
 
 When a saturated call in a syntactic tail position targets the current instance key, the evaluator
@@ -206,10 +218,20 @@ These are the obligations `check.lua` verifies; the builder should not rely on t
 5. **Args and slots.** `Ir.Call` arguments match the target `Ir.Fn.inputs` positionally: `InValue` →
    `ValueArg`, `InPlace` → `BorrowArg`, `InBundle` → `BundleArg`. `Ir.View`/`BundleDef` slots match
    the `Ty.Env` slot kinds in order. `Ir.Indirect` matches the `Ty.View`'s *visible* signature.
-6. **Visible versus actual signature.** `Ty.Owned`/`Ty.View` carry the source-visible signature.
+   A `Unit`-typed parameter is erased when the input plan is built, so it contributes no `Ty.Input`
+   and no `Ir.Param` and appears in no argument list. The parameter's name is bound to the `Unit`
+   value directly, and because there is no `Ir.Literal` for `Unit`, a `Unit` value can never be
+   materialised as an `Ir.Expr`.
+6. **Sum tags.** `Ir.ConstructVariant`/`Ir.VariantMatches`/`Ir.VariantPayload` each name their
+   `Ty.Sum`. The tag must be one of its alternatives; a construct of a `Unit` alternative must omit
+   its payload and any other alternative must have one whose type matches; a projection must not
+   target a `Unit` alternative, and its operand value must have been bound with that exact sum type.
+   A projection is only ever reachable inside an arm whose test established the tag, which is a
+   builder obligation the checker cannot see from the statement list alone.
+7. **Visible versus actual signature.** `Ty.Owned`/`Ty.View` carry the source-visible signature.
    `Ir.Fn.inputs` carries the actual ABI including the hidden owner/capture prefix. The two are
    related by `Meta.projections`/`hidden` and must not be conflated.
-7. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
+8. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
    testing the same operand value.
 
 ## 7. Diagnostics

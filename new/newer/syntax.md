@@ -14,15 +14,17 @@ makes those changes explicit. There is no compatibility requirement with the old
 
 ## 1. Lexical rules and item boundaries
 
-The grammar is free-form. Newlines and indentation are whitespace. Keywords and delimiters determine
-structure. Semicolons are optional separators between complete statements/declarations, not within
+The grammar is free-form. Newlines and indentation are whitespace. A `--` comment runs to the end
+of the line and is otherwise whitespace; there is no block comment form. Keywords and delimiters
+determine structure. Semicolons are optional separators between complete statements/declarations, not within
 expressions. Commas separate parameters, arguments, fields and result-list items; trailing commas
 are allowed in delimited lists.
 
 Identifiers use ASCII letters or underscore followed by ASCII letters, digits or underscore. Names
 are case-sensitive; capitalization never distinguishes a type from a value or a signature from a
 lambda. Reserved keywords are `let`, `do`, `end`, `if`, `then`, `else`, `return`, `and`, `or`, `not`,
-`true`, and `false`. Primitive names U32, Bool, Unit and Type are predefined bindings.
+`true`, and `false`. Primitive names U32, Bool, Unit and Type are predefined bindings, as is the
+type constructor `OneOf` (section 8.1).
 
 Numeric literals are decimal integers or hexadecimal integers prefixed by 0x. They denote U32 and
 must be in 0..4294967295; an out-of-range literal rejects rather than wrapping. A leading minus is
@@ -381,6 +383,57 @@ Nested lexical owners use actual enclosing records and explicit occurrence route
 record alone does not invent its former parent. Source definitions do not acquire mutable parent
 pointers. Missing required owner bindings reject.
 
+### 8.1 Sums
+
+A sum type is a finite set of named alternatives, each with its own payload type. It is a keyed
+schema read as a tag plus a payload, so it needs no new syntax of its own: the schema's field names
+are the alternatives and the field types are their payloads.
+
+```
+let Circle = { radius: U32 }
+let Rect = { width: U32, height: U32 }
+let Shape = OneOf({ circle: Circle, rect: Rect })
+```
+
+`OneOf(cases)` takes one keyed schema and produces a type value. Alternative order is canonical, not
+written order, so two spellings of the same alternatives are the same type. `OneOf` requires a schema
+with at least one named alternative; an empty schema, or a non-schema argument, rejects.
+
+Member selection on a sum type names a constructor for one alternative:
+
+```
+let round = Shape.circle { radius = 3 }
+let flat = Shape.rect { width = 4, height = 5 }
+```
+
+An alternative whose payload is a record is constructed by keyed supply, checked and stored exactly
+like the payload record itself. An alternative whose payload is not a record is applied to one value
+positionally, and a `Unit` alternative is applied to nothing (`Opt.none()`). Selecting a name that is
+not an alternative of that sum rejects.
+
+Matching is keyed application of a sum value with one handler per alternative. The handlers are
+callable values, each receiving that alternative's payload:
+
+```
+let area(s: Shape): U32 = s {
+  circle = |c: Circle| -> c.radius * c.radius,
+  rect = |r: Rect| -> r.width * r.height,
+}
+```
+
+Every alternative must be handled exactly once; a missing or duplicated alternative rejects. Every
+handler must be callable, and every handler must produce the same result type. A value whose
+alternative is known selects its handler directly and evaluates no other handler, so an unreachable
+handler body is not compiled for that occurrence. A value whose alternative is only known at run time
+becomes a tag test per alternative with the payload projected inside the matching arm.
+
+A sum value is immutable like a record; its alternatives have no selectable members. A payload is
+reached by matching, not by naming an alternative in a member select. Sum values copy by value on
+argument passing, assignment and return.
+
+Recursive sums are not expressible in this version: an alternative's payload type must already be
+defined, so a sum cannot mention itself. That restriction lifts when recursive type identities exist.
+
 ## 9. Callables, captures and ownership
 
 Known executable arguments retain code identity and specialize. Unknown runtime implementations
@@ -586,8 +639,8 @@ return {
 
 No juxtaposition, layout blocks, implicit block returns, bare-name lambdas, mutable lexical bindings,
 general borrow parameters, residual partial application, general tuple/array values, record-value
-literals without a schema, pattern matching, implicit type parameters, arbitrary foreign layouts,
-imports, pub or configurable traps are implied by this syntax.
+literals without a schema, non-exhaustive or recursive pattern matching, implicit type parameters,
+arbitrary foreign layouts, imports, pub or configurable traps are implied by this syntax.
 
 Required syntax/semantic tests include:
 
@@ -598,6 +651,8 @@ Required syntax/semantic tests include:
 - multiple-result forwarding/grouping, Unit fill, exact return contracts and result annotations;
 - expression/statement conditionals, early returns, short circuit and child lexical scopes;
 - immutable bindings versus record stores; compound target/RHS evaluation order;
+- sum construction by supply and by positional application, exhaustive matching, known versus
+  runtime tags, erased `Unit` alternatives and payload type mismatches;
 - keyed partial supply versus mutable fields initialized by a saturated constructor;
 - owned scalar captures, borrowed receiver captures and invalid escapes;
 - lazy mutually visible module definitions, initializer cycles and exported runtime ABI demands;

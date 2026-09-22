@@ -1,3 +1,0 @@
-host Handle release
-extern pure made (n : Int) : Handle
-let h = made(1)

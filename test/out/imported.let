@@ -1,3 +1,0 @@
-let twice = let n : Int do : Int
-    return n * 2
-end

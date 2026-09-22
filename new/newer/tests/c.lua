@@ -227,6 +227,43 @@ local CASES = {
         entries = { { entry = "flag", arity = 1 }, { entry = "both", arity = 2 } },
         inputs = { { 0 }, { 1 }, { 5, 0 }, { 3, 9 }, { 9, 3 } },
     },
+    {
+        name = "sums",
+        source = [==[
+let Circle = { radius: U32 }
+let Rect = { width: U32, height: U32 }
+let Shape = OneOf({ circle: Circle, rect: Rect })
+let area(s: Shape): U32 = s {
+  circle = |c: Circle| -> c.radius * c.radius,
+  rect = |r: Rect| -> r.width * r.height,
+}
+let wrap(n: U32): Shape = if n % 3 == 0 then Shape.rect { width = n, height = 2 } else Shape.circle { radius = n + 1 }
+let via_shape(n: U32): U32 = area(wrap(n))
+let direct(n: U32): U32 = area(Shape.circle { radius = n })
+let Opt = OneOf({ none: Unit, some: U32 })
+let or_else(o: Opt, d: U32): U32 = o {
+  none = |u: Unit| -> d,
+  some = |v: U32| -> v,
+}
+let via_option(n: U32): U32 = or_else(if n == 0 then Opt.none() else Opt.some(n * 2), 7)
+return { types = { Circle, Rect, Shape }, functions = { via_shape, direct, via_option } }
+]==],
+        entries = { { entry = "via_shape", arity = 1 }, { entry = "direct", arity = 1 },
+            { entry = "via_option", arity = 1 } },
+        inputs = { { 0 }, { 1 }, { 2 }, { 3 }, { 4 }, { 100 }, { 4294967295 } },
+    },
+    {
+        -- A record-valued conditional used to leak the arms' reads into the continuation.
+        name = "recordbranch",
+        source = [==[
+let R = { width: U32, height: U32 }
+let wrap(n: U32): R = if n == 0 then R { width = n + 2, height = 3 } else R { width = n, height = 1 }
+let width_of(n: U32): U32 = wrap(n).width
+return { types = { R }, functions = { wrap, width_of } }
+]==],
+        entries = { { entry = "width_of", arity = 1 } },
+        inputs = { { 0 }, { 1 }, { 9 }, { 4294967295 } },
+    },
 }
 
 local function cLiteral(value)
@@ -400,6 +437,79 @@ int main(void) {
         "callable-field C failed to compile:\n" .. read(directory .. "/flderr.txt"))
     check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
         "a callable field did not run correctly")
+end
+
+-- Sum types at the ABI boundary: a host builds a variant, passes it by value, and reads the tag
+-- and payload of one that comes back. This is C-only because the interpreter has no host values.
+do
+    local source = [==[
+let Circle = { radius: U32 }
+let Rect = { width: U32, height: U32 }
+let Shape = OneOf({ circle: Circle, rect: Rect })
+let area(s: Shape): U32 = s {
+  circle = |c: Circle| -> c.radius * c.radius,
+  rect = |r: Rect| -> r.width * r.height,
+}
+let rect_of(w: U32): Shape = Shape.rect { width = w, height = 2 }
+return { types = { Circle, Rect, Shape }, functions = { area, rect_of } }
+]==]
+    local generated = wordlet.compile{ source = source, name = "shape.let" }:unit()
+    local path = directory .. "/shape.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    wordletsum_1 built;
+    built.wordlet_tag = 0;
+    built.payload.f_circle.f_radius = UINT32_C(9);
+    assert(wordlet_area(built) == UINT32_C(81));
+
+    wordletsum_1 back = wordlet_rect_5Fof(UINT32_C(5));
+    assert(back.wordlet_tag == 1);
+    assert(back.payload.f_rect.f_width == UINT32_C(5));
+    assert(back.payload.f_rect.f_height == UINT32_C(2));
+    return 0;
+}
+]])
+    local exe = directory .. "/shape"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/sherr.txt") == 0,
+        "sum ABI C failed to compile:\n" .. read(directory .. "/sherr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "a host-built variant or a returned variant crossed the ABI incorrectly")
+end
+
+-- A Unit parameter is erased rather than represented: a Unit alternative's handler takes no C
+-- argument, and the generated code must still compile under -Werror.
+do
+    local source = [==[
+let Opt = OneOf({ none: Unit, some: U32 })
+let or_else(o: Opt, d: U32): U32 = o {
+  none = |u: Unit| -> d,
+  some = |v: U32| -> v,
+}
+let unwrap_or(n: U32, d: U32): U32 = or_else(if n == 0 then Opt.none() else Opt.some(n), d)
+return { types = { Opt }, functions = { unwrap_or, or_else } }
+]==]
+    local generated = wordlet.compile{ source = source, name = "opt.let" }:unit()
+    local path = directory .. "/opt.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    assert(wordlet_unwrap_5For(UINT32_C(0), UINT32_C(7)) == UINT32_C(7));
+    assert(wordlet_unwrap_5For(UINT32_C(4), UINT32_C(7)) == UINT32_C(4));
+    wordletsum_1 none = { .wordlet_tag = 0 };
+    assert(wordlet_or_5Felse(none, UINT32_C(3)) == UINT32_C(3));
+    return 0;
+}
+]])
+    local exe = directory .. "/opt"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/opterr.txt") == 0,
+        "Unit-parameter C failed to compile:\n" .. read(directory .. "/opterr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "a Unit alternative did not erase cleanly at the ABI")
 end
 
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.

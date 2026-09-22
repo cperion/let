@@ -34,6 +34,12 @@ assert(sig ~= i.Ty.Sig(L{i.Ty.InValue(i.Ty.Bool)}, L{i.Ty.U32}))
 assert(i.Ty.Env(L{i.Ty.Saved(i.Ty.U32)}) ~= i.Ty.Env(L{i.Ty.Reference(i.Ty.U32)}))
 assert(i.Ty.U32 == i.Ty.U32 and i.Ty.V:isclassof(i.Ty.U32) and i.Ty.V:isclassof(i.Ty.Unit))
 
+-- A sum interns by its canonical alternative list, so two spellings of one sum are one type.
+local sum = i.Ty.Sum("m", L{i.Ty.Field("circle", i.Ty.U32), i.Ty.Field("rect", i.Ty.Bool)})
+assert(sum == i.Ty.Sum("m", L{i.Ty.Field("circle", i.Ty.U32), i.Ty.Field("rect", i.Ty.Bool)}))
+assert(sum ~= i.Ty.Sum("m", L{i.Ty.Field("circle", i.Ty.U32)}))
+assert(i.Ty.Sum:isclassof(sum) and i.Ty.V:isclassof(sum))
+
 -- Function-local ID descriptors are interned so equality is cheap.
 assert(i.Ir.Value(1) == i.Ir.Value(1) and i.Ir.Storage(1) == i.Ir.Storage(1))
 assert(i.Ir.Bundle(1) == i.Ir.Bundle(1) and i.Ir.Field("x") == i.Ir.Field("x"))
@@ -44,6 +50,15 @@ assert(i.Ir.Value(1) ~= i.Ir.Storage(1))
 local three = i.Ir.Const(i.Ty.U32, i.Ir.UInt(3))
 assert(three ~= i.Ir.Const(i.Ty.U32, i.Ir.UInt(3)))
 assert(i.Ir.Literal:isclassof(three.literal) and three.literal.kind == "UInt")
+
+-- The three sum statements are occurrences too, and a Unit alternative has no payload expression.
+local construct = i.Ir.ConstructVariant(i.Ir.Value(1), sum, "circle", three)
+local unit_case = i.Ir.ConstructVariant(i.Ir.Value(2), sum, "none", nil)
+assert(construct ~= i.Ir.ConstructVariant(i.Ir.Value(1), sum, "circle", three))
+assert(unit_case.payload == nil)
+assert(i.Ir.Stmt:isclassof(construct))
+assert(i.Ir.Stmt:isclassof(i.Ir.VariantMatches(i.Ir.Value(3), i.Ir.Value(1), sum, "circle")))
+assert(i.Ir.Stmt:isclassof(i.Ir.VariantPayload(i.Ir.Value(4), i.Ir.Value(1), sum, "circle")))
 
 -- Statements are occurrences, never interned.
 local call1 = i.Ir.Call(L{i.Ir.Value(1)}, "inc", L{i.Ir.ValueArg(three)})

@@ -1,2 +1,0 @@
-let x = { let a = let b = 1; b }
-let y = 1

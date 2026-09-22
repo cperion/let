@@ -92,6 +92,23 @@ function Eval:load(program)
     for _, name in ipairs({ "U32", "Bool", "Unit", "Type" }) do
         declare(top, name, { kind = "value", name = name, value = V.type(S[name]) })
     end
+    -- `OneOf(cases)` builds a sum type; the cases are a keyed schema whose fields are the
+    -- alternatives. Nothing new is needed in the grammar: member selection names a constructor and
+    -- keyed application matches on the tag.
+    declare(top, "OneOf", { kind = "word", name = "OneOf",
+        def = self:builtin("OneOf", { { name = "cases" } }, function(engine, ctx, values, span)
+            local cases = values[1]
+            if V.tag(cases) ~= "schema" then
+                D.reject("type-required", "OneOf needs a keyed schema of alternatives", span)
+            end
+            local def = cases.def
+            local alternatives = {}
+            for _, name in ipairs(def.fieldOrder) do alternatives[name] = def.fields[name] end
+            if next(alternatives) == nil then
+                D.reject("type-required", "OneOf needs at least one alternative", span)
+            end
+            return V.type(S.sum(alternatives))
+        end) })
     return top
 end
 
@@ -110,8 +127,10 @@ function Eval:compile(program)
     for _, item in ipairs(program.export.types) do
         local value = resolve(item)
         local ty = self:asType(value, item.name.span)
-        if not ty or not S.isRecord(ty) then
-            D.reject("type-required", "Exported type " .. item.name.text .. " is not a record type", item.name.span)
+        -- Records and sums are both named structures with a C layout a host may need to build.
+        if not ty or not (S.isRecord(ty) or S.isSum(ty)) then
+            D.reject("type-required", "Exported type " .. item.name.text
+                .. " is not a record or a sum type", item.name.span)
         end
         exports.types[#exports.types + 1] = { name = item.name.text, type = ty, span = item.span }
     end
@@ -207,6 +226,14 @@ function Eval:exportedWord(slot, span, name)
     return value
 end
 
+-- A builtin word whose terminal is compiler code rather than a source body. It receives the
+-- supplied arguments and returns frontend values; it never runs a source terminal.
+function Eval:builtin(name, parameters, intrinsic)
+    self.nextDef = self.nextDef + 1
+    return { id = self.nextDef, name = name, builtin = intrinsic, params = parameters or {},
+        lexical = self.top, span = { file = "<builtin>", line = 1, start = 0, finish = 0 } }
+end
+
 function Eval:define(node, lexical, fields, label)
     self.nextDef = self.nextDef + 1
     local name = label or (node.name and node.name.text) or ("lambda#" .. self.nextDef)
@@ -287,6 +314,131 @@ function Eval:fieldExpr(ctx, value, name)
     return ctx.builder:ref(read, ty)
 end
 
+-- Wraps a payload in its alternative. Under the interpreter the payload is a value; in residual
+-- code it becomes ConstructVariant, which the backend lowers to a tag plus a union member.
+function Eval:makeVariant(ctx, ctor, payload, span)
+    -- A Unit alternative carries no payload, but the frontend value still holds the Unit value so
+    -- that knownness and matching treat it like any other alternative.
+    local unit = ctor.caseType == S.Unit and payload == nil
+    local value = payload or V.unit()
+    if ctx.mode ~= "residual" then
+        return V.variant(ctor.sum, ctor.case, value)
+    end
+    local id = ctx.builder:valueId()
+    local payloadExpr
+    if not unit then payloadExpr = self:expression(ctx, payload, ctor.caseType) end
+    ctx.builder:emit(ctx.body, Ir.ConstructVariant(id, ctor.sum, ctor.case, payloadExpr))
+    return V.variant(ctor.sum, ctor.case, value, ctx.builder:ref(id, ctor.sum))
+end
+
+-- `value { case = handler, ... }`: every alternative must be covered. A value whose tag is known
+-- selects one handler; an opaque variant tests the tag and joins the arms.
+function Eval:evalMatch(ctx, base, expr, span)
+    span = span or expr.span
+    local handlers, order = {}, {}
+    for _, field in ipairs(expr.fields) do
+        local name = field.name.text
+        if not S.caseOf(base.ty, name) then
+            D.reject("unknown-member", "Sum type has no alternative " .. name, field.name.span)
+        end
+        if handlers[name] ~= nil then
+            D.reject("duplicate", "Alternative " .. name .. " is handled twice", field.name.span)
+        end
+        handlers[name] = self:evalExpr(ctx, field.value)
+        order[#order + 1] = name
+    end
+    for _, name in ipairs(S.casesOf(base.ty)) do
+        if handlers[name] == nil then
+            D.reject("variant-match", "Matching must handle every alternative, including " .. name,
+                expr.span)
+        end
+    end
+    for _, name in ipairs(order) do
+        if not (V.tag(handlers[name]) == "word" or V.tag(handlers[name]) == "closure"
+            or V.tag(handlers[name]) == "method") then
+            D.reject("callable-required", "A match handler must be callable", expr.span)
+        end
+    end
+
+    if V.tag(base) == "variant" then
+        -- The tag is known here, so the other alternatives are not evaluated at all.
+        local payload = base.payload
+        if payload == nil then payload = V.unit() end
+        return self:applyAny(ctx, handlers[base.case], { payload }, span)
+    end
+
+    if ctx.mode ~= "residual" then
+        D.reject("runtime-in-normalization", "Matching an opaque variant needs runtime code", span)
+    end
+    return self:matchResidual(ctx, base, handlers, span)
+end
+
+function Eval:applyAny(ctx, callee, args, span)
+    local tag = V.tag(callee)
+    if tag == "word" then return self:apply(ctx, callee, args, span) end
+    if tag == "closure" then return self:applyClosure(ctx, callee.plan, nil, args, span, callee.bound) end
+    if tag == "method" then return self:applyMethod(ctx, callee, args, span) end
+    D.reject("callable-required", "Only words, methods and closures can be applied", span)
+end
+
+-- The opaque case: test the tag for each alternative, projecting the payload inside its own arm,
+-- and join the results through one slot. The last alternative needs no test.
+function Eval:matchResidual(ctx, base, handlers, span)
+    local builder = ctx.builder
+    local variant = sumValueId(base)
+    local names = S.casesOf(base.ty)
+    local pieces, resultType = {}, nil
+    for _, name in ipairs(names) do
+        local arm = {}
+        local armCtx = ctx:arm(arm)
+        local caseType = S.caseOf(base.ty, name)
+        local args
+        if caseType == S.Unit then
+            -- The handler still takes one (erased) Unit parameter, so the arity matches; the value
+            -- itself is never materialised.
+            args = { V.unit() }
+        else
+            local id = builder:valueId()
+            builder:emit(arm, Ir.VariantPayload(id, variant, base.ty, name))
+            args = { V.ir(builder:ref(id, caseType), caseType) }
+        end
+        local result = self:applyAny(armCtx, handlers[name], args, span)
+        if resultType == nil then
+            resultType = result.ty
+        elseif result.ty ~= resultType then
+            D.reject("branch-result", "Every arm of a match must produce the same type: "
+                .. S.encode(resultType) .. " and " .. S.encode(result.ty), span)
+        end
+        pieces[#pieces + 1] = { name = name, list = arm, ctx = armCtx, value = result,
+            terminated = armCtx.terminated }
+    end
+    local slot = builder:var(ctx.body, resultType, nil)
+    local place = Ir.Local(slot)
+    for _, piece in ipairs(pieces) do
+        if not piece.terminated then
+            builder:store(piece.list, place, self:expression(piece.ctx, piece.value, resultType))
+        end
+    end
+    -- Nest from the last alternative outwards, so each test sits in the path that reaches it.
+    local child = pieces[#pieces].list
+    for index = #pieces - 1, 1, -1 do
+        local piece = pieces[index]
+        -- Both statements are emitted into `parent` explicitly, so the ambient body is untouched.
+        local parent = {}
+        local id = builder:valueId()
+        builder:emit(parent, Ir.VariantMatches(id, variant, base.ty, piece.name))
+        builder:emit(parent, Ir.If(builder:ref(id, S.Bool), S.list(piece.list), S.list(child)))
+        child = parent
+    end
+    for _, stmt in ipairs(child) do ctx.body[#ctx.body + 1] = stmt end
+    return V.ir(builder:ref(builder:read(ctx.body, resultType, place), resultType), resultType)
+end
+
+function sumValueId(value)
+    if value.expr and value.expr.kind == "Ref" then return value.expr.value end
+    D.bug("sum-value", "An opaque sum value must be an SSA reference")
+end
+
 -- Materialises a value for a runtime position. `want` is the destination type when the context
 -- knows it, which is what lets an unrepresentable callable be rejected with a source diagnostic
 -- instead of building mistyped IR.
@@ -302,6 +454,19 @@ function Eval:expression(ctx, value, want)
     if tag == "u32" then return ctx.builder:u32(value.n) end
     if tag == "bool" then return ctx.builder:bool(value.b) end
     if tag == "record" or tag == "object" then return self:recordExpr(ctx, value) end
+    if tag == "variant" then
+        -- A variant already emitted under runtime code refers to its own instruction.
+        if value.expr then return value.expr end
+        if ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization", "A sum value needs runtime code", ctx.span)
+        end
+        local caseType = S.caseOf(value.ty, value.case)
+        local id = ctx.builder:valueId()
+        local payload
+        if caseType ~= S.Unit then payload = self:expression(ctx, value.payload, caseType) end
+        ctx.builder:emit(ctx.body, Ir.ConstructVariant(id, value.ty, value.case, payload))
+        return ctx.builder:ref(id, value.ty)
+    end
     if tag == "closure" then
         local plan = value.plan
         if #plan.borrowedOrder > 0 then
@@ -547,12 +712,13 @@ function Eval:evalShortCircuit(ctx, expr)
     end
     local test = self:expression(ctx, left)
     local yesList, noList = {}, {}
-    local yesValue = self:evalExpr(ctx:arm(yesList), expr.right)
+    local yesCtx = ctx:arm(yesList)
+    local yesValue = self:evalExpr(yesCtx, expr.right)
     self:requireType(yesValue, S.Bool, expr.right.span)
     local builder = ctx.builder
     local storage = builder:var(ctx.body, S.Bool, nil)
     local place = Ir.Local(storage)
-    builder:store(yesList, place, self:expression(ctx, yesValue))
+    builder:store(yesList, place, self:expression(yesCtx, yesValue))
     builder:store(noList, place, builder:bool(isOr))
     builder:emit(ctx.body, Ir.If(test, S.list(yesList), S.list(noList)))
     return V.ir(builder:ref(builder:read(ctx.body, S.Bool, place), S.Bool), S.Bool)
@@ -598,8 +764,11 @@ function Eval:evalCondition(ctx, expr, expected)
     local ty = yesTerminated and noValue.ty or yesValue.ty
     local storage = builder:var(ctx.body, ty, nil)
     local place = Ir.Local(storage)
-    if not yesTerminated then builder:store(yesList, place, self:expression(ctx, yesValue)) end
-    if not noTerminated then builder:store(noList, place, self:expression(ctx, noValue)) end
+    -- The arm's own statements must receive any reads materialising its result: an aggregate
+    -- result is canonicalised into reads of the storage it was built into, which belongs to the
+    -- arm, not to the continuation.
+    if not yesTerminated then builder:store(yesList, place, self:expression(yesCtx, yesValue)) end
+    if not noTerminated then builder:store(noList, place, self:expression(noCtx, noValue)) end
     builder:emit(ctx.body, Ir.If(testExpr, S.list(yesList), S.list(noList)))
     return V.ir(builder:ref(builder:read(ctx.body, ty, place), ty), ty)
 end
@@ -659,6 +828,39 @@ end
 -- `Schema { field = value }`: either a partial (static) supply or a construction.
 function Eval:evalSupply(ctx, expr)
     local base = self:evalExpr(ctx, expr.schema)
+    if V.tag(base) == "ctor" then
+        -- A sum alternative with a record payload is built like a record, then tagged.
+        if #expr.fields == 0 and base.caseType == S.Unit then
+            return self:makeVariant(ctx, base, nil, expr.span)
+        end
+        if not S.isRecord(base.caseType) then
+            D.reject("variant-payload",
+                "Alternative " .. base.case .. " does not take a record; apply it to one value instead",
+                expr.span)
+        end
+        local values = {}
+        for _, field in ipairs(expr.fields) do
+            local name = field.name.text
+            if not S.field(base.caseType, name) then
+                D.reject("unknown-member", "Alternative " .. base.case .. " has no field " .. name,
+                    field.name.span)
+            end
+            if values[name] ~= nil then
+                D.reject("duplicate", "Field " .. name .. " is supplied twice", field.name.span)
+            end
+            values[name] = self:evalExpr(ctx, field.value)
+        end
+        for _, field in ipairs(base.caseType.fields) do
+            if values[field.name] == nil then
+                D.reject("variant-payload", "Alternative " .. base.case .. " is missing field "
+                    .. field.name, expr.span)
+            end
+        end
+        return self:makeVariant(ctx, base, self:constructRecord(ctx, base.caseType, values, nil), expr.span)
+    end
+    if V.tag(base) == "variant" or (V.tag(base) == "ir" and S.isSum(base.ty)) then
+        return self:evalMatch(ctx, base, expr, nil)
+    end
     if V.tag(base) ~= "schema" then
         D.reject("schema-required", "Keyed supply needs a schema on the left", expr.schema.span)
     end
@@ -708,9 +910,20 @@ function Eval:evalSupply(ctx, expr)
         for _, name in ipairs(def.fieldNames) do fields[name] = values[name] end
         return V.record(ty, fields, def)
     end
+    return self:constructRecord(ctx, ty, values, def)
+end
+
+-- Builds a record value of `ty` from a field-name keyed supply. `def` supplies methods and static
+-- bindings when the record came from a source schema; it is absent for a sum alternative.
+function Eval:constructRecord(ctx, ty, values, def)
+    if ctx.mode ~= "residual" then
+        local fields = {}
+        for _, name in ipairs(S.fieldNames(ty)) do fields[name] = values[name] or V.unit() end
+        return V.record(ty, fields, def)
+    end
     local exprs, borrowed = {}, false
     for index, field in ipairs(ty.fields) do
-        local fieldValue = values[field.name]
+        local fieldValue = values[field.name] or V.unit()
         exprs[index] = self:expression(ctx, fieldValue, field.type)
         -- A signature-typed field is a view whose environment points at a local adapter, so an
         -- instance holding one is itself tied to this activation.
@@ -738,6 +951,11 @@ function Eval:evalFieldSelect(ctx, expr)
     elseif tag == "schema" then
         if base.def.methods[name] then return V.method(base.def.methods[name], nil) end
         D.reject("unknown-member", "Schema has no member " .. name, expr.field.span)
+    elseif tag == "type" and S.isSum(base.value) then
+        -- A sum type's member names a constructor for one alternative.
+        local caseType = S.caseOf(base.value, name)
+        if not caseType then D.reject("unknown-member", "Sum type has no alternative " .. name, expr.field.span) end
+        return V.ctor(base.value, name, caseType)
     elseif tag == "ir" and S.isRecord(base.ty) then
         local ty = S.field(base.ty, name)
         if not ty then D.reject("unknown-member", "Record has no field " .. name, expr.field.span) end
@@ -1290,6 +1508,12 @@ function Eval:buildCallableInstance(key, callable, args, span)
         else
             S.checkRuntime(ty, param.span)
         end
+        if not bound and ty == S.Unit then
+            -- A Unit parameter carries no information, so it is not a runtime input at all: the
+            -- name is bound to the Unit value and neither the ABI nor the call site mentions it.
+            declare(sc, param.name.text, { kind = "value", name = param.name.text, value = V.unit() }, param.span)
+            bound = true
+        end
         if not bound then
             if supplied ~= nil and V.isStatic(supplied) then
                 self:requireType(supplied, ty, param.span)
@@ -1529,11 +1753,37 @@ function Eval:evalApply(ctx, expr)
     if tag == "ir" and S.isView(callee.ty) then
         return self:applyView(ctx, callee, args, expr.span)
     end
+    if tag == "ctor" then
+        -- An alternative whose payload is not a record takes one positional argument; a Unit
+        -- alternative takes none.
+        if callee.caseType == S.Unit then
+            if #args ~= 0 then D.reject("arity", "A Unit alternative takes no value", expr.span) end
+            return self:makeVariant(ctx, callee, nil, expr.span)
+        end
+        if #args ~= 1 then D.reject("arity", "A variant constructor takes one value", expr.span) end
+        self:requireAgainst(args[1], callee.caseType, expr.span)
+        return self:makeVariant(ctx, callee, args[1], expr.span)
+    end
     D.reject("callable-required", "Only words, methods and closures can be applied", expr.callee.span)
 end
 
 function Eval:apply(ctx, word, args, span)
     local def = word.def
+    if def.builtin then
+        local bound = {}
+        for _, value in ipairs(word.args) do bound[#bound + 1] = value end
+        for _, value in ipairs(args) do bound[#bound + 1] = value end
+        if #bound > #def.params then D.reject("arity", "Overapplication is not supported", span) end
+        if #bound < #def.params then
+            for _, value in ipairs(bound) do
+                if not V.isStatic(value) then
+                    D.reject("static-required", "A partial argument must be static", span)
+                end
+            end
+            return V.word(def, bound, span)
+        end
+        return def.builtin(self, ctx, bound, span)
+    end
     local bound = {}
     for _, value in ipairs(word.args) do bound[#bound + 1] = value end
     for _, value in ipairs(args) do bound[#bound + 1] = value end
@@ -1834,6 +2084,11 @@ function Eval:buildInstance(key, def, values, span, receiver)
             end
         else
             S.checkRuntime(ty, param.span)
+        end
+        if ty == S.Unit then
+            -- Erased exactly like a Unit result: no input, no ABI slot, name bound directly.
+            declare(sc, param.name.text, { kind = "value", name = param.name.text, value = V.unit() }, param.span)
+            goto continue
         end
         do
         local supplied = values[index]

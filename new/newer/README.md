@@ -19,6 +19,7 @@ this section states exactly how much of it runs today.
 | C ABI closure and C11 emission | implemented for scalars, Bool, Unit and multiple results |
 | Single-file bundle and CLI | implemented; `dist/wordlet.lua` |
 | Records, schemas, methods and field stores | implemented, including compound stores and by-value copy |
+| Sum types (variants) | implemented: `OneOf(schema)` builds one, `T.case {...}` constructs, `value { case = handler }` matches. A known tag selects its handler statically; an opaque tag becomes a C tag test with the payload projected inside the arm. C layout is a tag plus a union, and a `Unit` alternative carries no payload |
 | Closures and higher-order words | implemented: by-value environments, direct calls, capture-free lambdas as static code |
 | Borrowed captures (a captured receiver or method) | implemented as a non-retaining place input. Such a closure cannot escape, be stored or be captured again (`borrow-escape`) |
 | Nested borrowed closures (a closure capturing another borrowed closure) | **rejected** (`borrow-escape`); needs a callable environment |
@@ -34,7 +35,11 @@ Working end to end today: U32/Bool/Unit, `let` bindings, named definitions with 
 annotations, arithmetic/comparison/bitwise/logical operators, expression and statement conditionals,
 multiple results and result-list binding, static partial application, automatic static
 specialisation, calls compiled to independently elaborated bodies, recursion with an explicit result
-annotation, and records with methods, borrowed receivers, field reads and compound stores.
+annotation, records with methods, borrowed receivers, field reads and compound stores, and sum types
+with exhaustive matching.
+
+A `Unit` parameter is erased rather than represented: it produces no ABI slot, exactly like a `Unit`
+result, so a handler for a `Unit` alternative takes no C argument.
 
 A result is written with `:` after the parameter list; `->` introduces a lambda body and nothing
 else; a signature's inputs are parenthesized, so `(U32): U32` is a word from U32 to U32.

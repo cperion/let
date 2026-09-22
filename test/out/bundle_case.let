@@ -1,7 +1,0 @@
-let square = let x : Int do : Int
-    return x * x
-end
-let sum = let a : Int let b : Int do : Int
-    return a + b
-end
-let answer = sum with (square with 3) with (square with 4)

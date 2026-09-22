@@ -60,6 +60,12 @@ function M.eachStmt(statements, fn)
             M.eachStmt(stmt.body, fn)
         elseif kind == "Trap" then
             M.eachExpr(stmt.failure, fn)
+        elseif kind == "ConstructVariant" then
+            if stmt.payload then M.eachExpr(stmt.payload, fn) end
+        elseif kind == "VariantMatches" then
+            -- operands are values, not expressions
+        elseif kind == "VariantPayload" then
+            -- operand is a value, not an expression
         elseif kind == "Return" then
             for _, value in ipairs(stmt.values) do M.eachExpr(value, fn) end
         elseif kind == "Next" then
