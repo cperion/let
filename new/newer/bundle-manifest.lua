@@ -16,6 +16,7 @@ return {
         ["wordlet.schema.ir"] = "wordlet/schema/ir.lua",
         ["wordlet.value"] = "wordlet/value.lua",
         ["wordlet.ir"] = "wordlet/ir.lua",
+        ["wordlet.resolve"] = "wordlet/resolve.lua",
         ["wordlet.eval"] = "wordlet/eval.lua",
         ["wordlet.check"] = "wordlet/check.lua",
         ["wordlet.cabi"] = "wordlet/cabi.lua",

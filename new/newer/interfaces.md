@@ -48,11 +48,17 @@ Lua-level signatures. `Diag` values are raised with `error`, not returned.
 | `wordlet/init.lua` | `compile(options) -> Artifact`, `compile_file(path, options)` | public facade |
 | `wordlet/cli.lua` | `function(api, argv) -> exit_status` | bundler CLI entry point |
 
-Current reality, so the table is not read as a promise of empty files: lexical resolution and
-primitive bootstrap live inside `wordlet/eval.lua` (`load`, `parameterScope`, `define`), and the
-schema text is served by the generated modules `wordlet/schema/ast.lua` and `wordlet/schema/ir.lua`
-produced from `ast.asdl`/`ir.asdl` by `tools/embed.lua`. Splitting `resolve.lua`/`builtins.lua` out
-is a refactor, not a missing behaviour.
+Current reality, so the table is not read as a promise of empty files:
+
+- `wordlet/resolve.lua` holds the purely syntactic facts — a lambda's captured names and a
+  definition's tail self-call — exposed as `captures(wordDef)` and `tailCalls(body, name)`.
+  **Bindings are resolved during evaluation, not by a separate pass**: a name can denote a word, a
+  value, a schema or a field depending on values that only exist at evaluation time, so a static
+  pass would have to duplicate that. The architecture gives `resolve` bindings as well; this is the
+  one deliberate deviation, and it is why `Resolution` has no `bindings` table here.
+- Primitive bootstrap lives in `wordlet/eval.lua` (`load`) rather than a `builtins.lua`.
+- The schema text is served by the generated modules `wordlet/schema/ast.lua` and
+  `wordlet/schema/ir.lua`, produced from `ast.asdl`/`ir.asdl` by `tools/embed.lua`.
 
 `Compilation = { program = Ir.Program, meta = Meta }`. `Meta` is compiler-private state that never
 reaches `Ir.Program`: projections, trap policy, export selection, source spans, provenance.
