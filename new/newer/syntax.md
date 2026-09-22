@@ -506,6 +506,11 @@ let bad(x: U32): Node = do
 end
 ```
 
+A recursive type definition must be a file-scope binding. File-scope names are mutually visible and
+demanded lazily, which is what lets two definitions mention each other, but a local binding is
+declared in order and its initializer cannot see its own name, so a local definition that names
+itself rejects like any other forward reference.
+
 #### Recursive type identity
 
 A type whose definition needs itself is a **recursive type**. The first demand for such a

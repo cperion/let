@@ -94,8 +94,11 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
 11. **Distribution:** replace wordletkit with the REAL facade/CLI in the manifest; bundle parity with the
     checkout implementation; clean relocated builds and runtime execution without source search paths.
 
-Use concrete interpreter behavior and generated C on the same programs, comparing returned vectors
-AND ordered state changes. Retain IR structure tests for invariants, not arbitrary temporary spelling.
+The reference interpreter describes aggregate results too: a record as its field map, a sum
+alternative as its canonical tag index plus payload, and a reference as the target it names, with a
+depth guard for a structure that points back at itself. The C harness therefore compares aggregate
+results field by field instead of only comparing scalars. Use concrete interpreter behavior and
+generated C on the same programs, comparing returned vectors AND ordered state changes. Retain IR structure tests for invariants, not arbitrary temporary spelling.
 Use bounded compiler/execution subprocesses and report wall-clock time. A static interpreter work
 budget counts work even when no residual instruction is emitted.
 

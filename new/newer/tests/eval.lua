@@ -910,6 +910,16 @@ let B = { a: A }
 let f(n: U32): U32 = n
 return { types = { A, B }, functions = { f } }
 ]==])
+-- A recursive definition has to be file scope: a local binding is declared in order, so a local
+-- definition cannot see its own name.
+rejects("unknown-name", [==[
+let Counter = { value: U32 }
+let use(x: U32): U32 = do
+  let Node = { value: U32, child: Ref(Node) }
+  return x
+end
+return { types = { Counter }, functions = { use } }
+]==])
 -- A cycle that crosses a reference is finite, so it is accepted.
 local finite = compile([==[
 let Good = { child: Ref(Good), value: U32 }

@@ -36,6 +36,48 @@ local function shell(command)
     return first
 end
 
+-- A field's C name is the source name escaped, the same rule the backend uses.
+local function cField(name) return "f_" .. C.escape(name) end
+
+-- Asserts one interpreted value against the C value at `path`. Records compare field by field,
+-- a variant compares its canonical tag index and then its payload member, and a reference compares
+-- what it points at. A structure that points back at itself is only checked for being present.
+local function assertValue(checks, path, value)
+    local kind = type(value)
+    if kind == "number" then
+        checks[#checks + 1] = "    assert((" .. path .. ") == UINT32_C(" .. value .. "));"
+    elseif kind == "boolean" then
+        checks[#checks + 1] = "    assert((" .. path .. ") == " .. (value and "true" or "false") .. ");"
+    elseif value == "unit" then
+        checks[#checks + 1] = "    (void)(" .. path .. ");"
+    elseif kind == "table" and value.record then
+        local any = false
+        for name, field in pairs(value) do
+            if name ~= "record" then
+                any = true
+                assertValue(checks, path .. "." .. cField(name), field)
+            end
+        end
+        if not any then checks[#checks + 1] = "    (void)(" .. path .. ");" end
+    elseif kind == "table" and value.variant then
+        checks[#checks + 1] = "    assert((" .. path .. ").wordlet_tag == " .. tostring(value.tag) .. ");"
+        if value.payload ~= "unit" then
+            assertValue(checks, path .. ".payload." .. cField(value.case), value.payload)
+        end
+    elseif kind == "table" and value.ref then
+        assertValue(checks, "(*(" .. path .. "))", value.target)
+    elseif kind == "table" and value.cycle then
+        checks[#checks + 1] = "    (void)(" .. path .. ");"
+    else
+        error("unsupported expected result: " .. tostring(value))
+    end
+end
+
+-- The C type a call returns, read from its prototype in the generated header.
+local function resultType(unit, name)
+    return unit:match("([%w_]+)%s+" .. name .. "%s*%(")
+end
+
 -- Source programs exercised end to end. Each case lists concrete input vectors; expected results
 -- are produced by the interpreter, then asserted by the compiled C.
 local CASES = {
@@ -388,6 +430,23 @@ return { types = { Counter }, functions = { borrowed, aliased } }
         entries = { { entry = "borrowed", arity = 1 }, { entry = "aliased", arity = 1 } },
         inputs = { { 0 }, { 1 }, { 2 }, { 100 }, { 4294967295 } },
     },
+    {
+        -- Aggregate results, compared field by field against the interpreter: a record, a variant
+        -- with an empty and a non-empty payload, and a tuple that contains a record.
+        name = "aggregates",
+        source = [==[
+let Point = { x: U32, y: U32 }
+let Opt = OneOf({ none: Unit, some: U32 })
+let point(x: U32): Point = Point { x = x, y = x + 1 }
+let wrap(x: U32): Opt = if x == 0 then Opt.none() else Opt.some(x * 2)
+let pair(x: U32): (Point, U32) = do return point(x), x end
+let nested(x: U32): Point = Point { x = wrap(x) { none = |u: Unit| -> 0, some = |v: U32| -> v }, y = x }
+return { types = { Point, Opt }, functions = { point, wrap, pair, nested } }
+]==],
+        entries = { { entry = "point", arity = 1 }, { entry = "wrap", arity = 1 },
+            { entry = "pair", arity = 1 }, { entry = "nested", arity = 1 } },
+        inputs = { { 0 }, { 1 }, { 7 }, { 4294967295 } },
+    },
 }
 
 local function cLiteral(value)
@@ -414,20 +473,24 @@ local function runCase(case)
             for index, value in ipairs(args) do literalArgs[index] = cLiteral(value) end
             -- Export names are escaped: underscore becomes _5F, so the C symbol is not the source name.
             local call = C.functionName(target.entry) .. "(" .. table.concat(literalArgs, ", ") .. ")"
-            local expectedC = {}
-            for index, value in ipairs(expected) do
-                local literal = cLiteral(value)
-                check(literal ~= nil, "unsupported expected result " .. tostring(value))
-                expectedC[index] = literal
-            end
-            if #expected == 1 then
-                checksList[#checksList + 1] = "    assert((" .. call .. ") == " .. expectedC[1] .. ");"
+            local before = #checksList
+            local scalar = #expected == 1 and cLiteral(expected[1]) ~= nil
+            if scalar then
+                checksList[#checksList + 1] = "    assert((" .. call .. ") == " .. cLiteral(expected[1]) .. ");"
             else
-                -- Multiple results come back in the generated result struct.
-                local struct = unit:match("(wordlettuple_%d+) {")
-                checksList[#checksList + 1] = "    { " .. struct .. " r = " .. call .. "; "
-                    .. "assert(r.f_1 == " .. expectedC[1] .. " && r.f_2 == " .. expectedC[2] .. "); }"
+                -- An aggregate result is bound once and then compared field by field, so the call
+                -- runs once even when it has effects.
+                local ty = #expected == 1 and resultType(unit, C.functionName(target.entry))
+                    or select(1, unit:match("(wordlettuple_%d+) {"))
+                check(ty ~= nil, "cannot find the C result type of " .. target.entry)
+                checksList[#checksList + 1] = "    { " .. ty .. " r = " .. call .. ";"
+                for index, value in ipairs(expected) do
+                    local path = #expected == 1 and "r" or ("r.f_" .. index)
+                    assertValue(checksList, path, value)
+                end
+                checksList[#checksList + 1] = "    }"
             end
+            check(#checksList > before, "each input must produce an assertion")
           end
         end
     end

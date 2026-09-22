@@ -83,13 +83,56 @@ function M.interpret(options)
     end
     local out = {}
     for _, value in ipairs(session:expand(result)) do
-        if value.ty == S.U32 then out[#out + 1] = value.n
-        elseif value.ty == S.Bool then out[#out + 1] = value.b
-        elseif value.ty == S.Unit then out[#out + 1] = "unit"
-        else D.todo("interpret-result", "Cannot interpret result of type " .. S.encode(value.ty)) end
+        out[#out + 1] = M.describe(session, value, {}, 0)
     end
     return out
 end
+
+-- Plain description of an interpreted value, so the reference interpreter and the generated C can be
+-- compared on aggregates and not only on scalars. A record becomes a field map, a sum alternative
+-- becomes its canonical tag index plus its payload, and a reference becomes the target it names.
+-- `seen` stops a structure that points back at itself, which a recursive type allows.
+local function describe(session, value, seen, depth)
+    if depth > 64 then D.resource("interpret-depth", "Interpreted value nests too deeply") end
+    local tag = V.tag(value)
+    if tag == "u32" then return value.n end
+    if tag == "bool" then return value.b end
+    if tag == "unit" then return "unit" end
+    if tag == "ref" then
+        local object = session:placeObject(value)
+        local target = (object and (object.backing or object)) or value.record
+        if not target then
+            D.todo("interpret-result", "Cannot interpret a reference with no reachable target")
+        end
+        return { ref = true, target = describe(session, target, seen, depth + 1) }
+    end
+    if tag == "record" or tag == "object" then
+        local backing = value.backing or value
+        local fields = backing.fields
+        if not fields then
+            D.todo("interpret-result", "Cannot interpret a value with no readable fields")
+        end
+        if seen[value] then return { cycle = true } end
+        seen[value] = true
+        local out = { record = true }
+        for _, field in ipairs(value.ty.fields) do
+            out[field.name] = describe(session, fields[field.name], seen, depth + 1)
+        end
+        seen[value] = nil
+        return out
+    end
+    if tag == "variant" then
+        local index = S.tagIndex(value.ty, value.case)
+        if index == nil then D.bug("interpret-result", "A variant has no tag for its alternative") end
+        local caseType = S.caseOf(value.ty, value.case)
+        return { variant = true, tag = index, case = value.case,
+            payload = caseType == S.Unit and "unit"
+                or describe(session, value.payload, seen, depth + 1) }
+    end
+    D.todo("interpret-result", "Cannot interpret result of type " .. S.encode(value.ty or S.Unit))
+end
+
+M.describe = describe
 
 M.session = Eval.session
 M.diagnostic = D.format
