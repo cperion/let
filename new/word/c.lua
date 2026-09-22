@@ -50,6 +50,7 @@ function M.emit(program)
     for _, fn in ipairs(program.functions) do
         ctype(fn.result)
         if fn.receiver then ctype(fn.receiver.type) end
+        if fn.captures then ctype(fn.captures.type) end
         for _, p in ipairs(fn.parameters) do ctype(p.type) end
         for _, block in ipairs(fn.blocks) do
             for _, ins in ipairs(block.instructions) do ctype(ins.type) end
@@ -122,11 +123,22 @@ function M.emit(program)
     local function header(definition)
         local fn, parameters = program.functions[definition.target], {}
         if fn.receiver then parameters[#parameters + 1] = ctype(fn.receiver.type) .. " *" .. v(fn.receiver.id) end
+        if fn.captures then parameters[#parameters + 1] = ctype(fn.captures.type) .. " " .. v(fn.captures.id) end
         for _, p in ipairs(fn.parameters) do parameters[#parameters + 1] = ctype(p.type) .. " " .. v(p.id) end
         return definition.storage .. ctype(fn.result) .. " " .. definition.name .. "(" ..
             (#parameters > 0 and table.concat(parameters, ", ") or "void") .. ")"
     end
     for _, definition in ipairs(definitions) do out[#out + 1] = header(definition) .. ";" end
+    -- Borrowed callback bundles live in the caller's activation: an actual
+    -- receiver pointer plus immutable captures copied by value, never a heap.
+    local function bundle(id) return "wordbound_" .. id end
+    for id, fn in ipairs(program.functions) do
+        if reachable[id] and fn.captures then
+            out[#out + 1] = "typedef struct { " ..
+                (fn.receiver and (ctype(fn.receiver.type) .. " *receiver; ") or "") ..
+                ctype(fn.captures.type) .. " captures; } " .. bundle(id) .. ";"
+        end
+    end
     local adapters = {}
     local function adapter(ins) return "wordadapter_" .. ins.target .. "_" .. ctype(ins.type) end
     for id, fn in ipairs(program.functions) do
@@ -135,7 +147,11 @@ function M.emit(program)
                 adapters[adapter(ins)] = true
                 local abi, parameters, args = Model.callable(ins.type), {"void *environment"}, {}
                 local callee = program.functions[ins.target]
-                if callee.receiver then args[#args + 1] = "(" .. ctype(callee.receiver.type) .. " *)environment" end
+                if callee.receiver then
+                    args[#args + 1] = callee.captures and ("((" .. bundle(ins.target) .. " *)environment)->receiver") or
+                        ("(" .. ctype(callee.receiver.type) .. " *)environment")
+                end
+                if callee.captures then args[#args + 1] = "((" .. bundle(ins.target) .. " *)environment)->captures" end
                 for i, p in ipairs(abi.parameters) do
                     parameters[#parameters + 1] = ctype(p.type) .. " a" .. i; args[#args + 1] = "a" .. i
                 end
@@ -180,6 +196,7 @@ function M.emit(program)
         out[#out + 1] = header(definition)
         out[#out + 1] = "{"
         if fn.receiver then out[#out + 1] = "    (void)" .. v(fn.receiver.id) .. ";" end
+        if fn.captures then out[#out + 1] = "    (void)" .. v(fn.captures.id) .. ";" end
         for _, p in ipairs(fn.parameters) do out[#out + 1] = "    (void)" .. v(p.id) .. ";" end
         local function tail_call(block)
             if block.exit.op ~= "Return" then return nil end
@@ -244,6 +261,7 @@ function M.emit(program)
         local function call(ins)
             local args = {}
             if ins.receiver then args[#args + 1] = "&(" .. target(ins.receiver, fn) .. ")" end
+            if ins.captures then args[#args + 1] = v(ins.captures) end
             for _, id in ipairs(ins.args) do args[#args + 1] = v(id) end
             if ins.op == "IndirectCall" then
                 table.insert(args, 1, v(ins.callable) .. ".environment")
@@ -286,8 +304,15 @@ function M.emit(program)
                             expression = "(" .. ctype(ins.type) .. "){ " ..
                                 (ins.receiver and (".environment = " .. (abi.value_environment and "(" or "&(") .. target(ins.receiver, fn) .. ")") or ".word_empty = 0") .. " }"
                         else
-                            expression = "(" .. ctype(ins.type) .. "){.invoke = " .. adapter(ins) .. ", .environment = " ..
-                                (ins.receiver and ("&(" .. target(ins.receiver, fn) .. ")") or "NULL") .. "}"
+                            local environment = ins.receiver and ("&(" .. target(ins.receiver, fn) .. ")") or "NULL"
+                            if ins.captures then
+                                local name = "wordenv_" .. ins.id
+                                out[#out + 1] = indent .. bundle(ins.target) .. " " .. name .. " = {" ..
+                                    (ins.receiver and (".receiver = " .. environment .. ", ") or "") ..
+                                    ".captures = " .. v(ins.captures) .. "};"
+                                environment = "&" .. name
+                            end
+                            expression = "(" .. ctype(ins.type) .. "){.invoke = " .. adapter(ins) .. ", .environment = " .. environment .. "}"
                         end
                     elseif ins.op == "Compare" then
                         local operator = ({eq = "==", lt = "<", le = "<="})[ins.predicate]
@@ -314,9 +339,13 @@ function M.emit(program)
             if tail then
                 -- Borrow checking excludes arguments that could refer to this activation.
                 -- Snapshot every next argument before replacing any current parameter.
+                if fn.captures then
+                    out[#out + 1] = indent .. ctype(fn.captures.type) .. " wordnext_captures = " .. v(tail.captures) .. ";"
+                end
                 for i, parameter in ipairs(fn.parameters) do
                     out[#out + 1] = indent .. ctype(parameter.type) .. " wordnext_" .. i .. " = " .. v(tail.args[i]) .. ";"
                 end
+                if fn.captures then out[#out + 1] = indent .. v(fn.captures.id) .. " = wordnext_captures;" end
                 for i, parameter in ipairs(fn.parameters) do
                     out[#out + 1] = indent .. v(parameter.id) .. " = wordnext_" .. i .. ";"
                 end

@@ -8,7 +8,7 @@ LuaJIT is the host baseline; C11 is the residual target. `README.md` describes w
 | Category | Working now | Remaining work / executable evidence |
 | --- | --- | --- |
 | `keyed-words` | Signature-valued members; immediate and locally constructed lexical methods; nested mutable record selections retain actual enclosing roots and lexical paths, including recursive sibling occurrences. | Complete nested immutable-snapshot owner binding and unbound nested interfaces requiring outer owners. `test/owners.lua` covers the retained-root slice, shadowing, replacement, copies and absence of dynamic caller inheritance. Missing detached owners are never inferred. |
-| `staged-definitions` | Replay-stable local construction; immutable scalar/callable environments; recursive code groups; local lexical words with both receiver and scalar captures can inline. | Outlined lexical words still need an ABI carrying immutable runtime captures **alongside** the receiver. `H.gap` in `test/model.lua` captures a field snapshot plus the receiver in a local recursive word. It raises a precise TODO instead of retaining a construction-trace symbol. |
+| `staged-definitions` | Replay-stable local construction; immutable scalar/callable environments; recursive code groups; outlined lexical words carry immutable captures by value alongside a borrowed receiver. Callback adapters use stack-only bundles; immutable lexical owners can disappear into owned escaping closures. | Additional **borrowed** captures still need a non-retaining capture ABI. `H.gap` in `test/model.lua` captures an opaque runtime callback in a local receiver-dependent recursive word. Such captures can inline, but must not become retaining record fields or construction-trace symbols in outlined code. |
 | `host-captures` | Checked primitive/word captures and typed immutable aggregate snapshots. | Explicit freezing/registration for host tables/helpers and typed residual foreign effects. The host-table capture in `test/model.lua` remains an executable TODO. Arbitrary Lua-effect replay is not an implementation strategy. |
 
 `keyed-words` remains a roadmap category without a dedicated active TODO trap; successful retained-root
@@ -25,7 +25,7 @@ They do not claim the runtime ABI is unimplemented.
 `test/runtime_contracts.lua` checks nested fields, higher-order interfaces, recursive callback helpers,
 compilation-local declarations and preservation of static input-only callable requirements. Existing
 C tests cover runtime callback invocation and immutable closure environments. The `callable-inputs`
-catalogue entry is retired; remaining mixed receiver/capture ABI work is tracked above.
+catalogue entry is retired; remaining additional-borrow capture work is tracked above.
 
 ## State and executable results
 

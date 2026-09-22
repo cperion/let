@@ -118,7 +118,7 @@ function E:define(args)
     local frame = self.scope:current()
     if terminal and frame and frame.invoked and frame.has_member and
         Host.nested_terminal(frame.terminal, terminal) then
-        local parent = self:word_payload(frame.invoked)
+        local parent = frame.lexical_binding or self:word_payload(frame.invoked)
         for name in pairs(Host.environment_names(terminal)) do
             if parent.owner and frame.has_member(name) then
                 def.lexical_owner = parent.owner
@@ -398,14 +398,14 @@ function E:member(w, name)
 end
 
 -- A transient selection, never interned with static specialization metadata.
-function E:bind_method(method, owner, receiver, scope_path)
+function E:bind_method(method, owner, receiver, scope_path, capture_env)
     -- Every data input is already supplied: bind immutable metadata, not invented
     -- runtime storage. Empty namespace instances have the same erased semantics.
     if #Model.record(owner).runtime_order == 0 then receiver = Data.constant(self, owner, {}) end
     local p = self:word_payload(method)
     return Model.wrap({ tag = "word", engine = self, definition = p.definition, static = p.static,
         method = method, owner = owner, receiver = receiver,
-        scope_path = scope_path and {table.unpack(scope_path)} or nil }, self.word_mt)
+        scope_path = scope_path and {table.unpack(scope_path)} or nil, capture_env = capture_env }, self.word_mt)
 end
 
 function E:coerce(t, value)
@@ -489,7 +489,7 @@ function E:specialize(w, args)
         static[#static + 1] = value
     end
     local specialized = self:handle(def, static)
-    if p.owner then return self:bind_method(specialized, p.owner, p.receiver, p.scope_path) end
+    if p.owner then return self:bind_method(specialized, p.owner, p.receiver, p.scope_path, p.capture_env) end
     return specialized
 end
 
@@ -531,18 +531,22 @@ function E:check_word(w, seen)
     seen = seen or {}
     if seen[w] then return end
     seen[w] = true
-    self:captures(p.definition, seen)
+    self:captures(p.definition, seen, p)
     for _, t in ipairs(p.definition.inputs) do self:check_word(t, seen) end
     for _, t in pairs(p.definition.fields or {}) do self:check_word(t, seen) end
     for _, t in pairs(p.definition.methods or {}) do self:check_word(t, seen) end
     if p.owner then self:check_word(p.owner, seen) end
+    if p.definition.lexical_static then
+        self:check_word(p.definition.lexical_static.owner, seen)
+        self:check_static(p.definition.lexical_static.receiver, seen)
+    end
     if p.receiver and Model.get(p.receiver).tag == "known" then self:check_static(p.receiver, seen) end
     for _, v in ipairs(p.static) do self:check_static(v, seen) end
     for _, v in pairs(p.definition.bindings or {}) do self:check_static(v, seen) end
 end
 
 -- Freezing remains narrow, but covers requirements and normalized result closures too.
-function E:captures(def, seen)
+function E:captures(def, seen, occurrence)
     if not def.terminal then return end
     seen = seen or {}
     if not Host.lua_terminal(def.terminal) then D.todo("host-captures", "C terminals require explicit registration") end
@@ -562,8 +566,10 @@ function E:captures(def, seen)
         local p, kind = Model.get(value), type(value)
         if p then
             if p.engine ~= self then D.reject("foreign-session", "Captured value belongs to another session") end
-            local lexical_self = def.lexical_owner and p.definition == def and p.owner == def.lexical_owner
-            if not lexical_self and (p.tag == "symbol" or p.tag == "place" or
+            local lexical_link = def.lexical_owner and p.definition and
+                p.definition.lexical_owner == def.lexical_owner and occurrence and
+                p.owner == occurrence.owner and p.receiver == occurrence.receiver
+            if not lexical_link and (p.tag == "symbol" or p.tag == "place" or
                 (p.receiver and Model.get(p.receiver).tag ~= "known")) then
                 if not def.staged then D.todo("host-captures", "Dynamic captured value/storage/receiver") end
                 local captured = p.receiver and Model.get(p.receiver) or p
@@ -655,12 +661,17 @@ function E:call_receiver(w)
     if p.receiver and Model.get(p.receiver).tag ~= "known" then return Data.address(self, p.receiver) end
 end
 
-function E:residual_call(values, context, result_type, target, receiver)
+function E:call_captures(w)
+    local p = self:word_payload(w)
+    return p.capture_env and Data.reference(self, p.capture_env) or nil
+end
+
+function E:residual_call(values, context, result_type, target, receiver, captures)
     local args = {}
     for _, value in ipairs(values) do
         if Model.get(value).type ~= self.Unit then args[#args + 1] = self:reference(value) end
     end
-    local id = context.builder:call(result_type, args, target, receiver)
+    local id = context.builder:call(result_type, args, target, receiver, captures)
     if result_type == self.Unit then return self:known(nil, self.Unit) end
     local result = self:symbol(id, result_type, context.builder)
     if Model.record(result_type) then return Data.copy(self, result) end
@@ -679,11 +690,14 @@ function E:execute(w, args, context)
     local p = self:word_payload(w)
     local def = p.definition
     if not def.terminal then D.reject("signature-call", "A positional signature has no implementation") end
-    if context.mode == "residualize" and def.staged and not p.owner and not require("word.borrow").value(self, w) then
-        return self:execute(require("word.closure").lift(self, w), args, context)
+    if context.mode == "residualize" and def.staged and
+        (def.lexical_owner or not p.owner and not require("word.borrow").value(self, w)) then
+        local lifted = require("word.closure").lift(self, w)
+        if lifted ~= w then return self:execute(lifted, args, context) end
     end
     if p.owner and not p.receiver then D.reject("missing-receiver", "Select the method on an instance") end
     if p.receiver then Data.check(self, p.owner, p.receiver) end
+    if p.capture_env then Data.check(self, def.lexical_environment, p.capture_env) end
     local identity = context.graph and context.graph:identity(w) or (p.method or w)
     self:check_word(w)
     if context.mode == "residualize" then
@@ -691,7 +705,7 @@ function E:execute(w, args, context)
             local values = self:recursive_args(w, args, context.entry)
             if values then
                 if not context.entry.result then error(context.entry.need_result, 0) end
-                return self:residual_call(values, context, context.entry.result, "self", self:call_receiver(w))
+                return self:residual_call(values, context, context.entry.result, "self", self:call_receiver(w), self:call_captures(w))
             end
         end
         if context.helpers then
@@ -706,7 +720,7 @@ function E:execute(w, args, context)
                         if dynamic(values) or (context.oracle and context.oracle.index > active.decisions) then
                             local key = context.graph:identity(active.invoked)
                             local helper = context.helpers[key] or context.graph:known(key)
-                            if helper then return self:residual_call(values, context, helper.result, helper.target, self:call_receiver(w)) end
+                            if helper then return self:residual_call(values, context, helper.result, helper.target, self:call_receiver(w), self:call_captures(w)) end
                             for _, t in ipairs(self:call_inputs(active.invoked)) do
                                 t = self:requirement_type(t)
                                 if t == self.Type then D.reject("static-required", "Bind helper Type inputs with :of before outlining recursion") end
@@ -725,14 +739,16 @@ function E:execute(w, args, context)
     end
     if self.scope:count("executing") >= 32 then D.resource("call-depth", "Word invocation nesting exceeds 32") end
     local terminal, check_captures = def.terminal
-    if def.capture_fields then terminal, check_captures = require("word.closure").instantiate(self, w)
+    if def.capture_fields or def.lexical_fields then terminal, check_captures = require("word.closure").instantiate(self, w)
     elseif def.lexical_owner then terminal, check_captures = require("word.closure").lexical(self, w) end
     local frame = { context = context, source = def.source, executing = identity, terminal = terminal,
         invoked = w, decisions = context.oracle and context.oracle.index or 0,
         lookup_names = context.mode == "normalize" and {} or nil }
-    if p.owner and not def.capture_fields then
-        if not p.receiver then D.reject("missing-receiver", "Select the method on an instance") end
-        local function member_scope(name) return Data.member_scope(self, p.receiver, p.scope_path, name) end
+    if def.lexical_static or p.owner and not def.capture_fields then
+        local binding = def.lexical_static or p
+        if not binding.receiver then D.reject("missing-receiver", "Select the method on an instance") end
+        frame.lexical_binding = binding
+        local function member_scope(name) return Data.member_scope(self, binding.receiver, binding.scope_path, name) end
         frame.has_member = function(name) return member_scope(name) ~= nil end
         frame.read_member = function(name) return Data.read(self, member_scope(name), name) end
         frame.write_member = function(name, value) return Data.write(self, member_scope(name), name, value) end
@@ -911,7 +927,8 @@ function E:compile_word(w, graph, one_call, reservation)
                     if p.owner then
                         local owner = p.receiver and p.owner or self:requirement_type(p.owner)
                         local receiver = p.receiver or Data.receiver(self, owner, builder)
-                        invoked = self:bind_method(p.method, owner, receiver, p.scope_path)
+                        local captures = p.capture_env or (def.lexical_environment and Data.captures(self, def.lexical_environment, builder))
+                        invoked = self:bind_method(p.method, owner, receiver, p.scope_path, captures)
                     end
                     local args = { n = #def.inputs - #p.static }
                     for i = 1, args.n do
@@ -922,7 +939,7 @@ function E:compile_word(w, graph, one_call, reservation)
                         if t == self.Unit then args[i] = self:known(nil, t)
                         else args[i] = self:symbol(builder:parameter(t), t, builder) end
                     end
-                    graph:parameters(reservation, builder.fn.parameters, builder.fn.receiver)
+                    graph:parameters(reservation, builder.fn.parameters, builder.fn.receiver, builder.fn.captures)
                     local result = self:invoke(invoked, args)
                     if Model.callable(entry.result) then result = self:coerce(entry.result, result) end
                     result = self:materialize_result(result)
@@ -1026,11 +1043,14 @@ function E:compile(spec)
         if not self.methods[key] then self.methods[key] = engine:bind_method(p.method, p.owner, receiver, p.scope_path) end
         return self.methods[key]
     end
-    function graph:parameters(entry, parameters, receiver)
+    function graph:parameters(entry, parameters, receiver, captures)
         local previous = entry.signature.parameters
         if previous then
             if (entry.signature.receiver and entry.signature.receiver.type) ~= (receiver and receiver.type) then
                 D.reject("replay-diverged", "Function receiver ABI changed during inference")
+            end
+            if (entry.signature.captures and entry.signature.captures.type) ~= (captures and captures.type) then
+                D.reject("replay-diverged", "Function capture ABI changed during inference")
             end
             if #previous ~= #parameters then D.reject("replay-diverged", "Function parameter arity changed during inference") end
             for i, parameter in ipairs(parameters) do
@@ -1041,6 +1061,7 @@ function E:compile(spec)
             for i, parameter in ipairs(parameters) do copy[i] = {id = parameter.id, type = parameter.type} end
             entry.signature.parameters = copy
             if receiver then entry.signature.receiver = {id = receiver.id, type = receiver.type} end
+            if captures then entry.signature.captures = {id = captures.id, type = captures.type} end
         end
     end
     function graph:grounded(entry, result)

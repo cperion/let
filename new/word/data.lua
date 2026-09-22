@@ -125,6 +125,9 @@ function M.receiver(engine, t, builder)
     if not Model.runtime_type(t) then D.reject("runtime-type", "Receiver schema has no runtime storage representation; bind its metadata with :of") end
     return wrap(engine, t, {id = builder:receiver(t), builder = builder})
 end
+function M.captures(engine, t, builder)
+    return wrap(engine, t, {id = builder:captures(t), builder = builder})
+end
 function M.address(engine, value)
     local p = validate(engine, value)
     if p.tag ~= "place" or not p.root.builder then D.reject("receiver-storage", "A mutable receiver needs residual storage") end

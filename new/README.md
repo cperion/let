@@ -375,8 +375,13 @@ Receiver storage is recreated per trace, never simulated by mutating a host inst
 also run when a fork unwinds a terminal. Arbitrary host effects, mutation, helpers, and user exception
 handlers remain outside the supported staging subset. Prefix validation is not a general purity proof
 or rollback mechanism. Runtime executable-definition construction and immutable capture conversion work.
-The remaining `staged-definitions` trap is outlining a lexical word that captures immutable runtime
-values alongside its borrowed receiver; that combination still works locally when inlined.
+Outlined lexical words pass immutable runtime captures by value alongside their borrowed receiver.
+Self/mutual code links share the capture schema without retaining source-trace symbols. Non-retaining
+callback adapters package receiver pointers and copied captures in caller-local storage; they do not
+allocate. Immutable lexical receivers can instead specialize away, leaving owned escaping environments.
+See `new/examples/lexical_captures.lua`.
+The remaining `staged-definitions` trap is outlining additional borrowed captures, such as an opaque
+runtime callback captured by a receiver-dependent word. That combination can still inline.
 Try `new/examples/branches.lua` for scalar, Bool, Unit, record, and receiver-effect branches.
 
 ## Executable TODOs as a progress ledger

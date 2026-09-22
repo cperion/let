@@ -97,7 +97,7 @@ function M.reference(engine, value)
         D.reject("callable-shape", "Callable implementation does not match its runtime signature")
     end
     return context.builder:emit{op = "FunctionRef", type = p.type, target = target,
-        receiver = fn.receiver and engine:call_receiver(code) or nil}
+        receiver = fn.receiver and engine:call_receiver(code) or nil, captures = engine:call_captures(code)}
 end
 
 function M.invoke(engine, value, args)

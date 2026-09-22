@@ -479,9 +479,13 @@ instruction quota; loops that emit no trace events can run indefinitely.
 
 Definition construction during replay is also an event. Stable construction keys identify replayed
 occurrences; capture templates retain static code metadata while each trace receives fresh capture values.
-Locally constructed lexical words can inline with receiver and immutable runtime captures together.
-Outlining that combination still traps `staged-definitions`: its ABI must transport capture operands
-alongside the receiver, rather than retaining symbols from the construction trace.
+Locally constructed lexical words pass immutable runtime captures in a separate by-value environment
+parameter alongside their borrowed receiver. Graph signatures, typed Call/FunctionRef IR and replay
+renaming preserve both operands. Self tails snapshot the next capture environment with ordinary inputs.
+Callback adapters use caller-local bundles containing the receiver pointer and copied environment;
+non-retention checks prevent their escape. Frozen lexical owners remain checked static metadata and
+can disappear into ordinary owned closure environments. Additional borrowed captures still trap
+`staged-definitions` on outlining; they require a non-retaining capture ABI, not an owned record field.
 
 All runtime effects must be residual operations. Arbitrary host-upvalue mutation, I/O, randomness, and time
 are not rolled back by this algorithm. Prefix comparison can detect some divergence, not prove purity.

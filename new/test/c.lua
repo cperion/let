@@ -983,6 +983,38 @@ H.test("by-value environments interoperate with borrowed runtime callback inputs
     ]]), "")
 end)
 
+H.test("outlined lexical captures retain snapshots across recursion and borrowed callback adapters", function()
+    local s = Word.new(); local m = s:load(H.root .. "examples/lexical_captures.lua")
+    local c = s:emit_c(m)
+    assert(not c:find("malloc", 1, true))
+    assert(c:find("wordbound_", 1, true)) -- stack-only receiver/capture callback bundle
+    H.eq(run_c(c .. [[
+        #include <assert.h>
+        int main(void) {
+            wordtype_Counter c = {.f_value = 3};
+            assert(word_run(&c, 10000) == 10006 && c.f_value == 10003);
+            c.f_value = 3;
+            assert(word_owned(&c, 10000) == 10006 && c.f_value == 10003);
+            c.f_value = 3;
+            assert(word_mutual(&c, 4) == 12 && c.f_value == 9);
+            c.f_value = 3;
+            assert(word_mutual(&c, 3) == 13 && c.f_value == 7);
+            c.f_value = 3;
+            assert(word_callback(&c, 5) == 8 && c.f_value == 5);
+            assert(word_callback(&c, 7) == 12 && c.f_value == 7);
+            wordresult_twice r = word_twice(4);
+            assert(r.f_r1 == 10 && r.f_r2 == 18 && r.f_r3 == 11);
+            wordresult_make7 a = word_make7(3);
+            wordresult_make11 b = word_make11(3);
+            assert(wordcall_make7(a, 2) == 12 && wordcall_make11(b, 2) == 16);
+            wordresult_nested outer = word_nested(3);
+            wordresult_call_nested inner = wordcall_nested(outer, 2);
+            assert(wordcall_nested_result(inner, 1) == 13);
+            return 0;
+        }
+    ]]), "")
+end)
+
 H.test("nested keyed owners compile to root receiver parameters with distinct recursive occurrences", function()
     local s = Word.new(); local m = s:load(H.root .. "examples/lexical_owners.lua")
     local c = s:emit_c(m)

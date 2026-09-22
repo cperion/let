@@ -25,7 +25,8 @@ function M.describe(value)
     if p.tag == "word" then
         return {tag = "word", key = Model.key(p.method or value), owner = p.owner,
             scope_path = require("word.owner").path_key(p.scope_path),
-            receiver = p.receiver and M.describe(p.receiver) or nil}
+            receiver = p.receiver and M.describe(p.receiver) or nil,
+            captures = p.capture_env and M.describe(p.capture_env) or nil}
     elseif p.tag == "place" then
         return {tag = "place", type = p.type, root = p.root.id, path = {table.unpack(p.path)}}
     end
@@ -105,6 +106,10 @@ function M.explore(run, max_paths, max_values, functions)
                 local p = trace.receiver
                 map[p.id] = fresh(); fn.receiver = {id = map[p.id], type = p.type}
             end
+            if trace.captures then
+                local p = trace.captures
+                map[p.id] = fresh(); fn.captures = {id = map[p.id], type = p.type}
+            end
             for _, p in ipairs(trace.parameters) do
                 map[p.id] = fresh(); fn.parameters[#fn.parameters + 1] = {id = map[p.id], type = p.type}
             end
@@ -128,6 +133,7 @@ function M.explore(run, max_paths, max_values, functions)
                 out.fields = {}; for name, value in pairs(ins.fields) do out.fields[name] = use(value) end
             end
             if ins.callable then out.callable = use(ins.callable) end
+            if ins.captures then out.captures = use(ins.captures) end
             if ins.initial then out.initial = use(ins.initial) end
             if ins.root then out.root = use(ins.root) end
             if ins.receiver then

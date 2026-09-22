@@ -72,7 +72,7 @@ function M.verify(program)
         for _, block in ipairs(fn.blocks) do
             for _, ins in ipairs(block.instructions) do
                 local borrowed = M.type(ins.type)
-                if ins.op == "FunctionRef" then borrowed = ins.receiver ~= nil and not Model.callable(ins.type).value_environment
+                if ins.op == "FunctionRef" then borrowed = ins.captures ~= nil or (ins.receiver ~= nil and not Model.callable(ins.type).value_environment)
                 elseif ins.op == "Construct" then
                     for _, id in pairs(ins.fields) do M.check(values[id]) end
                     borrowed = false

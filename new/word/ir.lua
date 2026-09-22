@@ -22,6 +22,12 @@ function Builder:receiver(t)
     if self.oracle then self.oracle:event{op = "Receiver", id = id, type = t} end
     return id
 end
+function Builder:captures(t)
+    local id = self:id()
+    self.fn.captures = {id = id, type = t}
+    if self.oracle then self.oracle:event{op = "Captures", id = id, type = t} end
+    return id
+end
 function Builder:parameter(t)
     local id = self:id()
     self.fn.parameters[#self.fn.parameters + 1] = { id = id, type = t }
@@ -44,8 +50,8 @@ function Builder:local_record(t, initial) return self:emit{ op = "Local", type =
 function Builder:load(t, root, path)
     return self:emit{ op = "Load", type = t, root = root, path = { table.unpack(path) } }
 end
-function Builder:call(t, args, target, receiver)
-    local ins = {op = "Call", target = target or "self", type = t, args = args, receiver = receiver}
+function Builder:call(t, args, target, receiver, captures)
+    local ins = {op = "Call", target = target or "self", type = t, args = args, receiver = receiver, captures = captures}
     if Model.primitive(t) ~= "Unit" then return self:emit(ins) end
     self:id() -- A void call is still an ordered effect.
     self.block.instructions[#self.block.instructions + 1] = ins
@@ -104,7 +110,16 @@ function M.verify_function(fn, functions)
         check(type(fn.receiver) == "table" and Model.record(fn.receiver.type), "Receiver requires a record schema")
         define(fn.receiver.id, fn.receiver.type, true)
     end
+    if fn.captures then
+        check(type(fn.captures) == "table" and Model.record(fn.captures.type) and
+            not require("word.borrow").type(fn.captures.type), "Captures require an owned by-value record")
+        define(fn.captures.id, fn.captures.type, true)
+    end
     for _, p in ipairs(fn.parameters) do define(p.id, p.type) end
+    local function captures(ins, callee)
+        if callee.captures then value(ins.captures, callee.captures.type)
+        else check(ins.captures == nil, "Unexpected capture argument") end
+    end
     local function visit(id, depth)
         check(depth <= 33, "Branch tree exceeds the supported depth")
         local block = fn.blocks[id]
@@ -146,6 +161,8 @@ function M.verify_function(fn, functions)
                     check(ins.receiver and ins.receiver.type == callee.receiver.type, "Callable environment type mismatch")
                     target(ins.receiver)
                 else check(ins.receiver == nil, "Unexpected callable environment") end
+                captures(ins, callee)
+                check(not callee.captures or not abi.code, "Borrowed capture bundles require a non-retaining callable interface")
                 for i, parameter in ipairs(abi.parameters) do
                     check(callee.parameters[i].type == parameter.type, "Callable reference parameter mismatch")
                 end
@@ -169,6 +186,7 @@ function M.verify_function(fn, functions)
                         ins.receiver.type == callee.receiver.type, "Receiver ABI mismatch")
                     target(ins.receiver)
                 else check(ins.receiver == nil, "Unexpected receiver argument") end
+                captures(ins, callee)
                 if Model.primitive(ins.type) == "Unit" then check(ins.id == nil, "Void call must not define a value") end
             elseif ins.op == "Store" then
                 target(ins); value(ins.value, ins.type); check(ins.id == nil, "Store must not define a value")

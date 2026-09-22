@@ -64,6 +64,25 @@ representation. Replay remaps both closure receivers and indirect-call operands.
 No runtime symbols may enter static specialization or cached schema/method metadata. The captured
 values themselves live only in the current trace's environment construction.
 
+## Lexical receiver plus immutable captures
+
+A locally constructed word can use both lexical receiver fields and immutable snapshots of values.
+Its outlined function receives the borrowed receiver pointer and a separate by-value capture record.
+Recursive/sibling code links share static templates; each invocation carries fresh capture values.
+Snapshots remain unchanged when the receiver mutates. Capture bindings themselves remain immutable.
+
+A non-retaining callback interface can invoke such a word through a caller-local bundle containing
+its receiver pointer and copied captures. That bundle is borrowed, cannot escape and needs no allocator.
+Tail rewriting preserves the receiver and snapshots all next inputs, including the capture record.
+
+An immutable lexical receiver is different: it can remain checked static metadata while the captured
+runtime values form an ordinary owned environment. Such closures can escape, including through nested
+factories. See `examples/lexical_captures.lua` and `test/lexical_captures.lua`.
+
+Additional borrowed captures (for example, a runtime callback captured alongside the receiver) still
+need a non-retaining outlined environment representation. They can inline but do not become ordinary
+retaining record fields; the remaining `staged-definitions` witness covers this boundary.
+
 See `examples/immutable_closures.lua`. C exposes `wordresult_make` and `wordcall_make` for a factory named
 `make`; nested callable results get `wordresult_call_make` and `wordcall_make_result`. The type-specific
 `wordcalltype_*` helpers also provide direct invocation without a universal function-pointer ABI.

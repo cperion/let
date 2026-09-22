@@ -193,7 +193,7 @@ H.test("recursive results require grounding or an explicit declaration", functio
     H.raises("reject", "recursive-result", function() s:compile{functions = {f = f}} end)
     assert(IR.verify(s:compile{functions = {f = f}, results = {[f] = s.U32}}))
 end)
-H.gap("staged-definitions", function()
+H.test("outlined staged words transport immutable snapshots alongside lexical receivers", function()
     local s = Word.new(); local m = s:load_string([[
         local C = word{value = U32, run = word(U32, function(n)
             local before = value
@@ -206,7 +206,22 @@ H.gap("staged-definitions", function()
         end)}
         return {run = C.run}
     ]])
-    s:compile{functions = m}
+    assert(IR.verify(s:compile{functions = m}))
+end)
+H.gap("staged-definitions", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Callback = word(U32)
+        local C = word{value = U32, run = word(Callback, U32, function(callback, n)
+            local loop
+            loop = word(U32, function(x)
+                if x:eq(0) then return value + callback(x) end
+                return loop(x - 1)
+            end)
+            return loop(n)
+        end)}
+        return {functions = {run = C.run}, results = {[Callback] = U32}}
+    ]])
+    s:compile(m)
 end)
 H.test("local staged definitions compile", function()
     local s = Word.new()
