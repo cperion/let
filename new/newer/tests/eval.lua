@@ -369,7 +369,42 @@ rejects("callable-shape", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
 rejects("callable-branch", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
     .. "return { functions = { pick } }")
 
--- Rejections ------------------------------------------------------------------------------------
+-- Partial application of a closure ------------------------------------------------------------
+local PARTIAL = [==[
+let add = |a, b: U32| -> a + b
+let add5 = add(5)
+let use(x: U32): U32 = add5(x) + add(2)(3)
+return { functions = { use } }
+]==]
+check(interpret("use", { 10 }, PARTIAL)[1] == 20, "a closure may be supplied with fewer arguments")
+local partialUnit = wordlet.compile{ source = PARTIAL, name = "partial.let" }:unit()
+check(partialUnit:find("wordlet_use", 1, true) ~= nil, "a partially applied closure compiles")
+rejects("static-required", "let add = |a, b: U32| -> a + b\n"
+    .. "let f(n: U32): U32 = do let g = add(n) return g(1) end\nreturn { functions = { f } }")
+
+-- Module-level mutable state --------------------------------------------------------------------
+local MODULE_STATE = [==[
+let Counter = { value: U32, bump(): U32 = do value += 1 return value end }
+let shared = Counter { value = 100 }
+let bump_twice(x: U32): U32 = do shared.bump() shared.bump() return shared.value + x end
+return { types = { Counter }, functions = { bump_twice } }
+]==]
+check(interpret("bump_twice", { 1 }, MODULE_STATE)[1] == 103,
+    "module storage is live and shared across calls in one session")
+local moduleArtifact = wordlet.compile{ source = MODULE_STATE, name = "module.let" }
+local moduleUnit = moduleArtifact:unit()
+check(moduleUnit:find("static wordletrecord_1 wordletmodule_1;", 1, true) ~= nil,
+    "module storage is a file-scope object")
+check(moduleUnit:find("void wordlet_init(void)", 1, true) ~= nil, "a module initialiser is exported")
+check(moduleUnit:find("wordletmodule_1 = (wordletrecord_1)", 1, true) ~= nil,
+    "the initialiser assigns the starting value")
+local names = moduleArtifact:exports()
+local sawInit = false
+for _, name in ipairs(names) do if name == "init" then sawInit = true end end
+check(sawInit, "the initialiser is part of the artifact surface")
+
+-- Rejections ---
+---------------------------------------------------------------------------------
 rejects("unknown-name", "let f(x: U32) = y\nreturn { functions = { f } }")
 rejects("arity", "let f(a, b: U32) : U32 = a + b\nlet g(x: U32) : U32 = f(1, 2, 3)\nreturn { functions = { g } }")
 rejects("callable-required", "let f(x: U32) : U32 = x\nlet g(x: U32) : U32 = f(1)(2)\nreturn { functions = { g } }")
@@ -406,8 +441,13 @@ rejects("unknown-member", "let P = { x: U32 }\nlet f(a: U32) : U32 = do"
     .. " let p = P { x = a } return p.z end\nreturn { functions = { f } }")
 rejects("duplicate", "let P = { x: U32 }\nlet f(a: U32) : U32 = do"
     .. " let p = P { x = a, x = 1 } return p.x end\nreturn { functions = { f } }")
-rejects("module-mutable-capture", "let P = { x: U32 }\nlet m = P { x = 1 }\n"
-    .. "let f(a: U32) : U32 = do m.x += a return m.x end\nreturn { functions = { f } }")
+-- Module-level mutable state is supported: the binding becomes a named runtime object.
+local moduleBinding = wordlet.compile{ source = "let P = { x: U32 }\nlet m = P { x = 1 }\n"
+    .. "let f(a: U32): U32 = do m.x += a return m.x end\nreturn { functions = { f } }" }
+check(moduleBinding:unit():find("wordletmodule_1", 1, true) ~= nil, "a module binding gets its own storage")
+check(interpret("f", { 4 },
+    "let P = { x: U32 }\nlet m = P { x = 1 }\nlet f(a: U32): U32 = do m.x += a return m.x end\n"
+    .. "return { functions = { f } }")[1] == 5, "module state mutates through a field store")
 
 -- The interpreter refuses an unsaturated entry rather than inventing a value.
 local ok, err = pcall(wordlet.interpret, { source = "let f(a, b: U32) : U32 = a + b\n"

@@ -54,6 +54,7 @@ Gates 1–5 and 8–10 have their first executable form in `tests/parse.lua`, `t
    invocation pointer, and a callable with no known code and no view is rejected rather than
    mis-compiled.
 8. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
+   module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
 9. **C:** strict C11 compile/run, arithmetic boundary values, side-effect order, safe tail permutations,
    constant-stack self-tails (5,000,000 iterations),

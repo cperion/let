@@ -13,6 +13,10 @@ Eval.__index = Eval
 
 local Ir = S.Ir
 
+-- Module-level mutable storage is emitted as a file-scope object, so its ids must not look like
+-- the function-local storage the builder allocates for each body.
+local MODULE_STORAGE_BASE = 1048576
+
 local ARITH = {
     ["+"] = "Add", ["-"] = "Sub", ["*"] = "Mul", ["/"] = "Div", ["%"] = "Rem", ["^"] = "Pow",
     ["<<"] = "Shl", [">>"] = "Shr", ["&"] = "BitAnd", ["|"] = "BitOr", ["~"] = "BitXor",
@@ -55,7 +59,7 @@ function M.session(options)
     local limits = options.limits or {}
     return setmetatable({
         options = options, limits = limits,
-        definitions = {}, instances = {}, order = {},
+        definitions = {}, instances = {}, order = {}, moduleStorages = {},
         nextDef = 0, nextFn = 0, steps = 0,
         maxSteps = limits.steps or 1000000,
     }, Eval)
@@ -111,12 +115,46 @@ function Eval:compile(program)
         exports.types[#exports.types + 1] = { name = item.name.text, type = ty, span = item.span }
     end
 
-    local compilation = { session = self, exports = exports, functions = {}, types = exports.types }
+    local compilation = { session = self, exports = exports, functions = {}, types = exports.types,
+        modules = self.moduleStorages }
     for _, export in ipairs(exports.functions) do
         local instance = self:instanceFor(export.word.def, export.span, export.word.args)
         compilation.functions[#compilation.functions + 1] = { name = export.name, instance = instance, span = export.span }
     end
+    if compilation.modules and #compilation.modules > 0 then
+        compilation.modules.initialiser = self:moduleInitialiser(compilation.modules, program.span)
+        compilation.functions[#compilation.functions + 1] = {
+            name = "init", instance = compilation.modules.initialiser, span = program.span,
+            initialiser = true,
+        }
+    end
     return compilation
+end
+
+-- One entry point that assigns every module-level object its starting value. The host calls it
+-- before any exported function; it is never called implicitly.
+function Eval:moduleInitialiser(modules, span)
+    self.nextFn = self.nextFn + 1
+    local target = "wordletinit"
+    local builder = IR.builder({ id = target })
+    local body = {}
+    local fn = { id = target, role = Ir.Body, hidden = 0, inputs = {}, params = {}, results = {},
+        body = body }
+    local ctx = setmetatable({ session = self, mode = "residual", scope = self.top, span = span,
+        builder = builder, body = body, fn = fn }, Ctx)
+    for _, module in ipairs(modules) do
+        local fields = {}
+        for index, field in ipairs(module.type.fields) do
+            fields[index] = self:expression(ctx, module.initial.fields[field.name], field.type)
+        end
+        builder:store(body, Ir.Local(module.storage), builder:make(module.type, fields))
+    end
+    builder:emit(body, Ir.Return(S.list({})))
+    local instance = { key = "module-init", def = nil, target = target, status = "done",
+        results = {}, inputTypes = {}, inputPlan = {}, fn = fn, initialiser = true }
+    self.instances[instance.key] = instance
+    self.order[#self.order + 1] = instance
+    return instance
 end
 
 function Eval:resolveExportItem(item, top)
@@ -128,6 +166,26 @@ function Eval:resolveExportItem(item, top)
     if not slot then D.reject("unknown-name", "Unknown exported name: " .. name, item.name.span) end
     if slot.kind == "word" then return V.word(slot.def, {}, item.span) end
     return self:demand(slot, item.span).value
+end
+
+-- A module-level mutable record that runtime code refers to gets a named storage of its own. The
+-- generated artifact declares one file-scope object per such binding and initialises them from
+-- `wordlet_init`, which the host calls before using the exported functions.
+function Eval:moduleObject(slot, span)
+    if slot.module then return slot.module.object end
+    local value = slot.value
+    local schema = value.schema or { id = 0, fields = S.fieldsOf(value.ty),
+        fieldNames = S.fieldNames(value.ty), statics = {}, readonly = {}, methods = {} }
+    -- Module storage ids live in a disjoint range so they can never collide with the
+    -- function-local storage ids the builder hands out.
+    self.nextModule = (self.nextModule or 0) + 1
+    local storage = Ir.Storage(MODULE_STORAGE_BASE + self.nextModule)
+    local object = V.object(value.ty, Ir.Local(storage), schema)
+    self.moduleStorages[#self.moduleStorages + 1] = {
+        storage = storage, type = value.ty, initial = value, name = slot.name,
+    }
+    slot.module = { object = object }
+    return object
 end
 
 function Eval:exportedValue(program, name, top)
@@ -439,9 +497,7 @@ function Eval:evalReference(ctx, expr)
         local demanded = self:demand(slot, expr.name.span)
         if demanded.value == nil then D.reject("value-required", name .. " has no value", expr.name.span) end
         if ctx.mode == "residual" and V.tag(demanded.value) == "record" then
-            D.todo("module-mutable-capture",
-                "Mutable module state cannot be captured into runtime code yet; create the record inside the function",
-                expr.name.span)
+            return self:moduleObject(demanded, expr.name.span)
         end
         return demanded.value
     elseif slot.kind == "word" then
@@ -834,12 +890,30 @@ end
 
 -- Closure application: a static closure is evaluated now; otherwise a direct call carries the
 -- captured environment as leading arguments.
-function Eval:applyClosure(ctx, plan, envExprs, args, span)
+function Eval:applyClosure(ctx, plan, envExprs, args, span, bound)
     local def = plan.def
-    if #args > #def.params then D.reject("arity", "Overapplication is not supported", span) end
-    if #args < #def.params then
-        D.todo("callable-partial", "Partial application of a closure is not implemented", span)
+    bound = bound or {}
+    local supplied = #bound + #args
+    if supplied > #def.params then D.reject("arity", "Overapplication is not supported", span) end
+    if supplied < #def.params then
+        -- Partial application of a closure binds static arguments, exactly as for a named word.
+        local merged = {}
+        for _, value in ipairs(bound) do merged[#merged + 1] = value end
+        for _, value in ipairs(args) do merged[#merged + 1] = value end
+        for index, value in ipairs(merged) do
+            if not V.isStatic(value) then
+                D.reject("static-required", "Partial application needs a static value for parameter "
+                    .. def.params[index].name.text, span)
+            end
+        end
+        return V.closure(plan, merged)
     end
+    args = (function()
+        local all = {}
+        for _, value in ipairs(bound) do all[#all + 1] = value end
+        for _, value in ipairs(args) do all[#all + 1] = value end
+        return all
+    end)()
     if envExprs == nil and #plan.runtimeOrder == 0 then
         local allKnown = true
         for _, value in ipairs(args) do if not V.isKnown(value) then allKnown = false end end
@@ -1469,7 +1543,9 @@ function Eval:evalApply(ctx, expr)
     local tag = V.tag(callee)
     if tag == "word" then return self:apply(ctx, callee, args, expr.span) end
     if tag == "method" then return self:applyMethod(ctx, callee, args, expr.span) end
-    if tag == "closure" then return self:applyClosure(ctx, callee.plan, nil, args, expr.span) end
+    if tag == "closure" then
+        return self:applyClosure(ctx, callee.plan, nil, args, expr.span, callee.bound)
+    end
     if tag == "ir" and S.isOwned(callee.ty) then
         return self:applyOwned(ctx, callee, args, expr.span)
     end

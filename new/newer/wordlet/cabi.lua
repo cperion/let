@@ -156,6 +156,15 @@ function M.close(compilation)
         end
     end
     layouts.signatures = signatures
+    -- Module-level storages are file-scope objects; the emitter names them here.
+    layouts.modules = {}
+    layouts.moduleOrder = {}
+    for index, module in ipairs(compilation.modules or {}) do
+        local entry = { name = "wordletmodule_" .. index, storage = module.storage,
+            type = module.type, source = module.name }
+        layouts.modules[module.storage] = entry
+        layouts.moduleOrder[#layouts.moduleOrder + 1] = entry
+    end
     layouts.order = compilation.session.order
     return layouts
 end

@@ -75,6 +75,8 @@ end
 
 function Emitter:placeC(place)
     if place.kind == "Local" then
+        local module = self.layouts.modules and self.layouts.modules[place.storage]
+        if module then return module.name end
         local name = self:storage(place.storage.id)
         -- A place parameter is already a pointer; a Var is the storage itself.
         return self.placeParams[place.storage.id] and ("(*" .. name .. ")") or name
@@ -268,7 +270,7 @@ local function aliasOf(signature, name)
 end
 
 function M.prototypes(layouts)
-    local lines = {}
+    local lines = M.moduleDeclarations(layouts)
     for _, instance in ipairs(layouts.order) do
         local signature = layouts.signatures[instance.target]
         lines[#lines + 1] = M.signatureText(layouts, signature) .. ";"
@@ -318,6 +320,15 @@ function M.bodies(layouts)
 end
 
 local INCLUDES = { "#include <stdint.h>", "#include <stdbool.h>", "#include <stdlib.h>" }
+
+-- File-scope objects for module-level mutable state, plus the entry point that initialises them.
+function M.moduleDeclarations(layouts)
+    local lines = {}
+    for _, module in ipairs(layouts.moduleOrder or {}) do
+        lines[#lines + 1] = "static " .. layouts:cType(module.type) .. " " .. module.name .. ";"
+    end
+    return lines
+end
 
 function M.unit(layouts)
     local lines = {}

@@ -205,6 +205,15 @@ local CASES = {
         inputs = { { 0 }, { 5 }, { 1 }, { 100 }, { 4294967295 } },
     },
     {
+        name = "partial",
+        source = "let add = |a, b: U32| -> a + b\n"
+            .. "let add5 = add(5)\n"
+            .. "let use(x: U32): U32 = add5(x) + add(2)(3)\n"
+            .. "return { functions = { use } }",
+        entry = "use", arity = 1,
+        inputs = { { 0 }, { 10 }, { 4294967290 } },
+    },
+    {
         name = "alias",
         source = "let inc(x: U32) : U32 = x + 1\nreturn { functions = { a = inc, b = inc } }",
         entries = { { entry = "a", arity = 1 }, { entry = "b", arity = 1 } },
@@ -337,6 +346,34 @@ int main(void) {
         "callback C failed to compile:\n" .. read(directory .. "/cberr.txt"))
     check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
         "the invocation-pointer ABI failed at run time")
+end
+
+-- Module-level mutable state: the host calls the exported initialiser, then the state persists.
+do
+    local source = "let Counter = { value: U32, bump(): U32 = do value += 1 return value end }\n"
+        .. "let shared = Counter { value = 100 }\n"
+        .. "let bump_twice(x: U32): U32 = do shared.bump() shared.bump() return shared.value + x end\n"
+        .. "return { types = { Counter }, functions = { bump_twice } }"
+    local generated = wordlet.compile{ source = source, name = "module.let" }:unit()
+    local path = directory .. "/module.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    /* Not called implicitly: the host owns initialisation order. */
+    assert(wordlet_bump_5Ftwice(UINT32_C(1)) == UINT32_C(3));   /* before init: zeroed storage */
+    wordlet_init();
+    assert(wordlet_bump_5Ftwice(UINT32_C(1)) == UINT32_C(103));
+    assert(wordlet_bump_5Ftwice(UINT32_C(1)) == UINT32_C(105));
+    return 0;
+}
+]])
+    local exe = directory .. "/module"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/moderr.txt") == 0,
+        "module-state C failed to compile:\n" .. read(directory .. "/moderr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "module-level storage did not persist across calls")
 end
 
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.

@@ -43,7 +43,7 @@ local function initialized(list, input)
     return set
 end
 
-function M.function_(fn, definitions)
+function M.function_(fn, definitions, seeded)
     -- `visible` is the set of values in scope at this point. Arm bodies get a copy so an
     -- arm-local definition cannot be referenced from the continuation.
     local function bind(visible, id)
@@ -175,6 +175,7 @@ function M.function_(fn, definitions)
         if param.kind == "ValueParam" then bind(visible, param.binding.id) end
     end
     local storages = {}
+    for id, ty in pairs(seeded or {}) do storages[id] = ty end
     for _, param in ipairs(fn.params) do
         if param.kind == "PlaceParam" then storages[param.binding.id] = param.type end
     end
@@ -282,7 +283,7 @@ function M.arg(arg, locals, storages)
     D.bug("ir-arg", "Unknown argument variant " .. tostring(arg.kind))
 end
 
-function M.program(fnList)
+function M.program(fnList, modules)
     local definitions = {}
     for _, fn in ipairs(fnList) do
         if definitions[fn.id] then D.bug("ir-duplicate", "Duplicate function id " .. fn.id) end
@@ -300,7 +301,11 @@ function M.program(fnList)
         end
         definitions[fn.id] = { results = fn.results, inputs = fn.inputs, fn = fn }
     end
-    for _, fn in ipairs(fnList) do M.function_(fn, definitions) end
+    -- Module-level storages are declared outside every function, so the verifier is seeded with
+    -- them rather than expecting a Var in the body.
+    local seeded = {}
+    for _, module in ipairs(modules or {}) do seeded[module.storage.id] = module.type end
+    for _, fn in ipairs(fnList) do M.function_(fn, definitions, seeded) end
     return true
 end
 

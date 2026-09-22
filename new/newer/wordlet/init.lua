@@ -28,7 +28,8 @@ function M.compile(options)
     local compilation = session:compile(program)
     local functions = {}
     for _, instance in ipairs(session.order) do functions[#functions + 1] = instance.fn end
-    Check.program(functions)
+    Check.program(functions, (compilation.modules and #compilation.modules > 0)
+        and compilation.modules or nil)
     local layouts = C.close(compilation)
     return M.artifact(layouts, compilation)
 end

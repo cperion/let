@@ -24,10 +24,11 @@ this section states exactly how much of it runs today.
 | Nested borrowed closures (a closure capturing another borrowed closure) | **rejected** (`borrow-escape`); needs a callable environment |
 | Opaque runtime callables (`Ty.View`) | implemented: an invocation pointer plus an environment. An exported function with a callable parameter takes a view, and a view call goes through `Ir.Indirect` |
 | A callable stored in a signature-typed field or record | **rejected** (`callable-storage`); an owning erased callable needs a storage policy |
+| Partial application of a closure | implemented: `add(5)` yields a closure with a static argument bound |
 | Contextual lambda parameter types | implemented: a binding annotation, a parameter requirement or a result contract supplies them. A lambda with no expectation anywhere is still rejected (`lambda-annotation`) |
 | Two different lambdas returned from one conditional | **rejected** (`callable-branch`); the join would need a tagged callable |
 | Self-tail calls (`Loop`/`Next` back edges) | implemented; tails run at constant C stack depth |
-| Module-level mutable records captured by runtime code | **rejected** (`module-mutable-capture`); needs a runtime storage interface |
+| Module-level mutable records captured by runtime code | implemented as named file-scope storage plus an exported `wordlet_init()`. The host owns initialisation order; nothing is called implicitly |
 
 Working end to end today: U32/Bool/Unit, `let` bindings, named definitions with parameter and result
 annotations, arithmetic/comparison/bitwise/logical operators, expression and statement conditionals,
@@ -61,7 +62,12 @@ callback supplied by C — uses the invocation-pointer ABI: `Ty.View(sig)` lower
 `{ invoke, environment }`, and calling it emits `Ir.Indirect`. A call to *known* code is still a
 direct call, so `internal(x) = apply(|y| -> y + 1, x)` emits no indirection.
 
-`tests/eval.lua` (190 checks) and `tests/c.lua` (236 checks, 17 programs) cover this.
+A module-level `let` that binds a mutable record and is used from runtime code becomes **named
+storage**: the artifact emits one file-scope object per such binding and an exported
+`void wordlet_init(void)` that assigns their starting values. The host calls it explicitly before
+using any exported function, so initialisation order stays visible rather than implicit.
+
+`tests/eval.lua` (199 checks) and `tests/c.lua` (243 checks, 18 programs) cover this.
 
 
 - [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.

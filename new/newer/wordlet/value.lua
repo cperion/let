@@ -30,8 +30,11 @@ function M.object(ty, place, schema) return make{ tag = "object", ty = ty, place
 -- A method selected on an actual receiver.
 function M.method(method, receiver) return make{ tag = "method", def = method, receiver = receiver } end
 
--- A concrete executable value: a lambda definition plus its captured bindings.
-function M.closure(plan) return make{ tag = "closure", plan = plan, ty = plan.ty } end
+-- A concrete executable value: a lambda definition plus its captured bindings and any statically
+-- supplied arguments.
+function M.closure(plan, bound)
+    return make{ tag = "closure", plan = plan, ty = plan.ty, bound = bound or {} }
+end
 
 function M.callable(t, code) return make{ tag = "callable", ty = t, code = code } end
 
@@ -76,6 +79,7 @@ function M.isStatic(v)
         for _, capture in ipairs(v.plan.order) do
             if not M.isStatic(v.plan.static[capture]) then return false end
         end
+        for _, arg in ipairs(v.bound) do if not M.isStatic(arg) then return false end end
         return true
     end
     return false
@@ -109,6 +113,11 @@ function M.encode(v)
     end
     if tag == "closure" then
         local parts = { "closure:" .. tostring(v.plan.def.id) }
+        for _, arg in ipairs(v.bound) do
+            local encoded = M.encode(arg)
+            if not encoded then return nil end
+            parts[#parts + 1] = "arg=" .. encoded
+        end
         for _, name in ipairs(v.plan.order) do
             local static = v.plan.static[name]
             if static then
