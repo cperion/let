@@ -19,6 +19,7 @@ this section states exactly how much of it runs today.
 | C ABI closure and C11 emission | implemented for scalars, Bool, Unit and multiple results |
 | Single-file bundle and CLI | implemented; `dist/wordlet.lua` |
 | Records, schemas, methods and field stores | implemented, including compound stores and by-value copy |
+| References (`Ref(T)`) and recursive types | **specified, not implemented**: the contract is `syntax.md` §8.2 and `architecture.md` §7 — a reference names a place, the only legal targets are an enclosing owner or module storage, a holder of an enclosing-owner reference cannot escape its activation, and a recursive definition reserves its own identity so a by-value cycle rejects (`type-cycle`) |
 | Sum types (variants) | implemented: `OneOf(schema)` builds one, `T.case {...}` constructs, `value { case = handler }` matches. A known tag selects its handler statically; an opaque tag becomes a C tag test with the payload projected inside the arm. C layout is a tag plus a union, and a `Unit` alternative carries no payload |
 | Closures and higher-order words | implemented: by-value environments, direct calls, and capture-free lambdas as pure code — an invocation pointer with a null environment, which may cross a boundary but needs no adapter |
 | Passing a method to a callable parameter | implemented: the parameter takes a view whose local adapter holds the borrowed receiver |

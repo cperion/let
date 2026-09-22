@@ -243,7 +243,7 @@ These are the obligations `check.lua` verifies; the builder should not rely on t
 8. **Visible versus actual signature.** `Ty.Owned`/`Ty.View` carry the source-visible signature.
    `Ir.Fn.inputs` carries the actual ABI including the hidden owner/capture prefix. The two are
    related by `Meta.projections`/`hidden` and must not be conflated.
-9. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
+10. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
    testing the same operand value.
 
 ## 7. Diagnostics

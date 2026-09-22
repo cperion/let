@@ -78,6 +78,8 @@ OwnedCallable(code_identity, environment)
 BorrowedCallable(code_identity_or_signature, environment_bindings)
 Sum(alternative_names_and_payload_types)
 TaggedCallable(visible_signature, arms_of_code_identity_and_environment)
+Ref(target_type)                        -- a checked borrow of a place, `target_type *` in C
+Named(reserved_recursive_cell)          -- the identity of a recursive definition
 ```
 
 A sum value is a tag plus one payload. Its alternatives are canonical (sorted by name), so two
@@ -324,15 +326,19 @@ The concrete schemas are `ast.asdl` and `ir.asdl`, both parsed by the vendored A
 invariants. This section states the intent behind those schemas.
 
 Names distinguish immutable value IDs (`Ir.Value`) from mutable storage IDs (`Ir.Storage`).
-`Ir.Expr` is pure: no Read, call, trap or address acquisition. `Ir.Stmt` is ordered by list position.
+`Ir.Expr` is pure: no Read, call, trap or effect. `Addr(Place)` computes the address of a place
+root plus field selections and reads nothing, which is what lets a record field hold a reference; it
+is the one addition to the original "no address acquisition" wording, and it stays pure because a
+place is a root plus names. `Ir.Place.Deref` is the route through a reference. `Ir.Stmt` is ordered
+by list position.
 `Ir.Expr` is deliberately not interned by ASDL, since `Ir.Value` IDs are function-local; the builder
 interns expressions per function (`interfaces.md` §4).
 
 Key shapes (see `ir.asdl` for the exact fields):
 
 ```
-Ir.Expr  = Const | Ref | Un | Bin | Get | Make | Owned
-Ir.Place = Local(Storage) | Captured(Bundle, slot) | Project(Place, Field)
+Ir.Expr  = Const | Ref | Un | Bin | Get | Make | Owned | Addr(Place)
+Ir.Place = Local(Storage) | Captured(Bundle, slot) | Project(Place, Field) | Deref(Place)
 Ir.Arg   = ValueArg | BorrowArg | BundleArg
 Ir.Stmt  = Let | Var | Read | Store | BundleDef | View | Call | Indirect
          | If | Loop | Next | Trap | Return
@@ -340,6 +346,20 @@ Ir.Stmt  = Let | Var | Read | Store | BundleDef | View | Call | Indirect
 Ir.Param = ValueParam | PlaceParam | BundleParam
 Ir.Fn    = (id, role, hidden, Ty.Input* inputs, Ty.V* results, Param* params, Stmt* body)
 ```
+
+A reference is a type whose representation is a pointer but whose meaning is a checked borrow: the
+target must provably outlive every use (section 8.2). Its implementation order follows the same rule
+as every other family here: schema first, then the frontend and its rejections, then layout. Concretely
+`Ty.Ref`/`Ty.Named` and the two IR additions; the `Ref` builtin whose terminal returns a type for a
+type argument and a reference for a place argument; the reservation of an open cell around a `let`
+type definition and the `type-cycle` rejection when a knot closes by value; the two lifetime rules
+with `ref-target` and `ref-escape`; `cType`/`placeC` for `T *` and `(*p).field`, which the existing
+forward declarations and dependency-ordered emission already accept; then the differential C cases in
+section 8.2's validation list. The `c-order` check stays as the layout backstop for a cycle that slips
+past the type-level rejection. It is the only indirection boundary that makes
+a recursive layout finite, and `Named` is the identity a recursive definition reserves for itself
+while its own layout is still being computed. A `Ref` field makes its holder non-retaining in one
+direction and tied to its target lifetime in the other, and a by-value cycle stays rejected.
 
 A tagged callable is the callable counterpart of a sum: a closed set of code identities that share
 one visible signature, where the tag selects which code a call of the value runs and the payload is
@@ -476,6 +496,7 @@ helpers. No historical helper names or facade signatures are compatibility requi
 | Unit | erased payload, while logical result positions remain tracked |
 | record value | struct, by value, fields in canonical name order |
 | sum value | struct with a tag plus a union of alternative payloads, by value |
+| reference | `T *`, with a forward declaration for a recursive target and no allocation |
 | tagged callable | the same tag plus union shape, holding each arm environment |
 | multiple runtime results | internal ordered result struct |
 | actual receiver borrow | typed pointer, optionally proven const |
@@ -503,7 +524,8 @@ expression's first textual occurrence. Read snapshots must precede later stores 
 mutating calls. Function argument evaluation order must be established before the C call expression.
 
 Aggregate declarations are emitted in dependency order, with a struct tag per generated type so a
-pointer to one needs only a declaration. A record may hold a callable view whose parameter list
+pointer to one needs only a declaration. A reference is exactly such a pointer, which is why a
+recursive definition is finite and a by-value cycle is reported instead of emitted. A record may hold a callable view whose parameter list
 mentions a record, so the by-value dependency runs in both directions and no fixed order is correct;
 a genuine by-value cycle is reported instead of emitted.
 

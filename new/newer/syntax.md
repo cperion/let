@@ -431,8 +431,102 @@ A sum value is immutable like a record; its alternatives have no selectable memb
 reached by matching, not by naming an alternative in a member select. Sum values copy by value on
 argument passing, assignment and return.
 
-Recursive sums are not expressible in this version: an alternative's payload type must already be
-defined, so a sum cannot mention itself. That restriction lifts when recursive type identities exist.
+Recursive sums are not expressible without an indirection boundary: an alternative's payload type
+must already be defined, so a sum cannot mention itself by value. Section 8.2 supplies that boundary.
+
+### 8.2 References and recursive types
+
+A reference names a place instead of copying it. It is the only indirection boundary that makes a
+recursive type finite, and it is what lets a sum mention itself:
+
+```
+let Node = { value: U32, next: Link }
+let Link = OneOf({ none: Unit, some: Ref(Node) })
+```
+
+`Ref` is an ordinary word, so it needs no new syntax: applied to a type value it produces a type,
+and applied to a place it produces a reference to that place.
+
+```
+let Counter = { value: U32 }
+let c = Counter { value = 1 }
+let r = Ref(c)                 -- r : Ref(Counter)
+r.value = 20                   -- writes c.value: selection through a reference is a place route
+let again = Ref(c)             -- a second reference to the same instance
+```
+
+`Ref(T)` is not a copy of `T`. Reading or writing through a reference reaches the referenced
+instance, exactly as selecting that instance directly would, and two references to one instance
+observe each other's writes. A reference has stable identity under copying: copying a record that
+holds a reference copies the reference, not the referenced instance. Assigning through a reference
+to a field of a *binding* still rejects: `r = ...` is not a store, only a place beneath `r` is.
+
+`Ref` never means ownership, uniqueness, move or automatic destruction. A reference does not keep
+its target alive, and it is not the mechanism by which a record owns a child.
+
+#### What a reference may name
+
+A reference may only name a target that provably outlives every use of the reference. Exactly two
+targets qualify:
+
+1. **an enclosing owner.** The referenced place is a lexical owner that encloses the reference and
+   outlives it in the same activation. This is the same actual-owner route that a captured receiver
+   already uses.
+2. **module-level storage.** A binding declared at file scope outlives every activation, so a
+   reference to it may be copied, stored and returned freely.
+
+Anything else rejects (`ref-target`): a local that does not enclose the reference, a temporary, a
+field of a record that is about to be copied, and a place that has already been replaced.
+
+A record that holds a reference to an enclosing owner is itself tied to that activation: it may be
+used, copied and passed within the activation, but returning it, storing it in module storage or
+capturing it in an escaping closure rejects (`ref-escape`). A record that holds only references to
+module storage has no such restriction, because those targets outlive every activation.
+
+```
+let Counter = { value: U32 }
+let shared = Counter { value = 0 }              -- module storage
+
+let Node = { value: U32, next: Ref(Counter) }
+let local(x: U32): U32 = do
+  let n = Node { value = x, next = Ref(shared) }
+  return n.next.value                            -- fine: the target is module storage
+end
+
+let bad(x: U32): Node = do
+  let c = Counter { value = x }
+  return Node { value = x, next = Ref(c) }        -- rejects: c dies with this activation
+end
+```
+
+#### Recursive type identity
+
+A type whose definition needs itself is a **recursive type**. The first demand for such a
+definition reserves its cell; a demand that arrives while the cell is still being computed yields an
+indirection to that cell rather than forcing its layout. The cell is sealed with the finished
+definition and the result must not change afterwards.
+
+```
+let Bad = { child: Bad }        -- rejects: by-value containment has no finite layout
+let Good = { child: Ref(Good) } -- accepted: the layout cycle crosses the reference boundary
+```
+
+A by-value cycle rejects (`type-cycle`) even when it passes through several definitions. A cycle
+that crosses a reference is finite: the reference has a representation whose size does not depend on
+its target. Type equality is structural, except that a recursive definition compares by its reserved
+identity, so two spellings of one recursive knot are one type and one layout.
+
+#### Validation
+
+Required reference tests include:
+
+- reference construction from each legal target, selection and store through a reference, aliasing
+  between two references, and copying a reference by value;
+- both lifetime rules and both rejections (`ref-target`, `ref-escape`);
+- a finite recursive list built over module storage: construction, traversal, and a mutation seen
+  through a stored reference;
+- by-value cycles across one and several definitions (`type-cycle`), and a cycle broken only by a
+  reference being accepted with a finite layout.
 
 ## 9. Callables, captures and ownership
 
@@ -654,9 +748,11 @@ return {
 ## 14. Explicit exclusions and validation
 
 No juxtaposition, layout blocks, implicit block returns, bare-name lambdas, mutable lexical bindings,
-general borrow parameters, residual partial application, general tuple/array values, record-value
-literals without a schema, non-exhaustive or recursive pattern matching, implicit type parameters,
-arbitrary foreign layouts, imports, pub or configurable traps are implied by this syntax.
+general borrow parameters, reference arithmetic, null or dangling references, ownership through a
+reference, residual partial application, general tuple/array values, record-value literals without a
+schema, non-exhaustive or recursive pattern matching, implicit type parameters, arbitrary foreign
+layouts, imports, pub or configurable traps are implied by this syntax. A reference is a checked
+borrow of a target that outlives it, not a pointer type a program may fabricate.
 
 Required syntax/semantic tests include:
 

@@ -72,6 +72,10 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    identities; escaping a borrowed closure is rejected; an opaque callable uses a signature-specific
    invocation pointer, and a callable with no known code and no view is rejected rather than
    mis-compiled.
+8b. **References and recursion:** reference construction from each legal target, selection, store and
+   aliasing through a reference, by-value copying of a reference, both lifetime rejections
+   (`ref-target`, `ref-escape`), a finite recursive list over module storage built and traversed, and
+   by-value cycles rejected across one and several definitions (`type-cycle`).
 9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
