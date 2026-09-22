@@ -22,7 +22,8 @@ function M.close(compilation)
         signatures = {},
     }
 
-    local function recordLayout(ty)
+    local function recordLayout(ty0)
+        local ty = S.environmentOf(ty0)
         local existing = layouts.records[ty]
         if existing then return existing end
         local layout = { name = "wordletrecord_" .. (#layouts.recordOrder + 1), type = ty, fields = {} }
@@ -59,6 +60,7 @@ function M.close(compilation)
         if ty == S.U32 then return "uint32_t" end
         if ty == S.Bool then return "bool" end
         if ty == S.Unit then return "void" end
+        if S.isOwned(ty) then return layouts:cType(ty.environment) end
         if S.isRecord(ty) then return recordLayout(ty).name end
         D.todo("c-type", "No C representation for " .. S.encode(ty))
     end
@@ -110,6 +112,17 @@ function M.close(compilation)
         layouts.typeExports[#layouts.typeExports + 1] = {
             name = "wordtype_" .. M.escape(entry.name), layout = layout, entry = entry,
         }
+    end
+    -- Name every runtime type before emission, so aggregate declarations precede their uses.
+    -- A parameter's type is named by `signature`, but a result type is not.
+    for _, instance in ipairs(compilation.session.order) do
+        local signature = signatures[instance.target]
+        for _, param in ipairs(signature.params) do
+            if S.runtime(param.type) then layouts:cType(param.type) end
+        end
+        if signature.results.kind == "scalar" and S.runtime(signature.results.type) then
+            layouts:cType(signature.results.type)
+        end
     end
     layouts.signatures = signatures
     layouts.order = compilation.session.order

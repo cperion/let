@@ -48,8 +48,9 @@ Gates 1–5 and 8–10 have their first executable form in `tests/parse.lua`, `t
    joins, initialization on every continuing arm, no arm-local definitions leaked outside scope.
 6. **Instances:** canonical known argument/code/capture bindings, shared helper bodies, no caller path
    multiplication, bounded changing-specialization recursion and complete annotated residual cycles.
-7. **Callables:** owned environments survive creator return; borrowed receiver/callback bundles do not
-   escape; no ownership inferred from a signature; entry ABI materialization is explicit.
+7. **Callables:** owned environments survive creator return (make_adder/run/compose/snap); a captured
+   field is a snapshot; distinct lambdas are distinct code identities; borrowed receiver captures and
+   opaque function pointers are rejected rather than mis-compiled.
 8. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
 9. **C:** strict C11 compile/run, arithmetic boundary values, side-effect order, safe tail permutations,

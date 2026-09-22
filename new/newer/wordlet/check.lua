@@ -186,18 +186,19 @@ function M.expr(expr, locals)
         end
         return expr.type
     elseif kind == "Make" then
-        if not S.isRecord(expr.type) then D.bug("ir-type", "Make needs a record type") end
-        if #expr.fields ~= #expr.type.fields then
+        local record = S.environmentOf(expr.type)
+        if not S.isRecord(record) then D.bug("ir-type", "Make needs a record or callable type") end
+        if #expr.fields ~= #record.fields then
             D.bug("ir-arity", "Make field count does not match the record type")
         end
-        for index, field in ipairs(expr.type.fields) do
+        for index, field in ipairs(record.fields) do
             if M.expr(expr.fields[index], locals) ~= field.type then
                 D.bug("ir-type", "Make field type does not match " .. field.name)
             end
         end
         return expr.type
     elseif kind == "Get" then
-        local aggregate = M.expr(expr.aggregate, locals)
+        local aggregate = S.environmentOf(M.expr(expr.aggregate, locals))
         if not S.isRecord(aggregate) then D.bug("ir-type", "Get needs a record aggregate") end
         local field = S.field(aggregate, expr.field.name)
         if not field then D.bug("ir-field", "Get names an unknown field " .. expr.field.name) end

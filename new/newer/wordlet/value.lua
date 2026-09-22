@@ -30,6 +30,9 @@ function M.object(ty, place, schema) return make{ tag = "object", ty = ty, place
 -- A method selected on an actual receiver.
 function M.method(method, receiver) return make{ tag = "method", def = method, receiver = receiver } end
 
+-- A concrete executable value: a lambda definition plus its captured bindings.
+function M.closure(plan) return make{ tag = "closure", plan = plan, ty = plan.ty } end
+
 function M.callable(t, code) return make{ tag = "callable", ty = t, code = code } end
 
 function M.is(v) return getmetatable(v) == V end
@@ -42,6 +45,13 @@ function M.isKnown(v)
     local tag = v.tag
     if tag == "ir" or tag == "object" or tag == "method" or tag == "schema" or tag == "callable" then
         return false
+    end
+    if tag == "closure" then
+        if #v.plan.runtimeOrder > 0 then return false end
+        for _, capture in ipairs(v.plan.order) do
+            local value = v.plan.static[capture]
+            if value and not M.isKnown(value) then return false end
+        end
     end
     if tag == "record" then
         for _, field in pairs(v.fields) do if not M.isKnown(field) then return false end end
@@ -57,6 +67,14 @@ function M.isStatic(v)
     if tag == "u32" or tag == "bool" or tag == "unit" or tag == "type" then return true end
     if tag == "word" then
         for _, arg in ipairs(v.args) do if not M.isStatic(arg) then return false end end
+        return true
+    end
+    if tag == "closure" then
+        -- A closure with no runtime environment is pure code identity plus static facts.
+        if #v.plan.runtimeOrder > 0 then return false end
+        for _, capture in ipairs(v.plan.order) do
+            if not M.isStatic(v.plan.static[capture]) then return false end
+        end
         return true
     end
     return false
@@ -88,6 +106,20 @@ function M.encode(v)
         end
         return "results:" .. table.concat(parts, ",")
     end
+    if tag == "closure" then
+        local parts = { "closure:" .. tostring(v.plan.def.id) }
+        for _, name in ipairs(v.plan.order) do
+            local static = v.plan.static[name]
+            if static then
+                local encoded = M.encode(static)
+                if not encoded then return nil end
+                parts[#parts + 1] = name .. "=" .. encoded
+            else
+                parts[#parts + 1] = name .. "=#"
+            end
+        end
+        return table.concat(parts, ",")
+    end
     return nil
 end
 
@@ -99,6 +131,7 @@ function M.describe(v)
     if v.tag == "record" then return "record<" .. S.encode(v.ty) .. ">" end
     if v.tag == "schema" then return "schema<" .. tostring(v.def.name or v.def.id) .. ">" end
     if v.tag == "method" then return "method<" .. tostring(v.def.name) .. ">" end
+    if v.tag == "closure" then return "closure<" .. tostring(v.plan.def.name) .. ">" end
     if v.tag == "results" then
         local parts = {}
         for index, item in ipairs(v.values) do parts[index] = M.describe(item) end

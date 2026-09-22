@@ -19,7 +19,10 @@ this section states exactly how much of it runs today.
 | C ABI closure and C11 emission | implemented for scalars, Bool, Unit and multiple results |
 | Single-file bundle and CLI | implemented; `dist/wordlet.lua` |
 | Records, schemas, methods and field stores | implemented, including compound stores and by-value copy |
-| Lambdas and closures | **not implemented** (they parse) |
+| Closures and higher-order words | implemented: by-value environments, direct calls, capture-free lambdas as static code |
+| Borrowed captures (a captured receiver or method) | **rejected** (`borrowed-capture`); needs a non-retaining environment |
+| A callable with no known code (an opaque function pointer) | **rejected** (`opaque-callable`) |
+| Contextual lambda parameter types (`|x| -> ...`) | **rejected** (`lambda-annotation`); annotate the parameter |
 | Self-tail calls (`Loop`/`Next` back edges) | implemented; tails run at constant C stack depth |
 | Module-level mutable records captured by runtime code | **rejected** (`module-mutable-capture`); needs a runtime storage interface |
 
@@ -34,7 +37,12 @@ A call to the instance currently being built, in tail position, becomes a back e
 loop with a `continue`, with every next argument evaluated before any parameter is rebound. Calling
 it with different static arguments is a different instance and stays an ordinary call.
 
-`tests/eval.lua` (117 checks) and `tests/c.lua` (176 checks, 14 programs) cover this.
+A lambda becomes a closure: captures that are static join its code identity, and the remaining ones
+form a by-value environment passed to the compiled lambda as leading hidden inputs. Because the code
+identity lives in the value's type, calling a closure stays a **direct call** — no function pointer is
+needed while the code is known.
+
+`tests/eval.lua` (142 checks) and `tests/c.lua` (200 checks, 15 programs) cover this.
 
 
 - [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.

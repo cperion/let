@@ -59,9 +59,11 @@ function Emitter:expr(expr)
         end
         return "((" .. left .. ") " .. cOp .. " (" .. right .. "))"
     elseif kind == "Make" then
-        local layout = self.layouts.recordLayout(expr.type)
+        -- An Owned callable is represented by its environment record.
+        local record = S.environmentOf(expr.type)
+        local layout = self.layouts.recordLayout(record)
         local fields = {}
-        for index, field in ipairs(expr.type.fields) do
+        for index, field in ipairs(record.fields) do
             fields[#fields + 1] = "." .. layout.fields[index].name .. " = " .. self:expr(expr.fields[index])
         end
         return "(" .. layout.name .. "){" .. table.concat(fields, ", ") .. "}"

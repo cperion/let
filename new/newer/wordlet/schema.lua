@@ -63,6 +63,16 @@ end
 function M.sig(inputs, results)
     return Ty.Sig(ASDL.List(inputs), ASDL.List(results))
 end
+
+-- A concrete executable value: `key` names the compiled lambda instance whose environment this
+-- value carries. The code identity lives in the type, so an IR value of this type is callable.
+function M.owned(key, visible, environment)
+    return Ty.Owned(key, visible, environment or Ty.Unit)
+end
+function M.isOwned(t) return type(t) == "table" and t.kind == "Owned" end
+-- The runtime representation of a type: an Owned callable is represented by its environment.
+function M.environmentOf(t) return M.isOwned(t) and t.environment or t end
+function M.isView(t) return type(t) == "table" and t.kind == "View" end
 function M.inValue(t) return Ty.InValue(t) end
 function M.inPlace(t) return Ty.InPlace(t) end
 
@@ -95,6 +105,12 @@ end
 function M.runtime(t, visiting)
     if t == Ty.U32 or t == Ty.Bool or t == Ty.Unit then return true end
     if t == Ty.Type then return false end
+    if M.isOwned(t) then return M.runtime(t.environment, visiting) end
+    if M.isSig(t) then
+        -- A signature is a calling requirement, not a value; it only survives as a specialized
+        -- Owned type once an argument fixes the code.
+        return false
+    end
     if M.isRecord(t) then
         visiting = visiting or {}
         if visiting[t] then return false end
@@ -106,6 +122,16 @@ function M.runtime(t, visiting)
         return true
     end
     return false
+end
+
+-- A value that can actually appear in generated code. An Owned type with no environment is pure
+-- code identity, so it has no representation and must stay a compile-time fact.
+function M.representable(t)
+    if M.isOwned(t) then
+        if t.environment == Ty.Unit then return false end
+        return M.runtime(t.environment)
+    end
+    return M.runtime(t)
 end
 
 function M.checkRuntime(t, span)

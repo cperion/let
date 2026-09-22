@@ -156,6 +156,23 @@ local CASES = {
         inputs = { { 0, 5 }, { 1, 0 }, { 10, 3 }, { 5, 0 }, { 3, 4 }, { 0, 0 }, { 2, 5 }, { 7, 1 } },
     },
     {
+        name = "closures",
+        source = "let apply(f: U32 :: U32, x: U32) :: U32 = f(x)\n"
+            .. "let twice(f: U32 :: U32, x: U32) :: U32 = f(f(x))\n"
+            .. "let make_adder(n: U32) = |x: U32| -> n + x\n"
+            .. "let run(n, x: U32) :: U32 = do let add = make_adder(n) return apply(add, x) end\n"
+            .. "let inline(x: U32) :: U32 = twice(|y: U32| -> y + 1, x)\n"
+            .. "let compose(a, b, x: U32) :: U32 = do\n"
+            .. "  let f = make_adder(a)\n  let g = make_adder(b)\n  return apply(f, apply(g, x))\nend\n"
+            .. "let C = { v: U32, mk() = |x: U32| -> v + x }\n"
+            .. "let snap(n: U32) :: U32 = do\n"
+            .. "  let c = C { v = n }\n  let f = c.mk()\n  c.v += 5\n  return f(100)\nend\n"
+            .. "return { types = { C }, functions = { run, inline, compose, snap } }",
+        entries = { { entry = "run", arity = 2 }, { entry = "inline", arity = 1 },
+            { entry = "compose", arity = 3 }, { entry = "snap", arity = 1 } },
+        inputs = { { 5, 7 }, { 0, 0 }, { 3 }, { 7 }, { 3, 4, 10 }, { 0, 0, 0 }, { 1 }, { 4294967295 } },
+    },
+    {
         name = "alias",
         source = "let inc(x: U32) :: U32 = x + 1\nreturn { functions = { a = inc, b = inc } }",
         entries = { { entry = "a", arity = 1 }, { entry = "b", arity = 1 } },

@@ -147,6 +147,64 @@ function Eval:exportedWord(slot, span, name)
     return value
 end
 
+-- Free names of a lambda body: referenced but not bound by its parameters or its own `let`s.
+-- Nested lambdas and method bodies are separate functions and are not entered.
+local function freeNames(node, bound, out)
+    if node == nil then return end
+    local kind = node.kind
+    if kind == "Reference" then
+        local name = node.name.text
+        if not bound[name] then out[name] = true end
+        return
+    elseif kind == "Lambda" or kind == "SchemaExpr" then
+        return
+    elseif kind == "Block" then
+        local inner = {}
+        for key in pairs(bound) do inner[key] = true end
+        for _, stmt in ipairs(node.statements) do freeNames(stmt, inner, out) end
+        return
+    elseif kind == "ValueStmt" then
+        -- The value expressions see the bindings declared so far; the binders are added after.
+        for _, value in ipairs(node.def.values) do freeNames(value, bound, out) end
+        for _, binder in ipairs(node.def.binders) do bound[binder.name.text] = true end
+        return
+    elseif kind == "WordStmt" then
+        bound[node.def.name.text] = true
+        return
+    elseif kind == "IfStmt" then
+        freeNames(node.test, bound, out)
+        for _, arm in ipairs({ node.yes, node.no }) do
+            for _, stmt in ipairs(arm) do freeNames(stmt, bound, out) end
+        end
+        return
+    elseif kind == "StoreStmt" then
+        freeNames(node.target, bound, out); freeNames(node.value, bound, out)
+        return
+    elseif kind == "ReturnStmt" then
+        for _, value in ipairs(node.values) do freeNames(value, bound, out) end
+        return
+    elseif kind == "Expression" then
+        return freeNames(node.value, bound, out)
+    end
+    -- Remaining expression forms: walk their child expressions.
+    local children = {
+        Apply = { "callee", "arguments" }, BinaryExpr = { "left", "right" },
+        UnaryExpr = { "operand" }, Condition = { "test", "yes", "no" },
+        FieldSelect = { "base" }, RecordSupply = { "schema", "fields" },
+        SignatureExpr = { "inputs" }, ResultSpec = nil,
+    }
+    local fields = children[kind]
+    if not fields then return end
+    for _, field in ipairs(fields) do
+        local child = node[field]
+        if type(child) == "table" and child.kind == nil and #child > 0 then
+            for _, item in ipairs(child) do freeNames(item, bound, out) end
+        elseif type(child) == "table" and (child.kind or child.value or child.name) then
+            freeNames(child, bound, out)
+        end
+    end
+end
+
 -- Syntactic test for a tail self-call. In this language `return` is explicit, so every ReturnStmt
 -- value is a tail position, and an expression body's root is one too. Nested words are separate
 -- functions and are not entered. A false positive only costs the loop-capable parameter layout.
@@ -181,13 +239,16 @@ local function hasTailCall(node, name)
     return false   -- Lambda, SchemaExpr, ValueStmt, WordStmt, CallStmt, StoreStmt
 end
 
-function Eval:define(node, lexical, fields)
+-- `label` names anonymous words (lambdas); named definitions use their own name.
+function Eval:define(node, lexical, fields, label)
     self.nextDef = self.nextDef + 1
+    local name = label or (node.name and node.name.text) or ("lambda#" .. self.nextDef)
     return {
-        id = self.nextDef, name = node.name.text, node = node, span = node.name.span,
+        id = self.nextDef, name = name,
+        node = node, span = (node.name and node.name.span) or node.span,
         params = node.params, result = node.result, body = node.body,
         lexical = lexical, fields = fields,
-        tailSelf = hasTailCall(node.body, node.name.text),
+        tailSelf = node.body ~= nil and hasTailCall(node.body, name),
     }
 end
 
@@ -254,8 +315,42 @@ function Eval:expression(ctx, value)
     if tag == "u32" then return ctx.builder:u32(value.n) end
     if tag == "bool" then return ctx.builder:bool(value.b) end
     if tag == "record" or tag == "object" then return self:recordExpr(ctx, value) end
+    if tag == "closure" then
+        local plan = value.plan
+        if #plan.runtimeOrder == 0 then
+            D.reject("static-callable-value",
+                "A closure with no runtime environment has no runtime representation", ctx.span)
+        end
+        -- The value's type is the callable type; its representation is the environment record.
+        local fields = {}
+        for index, name in ipairs(plan.runtimeOrder) do
+            fields[index] = self:expression(ctx, plan.runtime[name])
+        end
+        return ctx.builder:make(plan.ty, fields)
+    end
     D.reject("residual-value", "A " .. S.encode(value.ty or S.Unit) .. " value cannot cross into runtime storage",
         ctx.span)
+end
+
+-- A callable argument satisfies a signature requirement when its shape matches. Results are
+-- compared only when the callable's own result types are already known.
+function Eval:callableMatches(value, sig)
+    local tag = V.tag(value)
+    if tag == "closure" then
+        local inputs, results = value.plan.sig.inputs, value.plan.sig.results
+        if #inputs ~= #sig.inputs then return false end
+        for index = 1, #inputs do
+            if S.encode(inputs[index]) ~= S.encode(sig.inputs[index]) then return false end
+        end
+        if #results > 0 then
+            if #results ~= #sig.results then return false end
+            for index = 1, #results do
+                if S.encode(results[index]) ~= S.encode(sig.results[index]) then return false end
+            end
+        end
+        return true
+    end
+    return nil   -- named words are checked by their own calling requirement
 end
 
 function Eval:requireType(value, ty, span)
@@ -279,8 +374,26 @@ function Eval:evalExpr(ctx, expr)
     elseif kind == "SchemaExpr" then return self:evalSchema(ctx, expr)
     elseif kind == "RecordSupply" then return self:evalSupply(ctx, expr)
     elseif kind == "FieldSelect" then return self:evalFieldSelect(ctx, expr)
+    elseif kind == "Lambda" then return self:evalLambda(ctx, expr)
+    elseif kind == "SignatureExpr" then return self:evalSignature(ctx, expr)
     end
     D.todo("expression", "Unsupported expression form: " .. tostring(kind), expr.span)
+end
+
+-- A signature is a static value: a calling requirement, never runtime data.
+function Eval:evalSignature(ctx, expr)
+    -- A signature's inputs carry the value/place distinction, so each becomes an InValue here.
+    local inputs = {}
+    for index, item in ipairs(expr.inputs) do
+        inputs[index] = S.inValue(self:typeOf(item, ctx.scope, expr.span))
+    end
+    local results = {}
+    if expr.results.kind == "Single" then
+        results[1] = self:typeOf(expr.results.type, ctx.scope, expr.span)
+    else
+        for index, item in ipairs(expr.results.types) do results[index] = self:typeOf(item, ctx.scope, expr.span) end
+    end
+    return V.type(S.sig(inputs, results))
 end
 
 function Eval:evalReference(ctx, expr)
@@ -668,6 +781,337 @@ function Eval:storeTarget(ctx, target)
     D.reject("not-a-place", "Only record fields can be assigned", target.span)
 end
 
+-- Closure application: a static closure is evaluated now; otherwise a direct call carries the
+-- captured environment as leading arguments.
+function Eval:applyClosure(ctx, plan, envExprs, args, span)
+    local def = plan.def
+    if #args > #def.params then D.reject("arity", "Overapplication is not supported", span) end
+    if #args < #def.params then
+        D.todo("callable-partial", "Partial application of a closure is not implemented", span)
+    end
+    if envExprs == nil and #plan.runtimeOrder == 0 then
+        local allKnown = true
+        for _, value in ipairs(args) do if not V.isKnown(value) then allKnown = false end end
+        if allKnown and ctx.mode == "normalize" then
+            return self:applyClosureStatically(plan, args, span)
+        end
+    end
+    if ctx.mode ~= "residual" then
+        D.reject("runtime-in-normalization", "This closure call needs runtime code", span)
+    end
+    local callable = { plan = plan, envValues = nil, envExprs = envExprs }
+    if envExprs == nil then
+        callable.envValues = {}
+        for _, name in ipairs(plan.runtimeOrder) do callable.envValues[#callable.envValues + 1] = plan.runtime[name] end
+    end
+    return self:callClosure(ctx, callable, args, span)
+end
+
+-- An Owned IR value carries its environment; the captured fields are its arguments.
+function Eval:applyOwned(ctx, value, args, span)
+    local plan = self:planOf(value.ty, span)
+    local envTys = {}
+    for _, field in ipairs(value.ty.environment.fields or {}) do envTys[field.name] = field.type end
+    local envExprs = {}
+    for _, name in ipairs(plan.envNames) do
+        envExprs[#envExprs + 1] = ctx.builder:get(value.expr, name, envTys[name])
+    end
+    return self:applyClosure(ctx, plan, envExprs, args, span)
+end
+
+-- Evaluating a capture-free closure with known arguments produces a value, not a call.
+function Eval:applyClosureStatically(plan, args, span)
+    local sc = scope(self.top)
+    for name, value in pairs(plan.static) do
+        declare(sc, name, { kind = "value", name = name, value = value }, span)
+    end
+    for index, param in ipairs(plan.def.params) do
+        declare(sc, param.name.text, { kind = "value", name = param.name.text, value = args[index] }, param.span)
+    end
+    local result = self:execBody(self:context("normalize", sc, span), plan.def.body, span)
+    if #result == 0 then return V.unit() end
+    if #result == 1 then return result[1] end
+    return V.results(result)
+end
+
+-- Closures ------------------------------------------------------------------------------------
+--
+-- A closure is a lambda definition plus captured bindings. Captures that are static become part of
+-- the code identity; the rest form a by-value environment that is passed to the compiled lambda as
+-- leading hidden inputs. Because the environment type carries the code key, an IR value of that
+-- type is directly callable: no function pointer is needed while the code is known.
+
+local function envFieldName(index) return string.format("c%02d", index) end
+
+-- Materialises the value a free name refers to at closure-creation time.
+function Eval:captureValue(ctx, name, span)
+    local slot = lookup(ctx.scope, name)
+    if not slot then D.reject("unknown-name", "Unknown captured name: " .. name, span) end
+    if slot.kind == "value" then
+        local demanded = self:demand(slot, span)
+        return demanded.value or V.unit()
+    elseif slot.kind == "concrete-field" then
+        return slot.record.fields[slot.name] or V.unit()
+    elseif slot.kind == "field" or slot.kind == "param" then
+        if ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization", "Cannot capture runtime storage " .. name, span)
+        end
+        -- Reading a field captures its value; the field path must not be flattened to the root.
+        local place = slot.kind == "field" and slot.place or Ir.Local(slot.storage)
+        local read = ctx.builder:read(ctx.body, slot.ty, place)
+        return V.ir(ctx.builder:ref(read, slot.ty), slot.ty)
+    elseif slot.kind == "word" then
+        return V.word(slot.def, {}, span)
+    end
+    D.bug("capture", "Unknown capture binding kind " .. tostring(slot.kind))
+end
+
+function Eval:evalLambda(ctx, expr)
+    local names, out = {}, {}
+    for _, param in ipairs(expr.params) do names[param.name.text] = true end
+    freeNames(expr.body, names, out)
+    local order = {}
+    for name in pairs(out) do order[#order + 1] = name end
+    table.sort(order)
+
+    local plan = { def = self:define(expr, self.top, nil, "|lambda|"), order = order, static = {},
+        runtime = {}, runtimeOrder = {}, captures = order }
+    plan.def.lambda = true
+    for _, name in ipairs(order) do
+        local value = self:captureValue(ctx, name, expr.span)
+        if V.isStatic(value) then
+            plan.static[name] = value
+        else
+            if V.tag(value) == "object" or V.tag(value) == "method" then
+                D.todo("borrowed-capture",
+                    "Capturing mutable storage or a method needs a non-retaining environment, which is "
+                    .. "not implemented; capture a value instead", expr.span)
+            end
+            if ctx.mode ~= "residual" then
+                D.reject("runtime-in-normalization", "This closure captures runtime value " .. name, expr.span)
+            end
+            plan.runtimeOrder[#plan.runtimeOrder + 1] = name
+            plan.runtime[name] = value
+        end
+    end
+
+    local inputs, results = {}, {}
+    for index, param in ipairs(expr.params) do
+        if not param.annotation then
+            D.todo("lambda-annotation",
+                "A lambda parameter without a type annotation needs a contextual signature; write the "
+                .. "annotation explicitly", param.span)
+        end
+        inputs[index] = S.inValue(self:typeOf(param.annotation, ctx.scope, expr.span))
+    end
+    if expr.annotation then results[1] = expr.annotation end
+    plan.sig = S.sig(inputs, results)
+    plan.envNames = {}
+    local envFields = {}
+    for index, name in ipairs(plan.runtimeOrder) do
+        plan.envNames[index] = envFieldName(index)
+        envFields[envFieldName(index)] = plan.runtime[name].ty
+    end
+    plan.envTy = #plan.runtimeOrder > 0 and S.record(envFields) or S.Unit
+    plan.key = "closure:" .. tostring(plan.def.id)
+    for _, capture in ipairs(order) do
+        local static = plan.static[capture]
+        plan.key = plan.key .. (static and ("|" .. capture .. "=" .. (V.encode(static) or "?"))
+            or ("|" .. capture .. "=#"))
+    end
+    self.plans = self.plans or {}
+    self.plans[plan.key] = plan
+    -- Build the base instance now: its result types become the visible signature of the closure
+    -- type, and a call-site specialisation must agree with them.
+    -- Compile the base instance now: its result types complete the closure's visible signature,
+    -- which is what lets a callable argument be checked against a required signature. Code that is
+    -- never called is left to the C compiler to discard.
+    local base = self:callableInstance({ plan = plan }, {}, expr.span)
+    plan.sig = S.sig(inputs, base.results)
+    plan.ty = S.owned(plan.key, plan.sig, plan.envTy)
+    return V.closure(plan)
+end
+
+-- Resolves the plan behind an Owned type, which is how a returned or passed closure is called.
+function Eval:planOf(ty, span)
+    local plan = self.plans and self.plans[ty.entry]
+    if not plan then
+        D.todo("opaque-callable",
+            "A callable value whose code is not known in this compilation needs a function-pointer ABI, "
+            .. "which is not implemented", span)
+    end
+    return plan
+end
+
+-- The instance key adds the call's static arguments to the closure's code identity.
+function Eval:callableKey(plan, args)
+    local parts = { plan.key }
+    for index = 1, #plan.def.params do
+        local value = args[index]
+        if value ~= nil and V.isStatic(value) then
+            local encoded = V.encode(value)
+            if not encoded then D.bug("callable-key", "A static callable argument has no encoding") end
+            parts[#parts + 1] = encoded
+        else
+            -- Matches instanceKey: unsupplied and ordinary runtime arguments agree, while a
+            -- runtime callable is distinguished by its code identity.
+            local ty = value and value.ty
+            parts[#parts + 1] = (ty and S.isOwned(ty)) and ("!" .. ty.entry) or "*"
+        end
+    end
+    return table.concat(parts, "/")
+end
+
+function Eval:callClosure(ctx, callable, args, span)
+    local instance = self:callableInstance(callable, args, span)
+    if instance.status == "building" and not instance.results then
+        D.reject("recursive-result", "Recursive closure needs an explicit result annotation", span)
+    end
+    -- Environment arguments precede the declared parameters for the compiled lambda.
+    local envArgs = callable.envValues or callable.envExprs
+    return self:emitCallableCall(ctx, instance, envArgs, args, span)
+end
+
+function Eval:emitCallableCall(ctx, instance, envArgs, args, span)
+    local builder = ctx.builder
+    local operands = {}
+    for index = 1, #envArgs do
+        local arg = envArgs[index]
+        operands[#operands + 1] = Ir.ValueArg(arg.expr or arg)
+    end
+    for _, position in ipairs(instance.paramPositions) do
+        operands[#operands + 1] = Ir.ValueArg(self:expression(ctx, args[position]))
+    end
+    local results = {}
+    for _ = 1, #instance.results do results[#results + 1] = builder:valueId() end
+    builder:emit(ctx.body, Ir.Call(S.list(results), instance.target, S.list(operands)))
+    if #instance.results == 0 then return V.unit() end
+    if #instance.results == 1 then
+        return V.ir(builder:ref(results[1], instance.results[1]), instance.results[1])
+    end
+    local out = {}
+    for index, ty in ipairs(instance.results) do
+        out[index] = V.ir(builder:ref(results[index], ty), ty)
+    end
+    return V.results(out)
+end
+
+function Eval:callableInstance(callable, args, span)
+    local key = self:callableKey(callable.plan, args)
+    local existing = self.instances[key]
+    if existing then return existing end
+    local count = 0
+    for _ in pairs(self.instances) do count = count + 1 end
+    if count >= (self.limits.keys or 1024) then D.resource("keys", "Residual instance budget exhausted", span) end
+    return self:buildCallableInstance(key, callable, args, span)
+end
+
+function Eval:buildCallableInstance(key, callable, args, span)
+    local plan, def = callable.plan, callable.plan.def
+    self.nextFn = self.nextFn + 1
+    local instance = { key = key, def = def, plan = plan, target = "wordletfn_" .. self.nextFn,
+        status = "building", args = args, paramPositions = {} }
+    self.instances[key] = instance
+    self.order[#self.order + 1] = instance
+
+    local body, setup = {}, {}
+    local builder = IR.builder({ id = instance.target })
+    local sc = scope(self.top)
+    local params, paramTypes, inputs = {}, {}, {}
+
+    -- The captured environment arrives first, one input per runtime capture.
+    for index, name in ipairs(plan.runtimeOrder) do
+        local value = builder:valueId()
+        local ty = plan.runtime[name].ty
+        params[#params + 1] = Ir.ValueParam(#inputs, value, ty)
+        inputs[#inputs + 1] = S.inValue(ty)
+        paramTypes[#paramTypes + 1] = ty
+        declare(sc, name, { kind = "value", name = name, value = V.ir(Ir.Ref(value, ty), ty) }, span)
+    end
+    for name, value in pairs(plan.static) do
+        declare(sc, name, { kind = "value", name = name, value = value }, span)
+    end
+
+    for index, param in ipairs(def.params) do
+        local ty = self:requirement(def, index, sc, span)
+        local supplied = args[index]
+        local bound = false
+        if S.isSig(ty) then
+            -- A callable parameter: static code is specialised away entirely; otherwise the Owned
+            -- type carries the code identity, so the call stays direct and only the environment
+            -- travels as a by-value input.
+            if supplied ~= nil and V.isStatic(supplied) then
+                if self:callableMatches(supplied, ty) == false then
+                    D.reject("callable-shape", "Callable does not match the required signature", param.span)
+                end
+                declare(sc, param.name.text, { kind = "value", name = param.name.text, value = supplied },
+                    param.span)
+                bound = true
+            elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
+                ty = supplied.ty
+            else
+                D.todo("opaque-callable",
+                    "A callable parameter with no known code needs a function-pointer ABI", param.span)
+            end
+        else
+            S.checkRuntime(ty, param.span)
+        end
+        if not bound then
+            if supplied ~= nil and V.isStatic(supplied) then
+                self:requireType(supplied, ty, param.span)
+                declare(sc, param.name.text, { kind = "value", name = param.name.text, value = supplied }, param.span)
+            else
+                local value = builder:valueId()
+                params[#params + 1] = Ir.ValueParam(#inputs, value, ty)
+                inputs[#inputs + 1] = S.inValue(ty)
+                paramTypes[#paramTypes + 1] = ty
+                instance.paramPositions[#instance.paramPositions + 1] = index
+                if S.isRecord(ty) then
+                    local storage = builder:storageId()
+                    setup[#setup + 1] = Ir.Var(storage, ty, Ir.Ref(value, ty))
+                    declare(sc, param.name.text, { kind = "value", name = param.name.text,
+                        value = V.object(ty, Ir.Local(storage), { fields = S.fieldsOf(ty),
+                            fieldNames = S.fieldNames(ty), statics = {}, readonly = {}, methods = {}, type = ty }) },
+                        param.span)
+                else
+                    declare(sc, param.name.text, { kind = "value", name = param.name.text,
+                        value = V.ir(Ir.Ref(value, ty), ty) }, param.span)
+                end
+            end
+        end
+    end
+
+    instance.results = self:declaredResult(def, sc, span)
+    local ctx = setmetatable({ session = self, mode = "residual", scope = sc, span = span,
+        builder = builder, body = body, fn = { id = instance.target }, instance = instance }, Ctx)
+    self:execBodyResidual(ctx, def.body, span)
+    if not instance.results then instance.results = ctx.resultTypes end
+    if not instance.results then D.reject("recursive-result", "Closure has no returning path", span) end
+    for _, ty in ipairs(instance.results) do
+        if not S.representable(ty) then
+            D.todo("static-callable-result",
+                "A closure result that is pure code with no environment has no runtime representation", span)
+        end
+    end
+    local statements = setup
+    for _, stmt in ipairs(body) do statements[#statements + 1] = stmt end
+    instance.fn = Ir.Fn(instance.target, Ir.Body, 0, S.list(inputs), S.list(instance.results),
+        S.list(params), S.list(statements))
+    instance.status = "done"
+    return instance
+end
+
+-- Calling a closure value or an IR value whose Owned type names its code.
+function Eval:applyCallable(ctx, def, codeKey, envValues, envTys, args, span)
+    local plan = self:planOf({ entry = codeKey }, span)
+    local callable = { plan = plan, envValues = envValues }
+    if envValues == nil then
+        -- The environment is inside the callable value; read its fields positionally.
+        callable.envExprs = {}
+    end
+    return self:callClosure(ctx, callable, args, span)
+end
+
 -- Bodies --------------------------------------------------------------------------------------
 
 function Eval:execBlock(ctx, statements)
@@ -783,7 +1227,15 @@ function Eval:evalApply(ctx, expr)
     local tag = V.tag(callee)
     if tag == "word" then return self:apply(ctx, callee, args, expr.span) end
     if tag == "method" then return self:applyMethod(ctx, callee, args, expr.span) end
-    D.reject("callable-required", "Only words can be applied", expr.callee.span)
+    if tag == "closure" then return self:applyClosure(ctx, callee.plan, nil, args, expr.span) end
+    if tag == "ir" and S.isOwned(callee.ty) then
+        return self:applyOwned(ctx, callee, args, expr.span)
+    end
+    if tag == "ir" and S.isSig(callee.ty) then
+        D.todo("opaque-callable", "Calling a callable with no known code needs a function-pointer ABI",
+            expr.callee.span)
+    end
+    D.reject("callable-required", "Only words, methods and closures can be applied", expr.callee.span)
 end
 
 function Eval:apply(ctx, word, args, span)
@@ -863,7 +1315,15 @@ function Eval:parameterScope(def, values, receiver)
         -- since a later annotation may depend on an earlier parameter.
         local ty = self:requirement(def, index, sc, def.span)
         local value = self:copyArgument(values[index])
-        if value then self:requireType(value, ty, param.span) end
+        if value then
+            if S.isSig(ty) and (V.tag(value) == "closure" or V.tag(value) == "word") then
+                if self:callableMatches(value, ty) == false then
+                    D.reject("callable-shape", "Callable does not match the required signature", param.span)
+                end
+            else
+                self:requireType(value, ty, param.span)
+            end
+        end
         declare(sc, param.name.text, { kind = "value", name = param.name.text, value = value }, param.span)
     end
     return sc
@@ -984,7 +1444,10 @@ function Eval:instanceKey(def, values, receiver)
             if not encoded then D.bug("instance-key", "A static argument has no encoding") end
             parts[#parts + 1] = S.encode(value.ty) .. "=" .. encoded
         else
-            parts[#parts + 1] = "*"
+            -- A runtime callable carries its code identity in its type, so two different closures
+            -- must not share an instance. Other runtime arguments are fixed by the requirement.
+            local ty = value and value.ty
+            parts[#parts + 1] = (ty and S.isOwned(ty)) and ("!" .. ty.entry) or "*"
         end
     end
     return table.concat(parts, "/")
@@ -1037,7 +1500,27 @@ function Eval:buildInstance(key, def, values, span, receiver)
 
     for index, param in ipairs(def.params) do
         local ty = self:requirement(def, index, sc, span)
-        S.checkRuntime(ty, param.span)
+        if S.isSig(ty) then
+            -- A callable parameter: static code is specialised away entirely; otherwise the Owned
+            -- type carries the code identity, so the call stays direct and only the environment
+            -- travels as a by-value input.
+            local supplied = values[index]
+            if supplied ~= nil and V.isStatic(supplied) then
+                if self:callableMatches(supplied, ty) == false then
+                    D.reject("callable-shape", "Callable does not match the required signature", param.span)
+                end
+                declare(sc, param.name.text, { kind = "value", name = param.name.text, value = supplied }, param.span)
+                goto continue
+            elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
+                ty = supplied.ty
+            else
+                D.todo("opaque-callable",
+                    "A callable parameter with no known code needs a function-pointer ABI", param.span)
+            end
+        else
+            S.checkRuntime(ty, param.span)
+        end
+        do
         local supplied = values[index]
         if supplied ~= nil and V.isStatic(supplied) then
             self:requireType(supplied, ty, param.span)
@@ -1072,6 +1555,8 @@ function Eval:buildInstance(key, def, values, span, receiver)
                     value = V.ir(Ir.Ref(value, ty), ty) }, param.span)
             end
         end
+        end
+        ::continue::
     end
 
     instance.results = self:declaredResult(def, sc, span)
@@ -1081,6 +1566,12 @@ function Eval:buildInstance(key, def, values, span, receiver)
     if not instance.results then instance.results = ctx.resultTypes end
     if not instance.results then
         D.reject("recursive-result", "Word " .. def.name .. " has no returning path", span)
+    end
+    for _, ty in ipairs(instance.results) do
+        if not S.representable(ty) then
+            D.todo("static-callable-result",
+                "A result that is pure code with no environment has no runtime representation", span)
+        end
     end
     -- Loop-carried parameter storage lives outside the loop so it survives each iteration.
     local statements = setup

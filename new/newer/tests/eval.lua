@@ -9,6 +9,7 @@ local Parse = require("wordlet.parse")
 local D = require("wordlet.diag")
 local C = require("wordlet.cabi")
 local A = require("wordlet.ast")
+local S = require("wordlet.schema")
 local checks = 0
 local function check(ok, message) assert(ok, message); checks = checks + 1 end
 
@@ -153,7 +154,66 @@ local STATIC_FIELD = "let C = { v: U32, get() :: U32 = v }\n"
     .. "return { types = { C }, functions = { f } }"
 check(interpret("f", { 12 }, STATIC_FIELD)[1] == 12, "a runtime receiver field is loaded, not folded")
 
--- Tail self-calls become loops; non-tail recursion stays a call -------------------------------
+-- Closures and higher-order words ---------------------------------------------------------------
+local CLOSURES = [==[
+let apply(f: U32 :: U32, x: U32) :: U32 = f(x)
+let twice(f: U32 :: U32, x: U32) :: U32 = f(f(x))
+let make_adder(n: U32) = |x: U32| -> n + x
+let run(n, x: U32) :: U32 = do
+  let add = make_adder(n)
+  return apply(add, x)
+end
+let inline(x: U32) :: U32 = twice(|y: U32| -> y + 1, x)
+let compose(a, b, x: U32) :: U32 = do
+  let f = make_adder(a)
+  let g = make_adder(b)
+  return apply(f, apply(g, x))
+end
+let C = { v: U32, mk() = |x: U32| -> v + x }
+let snap(n: U32) :: U32 = do
+  let c = C { v = n }
+  let f = c.mk()
+  c.v += 5
+  return f(100)
+end
+return { types = { C }, functions = { run, inline, compose, snap } }
+]==]
+check(interpret("run", { 5, 7 }, CLOSURES)[1] == 12, "a returned closure is called through its environment")
+check(interpret("run", { 0, 0 }, CLOSURES)[1] == 0, "a zero capture still works")
+check(interpret("inline", { 3 }, CLOSURES)[1] == 5, "an inline lambda specialises at its call site")
+check(interpret("compose", { 3, 4, 10 }, CLOSURES)[1] == 17, "two closures with different captures")
+check(interpret("snap", { 1 }, CLOSURES)[1] == 101,
+    "a captured field is a snapshot, so a later store does not change it")
+
+-- Code identity is per syntactic lambda, and the environment is a runtime input.
+local shareSession = Eval.session()
+shareSession:compile(Parse.source("let twice(f: U32 :: U32, x: U32) :: U32 = f(f(x))\n"
+    .. "let a(x: U32) :: U32 = twice(|y: U32| -> y + 1, x)\n"
+    .. "let b(x: U32) :: U32 = twice(|y: U32| -> y + 1, x)\n"
+    .. "return { functions = { a, b } }", "s.let"))
+-- a, b, twice specialised for each distinct lambda, and each lambda once
+check(#shareSession.order == 6, "identical-looking lambdas are still distinct code identities")
+local closureBodies = 0
+for _, instance in ipairs(shareSession.order) do
+    if instance.plan then closureBodies = closureBodies + 1 end
+end
+check(closureBodies == 2, "each syntactic lambda compiles once regardless of call sites")
+
+local retSession = Eval.session()
+retSession:compile(Parse.source("let apply(f: U32 :: U32, x: U32) :: U32 = f(x)\n"
+    .. "let make_adder(n: U32) = |x: U32| -> n + x\n"
+    .. "let run(n, x: U32) :: U32 = do let add = make_adder(n) return apply(add, x) end\n"
+    .. "return { functions = { run } }", "r.let"))
+check(#retSession.order == 4, "a returned closure has one body and one caller specialisation")
+local sawOwnedInput = false
+for _, instance in ipairs(retSession.order) do
+    for _, input in ipairs(instance.fn.inputs) do
+        if S.isOwned(input.type) then sawOwnedInput = true end
+    end
+end
+check(sawOwnedInput, "the callable travels as a by-value environment input")
+
+-- Rejections ---; non-tail recursion stays a call -------------------------------
 local loopSession = Eval.session()
 loopSession:compile(Parse.source("let sum_to(n, acc: U32) :: U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
     .. "return { functions = { sum_to } }", "l.let"))
@@ -205,6 +265,17 @@ rejects("static-required", "let P = { x: U32, y: U32 }\nlet f(a: U32) :: U32 = d
 rejects("not-a-place", "let P = { x: U32 }\nlet f(a: U32) :: U32 = do"
     .. " let p = P { x = a }\n let n = 3\n n = 4\n return p.x end\nreturn { functions = { f } }")
 rejects("type-mismatch", RECORDS, "bump", { 7 })
+-- A captured record instance or method retains a place, which needs a non-retaining environment.
+rejects("borrowed-capture", "let C = { v: U32, inc() :: U32 = v }\n"
+    .. "let f(x: U32) :: U32 = do let c = C { v = x } let g = |y: U32| -> c.inc() return g(1) end\n"
+    .. "return { types = { C }, functions = { f } }")
+-- A callable with no known code needs a function-pointer ABI.
+rejects("opaque-callable", "let apply(f: U32 :: U32, x: U32) :: U32 = f(x)\n"
+    .. "return { functions = { apply } }")
+rejects("lambda-annotation", "let twice(f: U32 :: U32, x: U32) :: U32 = f(f(x))\n"
+    .. "let a(x: U32) :: U32 = twice(|y| -> y + 1, x)\nreturn { functions = { a } }")
+rejects("callable-shape", "let apply(f: U32 :: U32, x: U32) :: U32 = f(x)\n"
+    .. "let bad(x: U32) :: U32 = apply(|y: U32| -> true, x)\nreturn { functions = { bad } }")
 rejects("unknown-member", "let P = { x: U32 }\nlet f(a: U32) :: U32 = do"
     .. " let p = P { x = a } return p.z end\nreturn { functions = { f } }")
 rejects("duplicate", "let P = { x: U32 }\nlet f(a: U32) :: U32 = do"
