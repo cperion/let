@@ -111,7 +111,7 @@ function Eval:load(program)
         end
         ::continue::
     end
-    for _, name in ipairs({ "U32", "U8", "U16", "Bool", "Unit", "Type" }) do
+    for _, name in ipairs({ "U32", "U8", "U16", "I32", "Bool", "Unit", "Type" }) do
         declare(top, name, { kind = "value", name = name, value = V.type(S[name]) })
     end
     -- `Ref(T)` is a type and `Ref(place)` is a reference to that place. Both are the same ordinary
@@ -1364,9 +1364,19 @@ end
 -- Converts a value to another integer width. Widening is implicit because a wider integer holds
 -- every value of a narrower one. Narrowing is only implicit for a known value that fits, which is
 -- what lets a literal satisfy a narrower annotation; anything else needs an explicit conversion.
+-- A conversion between integer types. Changing signedness at one width reinterprets the bits, which
+-- is defined and needs no check; any other change that cannot lose a value is implicit, and one that
+-- can is accepted only for a known value that fits.
 function Eval:convert(value, ty, span)
     if value.ty == ty then return value end
     if not (S.isInteger(value.ty) and S.isInteger(ty)) then return nil end
+    if S.isSigned(value.ty) ~= S.isSigned(ty) then
+        if S.widthOf(value.ty) ~= S.widthOf(ty) then return nil end
+        if V.tag(value) == "ir" then value.cast = true end
+        if V.isKnown(value) then value.n = wrap(ty, value.n) end
+        value.ty = ty
+        return value
+    end
     if S.widthOf(ty) > S.widthOf(value.ty) then
         -- The cast is applied where the value is materialised, once.
         if V.tag(value) == "ir" then value.cast = true end
@@ -1374,7 +1384,7 @@ function Eval:convert(value, ty, span)
         return value
     end
     if V.isKnown(value) then
-        if value.n > S.maxOf(ty) then
+        if value.n > S.maxOf(ty) or value.n < S.minOf(ty) then
             D.reject("numeric-range", "Value " .. tostring(value.n) .. " does not fit in "
                 .. S.encode(ty), span)
         end
@@ -1520,7 +1530,19 @@ function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
     if COMPARE[op] then
         -- A comparison widens both sides, which is always safe and never narrows.
         if S.isInteger(left.ty) and S.isInteger(right.ty) and left.ty ~= right.ty then
-            local wider = S.widerThan(left.ty, right.ty) or left.ty
+            local wider
+            if left.literal and not right.literal and left.n <= S.maxOf(right.ty) then
+                wider = right.ty
+            elseif right.literal and not left.literal and right.n <= S.maxOf(left.ty) then
+                wider = left.ty
+            else
+                wider = S.widerThan(left.ty, right.ty)
+            end
+            if not wider then
+                D.reject("type-mismatch", "A comparison needs one integer type, found "
+                    .. S.encode(left.ty) .. " and " .. S.encode(right.ty)
+                    .. "; convert one side explicitly", span)
+            end
             self:requireType(left, wider, leftSpan)
             self:requireType(right, wider, rightSpan)
         end
@@ -1560,10 +1582,19 @@ function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
         -- interpreter and the generated code agree: a literal adopts the other operand's width when
         -- it fits, and otherwise the wider width wins.
         if left.ty ~= right.ty then
-            local ty = left.ty
-            if left.literal and not right.literal then ty = right.ty
-            elseif right.literal and not left.literal then ty = left.ty
-            else ty = S.widerThan(left.ty, right.ty) or left.ty end
+            local ty
+            if left.literal and not right.literal then
+                if left.n <= S.maxOf(right.ty) then ty = right.ty end
+            elseif right.literal and not left.literal then
+                if right.n <= S.maxOf(left.ty) then ty = left.ty end
+            else
+                ty = S.widerThan(left.ty, right.ty)
+            end
+            if not ty then
+                D.reject("type-mismatch", "Arithmetic needs one integer type, found "
+                    .. S.encode(left.ty) .. " and " .. S.encode(right.ty)
+                    .. "; convert one side explicitly", span)
+            end
             self:requireType(left, ty, leftSpan)
             self:requireType(right, ty, rightSpan)
         end
@@ -1578,11 +1609,18 @@ function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
         if op == "+" then result = wrap(ty, x + y)
         elseif op == "-" then result = wrap(ty, x - y)
         elseif op == "*" then result = exact(ty, "*", x, y)
-        elseif op == "/" then result = math.floor(x / y)
-        elseif op == "%" then result = x - y * math.floor(x / y)
-        elseif op == "^" then result = pow(ty, x, y)
+        elseif op == "/" then result = S.isSigned(ty) and signedDiv(ty, x, y) or math.floor(x / y)
+        elseif op == "%" then
+            result = S.isSigned(ty) and signedRem(ty, x, y) or x - y * math.floor(x / y)
+        elseif op == "^" then
+            if S.isSigned(ty) and y < 0 then
+                D.reject("numeric-range", "A signed power needs a power that is not negative", span)
+            end
+            result = pow(ty, x, y)
         elseif op == "<<" then result = wrap(ty, x * 2 ^ y)
-        elseif op == ">>" then result = math.floor(x / 2 ^ y)
+        elseif op == ">>" then
+            -- A signed shift is arithmetic: it keeps the sign bit.
+            result = S.isSigned(ty) and math.floor(x / 2 ^ y) or math.floor(x / 2 ^ y)
         elseif op == "&" then result = wrap(ty, bit.band(x, y))
         elseif op == "|" then result = wrap(ty, bit.bor(x, y))
         else result = wrap(ty, bit.bxor(x, y)) end
@@ -1590,6 +1628,16 @@ function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
     end
     local builder = ctx.builder
     local leftExpr, rightExpr = self:expression(ctx, left), self:expression(ctx, right)
+    -- A signed power with a negative exponent has no result, so a run-time one is checked first.
+    if op == "^" and S.isSigned(ty) then
+        if V.isKnown(right) and right.n < 0 then
+            D.reject("numeric-range", "A signed power needs a power that is not negative", rightSpan)
+        end
+        if not V.isKnown(right) then
+            builder:emit(ctx.body, Ir.Trap(builder:bin("Lt", rightExpr,
+                builder:int(right.ty, 0), S.Bool), "numeric-range"))
+        end
+    end
     if (op == "/" or op == "%") and not V.isInteger(right) then
         builder:emit(ctx.body, Ir.Trap(builder:bin("Eq", rightExpr, builder:u32(0), S.Bool), "division-zero"))
     end
@@ -2729,10 +2777,34 @@ end
 
 local U32Kernel = require("wordletkit.u32")
 
--- Modulus rather than a bit mask: Lua's bit operations are signed 32-bit, so masking a value at or
--- above 2^31 would turn it negative.
+-- Wrapping is a modulus rather than a bit mask: Lua's bit operations are signed 32-bit, so masking a
+-- value at or above 2^31 would turn it negative. A signed width maps the wrapped value back into its
+-- own range, which is what makes two's complement wrap around.
 function wrap(ty, n)
-    return n % (S.maxOf(ty) + 1)
+    local wrapped = n % S.modulusOf(ty)
+    if S.isSigned(ty) and wrapped > S.maxOf(ty) then wrapped = wrapped - S.modulusOf(ty) end
+    return wrapped
+end
+
+-- A signed divisor is truncated toward zero, and the remainder takes the dividend's sign, so that
+-- `/%` on signed values matches C. The one case C leaves undefined is defined here: the most
+-- negative value divided by -1 wraps to itself.
+function truncDiv(a, b)
+    local quotient = a / b
+    if quotient < 0 then quotient = math.ceil(quotient) else quotient = math.floor(quotient) end
+    return quotient
+end
+
+function signedDiv(ty, x, y)
+    if y == 0 then return nil end
+    if y == -1 then return wrap(ty, -x) end
+    return truncDiv(x, y)
+end
+
+function signedRem(ty, x, y)
+    if y == 0 then return nil end
+    if y == -1 then return 0 end
+    return x - truncDiv(x, y) * y
 end
 
 -- A product and a power can exceed what a Lua number holds exactly for a 32-bit width, so those two
@@ -2807,17 +2879,29 @@ function Eval:applyConversion(ctx, ty, args, span)
         D.reject("type-mismatch", S.encode(ty) .. " needs an integer, found "
             .. S.encode(value.ty or S.Unit), span)
     end
-    if S.widthOf(value.ty) <= S.widthOf(ty) then return self:convert(value, ty, span) end
+    -- Changing signedness at one width reinterprets the bits; everything else is checked.
+    local reinterprets = S.isSigned(value.ty) ~= S.isSigned(ty)
+        and S.widthOf(value.ty) == S.widthOf(ty)
+    if not reinterprets and S.isSigned(value.ty) == S.isSigned(ty)
+        and S.widthOf(value.ty) <= S.widthOf(ty) then
+        return self:convert(value, ty, span)
+    end
     if V.isInteger(value) then
-        if value.n > S.maxOf(ty) then
-            D.reject("numeric-range", "Value " .. tostring(value.n) .. " does not fit in "
-                .. S.encode(ty), span)
+        if reinterprets or (value.n <= S.maxOf(ty) and value.n >= S.minOf(ty)) then
+            return V.int(ty, wrap(ty, value.n))
         end
-        return V.int(ty, value.n)
+        D.reject("numeric-range", "Value " .. tostring(value.n) .. " does not fit in "
+            .. S.encode(ty), span)
     end
     local expr = self:expression(ctx, value)
-    ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Gt", expr,
-        ctx.builder:u32(S.maxOf(ty)), S.Bool), "numeric-range"))
+    if not reinterprets then
+        if S.minOf(value.ty) < S.minOf(ty) then
+            ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Lt", expr,
+                ctx.builder:int(value.ty, S.minOf(ty)), S.Bool), "numeric-range"))
+        end
+        ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Gt", expr,
+            ctx.builder:int(value.ty, S.maxOf(ty)), S.Bool), "numeric-range"))
+    end
     return V.ir(ctx.builder:convert(expr, ty), ty)
 end
 

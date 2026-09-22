@@ -31,13 +31,29 @@ U32 and must be in 0..4294967295; an out-of-range literal rejects rather than wr
 minus is an operator, not part of a literal. There are no float, string, nil or implicit tuple
 literals.
 
-The integer types are `U8`, `U16` and `U32`. A literal adapts to a narrower operand when it fits, so
-`U8` values mix with small literals directly; any other operation between different widths widens to
-the wider one, which never loses a value. Narrowing is explicit and checked: `U8(x)` and `U16(x)`
-convert, rejecting a known value that does not fit and stopping a run-time value that does not fit,
-while `U32(x)` widens. Arithmetic wraps at the width its type names, comparisons widen first, and a
-shift amount is a plain U32. Assigning a run-time value to a narrower annotation rejects
-(`numeric-range`) rather than truncating it silently.
+The integer types are `U8`, `U16`, `U32` and `I32`. `I32` is
+two's complement, so it wraps, its division truncates toward zero with the remainder taking the
+dividend's sign, its right shift is arithmetic, and the most negative value divided by -1 wraps to
+itself rather than being undefined. Its negation wraps too, and a signed power needs a power that is
+not negative (a run-time one is checked).
+
+An operation needs one integer type unless one operand is a literal, which adopts the other's type
+when its value fits; mixed widths of one signedness widen to the wider one, and mixing signed and
+unsigned rejects, so a conversion has to say which is meant. Changing signedness at one width
+reinterprets the bits; any other conversion that cannot lose a value is implicit, and one that can is
+checked, rejecting a known value outside the target and stopping a run-time one.
+
+Arithmetic wraps at the width its type names, comparisons widen first, and a shift amount is a plain
+U32. Assigning a run-time value to a narrower annotation rejects (`numeric-range`) rather than
+truncating it silently.
+
+The wider families are specified as: `U64` and `I64`, held as two 32-bit words with the same rules,
+including the `I64` boundary cases above; and `F64`, IEEE-754 double, whose arithmetic follows IEEE
+754 rather than the integer rules, so division by zero is an infinity or a NaN and not a trap, a NaN
+comparison is false, an integer converts to a float by rounding and a float to an integer by
+truncation, with a value outside the integer's range rejected when known and stopped when not. There
+is no `F32` in this language. `I32` is implemented; `U64`, `I64` and `F64` are specified above and are
+the next thing this compiler builds, in the order the two-word integer kernel and then the float.
 `true` and `false` are Bool. `Unit()` is the Unit value.
 
 Comments begin with `--` and continue to the next newline. This is the only newline-sensitive lexical

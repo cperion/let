@@ -2,7 +2,7 @@
 return [[# Wordlet runtime semantic types and structured IR. Checkable with vendor/asdl.lua.
 # Ir.Value/Storage/Bundle IDs are function-local; Ir.Fn.id is compilation-wide.
 module Ty {
-  V = U32 | U8 | U16 | Bool | Unit | Type
+  V = U32 | U8 | U16 | I32 | Bool | Unit | Type
     | Record(string meaning, Field* fields) unique
     | Tuple(V* fields) unique
     | Sig(Input* inputs, V* results) unique

@@ -33,7 +33,10 @@ function Emitter:storage(id) return "s" .. id end
 function Emitter:expr(expr)
     local kind = expr.kind
     if kind == "Const" then
-        if expr.literal.kind == "UInt" then return "UINT32_C(" .. expr.literal.value .. ")" end
+        if expr.literal.kind == "UInt" then
+            if S.isSigned(expr.type) then return "INT32_C(" .. expr.literal.value .. ")" end
+            return "UINT32_C(" .. expr.literal.value .. ")"
+        end
         if expr.literal.kind == "Boolean" then return expr.literal.value and "true" or "false" end
         D.bug("c-literal", "Unknown literal")
     elseif kind == "Ref" then
@@ -41,17 +44,50 @@ function Emitter:expr(expr)
     elseif kind == "Un" then
         local op = expr.op.kind
         if op == "Not" then return "(!(" .. self:expr(expr.operand) .. "))" end
-        return "((uint32_t)(" .. UNARY_OP[op] .. "(" .. self:expr(expr.operand) .. ")))"
+        local operand = self:expr(expr.operand)
+        if S.isSigned(expr.type) then
+            -- Negation and complement of a signed value are done on the bit pattern.
+            if op == "Neg" then
+                return "wordlet_i32(UINT32_C(0) - wordlet_u32(" .. operand .. "))"
+            end
+            return "wordlet_i32(~wordlet_u32(" .. operand .. "))"
+        end
+        return "((uint32_t)(" .. UNARY_OP[op] .. "(" .. operand .. ")))"
     elseif kind == "Bin" then
         local op, left, right = expr.op.kind, self:expr(expr.left), self:expr(expr.right)
         if op == "Pow" then
             local resultType = self.layouts:cType(expr.type)
+            if S.isSigned(expr.type) then
+                return "wordlet_i32(wordlet_pow(wordlet_u32(" .. left .. "), " .. right .. "))"
+            end
             if resultType == "uint32_t" then return "wordlet_pow(" .. left .. ", " .. right .. ")" end
             return "(" .. resultType .. ")wordlet_pow(" .. left .. ", " .. right .. ")"
         end
         local cOp = BINARY_OP[op]
         if not cOp then D.bug("c-op", "No C operator for " .. tostring(op)) end
         local resultType = self.layouts:cType(expr.type)
+        if op == "Div" and S.isSigned(expr.type) then
+            return "wordlet_div_i32(" .. left .. ", " .. right .. ")"
+        end
+        if op == "Rem" and S.isSigned(expr.type) then
+            return "wordlet_rem_i32(" .. left .. ", " .. right .. ")"
+        end
+        if S.isSigned(expr.type) then
+            -- Arithmetic on the bit pattern, then reinterpreted, so overflow wraps.
+            if op == "Add" or op == "Sub" or op == "Mul" then
+                return "wordlet_i32((uint32_t)((uint64_t)wordlet_u32(" .. left
+                    .. ") " .. cOp .. " (uint64_t)wordlet_u32(" .. right .. ")))"
+            end
+            if op == "Shl" then
+                return "wordlet_i32(wordlet_u32(" .. left .. ") << ((" .. right
+                    .. ") >= UINT32_C(32) ? UINT32_C(0) : (" .. right .. ")))"
+            end
+            if op == "Shr" then return "wordlet_shr_i32(" .. left .. ", " .. right .. ")" end
+            if op == "BitAnd" or op == "BitOr" or op == "BitXor" then
+                return "wordlet_i32(wordlet_u32(" .. left .. ") " .. cOp .. " wordlet_u32("
+                    .. right .. "))"
+            end
+        end
         if op == "Add" or op == "Sub" or op == "Mul" then
             -- The intermediate is wide enough for every width here, and the cast is the wrap.
             return "(" .. resultType .. ")((uint64_t)(" .. left .. ") " .. cOp .. " (uint64_t)("
@@ -84,8 +120,14 @@ function Emitter:expr(expr)
     elseif kind == "Get" then
         return "(" .. self:expr(expr.aggregate) .. ")." .. fieldName(expr.field.name)
     elseif kind == "Convert" then
-        -- The cast is what makes the conversion exact: a narrower type masks to its own width.
-        return "(" .. self.layouts:cType(expr.type) .. ")(" .. self:expr(expr.operand) .. ")"
+        -- A cast makes a width change exact, and a signedness change reinterprets the bit pattern.
+        local operand = self:expr(expr.operand)
+        local from, to = expr.operand.type, expr.type
+        if S.isSigned(from) ~= S.isSigned(to) and S.widthOf(from) == S.widthOf(to) then
+            if S.isSigned(to) then return "wordlet_i32(" .. operand .. ")" end
+            return "wordlet_u32(" .. operand .. ")"
+        end
+        return "(" .. self.layouts:cType(to) .. ")(" .. operand .. ")"
     elseif kind == "Addr" then
         -- The address of a place: a root plus field names, with no load.
         return "&(" .. self:placeC(expr.place) .. ")"
@@ -612,6 +654,30 @@ end
 
 local INCLUDES = { "#include <stdint.h>", "#include <stdbool.h>", "#include <stdlib.h>" }
 
+-- Signed 32-bit values are held as their unsigned bit pattern and reinterpreted, because converting
+-- an out-of-range unsigned value to a signed type is implementation-defined. Division and the right
+-- shift are written out so that the two cases C leaves undefined or implementation-defined - the most
+-- negative value divided by -1, and a shift of a negative value - behave as two's complement.
+local SIGNED_HELPERS = {
+    "#include <string.h>",
+    "static int32_t wordlet_i32(uint32_t bits) { int32_t value; memcpy(&value, &bits, sizeof value); return value; }",
+    "static uint32_t wordlet_u32(int32_t value) { uint32_t bits; memcpy(&bits, &value, sizeof bits); return bits; }",
+    "static int32_t wordlet_div_i32(int32_t a, int32_t b) {",
+    "    if (b == -1) return wordlet_i32(UINT32_C(0) - wordlet_u32(a));",
+    "    return a / b;",
+    "}",
+    "static int32_t wordlet_rem_i32(int32_t a, int32_t b) {",
+    "    if (b == -1) return 0;",
+    "    return a % b;",
+    "}",
+    "static int32_t wordlet_shr_i32(int32_t value, uint32_t amount) {",
+    "    if (amount == 0) return value;",
+    "    if (amount >= 32) return value < 0 ? -1 : 0;",
+    "    uint32_t filled = value < 0 ? (~UINT32_C(0) << (32 - amount)) : UINT32_C(0);",
+    "    return wordlet_i32((wordlet_u32(value) >> amount) | filled);",
+    "}",
+}
+
 -- File-scope objects for module-level mutable state, plus the entry point that initialises them.
 function M.moduleDeclarations(layouts)
     local lines = {}
@@ -624,12 +690,19 @@ end
 -- Bodies are emitted first: doing so is what registers the views, adapters and nested record
 -- layouts that the declarations have to name.
 function M.unit(layouts)
+    -- Bodies and declarations are built first: naming a type is what decides whether the signed
+    -- helpers are needed, and they have to be printed before anything that uses them.
     local bodies = M.bodies(layouts)
     local adapters = M.adapterBodies(layouts)
+    local declarations = M.typeDeclarations(layouts)
     local lines = {}
     for _, line in ipairs(INCLUDES) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
-    for _, line in ipairs(M.typeDeclarations(layouts)) do lines[#lines + 1] = line end
+    if layouts.usesSigned then
+        for _, line in ipairs(SIGNED_HELPERS) do lines[#lines + 1] = line end
+        lines[#lines + 1] = ""
+    end
+    for _, line in ipairs(declarations) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
     for _, line in ipairs(M.prototypes(layouts)) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
@@ -647,13 +720,19 @@ function M.unit(layouts)
 end
 
 function M.source(layouts, headerName)
+    -- The signed helpers are decided by naming types, so build the bodies and declarations first.
     local bodies = M.bodies(layouts)
     local adapters = M.adapterBodies(layouts)
+    local declarations = M.typeDeclarations(layouts)
     local lines = {}
     if headerName then lines[#lines + 1] = '#include "' .. headerName .. '"' end
     for _, line in ipairs(INCLUDES) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
-    for _, line in ipairs(M.typeDeclarations(layouts)) do lines[#lines + 1] = line end
+    if layouts.usesSigned then
+        for _, line in ipairs(SIGNED_HELPERS) do lines[#lines + 1] = line end
+        lines[#lines + 1] = ""
+    end
+    for _, line in ipairs(declarations) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
     for _, line in ipairs(M.prototypes(layouts)) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""

@@ -12,7 +12,8 @@ M.Ty = M.ctx.Ty
 M.Ir = M.ctx.Ir
 
 local Ty = M.Ty
-M.U32, M.U8, M.U16, M.Bool, M.Unit, M.Type = Ty.U32, Ty.U8, Ty.U16, Ty.Bool, Ty.Unit, Ty.Type
+M.U32, M.U8, M.U16, M.I32 = Ty.U32, Ty.U8, Ty.U16, Ty.I32
+M.Bool, M.Unit, M.Type = Ty.Bool, Ty.Unit, Ty.Type
 
 function M.list(items) return ASDL.List(items) end
 
@@ -20,23 +21,26 @@ function M.isU32(t) return t == Ty.U32 end
 function M.isU8(t) return t == Ty.U8 end
 function M.isU16(t) return t == Ty.U16 end
 
--- The integer widths this version has. A narrower integer wraps at its own width, exactly like U32
--- wraps at 32 bits, and a conversion between them is checked.
-local WIDTHS = { [Ty.U8] = 8, [Ty.U16] = 16, [Ty.U32] = 32 }
-local MAXIMA = { [Ty.U8] = 255, [Ty.U16] = 65535, [Ty.U32] = 4294967295 }
+-- The integer widths this version has. An integer wraps at its own width, and a conversion that
+-- changes width is checked. A signed integer is two's complement, so its range is the same width
+-- shifted by half.
+local WIDTHS = { [Ty.U8] = 8, [Ty.U16] = 16, [Ty.U32] = 32, [Ty.I32] = 32 }
+local MAXIMA = { [Ty.U8] = 255, [Ty.U16] = 65535, [Ty.U32] = 4294967295, [Ty.I32] = 2147483647 }
+local MINIMA = { [Ty.I32] = -2147483648 }
+local SIGNED = { [Ty.I32] = true }
 function M.isInteger(t) return WIDTHS[t] ~= nil end
 function M.widthOf(t) return WIDTHS[t] end
 function M.maxOf(t) return MAXIMA[t] end
-function M.maskOf(t)
-    local width = WIDTHS[t]
-    if width == 32 then return 4294967295 end
-    return 2 ^ width - 1
-end
+function M.minOf(t) return MINIMA[t] or 0 end
+function M.isSigned(t) return SIGNED[t] == true end
+function M.modulusOf(t) return 2 ^ WIDTHS[t] end
 
--- A wider integer holds every value of a narrower one; the reverse needs a checked conversion.
+-- A wider integer of the same signedness holds every value of a narrower one. Changing signedness
+-- reinterprets the bits at one width and is checked when the width changes, so it is never implicit.
 function M.widerThan(a, b)
     local wa, wb = WIDTHS[a], WIDTHS[b]
     if not wa or not wb then return nil end
+    if M.isSigned(a) ~= M.isSigned(b) then return nil end
     if wa == wb then return a end
     return wa > wb and a or b
 end
@@ -199,7 +203,7 @@ end
 
 -- Validate that a type can appear as a runtime value type.
 function M.runtime(t, visiting)
-    if t == Ty.U32 or t == Ty.U8 or t == Ty.U16 or t == Ty.Bool or t == Ty.Unit then return true end
+    if M.isInteger(t) or t == Ty.Bool or t == Ty.Unit then return true end
     if t == Ty.Type then return false end
     if M.isRef(t) then
         -- A pointer is a runtime value whatever it points at; a named cell is always a data type

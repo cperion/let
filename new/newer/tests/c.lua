@@ -535,6 +535,43 @@ return { types = {  }, functions = { wrap8, mix8, wrap16, chain, bits } }
             { entry = "bits", arity = 1, inputs = { { 0 }, { 1 }, { 130 }, { 255 } } },
         },
     },
+    {
+        -- Signed integers compare against the interpreter on wrapping, truncating division with the
+        -- dividend's sign, and an arithmetic shift.
+        name = "signed",
+        source = [==[
+let round(n: U32): U32 = do
+  let a: I32 = I32(n)
+  let b = a - 3
+  let c = b * 2
+  return U32(c)
+end
+let quotient(n: U32): U32 = do
+  let a: I32 = I32(n)
+  return U32(a / 3) + U32(a % 3)
+end
+let shift(n: U32): U32 = do
+  let a: I32 = I32(n)
+  return U32(a >> 1)
+end
+let bits(n: U32): U32 = do
+  let a: I32 = I32(n)
+  return U32(a & I32(255)) + U32(a | I32(16)) + U32(a ^ I32(255))
+end
+let negate(n: U32): U32 = do
+  let a: I32 = I32(n)
+  return U32(-a)
+end
+return { types = {  }, functions = { round, quotient, shift, bits, negate } }
+]==],
+        entries = {
+            { entry = "round", arity = 1, inputs = { { 0 }, { 5 }, { 4294967295 } } },
+            { entry = "quotient", arity = 1, inputs = { { 0 }, { 5 }, { 4294967294 }, { 7 } } },
+            { entry = "shift", arity = 1, inputs = { { 0 }, { 1 }, { 4294967295 }, { 2147483648 } } },
+            { entry = "bits", arity = 1, inputs = { { 0 }, { 130 }, { 4294967295 } } },
+            { entry = "negate", arity = 1, inputs = { { 0 }, { 1 }, { 2147483648 } } },
+        },
+    },
 }
 
 local function cLiteral(value)

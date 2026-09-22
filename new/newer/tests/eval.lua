@@ -1173,6 +1173,77 @@ return { functions = { f } }
     os.execute("rm -rf -- '" .. root .. "'")
 end
 
+
+-- Signed integers ---------------------------------------------------------------------------------
+-- I32 is two's complement: arithmetic wraps, division truncates toward zero with the remainder
+-- taking the dividend's sign, and a right shift is arithmetic. Changing signedness at one width
+-- reinterprets the bits, so it never loses a value.
+local SIGNED = [==[
+let round(n: U32): U32 = do
+  let a: I32 = I32(n)
+  let b = a - 3
+  let c = b * 2
+  return U32(c)
+end
+let quotient(n: U32): U32 = do
+  let a: I32 = I32(n)
+  return U32(a / 3) + U32(a % 3)
+end
+let shift(n: U32): U32 = do
+  let a: I32 = I32(n)
+  return U32(a >> 1)
+end
+let reinterpret(n: U32): U32 = do
+  let a = I32(n)
+  return U32(a)
+end
+let negate(n: U32): U32 = do
+  let a: I32 = I32(n)
+  return U32(-a)
+end
+return { types = {  }, functions = { round, quotient, shift, reinterpret, negate } }
+]==]
+check(interpret("round", { 0 }, SIGNED)[1] == 4294967290, "I32 arithmetic wraps at 32 bits")
+check(interpret("quotient", { 4294967294 }, SIGNED)[1] == 4294967294,
+    "signed division truncates toward zero and the remainder keeps the dividend's sign")
+check(interpret("shift", { 4294967295 }, SIGNED)[1] == 4294967295,
+    "a signed shift keeps the sign bit")
+check(interpret("reinterpret", { 4294967295 }, SIGNED)[1] == 4294967295,
+    "changing signedness at one width reinterprets the bits")
+check(interpret("negate", { 1 }, SIGNED)[1] == 4294967295, "negation wraps in two's complement")
+local signedUnit = compile(SIGNED):unit()
+check(signedUnit:find("int32_t", 1, true) ~= nil, "I32 lowers to its C type")
+check(signedUnit:find("wordlet_i32", 1, true) ~= nil,
+    "a signed value is reinterpreted rather than converted out of range")
+-- Rejections ------------------------------------------------------------------------------------
+-- Signed and unsigned values of one width do not mix: the conversion has to say which is meant.
+rejects("type-mismatch", [==[
+let f(n: U32): U32 = do
+  let a: I32 = I32(n)
+  let c = a + n
+  return n
+end
+return { functions = { f } }
+]==])
+-- A negative value has no unsigned counterpart when the width changes too, which is checked: a
+-- run-time one traps and a known one rejects here.
+rejects("numeric-range", [==[
+let f(n: U32): U32 = do
+  let b: U8 = U8(I32(0) - I32(1))
+  return n + U32(b)
+end
+return { functions = { f } }
+]==])
+-- A signed power needs a power that is not negative.
+rejects("numeric-range", [==[
+let f(n: U32): U32 = do
+  let a: I32 = I32(n)
+  let b = a ^ (I32(0) - I32(1))
+  return U32(b)
+end
+return { functions = { f } }
+]==])
+
 -- The interpreter refuses an unsaturated entry rather than inventing a value.
 local ok, err = pcall(wordlet.interpret, { source = "let f(a, b: U32) : U32 = a + b\n"
     .. "return { functions = { f } }", entry = "f", args = { 1 } })

@@ -180,6 +180,12 @@ function M.close(compilation)
         if ty == S.U32 then return "uint32_t" end
         if ty == S.U8 then return "uint8_t" end
         if ty == S.U16 then return "uint16_t" end
+        if ty == S.I32 then
+            -- The unit needs the signed helpers, which reinterpret rather than rely on the
+            -- implementation's conversion of an out-of-range value.
+            layouts.usesSigned = true
+            return "int32_t"
+        end
         if ty == S.Bool then return "bool" end
         if ty == S.Unit then return "void" end
         if S.isView(ty) then return viewLayout(ty).name end

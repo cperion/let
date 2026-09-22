@@ -104,6 +104,11 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    imported type used as an annotation and as a keyed supply, a name the module does not export
    (`unknown-member`), a missing file (`import-input`), a cycle (`import-cycle`), and a source string
    that tries to use an import.
+8f. **Signed integers (implemented):** `I32` wrapping, truncating division with the remainder taking
+   the dividend's sign, an arithmetic shift, negation, a reinterpreting signedness change, a
+   literal adapting to a signed operand, the `int32_t` representation and the reinterpretation helper,
+   and the rejections `type-mismatch` for mixing signed and unsigned and `numeric-range` for a
+   negative value narrowed to an unsigned type or a negative signed power.
 9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
