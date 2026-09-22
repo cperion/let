@@ -58,7 +58,8 @@ H.test("single-file bundle is deterministic, isolated, embeddable, and CLI-compa
         local program = temporary .. "/program.lua"
         write(program, [[
 local affine = word(U32, U32, function(a, b) return a * 3 + b end)
-return {affine = affine}
+local run = word(U32, U32, function(a, b) return affine(a, b) end)
+return {functions = {affine = run}, outline = {affine}}
 ]])
 
         -- This launcher clears both Lua search paths before loading the artifact.

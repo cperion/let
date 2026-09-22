@@ -10,7 +10,7 @@ return function(Word, argv)
         local session = Word.new()
         local exports = session:load(argv[1])
         local function plain(t) return type(t) == "table" and getmetatable(t) == nil end
-        local spec = (plain(exports.functions) or plain(exports.types) or plain(exports.results)) and exports
+        local spec = (plain(exports.functions) or plain(exports.types) or plain(exports.results) or plain(exports.outline)) and exports
             or { functions = exports }
         io.write(session:emit_c(spec))
     end

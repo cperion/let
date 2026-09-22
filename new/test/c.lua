@@ -159,6 +159,48 @@ H.test("nested record C agrees with value copies, field places and U32 snapshots
     H.eq(run_c(table.concat(source, "\n")), "")
 end)
 
+H.test("explicit outline boundaries contain branching and agree with a C reference", function()
+    local s = Word.new(); local m = s:load(H.root .. "examples/outlining.lua")
+    H.eq(run_c(s:emit_c(m) .. [[
+        #include <assert.h>
+        static uint32_t classify(uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e) {
+            return (a < 5 ? 1u : 2u) + (b < 10 ? 4u : 8u) + (c < 15 ? 16u : 32u)
+                + (d < 20 ? 64u : 128u) + (e < 25 ? 256u : 512u);
+        }
+        int main(void) {
+            for (uint32_t mask = 0; mask < 1024; ++mask) {
+                uint32_t a[10];
+                for (unsigned i = 0; i < 10; ++i) a[i] = (mask & (1u << i)) ? 31u : 0u;
+                uint32_t expected = classify(a[0],a[1],a[2],a[3],a[4])
+                    + classify(a[5],a[6],a[7],a[8],a[9]);
+                for (unsigned i = 0; i < 5; ++i) expected += a[i] < i + 1 ? 1u : 2u;
+                assert(word_top(a[0],a[1],a[2],a[3],a[4],a[5],a[6],a[7],a[8],a[9]) == expected);
+            }
+            return 0;
+        }
+    ]]), "")
+end)
+
+H.test("outlined calls preserve static arguments, receiver effects and captured environments in C", function()
+    local s = Word.new(); local m = s:load(H.root .. "examples/outlined_calls.lua")
+    H.eq(run_c(s:emit_c(m) .. [[
+        #include <assert.h>
+        int main(void) {
+            assert(word_scaled(7) == 35);
+            assert(word_identity(42) == 42 && word_identity_5fcallback(21) == 21);
+            assert(word_member(31) == 31);
+            assert(word_owned(5) == 7 && word_owned(9) == 11);
+            wordresult_borrowed r = word_borrowed(5);
+            assert(r.f_r1 == 3 && r.f_r2 == 8 && r.f_r3 == 9);
+            assert(r.f_r4 == 13 && r.f_r5 == 20 && r.f_r6 == 15);
+            r = word_borrowed(1);
+            assert(r.f_r1 == 3 && r.f_r2 == 4 && r.f_r3 == 5);
+            assert(r.f_r4 == 9 && r.f_r5 == 12 && r.f_r6 == 11);
+            return 0;
+        }
+    ]]), "")
+end)
+
 H.test("C record copy cleanup keeps one mutable snapshot and does not rewrite checked IR", function()
     local s = Word.new(); local m = s:load(H.root .. "examples/records.lua")
     local program = s:compile{types = {Point = m.types.Point}, functions = {shift = m.functions.shift}}

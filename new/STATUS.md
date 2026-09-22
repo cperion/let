@@ -73,7 +73,12 @@ copying the enclosing record supplies independent data and a new root. See `exam
 Receiver-free namespaces already work (`test/namespaces.lua`). These other facilities remain real
 obligations. Removing all catalogue entries would not establish completion of the full language design.
 General CFG joins and suffix sharing are optional optimizations, not requirements for correct branch-tree
-execution. Ordinary helper outlining is a separate scaling opportunity, not a replacement for this frontier.
+execution. Explicit ordinary helper outlining now exists through compile-spec `outline = {word, ...}`;
+it bounds cross-call path multiplication while retaining static specialization and existing ABIs.
+`test/outline.lua` and C integration tests cover shared non-recursive helpers, factory forwarding,
+receiver/capture behavior, policy isolation and rejected non-runtime interfaces. Within-function
+continuation trees still have exponential worst-case size. This scaling improvement does not replace
+the remaining language facilities above.
 
 ## LuaJIT host contract
 

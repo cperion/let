@@ -361,8 +361,11 @@ function E:coerce_callable(requirement, value)
     -- Match the same nonempty factory-result application supported by invoke.
     if #expected > 0 and not p.owner and p.definition.shape == "ordered" and not Model.primitive(value) and
         p.definition.terminal and #p.static == #p.definition.inputs then
+        local factory = value
         value = self:normalize(value)
         if not Model.word(value) then D.reject("callable-required", "Factory does not produce a callable word") end
+        local context = self:context()
+        if context.mode == "residualize" and context.graph then value = context.graph:forward_outline(factory, value) end
         p = self:word_payload(value)
     end
     if p.definition.shape ~= "ordered" or not p.definition.terminal then
@@ -737,8 +740,22 @@ function E:execute(w, args, context)
                 return self:residual_call(values, context, context.entry.result, "self", self:call_receiver(w), self:call_captures(w))
             end
         end
+        if context.graph and context.graph.outlines[identity] and context.entry and
+            identity ~= context.graph:identity(context.entry.word) then
+            -- A requested boundary invokes once in its own trace. Reuse the
+            -- existing helper unwind so no caller symbols enter a callee body.
+            local helper = context.helpers[identity] or context.graph:known(identity)
+            if helper then
+                local values = self:recursive_args(w, args, {word = identity})
+                if not values then D.bug("outline-identity", "Outlined call does not match its selected instance") end
+                return self:residual_call(values, context, helper.result, helper.target,
+                    self:call_receiver(w), self:call_captures(w))
+            end
+            context.need_helper.word = identity
+            error(context.need_helper, 0)
+        end
         if context.helpers then
-            -- Keep each first activation inline. Only close a repeated activation
+            -- By default keep each first activation inline. Only close a repeated activation
             -- with a call, so outlining elsewhere cannot erase known call-site facts.
             local stack = self.scope:stack()
             for i = #stack, 1, -1 do
@@ -835,6 +852,8 @@ function E:invoke(w, args)
     if remaining == 0 and args.n > 0 and def.terminal and not p.owner then
         local result = self:normalize(w)
         if not Model.word(result) then D.reject("arity", "A scalar result is not callable") end
+        local context = self:context()
+        if context and context.mode == "residualize" and context.graph then result = context.graph:forward_outline(w, result) end
         return self:invoke(result, args)
     end
     if args.n ~= remaining then D.reject("arity", "Runtime calls must supply every remaining input") end
@@ -1024,7 +1043,7 @@ function E:compile(spec)
     end
     if not Model.plain(spec) then D.reject("exports", "Expected an export specification") end
     for key in pairs(spec) do
-        if key ~= "functions" and key ~= "types" and key ~= "results" then D.reject("exports", "Unknown export section: " .. tostring(key)) end
+        if key ~= "functions" and key ~= "types" and key ~= "results" and key ~= "outline" then D.reject("exports", "Unknown export section: " .. tostring(key)) end
     end
     if spec.types ~= nil then
         if not Model.plain(spec.types) then D.reject("exports", "types must be a named table") end
@@ -1047,7 +1066,8 @@ function E:compile(spec)
     table.sort(type_names)
     local engine = self
     local graph = {functions = program.functions, entries = {}, factories = {}, records = {}, methods = {}, constraints = {}, depth = 0}
-    graph.declarations, graph.resolving = {}, {}
+    graph.declarations, graph.resolving, graph.outlines, graph.outline_factories = {}, {}, {}, {}
+    graph.outline_aliases = {}
     function graph:declared(word)
         local key = self:identity(word)
         if self.constraints[key] then return self.constraints[key] end
@@ -1073,7 +1093,37 @@ function E:compile(spec)
         local receiver = p.receiver and Model.get(p.receiver).tag == "known" and p.receiver or nil
         local key = Model.key(p.owner) .. ":" .. Model.key(p.method) .. ":" .. Owner.path_key(p.scope_path) .. ":" .. (receiver and Model.key(receiver) or "storage")
         if not self.methods[key] then self.methods[key] = engine:bind_method(p.method, p.owner, receiver, p.scope_path) end
-        return self.methods[key]
+        local method = self.methods[key]
+        return self.outline_aliases[method] or method
+    end
+    function graph:forward_outline(factory, result)
+        local factory_key = self:identity(factory)
+        if not self.outlines[factory_key] then return result end
+        local p = engine:word_payload(result)
+        if p.definition.shape ~= "ordered" or not p.definition.terminal or Model.primitive(result) then
+            D.reject("outline", "An outlined factory application must resolve to an executable runtime word")
+        end
+        -- Normalization has already rechecked the factory under current result
+        -- constraints. Such rechecks may construct fresh equivalent word handles;
+        -- keep one runtime target per static factory within this compilation,
+        -- just as ordinary successful static demand retains its produced word.
+        local previous = self.outline_factories[factory_key]
+        if previous then
+            engine:check_word(previous)
+            return previous
+        end
+        self.outline_factories[factory_key] = result
+        local key = self:identity(result)
+        if not self.outlines[key] then
+            self.outlines[key] = true
+            -- Resolving a factory can reveal a previously used code identity.
+            -- Restart the entire caller trace even if that callee already exists;
+            -- otherwise earlier inline calls would change on the next replay.
+            local context = engine:context()
+            context.need_helper.word = key
+            error(context.need_helper, 0)
+        end
+        return result
     end
     function graph:parameters(entry, parameters, receiver, captures)
         local previous = entry.signature.parameters
@@ -1151,6 +1201,28 @@ function E:compile(spec)
         self.functions[entry.target] = fn; entry.fn = fn; entry.probe = nil
         return entry.target
     end
+    if spec.outline ~= nil then
+        if not Model.plain(spec.outline) then D.reject("outline", "outline must be a dense list of executable word specializations") end
+        local count = 0
+        for index in pairs(spec.outline) do
+            if type(index) ~= "number" or index < 1 or index % 1 ~= 0 then
+                D.reject("outline", "outline must be a dense list of executable word specializations")
+            end
+            count = count + 1
+        end
+        for index = 1, count do
+            local word = spec.outline[index]
+            local p = Model.get(word)
+            if not p or p.engine ~= self or p.tag ~= "word" or
+                p.definition.shape ~= "ordered" or not p.definition.terminal or Model.primitive(word) then
+                D.reject("outline", "outline entries must be executable words from this session")
+            end
+            if p.receiver and Model.get(p.receiver).tag ~= "known" then
+                D.reject("outline", "Select an unbound method interface, not mutable host storage, for outlining")
+            end
+            graph.outlines[graph:identity(word)] = true
+        end
+    end
     if spec.results ~= nil then
         if not Model.plain(spec.results) then D.reject("result-constraint", "results must map ordered words to result requirements") end
         for word, requirement in pairs(spec.results) do
@@ -1165,6 +1237,27 @@ function E:compile(spec)
         for word in pairs(graph.declarations) do graph:declared(word) end
     end
     self.scope:with({context = {mode = "compile", graph = graph}}, function()
+        -- Signature-valued record fields acquire their runtime ABI after result
+        -- declarations are installed. Resolve selected unbound owner interfaces
+        -- to that same schema before tracing, or selection would silently miss
+        -- methods on runtime instances. Preserve their declared result contracts.
+        for _, word in ipairs(spec.outline or {}) do
+            local p = self:word_payload(word)
+            if p.owner and not p.receiver then
+                local source = graph:identity(word)
+                local owner = self:requirement_type(p.owner)
+                local target = graph:identity(self:bind_method(p.method, owner, nil, p.scope_path))
+                if source ~= target then
+                    graph.outline_aliases[source], graph.outlines[target] = target, true
+                    if graph.declarations[source] then
+                        local declarations = graph.declarations[target] or {}
+                        for _, requirement in ipairs(graph.declarations[source]) do declarations[#declarations + 1] = requirement end
+                        graph.declarations[target], graph.constraints[target] = declarations, nil
+                        graph:declared(target)
+                    end
+                end
+            end
+        end
         for _, name in ipairs(type_names) do
             local t = self:requirement_type(spec.types[name])
             if not Model.runtime_type(t) then D.reject("runtime-type", "Exported type has no runtime representation") end

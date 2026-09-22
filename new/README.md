@@ -464,7 +464,7 @@ Calls to the entry's definition can use its ABI only when the bound static prefi
 For example, recursive calls may pass an erased Type or callable input explicitly, or repeat `:of`.
 The verifier checks the self target, result, operand types, arity and dominance. Unit arguments/results
 have no payload, but void calls remain ordered operations. Records cross ordinary by-value boundaries.
-Other words start inline; a cycle through them can close back to the entry. Ordinary recursive helpers
+Other words start inline unless explicitly selected in `outline`; a cycle through them can close back to the entry. Ordinary recursive helpers
 can now be outlined as described below, including recursive receiver methods and grounded mutual groups.
 Results that cannot be grounded need an explicit compile-time result declaration:
 ```lua
@@ -495,9 +495,46 @@ depth guard: non-tail recursion can exhaust the C stack, and a tail loop can run
 grounding means a path completes without calling the current entry, not that runtime termination is proven.
 See `new/examples/recursion.lua` for scalar, Bool, record, Unit and static-prefix examples.
 
+### Explicit outlining boundaries
+
+Use a compilation-local policy to prevent a helper's branches from multiplying into every caller:
+
+```lua
+return {
+    functions = {top = top},
+    outline = {classify},
+}
+```
+
+`outline` is a dense list of executable word specializations. Residual calls to selected instances
+become direct calls to independently traced helpers, shared across call sites. The helper's own body
+still executes during compilation. Unused entries do not generate functions. This controls Word's
+tracing/C emission, not whether the C compiler subsequently inlines the generated functions.
+
+Selection is exact: `outline = {scale:of(2)}` does not select `scale` or `scale:of(3)`. Erased static
+inputs and known code identity remain specialized; ordinary call-site values become runtime parameters.
+If a terminal needs an argument for `:of` or type construction, bind it statically before outlining.
+Required static normalization is unchanged. When a nonempty call forwards through a closed callable
+factory, the policy follows its normalized executable result (for example, `Identity:of(U32)(x)`).
+Factory revalidation and helper discovery retain a stable compilation-local target and restart replay
+when a new boundary is discovered.
+
+For methods, select an unbound interface such as `Counter.inc`, not a method bound to mutable Lua
+storage. Selected receiver schemas are resolved using the compilation's callable result declarations,
+so signature-valued fields do not change which method is selected. Receiver, capture, by-value
+argument/result and non-retention rules are unchanged. A requested
+runtime boundary without a representable interface rejects; it does not silently fall back to inlining.
+Remaining Type parameters need `:of`, and opaque callbacks need their `results[signature]` declaration.
+The policy does not mutate words or affect later compilations that omit it.
+
+See `new/examples/outlining.lua`: a five-decision helper called twice from a five-decision caller
+compiles as two functions with 32 leaves each, rather than multiplying their decisions into one trace.
+`new/examples/outlined_calls.lua` covers static prefixes, methods and owned/borrowed callable boundaries.
+This is not CFG joining: branching within each function still has the existing tree/path limits.
+
 ### Recursive helpers behind wrappers
 
-An ordinary helper's first activation stays inline. On repeated activation with residual arguments
+Without an explicit outline selection, an ordinary helper's first activation stays inline. On repeated activation with residual arguments
 or a symbolic decision inside that activation, compilation suspends the caller, reserves the helper,
 grounds and verifies its body, then retries the caller with a typed call closing that cycle. No result
 placeholder is fed to source code. Keeping the first activation inline preserves call-site facts:

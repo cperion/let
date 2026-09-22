@@ -538,10 +538,23 @@ to the terminal. Result/use agreement is checked before emitting C. Prefixes are
 replay/discovery pass; this remains subject to the staging capture contract, not a purity proof.
 
 Calls with the same definition and equal erased prefix use that entry even if the caller passes the
-bound arguments explicitly. Other calls inline; cycles returning to the entry can close after finite
+bound arguments explicitly. Other calls inline by default; cycles returning to the entry can close after finite
 inlining. Ordinary helper cycles now suspend the caller and compile a separate helper entry. The caller
 then retries from fresh traces/result facts; a numeric typed Call closes the repeated activation.
-First activations stay inline to retain known call-site facts, including facts used in :of supply.
+First activations stay inline to retain known call-site facts, including facts used in :of supply,
+unless the exact word specialization is selected by compile-spec `outline = {word, ...}`. Explicit
+boundaries use the same helper-demand unwind, discard tentative caller traces, and retry with typed
+calls at the first activation. Selected unbound method owners are resolved to their runtime callable
+field schemas after result declarations are installed; code identity aliases and result contracts move
+together, preventing a selection from silently missing its normalized receiver ABI. A helper's own
+entry executes normally. Static normalization is not
+subject to this policy; nonempty callable-factory forwarding transfers the selection to the produced
+executable. Factory results have one compilation-local runtime target even when constraint revalidation
+recreates their handles. Newly discovered selections restart replay even for an existing callee, so
+already-traced inline prefixes cannot silently change between paths. Policies and factory targets do
+not persist beyond compilation. No ABI is invented for an unrepresentable boundary, and no implicit
+static specialization of ordinary call-site values occurs. This bounds cross-call path multiplication,
+not the continuation tree inside each function. C compilers remain free to inline the emitted calls.
 Helpers share ordinary open export identities where applicable. Closed export demand remains distinct
 from a helper's single invocation: only export demand may follow a returned producer.
 
@@ -699,7 +712,8 @@ Signature members have a typed callable ABI. Retained mutable roots, immutable n
 explicit unbound nested interfaces support lexical outer owners without inferred parents or caller inheritance.
 Escaping mutable receiver views are forbidden by the language; factories return their records by value.
 Unbound methods export with a typed receiver pointer; immutable snapshot receivers can erase it.
-Mutable bound Lua receivers cannot export. Methods start inline, while recursive selections use the
+Mutable bound Lua receivers cannot export. Methods start inline by default; explicit `outline`
+selections and recursive selections use the
 same typed receiver-storage ABI in private functions. That parameter
 is a storage root in IR, never an ordinary SSA value. Calls carry a checked root/path receiver operand;
 C passes its address, without copying the receiver. Ordinary arguments and returns remain by value.
