@@ -83,6 +83,8 @@ function M.interpret(options)
     end
     local out = {}
     for _, value in ipairs(session:expand(result)) do
+        -- `describe` is below; it is reached through the module table because a local declared
+        -- later is not in scope here.
         out[#out + 1] = M.describe(session, value, {}, 0)
     end
     return out
@@ -132,7 +134,7 @@ local function describe(session, value, seen, depth)
     D.todo("interpret-result", "Cannot interpret result of type " .. S.encode(value.ty or S.Unit))
 end
 
-M.describe = describe
+M.describe = describe   -- exported so a test can inspect one value directly
 
 M.session = Eval.session
 M.diagnostic = D.format

@@ -38,8 +38,9 @@ Working end to end today: U32/Bool/Unit, `let` bindings, named definitions with 
 annotations, arithmetic/comparison/bitwise/logical operators, expression and statement conditionals,
 multiple results and result-list binding, static partial application, automatic static
 specialisation, calls compiled to independently elaborated bodies, recursion with an explicit result
-annotation, records with methods, borrowed receivers, field reads and compound stores, and sum types
-with exhaustive matching.
+annotation, records with methods, borrowed receivers, field reads and compound stores, sum types with
+exhaustive matching, callables that borrow or are selected at run time, and references with recursive
+types.
 
 A `Unit` parameter is erased rather than represented: it produces no ABI slot, exactly like a `Unit`
 result, so a handler for a `Unit` alternative takes no C argument.

@@ -524,7 +524,11 @@ expression's first textual occurrence. Read snapshots must precede later stores 
 mutating calls. Function argument evaluation order must be established before the C call expression.
 
 Aggregate declarations are emitted in dependency order, with a struct tag per generated type so a
-pointer to one needs only a declaration. A reference is exactly such a pointer, which is why a
+pointer to one needs only a declaration. One refinement makes a common recursive shape expressible: a
+function-pointer declaration may mention an *incomplete parameter* type, so a view is not a
+completeness need for its parameters, and a record may therefore hold a view that takes that record.
+A result type must be complete, so a view that returns the record it sits in remains a by-value cycle
+and is reported rather than emitted. A reference is exactly such a pointer, which is why a
 recursive definition is finite and a by-value cycle is reported instead of emitted. A record may hold a callable view whose parameter list
 mentions a record, so the by-value dependency runs in both directions and no fixed order is correct;
 a genuine by-value cycle is reported instead of emitted.

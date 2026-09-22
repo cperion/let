@@ -878,6 +878,30 @@ let Counter = { value: U32 }
 let bad(): U32 = Ref(Counter { value = 1 }).value
 return { types = { Counter }, functions = { bad } }
 ]==])
+-- A field declared as a signature is a view, and a function-pointer declaration may name an
+-- incomplete parameter type, so a record may hold a view that takes that record.
+local throughParameter = compile([==[
+let Handler = { f: (Handler): U32, n: U32 }
+let g(x: U32): U32 = x
+return { types = { Handler }, functions = { g } }
+]==]):unit()
+check(throughParameter:find("wordletview_1 f_f;", 1, true) ~= nil,
+    "a record may hold a view that takes the record, because a parameter may be incomplete")
+-- A view that *returns* the record cannot: a result type must be complete, so the pair has no
+-- finite order and is reported rather than emitted.
+do
+    -- Lowering runs at `unit()`, so this is checked there rather than by `rejects`.
+    local ok, err = pcall(function()
+        return compile([==[
+let Handler = { f: (U32): Handler, n: U32 }
+let g(x: U32): U32 = x
+return { types = { Handler }, functions = { g } }
+]==]):unit()
+    end)
+    check(not ok and D.is(err) and err.code == "c-order",
+        "a record and a view that returns it contain each other by value")
+end
+
 -- A reference is not itself a place to reference again.
 rejects("ref-target", [==[
 let Counter = { value: U32 }

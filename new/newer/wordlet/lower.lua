@@ -428,10 +428,14 @@ function M.typeDeclarations(layouts)
                 .. layout.returns .. " (*invoke)" .. layout.invoke .. ";"
                 .. "\n    const void *environment;\n} " .. layout.name .. ";"
         end)
+        -- The recorded types are named so their layouts exist. A function-pointer declaration is
+        -- allowed to mention an incomplete parameter type, so a parameter is not a completeness
+        -- need; that is what lets a record hold a view that takes the record. A result type must be
+        -- complete, so it is still a need and a view that returns the record stays a cycle.
         local types = {}
         if layout.results.kind == "scalar" then types[#types + 1] = layout.results.type end
         for _, param in ipairs(layout.parameters or {}) do
-            if param.type then types[#types + 1] = param.type end
+            if param.type then typeName(param.type) end
         end
         for _, ty in ipairs(types) do
             if ty ~= S.Unit then entry.needs[#entry.needs + 1] = typeName(ty) end
@@ -457,6 +461,16 @@ function M.typeDeclarations(layouts)
         for _, field in ipairs(adapter.bound) do
             if not field.pointer and field.type ~= S.Unit then
                 entry.needs[#entry.needs + 1] = layouts:cType(field.type)
+            end
+        end
+        -- The adapter body calls the target by value, so those types must be complete by then.
+        local signature = layouts.signatures[adapter.entry]
+        if signature then
+            for _, param in ipairs(signature.params) do
+                if S.runtime(param.type) then entry.needs[#entry.needs + 1] = layouts:cType(param.type) end
+            end
+            if signature.results.kind == "scalar" and S.runtime(signature.results.type) then
+                entry.needs[#entry.needs + 1] = layouts:cType(signature.results.type)
             end
         end
     end
