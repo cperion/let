@@ -22,6 +22,7 @@ return {
         ["wordlet.cabi"] = "wordlet/cabi.lua",
         ["wordlet.lower"] = "wordlet/lower.lua",
         ["wordletkit.u32"] = "wordletkit/u32.lua",
+        ["wordletkit.u64"] = "wordletkit/u64.lua",
         ["vendor.asdl"] = "vendor/asdl.lua",
         ["vendor.terralist"] = "vendor/terralist.lua",
     },

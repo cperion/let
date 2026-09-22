@@ -16,6 +16,7 @@ end
 local kit = require("wordletkit")
 local here = source:match("^(.*[/])") or "./"
 dofile(here .. "schemas.lua")
+dofile(here .. "u64.lua")
 dofile(here .. "parse.lua")
 dofile(here .. "eval.lua")
 dofile(here .. "c.lua")
@@ -71,7 +72,7 @@ local ok, err = xpcall(function()
     local project = temp .. "/project with ' quote"
     for _, path in ipairs({"vendor", "tools", "tests", "wordletkit", "wordlet", "examples", "wordletkit.lua", "bundle-manifest.lua",
         "README.md", "AGENTS.md", "architecture.md", "syntax.md", "interfaces.md", "ast.asdl", "ir.asdl",
-        "ASDL.md", "U32.md", "THIRD_PARTY.md", "VALIDATION.md", "LICENSE", ".gitignore"}) do        command("cp -R -- " .. q(root .. path) .. " " .. q(project .. "/"))
+        "ASDL.md", "U32.md", "U64.md", "THIRD_PARTY.md", "VALIDATION.md", "LICENSE", ".gitignore"}) do        command("cp -R -- " .. q(root .. path) .. " " .. q(project .. "/"))
     end
     local bundle = project .. "/dist/wordlet.lua"
     command("cd " .. q(temp) .. " && timeout 10s " .. lua .. " " .. q(project .. "/tools/bundle.lua"))
