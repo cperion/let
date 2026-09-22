@@ -159,8 +159,12 @@ function M.function_(fn, definitions, seeded)
                     end
                 end
             elseif kind == "View" then
-                -- A view binds a known callable's hidden prefix in a local adapter.
-                if not S.isView(stmt.type) then D.bug("ir-type", "View needs a view type") end
+                -- A view binds a known callable's hidden prefix in a local adapter, or represents
+                -- pure code: an owned callable with an empty environment and no bound prefix.
+                if not S.isView(stmt.type) and not (S.isOwned(stmt.type)
+                    and S.environmentOf(stmt.type) == S.Unit) then
+                    D.bug("ir-type", "View needs a view or an empty-environment callable type")
+                end
                 local target = definitions[stmt.entry]
                 if not target then D.bug("ir-target", "View binds unknown code " .. stmt.entry) end
                 if #stmt.slots > #target.inputs then

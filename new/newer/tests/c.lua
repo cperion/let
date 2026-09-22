@@ -307,6 +307,35 @@ return { functions = { pick, twice, choose, with_zero, pair, length, mk, use } }
         inputs = { { true }, { false }, { true, 5 }, { false, 5 }, { true, 0 }, { false, 0 },
             { true, 4294967295 }, { false, 4294967295 }, { true, 1 } },
     },
+    {
+        -- A callable that borrows storage reaches outside itself, so it crosses a callable parameter
+        -- as a non-retaining view holding that borrowed place; pure code crosses as a null
+        -- environment view. The interpreter resolves both, so it is an independent oracle.
+        name = "callables",
+        source = [==[
+let C = { v: U32 }
+let apply(f: (U32): U32, x: U32): U32 = f(x)
+let run(x: U32): U32 = do
+  let c = C { v = 10 }
+  let g = |y: U32| -> y + c.v
+  return apply(g, x)
+end
+let chained(x: U32): U32 = do
+  let c = C { v = 3 }
+  let g = |y: U32| -> y + c.v
+  return apply(g, apply(g, x))
+end
+let mk(): (U32): U32 = |x: U32| -> x + 1
+let pure(x: U32): U32 = do
+  let f = mk()
+  return f(f(x))
+end
+return { types = { C }, functions = { run, chained, mk, pure } }
+]==],
+        entries = { { entry = "run", arity = 1 }, { entry = "chained", arity = 1 },
+            { entry = "pure", arity = 1 } },
+        inputs = { { 0 }, { 1 }, { 5 }, { 4294967295 } },
+    },
 }
 
 local function cLiteral(value)
@@ -589,6 +618,46 @@ int main(void) {
         "tagged-callable C failed to compile:\n" .. read(directory .. "/tagerr.txt"))
     check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
         "a tagged callable did not cross the ABI correctly")
+end
+
+-- Pure code as a host-visible value: nothing is retained, so a host may hold the invocation pointer
+-- with a null environment, and a borrowing callable still has to point at its borrowed place.
+do
+    local source = [==[
+let C = { v: U32 }
+let mk(): (U32): U32 = |x: U32| -> x + 1
+let pure(x: U32): U32 = do
+  let f = mk()
+  return f(f(x))
+end
+let apply(f: (U32): U32, x: U32): U32 = f(x)
+let run(x: U32): U32 = do
+  let c = C { v = 10 }
+  let g = |y: U32| -> y + c.v
+  return apply(g, x)
+end
+return { types = { C }, functions = { mk, pure, run } }
+]==]
+    local generated = wordlet.compile{ source = source, name = "pure.let" }:unit()
+    local path = directory .. "/pure.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    wordletview_1 f = wordlet_mk();
+    assert(f.environment == NULL);
+    assert(f.invoke(f.environment, UINT32_C(4)) == UINT32_C(5));
+    assert(wordlet_pure(UINT32_C(4)) == UINT32_C(6));
+    assert(wordlet_run(UINT32_C(5)) == UINT32_C(15));
+    return 0;
+}
+]])
+    local exe = directory .. "/pure"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/pureerr.txt") == 0,
+        "pure-code C failed to compile:\n" .. read(directory .. "/pureerr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "pure code did not cross the ABI as a null-environment view")
 end
 
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.

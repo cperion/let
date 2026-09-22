@@ -20,8 +20,8 @@ this section states exactly how much of it runs today.
 | Single-file bundle and CLI | implemented; `dist/wordlet.lua` |
 | Records, schemas, methods and field stores | implemented, including compound stores and by-value copy |
 | Sum types (variants) | implemented: `OneOf(schema)` builds one, `T.case {...}` constructs, `value { case = handler }` matches. A known tag selects its handler statically; an opaque tag becomes a C tag test with the payload projected inside the arm. C layout is a tag plus a union, and a `Unit` alternative carries no payload |
-| Closures and higher-order words | implemented: by-value environments, direct calls, capture-free lambdas as static code |
-| Borrowed captures (a captured receiver or method) | implemented as a non-retaining place input. Such a closure cannot escape, be stored or be captured again (`borrow-escape`) |
+| Closures and higher-order words | implemented: by-value environments, direct calls, and capture-free lambdas as pure code — an invocation pointer with a null environment, which may cross a boundary but needs no adapter |
+| Borrowed captures (a captured receiver or method) | implemented as a non-retaining place input. Such a closure cannot escape, be stored or be captured again (`borrow-escape`), but it may be passed to a callable parameter, where a local adapter holds the borrowed place |
 | Nested borrowed closures (a closure capturing another borrowed closure) | **rejected** (`borrow-escape`); needs a callable environment |
 | Opaque runtime callables (`Ty.View`) | implemented: an invocation pointer plus an environment. An exported function with a callable parameter takes a view, and a view call goes through `Ir.Indirect` |
 | A callable stored in a signature-typed field | implemented through the borrowed callable ABI: the field holds `{ invoke, environment }` built from a local adapter, so the record is non-retaining and cannot escape (`borrow-escape`) |

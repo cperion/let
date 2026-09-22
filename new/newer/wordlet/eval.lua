@@ -456,6 +456,12 @@ function Eval:rejectTaggedErase(span)
         .. "arm before erasing it", span)
 end
 
+-- A callable that reaches storage outside itself cannot travel by value; it is passed as a
+-- non-retaining view instead, so the borrow stays tracked to its activation.
+function Eval:borrowsStorage(value)
+    return V.tag(value) == "closure" and #(value.plan.borrowedOrder or {}) > 0
+end
+
 -- Callable arms of a tagged callable -----------------------------------------------------------
 -- A conditional whose arms are two different callable code identities joins into one tagged
 -- callable: the tag names the code to run and the payload is that code's environment. Each arm is
@@ -667,8 +673,13 @@ function Eval:expression(ctx, value, want)
                 .. "where it was created, or pass the receiver instead", ctx.span)
         end
         if #plan.runtimeOrder == 0 then
-            D.reject("static-callable-value",
-                "A closure with no runtime environment has no runtime representation", ctx.span)
+            -- Pure code: nothing to retain, so the representation is an invocation pointer with no
+            -- environment. Its type stays the callable type, so a call in this compilation is still
+            -- direct; only a value that crosses a boundary goes through the pointer.
+            local entry = self:callableInstance({ plan = plan }, value.bound or {}, ctx.span).target
+            local id = ctx.builder:valueId()
+            ctx.builder:emit(ctx.body, Ir.View(id, plan.ty, entry, S.list({})))
+            return ctx.builder:ref(id, plan.ty)
         end
         -- The value's type is the callable type; its representation is the environment record.
         local fields = {}
@@ -1379,6 +1390,10 @@ function Eval:applyOwned(ctx, value, args, span)
         D.bug("borrowed-callable-value",
             "A closure with borrowed captures must not have a materialised value")
     end
+    if S.environmentOf(value.ty) == S.Unit then
+        -- Pure code carries no environment, so there is nothing to project: the call is direct.
+        return self:applyClosure(ctx, plan, {}, args, span, value.bound)
+    end
     local envTys = {}
     for _, field in ipairs(value.ty.environment.fields or {}) do envTys[field.name] = field.type end
     local envExprs = {}
@@ -1706,8 +1721,11 @@ function Eval:buildCallableInstance(key, callable, args, span)
                         param.span)
                     bound = true
                 else
-                    -- A closure with a runtime environment travels by value as that environment.
-                    ty = supplied.ty
+                    -- A closure with a runtime environment travels by value as that environment. A
+                    -- closure that borrows storage is non-retaining, so the parameter becomes an
+                    -- erased view, which the caller binds through a local adapter that holds the
+                    -- borrowed places.
+                    ty = self:borrowsStorage(supplied) and S.view(ty) or supplied.ty
                 end
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
                 ty = supplied.ty
@@ -2283,8 +2301,11 @@ function Eval:buildInstance(key, def, values, span, receiver)
                         param.span)
                     goto continue
                 else
-                    -- A closure with a runtime environment travels by value as that environment.
-                    ty = supplied.ty
+                    -- A closure with a runtime environment travels by value as that environment. A
+                    -- closure that borrows storage is non-retaining, so the parameter becomes an
+                    -- erased view, which the caller binds through a local adapter that holds the
+                    -- borrowed places.
+                    ty = self:borrowsStorage(supplied) and S.view(ty) or supplied.ty
                 end
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
                 ty = supplied.ty
@@ -2317,6 +2338,9 @@ function Eval:buildInstance(key, def, values, span, receiver)
             inputs[#inputs + 1] = S.inValue(ty)
             paramTypes[#paramTypes + 1] = ty
             instance.inputPlan[#instance.inputPlan + 1] = { kind = "value", position = index }
+            -- The call site needs each input's type to materialise its argument, so the two lists
+            -- are maintained together.
+            instance.inputTypes[#instance.inputTypes + 1] = ty
             if S.isRecord(ty) then
                 -- A by-value record parameter owns fresh local storage, so field writes and method
                 -- calls do not touch the caller's instance.

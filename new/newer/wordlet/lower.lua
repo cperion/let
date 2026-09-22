@@ -276,12 +276,21 @@ end
 -- Binds a callable's hidden inputs in a local adapter and takes its address.
 function Emitter:makeView(stmt)
     local types = stmt.type
-    if not S.isView(types) then D.bug("c-view", "View needs a view type") end
+    -- Either an erased callable view, or pure code: an owned callable with an empty environment.
+    if not S.isView(types) and not (S.isOwned(types) and S.environmentOf(types) == S.Unit) then
+        D.bug("c-view", "View needs a view type or an empty-environment callable type")
+    end
     local layout = self.layouts.viewLayout(types)
+    -- A borrowed slot is a pointer to the callee's hidden place input, so the target's own parameter
+    -- list is what types it.
+    local signature = self.layouts.signatures[stmt.entry]
+    if not signature then D.bug("c-view", "View binds unknown code " .. tostring(stmt.entry)) end
     local bound, args = {}, {}
     for _, slot in ipairs(stmt.slots) do
         if slot.kind == "BorrowArg" then
-            bound[#bound + 1] = { type = self:placeType(slot.place), pointer = true }
+            local param = signature.params[#bound + 1]
+            if not param then D.bug("c-view", "View binds more places than the callee accepts") end
+            bound[#bound + 1] = { type = param.type, pointer = true }
             args[#args + 1] = self:borrow(slot.place)
         else
             bound[#bound + 1] = { type = slot.value.type, pointer = false }
@@ -322,61 +331,155 @@ end
 
 function M.typeDeclarations(layouts)
     local lines = {}
-    local function aggregate(name, fields)
-        local body, any = {}, false
+    -- Every generated aggregate carries a struct tag with its own name, so a pointer to one needs
+    -- only a declaration. Bodies are then emitted in dependency order: a by-value member or a
+    -- parameter list mentions a type that must already be complete, and that dependency runs in both
+    -- directions (a record may hold a callable view, whose parameter list may mention a record), so
+    -- no fixed order is correct. A genuine by-value cycle is reported rather than emitted.
+    local definitions, order = {}, {}
+    local function forward(name) lines[#lines + 1] = "typedef struct " .. name .. " " .. name .. ";" end
+    for _, layout in ipairs(layouts.tupleOrder) do forward(layout.name) end
+    for _, layout in ipairs(layouts.recordOrder) do forward(layout.name) end
+    for _, layout in ipairs(layouts.sumOrder) do forward(layout.name) end
+    for _, layout in ipairs(layouts.taggedOrder) do forward(layout.name) end
+    for _, layout in ipairs(layouts.viewOrder) do forward(layout.name) end
+    for _, layout in ipairs(layouts.adapterOrder or {}) do forward(layout.name) end
+
+    -- Registering a definition walks its field types, which may register further layouts, so
+    -- discovery and emission share one growing list.
+    local function define(layout, needs, emit)
+        if definitions[layout.name] then return definitions[layout.name] end
+        local entry = { name = layout.name, needs = needs, emit = emit }
+        definitions[layout.name] = entry
+        order[#order + 1] = entry
+        return entry
+    end
+    local function typeName(ty)
+        if ty == S.Unit then return "void" end
+        return layouts:cType(ty)
+    end
+    local function defineAggregate(layout, fields, isTag)
+        local entry
+        entry = define(layout, {}, function()
+            local body = {}
+            if isTag then body[#body + 1] = "    uint32_t wordlet_tag;" end
+            local members, any = {}, false
+            for _, field in ipairs(fields) do
+                local cType = typeName(field.type)
+                if not isTag then
+                    if cType ~= "void" then
+                        body[#body + 1] = "    " .. cType .. " " .. field.name .. ";"
+                        any = true
+                    end
+                elseif cType == "void" then
+                    members[#members + 1] = "        unsigned char " .. field.name .. ";"
+                else
+                    members[#members + 1] = "        " .. cType .. " " .. field.name .. ";"
+                end
+            end
+            if isTag then
+                if #members == 0 then
+                    body[#body + 1] = "    unsigned char wordlet_pad;"
+                else
+                    body[#body + 1] = "    union {"
+                    for _, member in ipairs(members) do body[#body + 1] = member end
+                    body[#body + 1] = "    } payload;"
+                end
+            elseif not any then
+                body[#body + 1] = "    unsigned char wordlet_pad;"
+            end
+            lines[#lines + 1] = "typedef struct " .. layout.name .. " {\n"
+                .. table.concat(body, "\n") .. "\n} " .. layout.name .. ";"
+        end)
+        -- Needs are recorded by name and resolved when emitting, because discovery order does not
+        -- decide definition order.
         for _, field in ipairs(fields) do
-            if field.type ~= S.Unit then
-                body[#body + 1] = "    " .. layouts:cType(field.type) .. " " .. field.name .. ";"
-                any = true
-            end
+            if field.type ~= S.Unit then entry.needs[#entry.needs + 1] = layouts:cType(field.type) end
         end
-        if not any then body[#body + 1] = "    unsigned char wordlet_pad;" end
-        lines[#lines + 1] = "typedef struct " .. name .. " {\n" .. table.concat(body, "\n") .. "\n} " .. name .. ";"
+        return entry
     end
-    for _, view in ipairs(layouts.viewOrder) do
-        lines[#lines + 1] = "typedef struct " .. view.name .. " {\n    "
-            .. view.returns .. " (*invoke)" .. view.invoke .. ";"
-            .. "\n    const void *environment;\n} " .. view.name .. ";"
+
+    for _, layout in ipairs(layouts.tupleOrder) do
+        defineAggregate(layout, layout.fields, false)
     end
+    for _, layout in ipairs(layouts.recordOrder) do
+        defineAggregate(layout, layout.fields, false)
+    end
+    for _, layout in ipairs(layouts.sumOrder) do
+        defineAggregate(layout, layout.cases, true)
+    end
+    for _, layout in ipairs(layouts.taggedOrder) do
+        defineAggregate(layout, layout.cases, true)
+    end
+    -- A view mentions its visible parameter and result types in its function pointer, so those must
+    -- be complete first. An adapter holds its by-value slots by value; a borrowed slot is a pointer.
+    local function defineView(layout)
+        local entry
+        entry = define(layout, {}, function()
+            lines[#lines + 1] = "typedef struct " .. layout.name .. " {\n    "
+                .. layout.returns .. " (*invoke)" .. layout.invoke .. ";"
+                .. "\n    const void *environment;\n} " .. layout.name .. ";"
+        end)
+        local types = {}
+        if layout.results.kind == "scalar" then types[#types + 1] = layout.results.type end
+        for _, param in ipairs(layout.parameters or {}) do
+            if param.type then types[#types + 1] = param.type end
+        end
+        for _, ty in ipairs(types) do
+            if ty ~= S.Unit then entry.needs[#entry.needs + 1] = typeName(ty) end
+        end
+        return entry
+    end
+    for _, layout in ipairs(layouts.viewOrder) do defineView(layout) end
     for _, adapter in ipairs(layouts.adapterOrder or {}) do
-        local fields = {}
-        if #adapter.bound == 0 then
-            fields[1] = "    unsigned char wordlet_pad;"
-        else
-            for _, field in ipairs(adapter.bound) do
-                fields[#fields + 1] = "    " .. layouts:cType(field.type)
-                    .. (field.pointer and " *" or " ") .. field.name .. ";"
-            end
-        end
-        lines[#lines + 1] = "typedef struct " .. adapter.name .. " {\n"
-            .. table.concat(fields, "\n") .. "\n} " .. adapter.name .. ";"
-    end
-    for _, tuple in ipairs(layouts.tupleOrder) do aggregate(tuple.name, tuple.fields) end
-    for _, record in ipairs(layouts.recordOrder) do aggregate(record.name, record.fields) end
-    -- A sum and a tagged callable share one shape: a tag word plus a union of payloads, held by
-    -- value so construction and projection are plain assignments.
-    local function tagStruct(layout)
-        local body = { "    uint32_t wordlet_tag;" }
-        local members = {}
-        for _, cased in ipairs(layout.cases) do
-            if cased.type == S.Unit then
-                members[#members + 1] = "        unsigned char " .. cased.name .. ";"
+        local entry
+        entry = define(adapter, {}, function()
+            local fields = {}
+            if #adapter.bound == 0 then
+                fields[1] = "    unsigned char wordlet_pad;"
             else
-                members[#members + 1] = "        " .. layouts:cType(cased.type) .. " " .. cased.name .. ";"
+                for _, field in ipairs(adapter.bound) do
+                    fields[#fields + 1] = "    " .. layouts:cType(field.type)
+                        .. (field.pointer and " *" or " ") .. field.name .. ";"
+                end
+            end
+            lines[#lines + 1] = "typedef struct " .. adapter.name .. " {\n"
+                .. table.concat(fields, "\n") .. "\n} " .. adapter.name .. ";"
+        end)
+        for _, field in ipairs(adapter.bound) do
+            if not field.pointer and field.type ~= S.Unit then
+                entry.needs[#entry.needs + 1] = layouts:cType(field.type)
             end
         end
-        if #members == 0 then
-            body[#body + 1] = "    unsigned char wordlet_pad;"
-        else
-            body[#body + 1] = "    union {"
-            for _, member in ipairs(members) do body[#body + 1] = member end
-            body[#body + 1] = "    } payload;"
-        end
-        lines[#lines + 1] = "typedef struct " .. layout.name .. " {\n"
-            .. table.concat(body, "\n") .. "\n} " .. layout.name .. ";"
     end
-    for _, sum in ipairs(layouts.sumOrder) do tagStruct(sum) end
-    for _, tagged in ipairs(layouts.taggedOrder) do tagStruct(tagged) end
+
+    local emitted = {}
+    local remaining = #order
+    while remaining > 0 do
+        local progressed = false
+        for _, entry in ipairs(order) do
+            if not emitted[entry.name] then
+                local ready = true
+                for _, need in ipairs(entry.needs) do
+                    -- A name that defines no aggregate is a scalar type spelled directly in C.
+                    if definitions[need] and not emitted[need] then ready = false break end
+                end
+                if ready then
+                    entry.emit()
+                    emitted[entry.name] = true
+                    remaining = remaining - 1
+                    progressed = true
+                end
+            end
+        end
+        if not progressed then
+            local stuck = {}
+            for _, entry in ipairs(order) do
+                if not emitted[entry.name] then stuck[#stuck + 1] = entry.name end
+            end
+            D.todo("c-order", "These types contain each other by value: " .. table.concat(stuck, ", "))
+        end
+    end
     for _, exported in ipairs(layouts.typeExports or {}) do
         lines[#lines + 1] = "typedef " .. exported.layout.name .. " " .. exported.name .. ";"
     end

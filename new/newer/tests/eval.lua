@@ -698,6 +698,48 @@ end
 return { functions = { pick } }
 ]==])
 
+
+-- Pure code and borrowed callables -----------------------------------------------------------------
+-- A callable with no environment is pure code: nothing is retained, so it has a representation and
+-- may cross a boundary as an invocation pointer with a null environment.
+local PURE = [==[
+let mk(): (U32): U32 = |x: U32| -> x + 1
+let pure(x: U32): U32 = do
+  let f = mk()
+  return f(f(x))
+end
+return { functions = { mk, pure } }
+]==]
+check(interpret("pure", { 4 }, PURE)[1] == 6, "pure code returned from a call is still callable")
+local pureUnit = compile(PURE):unit()
+check(pureUnit:find(".environment = NULL", 1, true) ~= nil, "pure code becomes a null-environment view")
+
+-- A callable that borrows storage is non-retaining, so a callable parameter takes a view that holds
+-- the borrowed place rather than a copy of the environment.
+local BORROWED_PASS = [==[
+let C = { v: U32 }
+let apply(f: (U32): U32, x: U32): U32 = f(x)
+let run(x: U32): U32 = do
+  let c = C { v = 10 }
+  let g = |y: U32| -> y + c.v
+  return apply(g, x)
+end
+return { types = { C }, functions = { run } }
+]==]
+check(interpret("run", { 5 }, BORROWED_PASS)[1] == 15,
+    "a borrowing closure is passed to a callable parameter and still reads its receiver")
+check(compile(BORROWED_PASS):unit():find("wordletadapterstruct_1", 1, true) ~= nil,
+    "a borrowed callable argument gets a local adapter")
+-- The borrow stays tracked, so it still cannot escape its activation.
+rejects("borrow-escape", [==[
+let C = { v: U32 }
+let leak(x: U32): (U32): U32 = do
+  let c = C { v = 10 }
+  return |y: U32| -> y + c.v
+end
+return { types = { C }, functions = { leak } }
+]==])
+
 -- The interpreter refuses an unsaturated entry rather than inventing a value.
 local ok, err = pcall(wordlet.interpret, { source = "let f(a, b: U32) : U32 = a + b\n"
     .. "return { functions = { f } }", entry = "f", args = { 1 } })

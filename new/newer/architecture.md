@@ -480,6 +480,7 @@ helpers. No historical helper names or facade signatures are compatibility requi
 | multiple runtime results | internal ordered result struct |
 | actual receiver borrow | typed pointer, optionally proven const |
 | concrete owned callable | inline environment struct; static code identity |
+| capture-free callable (pure code) | invocation pointer with a null environment, exactly a view |
 | non-retaining callable view | invocation pointer plus const void *environment |
 | captured borrowed bindings | compiler-private local bundle with typed pointers and saved values |
 
@@ -500,6 +501,11 @@ make its borrowed referents immutable.
 Emit statements in order. Introduce C temporaries at established statement points, not at a global
 expression's first textual occurrence. Read snapshots must precede later stores and potentially
 mutating calls. Function argument evaluation order must be established before the C call expression.
+
+Aggregate declarations are emitted in dependency order, with a struct tag per generated type so a
+pointer to one needs only a declaration. A record may hold a callable view whose parameter list
+mentions a record, so the by-value dependency runs in both directions and no fixed order is correct;
+a genuine by-value cycle is reported instead of emitted.
 
 Names use wordlet_<escaped export> and private wordletfn_<number>. Escape non-ASCII-alphanumeric bytes,
 including underscore, as _XX. Numbering follows deterministic traversal, not hash-table order.

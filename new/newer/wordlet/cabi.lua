@@ -87,7 +87,10 @@ function M.close(compilation)
     end
 
     -- One C struct per distinct visible signature: an invocation pointer and an environment.
-    local function viewLayout(ty)
+    -- An owned callable with an empty environment is pure code, and its C representation is the
+    -- same invocation pointer plus a null environment as any other view.
+    local function viewLayout(ty0)
+        local ty = S.view(S.isOwned(ty0) and ty0.visible or ty0.visible)
         local existing = layouts.views[ty]
         if existing then return existing end
         local sig = ty.visible
@@ -145,7 +148,8 @@ function M.close(compilation)
         if ty == S.Bool then return "bool" end
         if ty == S.Unit then return "void" end
         if S.isView(ty) then return viewLayout(ty).name end
-        if S.isOwned(ty) then return layouts:cType(ty.environment) end
+        if S.isOwned(ty) and S.environmentOf(ty) ~= S.Unit then return layouts:cType(ty.environment) end
+        if S.isOwned(ty) then return viewLayout(ty).name end
         if S.isRecord(ty) then return recordLayout(ty).name end
         if S.isSum(ty) then return sumLayout(ty).name end
         if S.isTagged(ty) then return taggedLayout(ty).name end

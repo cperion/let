@@ -197,13 +197,14 @@ function M.runtime(t, visiting)
     return false
 end
 
--- A value that can actually appear in generated code. An Owned type with no environment is pure
--- code identity, so it has no representation and must stay a compile-time fact.
+-- A value that can actually appear in generated code. An owned callable with an empty environment is
+-- pure code, and pure code already has a representation: the invocation pointer plus a null
+-- environment that a view is, so it is representable as well.
 function M.representable(t)
     if M.isView(t) then return M.runtime(t) end
     if M.isTaggedType(t) then return M.runtime(t) end
     if M.isOwned(t) then
-        if t.environment == Ty.Unit then return false end
+        if t.environment == Ty.Unit then return M.runtime(M.view(t.visible)) end
         return M.runtime(t.environment)
     end
     return M.runtime(t)

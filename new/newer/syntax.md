@@ -458,9 +458,12 @@ Capturing a mutable record instance or a method retains its actual place; copyin
 not secretly copy its state. Owned value captures form a by-value environment. A closure containing
 any receiver/place borrow or another borrowed callable is borrowed.
 
-Owned closures may return and copy. Borrowed closures/methods can be invoked locally or passed to
-non-retaining callable parameters, but cannot return or be stored in ordinary record fields, including
-through nested aggregates/results. Returning the stateful record and selecting its methods afterwards
+Owned closures may return and copy. A closure with no captures is pure code: it owns nothing, so it
+may also return or be stored, and it crosses a boundary as an invocation pointer with a null
+environment rather than an environment record. Borrowed closures/methods can be invoked locally or
+passed to non-retaining callable parameters, where the parameter takes a view whose adapter holds the
+borrowed place; they cannot return or be stored in ordinary record fields, including through nested
+aggregates/results. Returning the stateful record and selecting its methods afterwards
 is valid. An opaque signature does not prove ownership; its runtime symbols are conservatively borrowed.
 
 A result annotation that is a signature checks callable shape; it is not permission to erase an owned

@@ -152,6 +152,9 @@ Two rules are easy to get wrong and are therefore explicit:
   storage it lives in (`recordExpr`/`fieldExpr`), so those reads belong to the arm that built it.
   Storing an arm result with the enclosing context leaks reads of arm-local storage into the
   continuation. `evalCondition` and sum matching pass `yesCtx`/`noCtx`/the arm's context.
+- **Keep `inputPlan` and `inputTypes` in step.** A call site materialises each argument against the
+  input type recorded for it, so a builder that appends one without the other silently loses the
+  expected type. That is invisible for scalars and records and wrong for callables and aggregates.
 - **Never write `cond and nil or x`.** When the `and` branch yields `nil` the `or` branch runs
   anyway, which silently defeats an erasure guard such as a `Unit` payload. Use an explicit `if`.
 
