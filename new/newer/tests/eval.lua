@@ -1111,6 +1111,68 @@ end
 return { functions = { f } }
 ]==])
 
+
+-- Imports ------------------------------------------------------------------------------------------
+-- A `use` declaration names a file next to the importing one and its namespace exposes exactly the
+-- export list of that file, so a name that is not exported stays private.
+do
+    local root = os.tmpname()
+    os.remove(root)
+    assert(os.execute("mkdir -p -- '" .. root .. "'") ~= nil)
+    local function write(name, text)
+        local file = assert(io.open(root .. "/" .. name, "wb"))
+        assert(file:write(text))
+        assert(file:close())
+    end
+    write("util.let", [==[
+let Point = { x: U32, y: U32 }
+let helper(n: U32): U32 = n * 2
+let secret(n: U32): U32 = helper(n) + 1
+return { types = { Point }, functions = { helper, secret } }
+]==])
+    write("main.let", [==[
+use util
+let twice(n: U32): U32 = util.helper(n)
+let bumped(n: U32): U32 = util.secret(n)
+let origin(): util.Point = util.Point { x = 1, y = 2 }
+let sum_point(): U32 = origin().x + origin().y
+return { types = {  }, functions = { twice, bumped, sum_point } }
+]==])
+    local artifact = wordlet.compile_file(root .. "/main.let", { name = root .. "/main.let" })
+    local unit = artifact:unit()
+    check(unit:find("wordlet_twice", 1, true) ~= nil, "an entry module compiles with its imports")
+    check(#unit > 0, "an imported module produces one artifact with the entry")
+    -- Rejections ---------------------------------------------------------------------------------
+    write("bad_member.let", [==[
+use util
+let f(n: U32): U32 = util.hidden(n)
+return { functions = { f } }
+]==])
+    local ok, err = pcall(function()
+        return wordlet.compile_file(root .. "/bad_member.let", { name = root .. "/bad_member.let" })
+    end)
+    check(not ok and D.is(err) and err.code == "unknown-member",
+        "a name the module does not export is not reachable")
+    write("missing.let", "use nowhere\nlet f(n: U32): U32 = n\nreturn { functions = { f } }\n")
+    ok, err = pcall(function()
+        return wordlet.compile_file(root .. "/missing.let", { name = root .. "/missing.let" })
+    end)
+    check(not ok and D.is(err) and err.code == "import-input", "a missing module is reported")
+    write("a.let", "use b\nlet f(n: U32): U32 = n\nreturn { functions = { f } }\n")
+    write("b.let", "use a\nlet g(n: U32): U32 = n\nreturn { functions = { g } }\n")
+    ok, err = pcall(function()
+        return wordlet.compile_file(root .. "/a.let", { name = root .. "/a.let" })
+    end)
+    check(not ok and D.is(err) and err.code == "import-cycle", "a module cycle is reported")
+    ok, err = pcall(function()
+        return wordlet.compile{ source = "use util\nlet f(n: U32): U32 = n\n"
+            .. "return { functions = { f } }", name = "s.let" }
+    end)
+    check(not ok and D.is(err) and err.code == "import-input",
+        "a source string cannot use an import, because it has no directory")
+    os.execute("rm -rf -- '" .. root .. "'")
+end
+
 -- The interpreter refuses an unsaturated entry rather than inventing a value.
 local ok, err = pcall(wordlet.interpret, { source = "let f(a, b: U32) : U32 = a + b\n"
     .. "return { functions = { f } }", entry = "f", args = { 1 } })

@@ -32,7 +32,7 @@ this section states exactly how much of it runs today.
 | Partial application of a closure | implemented: `add(5)` yields a closure with a static argument bound |
 | Contextual lambda parameter types | implemented: a binding annotation, a parameter requirement or a result contract supplies them. A lambda with no expectation anywhere is still rejected (`lambda-annotation`) |
 | `U64`, signed integers and floats | **excluded in this version**: `U64` needs a pair-of-32-bit reference kernel, and `I32`/`F32` need a defined signed-conversion and rounding story |
-| Imports | **excluded in this version**: `syntax.md` §11 states there is none. A decision is needed on namespace versus merged names, on whether a non-exported name is private, and on how a lazily demanded cross-module binding keeps its order |
+| Imports (`use util.helper`) | implemented: the dotted name is a file next to the importing one, the last segment is a namespace over that file's export list, a name that is not exported stays private, each file loads once, a cycle rejects, and all modules share one translation unit and one initialiser |
 | Two different callables selected by one conditional | implemented as a tagged callable: a tag plus a union of the arm environments. A call tests the tag and runs that arm's own code directly, so it needs no function pointer. The same code identity in both arms needs no tag |
 | Erasing a runtime-tagged callable into a signature (`callable-erase`) | **rejected**: a view does not retain the environment that carries the tag. Call it where it was selected, or select the arm first |
 | Self-tail calls (`Loop`/`Next` back edges) | implemented; tails run at constant C stack depth |

@@ -346,7 +346,26 @@ end
 
 -- declarations ---------------------------------------------------------------
 
+-- `use util.helper`: a dotted module name, so no string literal and no new token is needed. The
+-- last segment is the namespace the module's exports are reached through. `use` is not a keyword:
+-- every definition begins with `let`, so a declaration starting with the name `use` can only be an
+-- import, and `let use = ...` keeps working.
+function Parser:useDecl()
+    local keyword = self:expectName("a module name")
+    local path, last = {}, nil
+    while true do
+        local name = self:expectName("a module name")
+        path[#path + 1] = name.text
+        last = name
+        if not self:at(".") then break end
+        self:next()
+    end
+    return A.c.UseDecl(A.name(last), table.concat(path, "."), S(keyword.span))
+end
+
 function Parser:declaration()
+    local first = self:peek()
+    if first.kind == "name" and first.text == "use" then return self:useDecl() end
     local let = self:expect("let")
     local name = self:expectName("a definition name")
     if self:at("(") then

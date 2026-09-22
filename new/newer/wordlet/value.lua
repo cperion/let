@@ -57,6 +57,12 @@ function M.array(ty, items, place, borrowed)
     return make{ tag = "array", ty = ty, items = items, place = place, borrowed = borrowed or false }
 end
 
+-- A module namespace: the exported functions and types of a `use`d module, reached by member
+-- selection. Its members are ordinary values, so no new call or supply rules are needed.
+function M.namespace(module, members)
+    return make{ tag = "namespace", ty = S.Type, module = module, members = members }
+end
+
 -- A constructor for one alternative of a sum type, named by member selection on the type.
 function M.ctor(sum, case, caseType)
     return make{ tag = "ctor", ty = S.Type, sum = sum, case = case, caseType = caseType }
@@ -86,7 +92,8 @@ function M.isIr(v) return M.is(v) and v.tag == "ir" end
 function M.isKnown(v)
     if not M.is(v) then return false end
     local tag = v.tag
-    if tag == "ir" or tag == "object" or tag == "schema" or tag == "callable" then
+    if tag == "ir" or tag == "object" or tag == "schema" or tag == "callable"
+        or tag == "namespace" then
         return false
     end
     -- A bound method is as known as the receiver it borrows.
@@ -122,7 +129,8 @@ function M.isStatic(v)
     local tag = v.tag
     -- A schema and a type are compile-time descriptions: capturing one is a static fact, not a
     -- runtime environment entry.
-    if tag == "int" or tag == "bool" or tag == "unit" or tag == "type" or tag == "schema" then
+    if tag == "int" or tag == "bool" or tag == "unit" or tag == "type" or tag == "schema"
+        or tag == "namespace" then
         return true
     end
     if tag == "word" then
@@ -154,6 +162,7 @@ function M.encode(v)
     if tag == "bool" then return "bool:" .. tostring(v.b) end
     if tag == "unit" then return "unit" end
     if tag == "type" then return "type:" .. S.encode(v.value) end
+    if tag == "namespace" then return "namespace:" .. tostring(v.module) end
     if tag == "word" then
         local parts = { "word:" .. tostring(v.def.id) }
         for _, arg in ipairs(v.args) do
@@ -211,6 +220,7 @@ function M.describe(v)
     if v.tag == "object" then return "object<" .. S.encode(v.ty) .. ">" end
     if v.tag == "record" then return "record<" .. S.encode(v.ty) .. ">" end
     if v.tag == "array" then return "array<" .. S.encode(v.ty) .. ">" end
+    if v.tag == "namespace" then return "namespace<" .. tostring(v.module) .. ">" end
     if v.tag == "schema" then return "schema<" .. tostring(v.def.name or v.def.id) .. ">" end
     if v.tag == "method" then return "method<" .. tostring(v.def.name) .. ">" end
     if v.tag == "closure" then return "closure<" .. tostring(v.plan.def.name) .. ">" end

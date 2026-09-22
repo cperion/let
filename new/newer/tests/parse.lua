@@ -174,7 +174,7 @@ rejects("lex-char", "let x = $\nreturn { functions = {} }")
 rejects("parse", "let f(x: U32) = x\nreturn { functions = { f }\n")
 
 -- examples parse -----------------------------------------------------------------
-for _, example in ipairs({ "arithmetic", "receivers", "captures", "sums", "tagged", "references", "arrays" }) do
+for _, example in ipairs({ "arithmetic", "receivers", "captures", "sums", "tagged", "references", "arrays", "modules", "modules_util" }) do
     local path = (source:match("^(.*[/\\])") or "./") .. "../examples/" .. example .. ".let"
     local file = assert(io.open(path, "rb"))
     local text = assert(file:read("*a"))

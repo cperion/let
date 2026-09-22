@@ -20,6 +20,14 @@ function M.compile(options)
     local name = options.name or "<source>"
     local tokens = Lex.tokens(options.source, name)
     local program = Parse.program(tokens)
+    -- A source string has no file to resolve an import against, so only a file may use one.
+    for _, decl in ipairs(program.declarations) do
+        if decl.kind == "UseDecl" then
+            D.reject("import-input",
+                "A module that uses another has to be compiled from a file, so that `use "
+                .. decl.path .. "` can be resolved next to it", decl.span)
+        end
+    end
     local session = options.session or Eval.session(options)
     if options.session and options.session.instances then
         -- A fresh session per compilation is the supported entry point.
@@ -34,15 +42,88 @@ function M.compile(options)
     return M.artifact(layouts, compilation)
 end
 
-function M.compile_file(path, options)
+-- Imports -----------------------------------------------------------------------------------------
+-- A module is a file. `use util.helper` names `util/helper.let` next to the importing file, and what
+-- a module offers is exactly its export list, so nothing else is visible. Each module has its own
+-- top-level scope, so a name that is not exported stays private.
+
+local function readModule(path)
     local file, err = io.open(path, "rb")
-    if not file then D.reject("compile-input", "Cannot read " .. tostring(path) .. ": " .. tostring(err)) end
-    local source = file:read("*a")
+    if not file then
+        D.reject("import-input", "Cannot read " .. path .. ": " .. tostring(err))
+    end
+    local text = file:read("*a")
     file:close()
+    return text
+end
+
+local function directoryOf(path)
+    return path:match("^(.*)[/\\][^/\\]*$") or "."
+end
+
+local function resolveImport(directory, dotted)
+    local relative = dotted:gsub("%.", "/")
+    if not relative:match("%.let$") then relative = relative .. ".let" end
+    return directory .. "/" .. relative
+end
+
+-- Loads a module and everything it uses, and returns the module: its namespace, its program and its
+-- top scope. `stack` catches a cycle and `cache` loads each file once.
+local function loadModule(engine, path, stack, cache)
+    local existing = cache[path]
+    if existing then return existing end
+    for _, open in ipairs(stack) do
+        if open == path then
+            D.reject("import-cycle", "Module " .. path .. " imports itself through " .. path)
+        end
+    end
+    stack[#stack + 1] = path
+    local program = Parse.source(readModule(path), path)
+    -- Imports are resolved before the module is loaded, so their namespaces exist before anything is
+    -- evaluated.
+    local imports = {}
+    for _, decl in ipairs(program.declarations) do
+        if decl.kind == "UseDecl" then
+            imports[#imports + 1] = {
+                decl = decl,
+                module = loadModule(engine, resolveImport(directoryOf(path), decl.path), stack, cache),
+            }
+        end
+    end
+    local saved = engine.top
+    local top = engine:load(program)
+    for _, item in ipairs(imports) do
+        engine:declareNamespace(top, item.decl.name.text, item.module.namespace, item.decl.span)
+    end
+    local members = {}
+    for _, item in ipairs(program.export.functions) do
+        members[item.name.text] = engine:resolveExportItem(item, top)
+    end
+    for _, item in ipairs(program.export.types) do
+        members[item.name.text] = engine:resolveExportItem(item, top)
+    end
+    local module = { namespace = V.namespace(path, members), program = program, top = top }
+    engine.top = saved
+    stack[#stack] = nil
+    cache[path] = module
+    return module
+end
+
+-- M.compile_file loads the module graph, then compiles the entry module with its own top scope. A
+-- source string with no path cannot resolve an import, so only a file may use one.
+function M.compile_file(path, options)
     local merged = {}
     for key, value in pairs(options or {}) do merged[key] = value end
-    merged.source, merged.name = source, path
-    return M.compile(merged)
+    local engine = Eval.session(merged)
+    local module = loadModule(engine, path, {}, {})
+    engine.top = module.top
+    local compilation = engine:compile(module.program, module.top)
+    local functions = {}
+    for _, instance in ipairs(engine.order) do functions[#functions + 1] = instance.fn end
+    Check.program(functions, (compilation.modules and #compilation.modules > 0)
+        and compilation.modules or nil)
+    local layouts = C.close(compilation)
+    return M.artifact(layouts, compilation)
 end
 
 function M.artifact(layouts, compilation)

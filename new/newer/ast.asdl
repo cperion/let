@@ -8,6 +8,9 @@ module Ast {
 
   Decl = WordDecl(WordDef def, Span span)
        | ValueDecl(ValueDef def, Span span)
+       # `use util.helper`: the dotted name names a file next to this one, and the last segment
+       # names the namespace its exports are reached through.
+       | UseDecl(Name name, string path, Span span)
 
   # let f(a, b: U32): (U32, U32) = body
   WordDef = (Name name, Param* params, ResultSpec? result, Body body)

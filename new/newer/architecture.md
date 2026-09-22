@@ -551,6 +551,15 @@ recursive definition is finite and a by-value cycle is reported instead of emitt
 mentions a record, so the by-value dependency runs in both directions and no fixed order is correct;
 a genuine by-value cycle is reported instead of emitted.
 
+A `use`d module is a file resolved next to the importing one, and each module keeps its own top-level
+scope, so a name that is not exported stays private. A module's importable surface is exactly its
+export list, reached through a namespace value whose members are ordinary words and types, so no new
+call or supply rule is needed. The loader resolves imports before loading the module that uses them,
+loads each file once, rejects a cycle, and compiles the entry module with its own scope. Every module
+shares one translation unit and one initialiser, so the host still makes one call. A name is resolved
+in the module that defines it: a definition records its lexical scope, and a lambda created later uses
+the root of the scope chain it was written in rather than a global one.
+
 Names use wordlet_<escaped export> and private wordletfn_<number>. Escape non-ASCII-alphanumeric bytes,
 including underscore, as _XX. Numbering follows deterministic traversal, not hash-table order.
 Public type aliases hide private numbered layout names. Headers have include guards and C++ linkage

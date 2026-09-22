@@ -38,6 +38,14 @@ local function declare(sc, name, slot, span)
     return slot
 end
 
+-- The module a scope belongs to: the root of its chain. A definition's names are resolved there, so
+-- each module keeps its own top-level names even when several are compiled together.
+local function moduleTop(sc)
+    local current = sc
+    while current and current.parent do current = current.parent end
+    return current
+end
+
 local function lookup(sc, name)
     local current = sc
     while current do
@@ -89,6 +97,9 @@ function Eval:load(program)
         if decl.kind == "WordDecl" then
             local slot = declare(top, decl.def.name.text, { kind = "word", name = decl.def.name.text }, decl.span)
             slot.def = self:define(decl.def, top, nil)
+        elseif decl.kind == "UseDecl" then
+            -- The loader resolves every import before this runs and declares the namespace itself.
+            goto continue
         else
             local binder = decl.def.binders[1]
             local slot = declare(top, binder.name.text,
@@ -98,6 +109,7 @@ function Eval:load(program)
             -- the interpreter already holds its record.
             slot.atTop = true
         end
+        ::continue::
     end
     for _, name in ipairs({ "U32", "U8", "U16", "Bool", "Unit", "Type" }) do
         declare(top, name, { kind = "value", name = name, value = V.type(S[name]) })
@@ -154,8 +166,11 @@ function Eval:load(program)
     return top
 end
 
-function Eval:compile(program)
-    local top = self:load(program)
+-- Compiles one module. A `use`d module is loaded first by the caller, which passes its own top so
+-- this module's names resolve there.
+function Eval:compile(program, loadedTop)
+    local top = loadedTop or self:load(program)
+    self.top = top
     local exports = { functions = {}, types = {} }
     local resolve = function(item) return self:resolveExportItem(item, top) end
 
@@ -267,6 +282,11 @@ function Eval:moduleObject(slot, span)
     }
     slot.module = { object = object }
     return object
+end
+
+-- Declares a `use`d module's namespace in the importing module's top scope.
+function Eval:declareNamespace(top, name, value, span)
+    return declare(top, name, { kind = "value", name = name, value = value }, span)
 end
 
 function Eval:exportedValue(program, name, top)
@@ -1841,6 +1861,13 @@ function Eval:evalFieldSelect(ctx, expr)
     elseif tag == "schema" then
         if base.def.methods[name] then return V.method(base.def.methods[name], nil) end
         D.reject("unknown-member", "Schema has no member " .. name, expr.field.span)
+    elseif tag == "namespace" then
+        local member = base.members[name]
+        if not member then
+            D.reject("unknown-member", "Module " .. tostring(base.module) .. " does not export " .. name,
+                expr.field.span)
+        end
+        return member
     elseif tag == "type" and S.isSum(base.value) then
         -- A sum type's member names a constructor for one alternative.
         local caseType = S.caseOf(base.value, name)
@@ -2142,7 +2169,7 @@ end
 
 -- Evaluating a capture-free closure with known arguments produces a value, not a call.
 function Eval:applyClosureStatically(plan, args, span)
-    local sc = scope(self.top)
+    local sc = scope(plan.def.lexical)
     for _, name in ipairs(plan.borrowedOrder) do
         local borrowed = plan.borrowed[name]
         if not borrowed.record then
@@ -2206,7 +2233,8 @@ end
 function Eval:evalLambda(ctx, expr, expected)
     local order = Resolve.captures(expr)
 
-    local plan = { def = self:define(expr, self.top, nil, "|lambda|"), order = order, static = {},
+    local plan = { def = self:define(expr, moduleTop(ctx.scope), nil, "|lambda|"), order = order,
+        static = {},
         runtime = {}, runtimeOrder = {}, captures = order }
     plan.def.lambda = true
     plan.borrowed, plan.borrowedOrder = {}, {}
@@ -2415,7 +2443,7 @@ function Eval:buildCallableInstance(key, callable, args, span)
 
     local body, setup = {}, {}
     local builder = IR.builder({ id = instance.target })
-    local sc = scope(self.top)
+    local sc = scope(plan.def.lexical)
     local params, paramTypes, inputs = {}, {}, {}
 
     -- The captured environment arrives first, one input per runtime capture.

@@ -693,7 +693,24 @@ interface. Immutable scalar snapshots and static definitions are valid captured 
 initializers are demanded in declaration order after names are registered; dependency demands may
 force a later initializer first. Each initializer executes once, and dependency cycles reject.
 
-There is no import or pub syntax in this version. There is no traps section: known zero division
+A module may use another with `use <dotted name>` at the top of the file. The name is a path next to
+the importing file with dots as separators and `.let` implied, so `use util.helper` reads
+`util/helper.let`. The last segment is the namespace the module's exports are reached through:
+
+```
+use util
+let twice(n: U32): U32 = util.helper(n)
+let origin(): util.Point = util.Point { x = 1, y = 2 }
+```
+
+What a module offers is exactly its export list, so `util.helper` and `util.Point` work only if the
+used file exports them; any other name stays private to that file. A used module's own imports are
+resolved first, a module is loaded once however many files use it, and a cycle rejects
+(`import-cycle`). Modules compiled together share one translation unit and one initialiser, so
+file-scope mutable storage in a used module is initialised by the same host call. Only a file can use
+an import, because a source string has no directory to resolve against.
+
+There is no `pub` syntax in this version. There is no traps section: known zero division
 rejects, dynamic zero division aborts. Configurable failure handling and module imports need separate
 language decisions.
 
@@ -804,7 +821,7 @@ general borrow parameters, reference arithmetic, null or dangling references, ow
 reference, residual partial application, general tuple values, sparse or growing arrays or a
 zero-length array, record-value literals without a
 schema, non-exhaustive or recursive pattern matching, implicit type parameters, arbitrary foreign
-layouts, imports, pub or configurable traps are implied by this syntax. A reference is a checked
+layouts, `pub`, selective or re-exporting imports and configurable traps are implied by this syntax. A reference is a checked
 borrow of a target that outlives it, not a pointer type a program may fabricate.
 
 Required syntax/semantic tests include:

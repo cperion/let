@@ -100,6 +100,10 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    adopting a narrower operand, mixed run-time widths widening, a checked conversion that rejects a
    known value out of range and aborts a run-time one, a non-integer conversion rejected, and the
    rejections `numeric-range` for an out-of-range annotation or conversion.
+8e. **Imports (implemented):** a two-file program compiled through `compile_file` and run from C, an
+   imported type used as an annotation and as a keyed supply, a name the module does not export
+   (`unknown-member`), a missing file (`import-input`), a cycle (`import-cycle`), and a source string
+   that tries to use an import.
 9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.

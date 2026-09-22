@@ -281,6 +281,12 @@ artifact:unit()            -- string: one self-contained translation unit (heade
 artifact:exports()         -- { functions = {name...}, types = {name...} }
 ```
 
+`compile_file` resolves the module graph first: it reads each `use`d file relative to the importing
+one, loads a module before the modules that use it, declares each namespace in the importing module's
+top scope, and then compiles the entry module with its own top. `Eval:compile(program, top)` accepts
+that pre-loaded scope; `Eval:declareNamespace` puts a namespace in it. A source string cannot resolve
+an import, so `compile` rejects a `use` declaration (`import-input`).
+
 Options: `name` (defaults to the path), `limits` (section 9), `target = "c11"`. Compilation errors
 raise `Diagnostic`; the facade never returns a partial artifact. `artifact:unit()` exists because the
 bundler's CLI defaults to one file, while `header`/`source` support separate compilation.
