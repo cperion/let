@@ -3,12 +3,19 @@
 -- a detached value does not acquire one from the dynamic caller.
 local Model = require("word.model")
 local Host = require("word.host")
+local table = Host.table
 local M = {}
 
 function M.path_key(path)
     local parts = {}
     for _, name in ipairs(path or {}) do parts[#parts + 1] = #name .. ":" .. name end
     return table.concat(parts, "/")
+end
+
+function M.extend_path(path, name)
+    local result = {table.unpack(path or {})}
+    result[#result + 1] = name
+    return result
 end
 
 -- Keep the existing immediate-receiver ABI unless this scope (including its

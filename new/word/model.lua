@@ -49,7 +49,7 @@ end
 function M.key(value)
     local p = assert(M.get(value))
     if p.tag == "word" then
-        if p.owner then D.reject("static-required", "Receiver selections are not static cache keys") end
+        if p.owner or p.occurrence_owner then D.reject("static-required", "Receiver selections are not static cache keys") end
         local parts = { "Word:" .. p.definition.id }
         for _, item in ipairs(p.static) do
             local key = M.key(item); parts[#parts + 1] = #key .. ":" .. key

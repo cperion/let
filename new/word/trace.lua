@@ -22,6 +22,12 @@ function M.describe(value)
         return {tag = "results", values = values}
     end
     if p.tag == "callable_known" then return {tag = p.tag, type = p.type, code = M.describe(p.code)} end
+    if p.tag == "known" and p.occurrence_owner then
+        return {tag = "occurrence", type = p.type, key = Model.key(value),
+            owner = Model.key(p.occurrence_owner),
+            scope_path = require("word.owner").path_key(p.occurrence_path),
+            receiver = p.occurrence_receiver and M.describe(p.occurrence_receiver) or nil}
+    end
     if p.tag == "word" then
         return {tag = "word", key = Model.key(p.method or value), owner = p.owner,
             scope_path = require("word.owner").path_key(p.scope_path),

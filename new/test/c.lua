@@ -1053,6 +1053,79 @@ H.test("outlined lexical captures retain snapshots across recursion and borrowed
     ]]), "")
 end)
 
+H.test("immutable nested owners erase frozen roots and expose explicit outer receiver ABIs", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Inner = word{value = U32,
+            read = word(Unit, function() return bias + value end),
+            bump = word(U32, function(n) bias = bias + n; return bias + value end)}
+        local Outer = word{bias = U32, left = Inner, right = Inner}
+        local Half = Outer:of{left = {value = 4}, right = {value = 9}}
+        local Fixed = Outer:of{bias = 3, left = {value = 4}, right = {value = 9}}
+        return {types = {Half = Half}, functions = {
+            left = Half.left.read, right = Half.right.read,
+            bump = Half.left.bump, fixed = Fixed.left.read}}
+    ]])
+    local program = s:compile(m)
+    local exports = {}; for _, export in ipairs(program.exports) do exports[export.name] = export.target end
+    assert(exports.left ~= exports.right)
+    H.eq(program.functions[exports.left].receiver.type, s:type(m.types.Half))
+    H.eq(program.functions[exports.fixed].receiver, nil)
+    H.eq(run_c(s:emit_c(m) .. [[
+        #include <assert.h>
+        int main(void) {
+            wordtype_Half h = {.f_bias = 10};
+            assert(word_left(&h) == 14 && word_right(&h) == 19);
+            assert(word_bump(&h, 2) == 16 && h.f_bias == 12);
+            assert(word_fixed() == 7);
+            return 0;
+        }
+    ]]), "")
+end)
+
+H.test("captured snapshot occurrences retain borrowed roots and distinct frozen owners in C", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Inner = word{value = U32, read = word(Unit, function() return bias + value end)}
+        local Outer = word{bias = U32, left = Inner}
+        local Half = Outer:of{left = {value = 4}}
+        local A = Outer:of{bias = 3, left = {value = 4}}
+        local B = Outer:of{bias = 10, left = {value = 4}}
+        local function fixed(selected)
+            return word(U32, function(n)
+                local loop
+                loop = word(U32, function(x)
+                    if x:eq(0) then return selected.read(nil) end
+                    return loop(x - 1)
+                end)
+                return loop(n)
+            end)
+        end
+        return {functions = {
+            run = word(U32, U32, function(initial, n)
+                local h = Half{bias = initial}
+                local selected = h.left
+                local loop
+                loop = word(U32, function(x)
+                    if x:eq(0) then return selected.read(nil) end
+                    h.bias = h.bias + 1
+                    return loop(x - 1)
+                end)
+                return loop(n)
+            end),
+            a = fixed(A.left), b = fixed(B.left),
+        }}
+    ]])
+    local c = s:emit_c(m)
+    H.eq(run_c(c .. [[
+        #include <assert.h>
+        int main(void) {
+            assert(word_run(10, 10000) == 10014);
+            assert(word_a(10000) == 7);
+            assert(word_b(10000) == 14);
+            return 0;
+        }
+    ]]), "")
+end)
+
 H.test("nested keyed owners compile to root receiver parameters with distinct recursive occurrences", function()
     local s = Word.new(); local m = s:load(H.root .. "examples/lexical_owners.lua")
     local c = s:emit_c(m)

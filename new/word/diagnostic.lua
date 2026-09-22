@@ -2,7 +2,6 @@
 local M = {}
 local features = {
     ["host-captures"] = "Define freezing/registration for host tables, functions, and foreign environments.",
-    ["keyed-words"] = "Complete outer-owner bindings for nested immutable snapshots and unbound nested member interfaces.",
 }
 local mt = { __tostring = function(d)
     local text = string.format("%s [%s] %s", d.kind:upper(), d.id, d.message)

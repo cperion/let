@@ -7,12 +7,16 @@ LuaJIT is the host baseline; C11 is the residual target. `README.md` describes w
 
 | Category | Working now | Remaining work / executable evidence |
 | --- | --- | --- |
-| `keyed-words` | Signature-valued members; immediate and locally constructed lexical methods; nested mutable record selections retain actual enclosing roots and lexical paths, including recursive sibling occurrences. | Complete nested immutable-snapshot owner binding and unbound nested interfaces requiring outer owners. `test/owners.lua` covers the retained-root slice, shadowing, replacement, copies and absence of dynamic caller inheritance. Missing detached owners are never inferred. |
 | `host-captures` | Checked primitive/word captures and typed immutable aggregate snapshots. | Explicit freezing/registration for host tables/helpers and typed residual foreign effects. The host-table capture in `test/model.lua` remains an executable TODO. Arbitrary Lua-effect replay is not an implementation strategy. |
 
-`keyed-words` remains a roadmap category without a dedicated active TODO trap; successful retained-root
-selection does not establish support for every owner-binding interface. The remaining active TODO
-trap is `host-captures`, witnessed in `test/model.lua`.
+The former `keyed-words` catalogue entry is retired. Nested mutable places and immutable snapshot
+selections retain actual roots and lexical paths; direct nested schema selection creates an explicit
+unbound root/path interface. Static owner contents and occurrence paths participate in code identity.
+Record construction, parameters, results and static supplies detach that route, so missing owners are
+never inferred from definitions, addresses or dynamic callers. `test/owners.lua` covers snapshots,
+shadowing, replacement, copies, distinct sibling occurrences and absence of caller inheritance; `test/c.lua`
+covers frozen-root erasure and partially static outer receiver ABIs. The remaining active TODO trap is
+`host-captures`, witnessed in `test/model.lua`.
 
 ## Retired callable-input trap
 

@@ -21,6 +21,7 @@ function M.value(engine, value, seen)
     if seen[value] then return false end
     seen[value] = true
     if p.tag == "callable_known" then return M.value(engine, p.code, seen) end
+    if p.occurrence_receiver and Model.get(p.occurrence_receiver).tag ~= "known" then return true end
     if p.tag == "word" then
         if p.capture_env and M.type(Model.get(p.capture_env).type) then return true end
         if p.definition.borrowed_fields then return true end

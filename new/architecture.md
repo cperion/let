@@ -419,8 +419,9 @@ Do not add hidden back-pointers to every record or infer parent objects from C a
 Nested mutable field places now retain their actual aggregate root and occurrence path. When outer
 names are required, private functions receive that root and select the lexical scopes along the path.
 Closed child classification receives ancestor names explicitly along declared field edges, not from the
-dynamic invocation or type-demand stack. Nested immutable snapshots and unbound outer-dependent
-interfaces still need additional owner-binding work.
+dynamic invocation or type-demand stack. Nested immutable snapshot selections carry transient actual-root
+bindings, while direct nested schema selections carry explicit unbound root/path interfaces. Both preserve
+lexical occurrence identity; by-value boundaries discard the route and never reconstruct a missing owner.
 Escaping bound words and references to dead local storage are not made safe by C-representability.
 Initially reject unsupported escapes rather than adding implicit allocation or claiming ownership safety.
 
@@ -694,8 +695,8 @@ and nested field receivers. Closed children normalize to a data type requirement
 when they require receiver/storage access or yield a non-type result. Private control unwinding supplies
 no dummy receiver value. Immediate-terminal environment-read names accompany successful normalization
 results so owner shadowing cannot reuse an inappropriate cached meaning; no trace/storage is retained.
-Signature members have a typed callable ABI. Retained mutable roots support nested lexical owners;
-immutable nested snapshot bindings and unbound outer-dependent interfaces remain incomplete.
+Signature members have a typed callable ABI. Retained mutable roots, immutable nested snapshots and
+explicit unbound nested interfaces support lexical outer owners without inferred parents or caller inheritance.
 Escaping mutable receiver views are forbidden by the language; factories return their records by value.
 Unbound methods export with a typed receiver pointer; immutable snapshot receivers can erase it.
 Mutable bound Lua receivers cannot export. Methods start inline, while recursive selections use the

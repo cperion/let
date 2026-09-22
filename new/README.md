@@ -305,12 +305,16 @@ caller's receiver. Local self-recursive words keep the same typed receiver ABI.
 
 Such mutable receiver views remain borrowed. To return an immutable snapshot closure, first read the
 field into a Lua local and capture that scalar value instead. See `new/examples/lexical_locals.lua`.
-Nested mutable keyed places retain their actual root and field path. Their methods can read/write
-nearest lexical fields and call outer sibling methods; recursive occurrences share owner storage, not
-lexical paths. Outlined methods needing outer names take a root receiver pointer. Shared definitions
-never acquire mutable parent links. A detached nested copy cannot reconstruct a missing outer owner.
-Nested immutable-snapshot owner bindings and unbound outer-dependent interfaces remain incomplete.
-See `new/examples/lexical_owners.lua`, `new/examples/method_exports.lua` and `new/examples/closed_methods.lua`.
+Nested mutable keyed places and immutable snapshot selections retain their actual root and field path.
+Their methods can read/write nearest lexical fields and call outer sibling methods; recursive occurrences
+share owner storage, not lexical paths. An immutable root specializes by copied snapshot contents; a
+partially static root exposes the remaining outer storage as an explicit receiver ABI. Direct nested
+schema selection similarly records an unbound root/path interface. Outlined methods needing outer names
+take that root receiver pointer. Static owner keys and lexical paths keep shared child occurrences distinct.
+Shared definitions never acquire mutable parent links, dynamic callers never supply owners, and every
+record construction, parameter, result or static-supply boundary detaches the selection route. A detached
+nested copy therefore cannot reconstruct a missing outer owner. See `new/test/owners.lua`,
+`new/examples/lexical_owners.lua`, `new/examples/method_exports.lua` and `new/examples/closed_methods.lua`.
 
 ## Executable inputs
 
@@ -515,8 +519,9 @@ Try `new/examples/recursive_helpers.lua`.
 ## Deliberate limits
 
 Mutable receiver views cannot escape by design. Immutable runtime closures and borrowed runtime
-callbacks work. Recursive reference types, explicit host registration and the remaining owner/capture
-combinations in [STATUS.md](STATUS.md) are not implemented. See `--todos` for the completion frontier.
+callbacks work. Recursive reference types and explicit host/foreign-operation registration are not
+implemented; [STATUS.md](STATUS.md) distinguishes that active trap from broader specified facilities.
+See `--todos` for the completion frontier.
 
 Use `x:eq(y)` for equality. Ordering operators work with two typed operands, e.g. `x < U32(10)`.
 LuaJIT does not dispatch mixed proxy/number comparisons: use `x:lt(10)`, `:le`, `:gt` or `:ge`.

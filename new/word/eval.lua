@@ -96,7 +96,7 @@ function E:define(args)
                 D.reject("schema-key", "Schema keys must be nonempty names other than of/eq")
             end
             local fp = self:word_payload(value) -- Retain a deferred requirement; do not execute it.
-            if fp.owner then D.reject("static-required", "Receiver selections cannot be schema requirements") end
+            if fp.owner or fp.occurrence_owner then D.reject("static-required", "Receiver selections cannot be schema requirements") end
             fields[name] = value; order[#order + 1] = name
         end
         table.sort(order)
@@ -110,7 +110,8 @@ function E:define(args)
     end
     local inputs = {}
     for i = 1, args.n do
-        if self:word_payload(args[i]).owner then D.reject("static-required", "Receiver selections cannot be requirements") end
+        local input = self:word_payload(args[i])
+        if input.owner or input.occurrence_owner then D.reject("static-required", "Receiver selections cannot be requirements") end
         inputs[i] = args[i]
     end
     local def = self:staged_definition(self:definition(inputs, terminal))
@@ -387,14 +388,39 @@ function E:member(w, name)
     if p.definition.shape ~= "keyed" then
         local result = self:normalize(w)
         if not Model.word(result) or result == w then D.reject("unknown-member", "Unknown word member: " .. tostring(name)) end
-        w = result
+        w, p = result, self:word_payload(result)
     end
     local schema = self:as_type(w)
     local def = Model.word(schema).definition
-    if def.methods and def.methods[name] then return self:bind_method(def.methods[name], schema) end
-    if def.bindings and def.bindings[name] then return def.bindings[name] end
-    if def.fields and def.fields[name] then return def.fields[name] end
-    D.reject("unknown-member", "Unknown schema member: " .. tostring(name))
+    local root = p.occurrence_owner or schema
+    local path = Owner.extend_path(p.occurrence_path, name)
+    if def.methods and def.methods[name] then
+        if p.occurrence_owner and Owner.needs_outer(schema, root, p.occurrence_path) then
+            return self:bind_method(def.methods[name], root, nil, p.occurrence_path)
+        end
+        return self:bind_method(def.methods[name], schema)
+    end
+    local field = def.fields and def.fields[name]
+    if not field then D.reject("unknown-member", "Unknown schema member: " .. tostring(name)) end
+    if def.bindings and def.bindings[name] then
+        local bound = def.bindings[name]
+        if Model.record(field) and Owner.needs_outer(field, root, path) then
+            return Data.occurrence(self, bound, root, nil, path)
+        end
+        return bound
+    end
+    if Model.record(field) and Owner.needs_outer(field, root, path) then
+        return self:bind_occurrence(field, root, path)
+    end
+    return field
+end
+
+-- An unbound nested schema selection records only the declared occurrence.
+-- It carries no receiver and cannot acquire one from a dynamic caller.
+function E:bind_occurrence(schema, owner, scope_path)
+    local p = self:word_payload(schema)
+    return Model.wrap({tag = "word", engine = self, definition = p.definition, static = p.static,
+        occurrence_owner = owner, occurrence_path = {table.unpack(scope_path)}}, self.word_mt)
 end
 
 -- A transient selection, never interned with static specialization metadata.
@@ -497,7 +523,8 @@ end
 function E:static_value(t, value, depth)
     local p = Model.get(value)
     if p and p.engine ~= self then D.reject("foreign-session", "Static value belongs to another session") end
-    if p and (p.tag == "symbol" or p.tag == "place" or p.owner) then
+    if p and (p.tag == "symbol" or p.tag == "place" or p.owner or
+        p.occurrence_receiver and Model.get(p.occurrence_receiver).tag ~= "known") then
         D.reject("static-required", "Static supply requires immutable values, not runtime storage")
     end
     if Model.record(t) then return Data.constant(self, t, value, depth) end
@@ -536,6 +563,7 @@ function E:check_word(w, seen)
     for _, t in pairs(p.definition.fields or {}) do self:check_word(t, seen) end
     for _, t in pairs(p.definition.methods or {}) do self:check_word(t, seen) end
     if p.owner then self:check_word(p.owner, seen) end
+    if p.occurrence_owner then self:check_word(p.occurrence_owner, seen) end
     if p.definition.lexical_static then
         self:check_word(p.definition.lexical_static.owner, seen)
         self:check_static(p.definition.lexical_static.receiver, seen)
@@ -570,9 +598,11 @@ function E:captures(def, seen, occurrence)
                 p.definition.lexical_owner == def.lexical_owner and occurrence and
                 p.owner == occurrence.owner and p.receiver == occurrence.receiver
             if not lexical_link and (p.tag == "symbol" or p.tag == "place" or
-                (p.receiver and Model.get(p.receiver).tag ~= "known")) then
+                (p.receiver and Model.get(p.receiver).tag ~= "known") or
+                (p.occurrence_receiver and Model.get(p.occurrence_receiver).tag ~= "known")) then
                 if not def.staged and not def.transient then D.todo("host-captures", "Dynamic captured value/storage/receiver") end
-                local captured = p.receiver and Model.get(p.receiver) or p
+                local captured = p.receiver and Model.get(p.receiver) or
+                    p.occurrence_receiver and Model.get(p.occurrence_receiver) or p
                 local builder = captured.root and captured.root.builder or captured.builder
                 if (def.staged and not builder) or (builder and (not self:context() or builder ~= self:context().builder)) then
                     D.reject("symbol-extent", "Staged capture escaped its construction trace")
@@ -613,7 +643,7 @@ function E:result(results)
         end
         if Model.record(p.type) then
             value = self:coerce(p.type, value)
-            if p.tag == "known" and self:context().mode == "normalize" then return value end
+            if p.tag == "known" and self:context().mode == "normalize" then return Data.detach(self, value) end
             return Data.copy(self, value)
         end
         return self:coerce(p.type, value)
@@ -796,6 +826,9 @@ function E:invoke(w, args)
     end
     if def.shape == "keyed" then
         if args.n ~= 1 then D.reject("arity", "Keyed construction requires one named supply table") end
+        -- Constructing through a nested type selection is a by-value boundary;
+        -- the new child has no enclosing root unless it is selected from one.
+        if p.occurrence_owner then w = self:handle(def, p.static) end
         return Data.construct(self, w, args[1])
     end
     local remaining = #def.inputs - #p.static

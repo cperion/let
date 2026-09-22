@@ -3,6 +3,7 @@ local D = require("word.diagnostic")
 local table = require("word.host").table
 local Model = require("word.model")
 local Borrow = require("word.borrow")
+local Owner = require("word.owner")
 local M = {}
 
 local function phase(engine)
@@ -52,8 +53,34 @@ local function project(p, name)
     local def = Model.record(p.type)
     local t = def and def.fields[name]
     if not t then D.reject("unknown-field", "Unknown record field: " .. tostring(name)) end
-    local path = { table.unpack(p.path or {}) }; path[#path + 1] = name
-    return t, path
+    return t, Owner.extend_path(p.path or p.occurrence_path, name)
+end
+
+-- A selected immutable subrecord can retain the lexical occurrence used to
+-- reach it without modifying the stored snapshot or its shared definition.
+-- The receiver is an actual root when one exists; nil denotes an explicitly
+-- unbound schema interface, never an invitation to consult a caller frame.
+function M.occurrence(engine, value, owner, receiver, path)
+    local p = Model.get(value)
+    if not p or p.engine ~= engine or p.tag ~= "known" or not Model.record(p.type) then
+        D.bug("snapshot-occurrence", "Expected an immutable record snapshot")
+    end
+    return Model.wrap({tag = "known", engine = engine, type = p.type, value = p.value,
+        record_depth = p.record_depth, record_nodes = p.record_nodes,
+        occurrence_owner = owner, occurrence_receiver = receiver,
+        occurrence_path = {table.unpack(path or {})}}, engine.value_mt)
+end
+
+-- Value/static boundaries copy the snapshot payload, not the lexical route by
+-- which it was selected. This is what prevents a detached child from inventing
+-- or retaining an outer owner.
+function M.detach(engine, value)
+    local p = Model.get(value)
+    if not p or not p.occurrence_owner then return value end
+    local result = engine:known(p.value, p.type)
+    local rp = Model.get(result)
+    rp.record_depth, rp.record_nodes = p.record_depth, p.record_nodes
+    return result
 end
 
 local function supply(t, values)
@@ -77,8 +104,11 @@ function M.constant(engine, t, values, depth)
         if p.tag == "symbol" or p.tag == "place" or p.owner then D.reject("static-required", "Cannot freeze runtime storage") end
         if p.tag ~= "known" or p.type ~= t then D.reject("type", "Expected an immutable record of the declared schema") end
         if depth + p.record_depth - 1 > 32 then D.resource("static-aggregate-depth", "Static aggregate nesting exceeds 32") end
+        if p.occurrence_receiver and Model.get(p.occurrence_receiver).tag ~= "known" then
+            D.reject("static-required", "Cannot freeze a snapshot selected from runtime storage")
+        end
         engine:check_static(values)
-        return values
+        return M.detach(engine, values)
     end
     local def = supply(t, values)
     local fields, height, nodes = {}, 1, 1
@@ -201,15 +231,36 @@ function M.read(engine, value, name)
     local p = validate(engine, value)
     local method = Model.record(p.type).methods[name]
     if method then
-        if p.tag == "place" and #p.path > 0 and require("word.owner").needs_outer(p.type, p.root.type, p.path) then
-            return engine:bind_method(method, p.root.type, wrap(engine, p.root.type, p.root), p.path)
+        local owner, receiver, path
+        if p.occurrence_owner then
+            owner, receiver, path = p.occurrence_owner, p.occurrence_receiver, p.occurrence_path
+        elseif p.tag == "place" and #p.path > 0 then
+            owner, receiver, path = p.root.type, wrap(engine, p.root.type, p.root), p.path
+        end
+        if owner and Owner.needs_outer(p.type, owner, path) then
+            return engine:bind_method(method, owner, receiver, path)
         end
         return engine:bind_method(method, p.type, value)
     end
     local t, path = project(p, name)
     local bound = Model.record(p.type).bindings[name]
-    if bound then return bound end
-    if p.tag == "known" then return p.value[name] end
+    if bound then
+        if not Model.record(t) then return bound end
+        local owner, receiver = p.occurrence_owner, p.occurrence_receiver
+        if not owner then
+            if p.tag == "place" then owner, receiver = p.root.type, wrap(engine, p.root.type, p.root)
+            else owner, receiver = p.type, value end
+        end
+        return M.occurrence(engine, bound, owner, receiver, path)
+    end
+    if p.tag == "known" then
+        local selected = p.value[name]
+        if not Model.record(t) then return selected end
+        local owner, receiver
+        if p.occurrence_owner then owner, receiver = p.occurrence_owner, p.occurrence_receiver
+        else owner, receiver = p.type, value end
+        return M.occurrence(engine, selected, owner, receiver, path)
+    end
     if Model.record(t) then return wrap(engine, t, p.root, path) end
     if t == engine.Unit then return engine:known(nil, t) end
     if p.root.builder then return engine:symbol(p.root.builder:load(t, p.root.id, path), t, p.root.builder) end

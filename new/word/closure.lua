@@ -13,8 +13,13 @@ local function static_capture(value, seen)
     if not p then return end
     seen = seen or {}; if seen[value] then return end; seen[value] = true
     if p.tag == "symbol" or p.tag == "place" or p.tag == "callable_known" or
-        (p.receiver and Model.get(p.receiver).tag ~= "known") then
+        (p.receiver and Model.get(p.receiver).tag ~= "known") or
+        (p.occurrence_receiver and Model.get(p.occurrence_receiver).tag ~= "known") then
         D.reject("capture-type", "Static captured metadata cannot retain runtime values; capture a concrete immutable value instead")
+    end
+    if p.occurrence_owner then
+        static_capture(p.occurrence_owner, seen)
+        if p.occurrence_receiver then static_capture(p.occurrence_receiver, seen) end
     end
     if p.tag == "word" then
         local terminal = p.definition.terminal
@@ -36,6 +41,13 @@ local function static_capture(value, seen)
 end
 local function token(value)
     local p = Model.get(value)
+    if p and p.occurrence_owner then
+        local owner, path = Model.key(p.occurrence_owner), require("word.owner").path_key(p.occurrence_path)
+        local receiver = p.occurrence_receiver and token(p.occurrence_receiver) or "unbound"
+        local payload = Model.key(value)
+        return "Occurrence:" .. #owner .. ":" .. owner .. ":" .. #path .. ":" .. path ..
+            ":" .. #receiver .. ":" .. receiver .. ":" .. #payload .. ":" .. payload
+    end
     if p then return p.owner and p.engine:demand_key(value) or Model.key(value) end
     if type(value) == "number" then return string.format("number:%.17g", value) end
     return type(value) .. ":" .. tostring(value)
@@ -63,6 +75,12 @@ local function lift(engine, word)
             if lexical and cp and cp.tag == "word" and cp.definition.lexical_owner and
                 not cp.definition.lexical_fields and cp.owner == p.owner and cp.receiver == p.receiver then
                 slot.link = visit(captured)
+            elseif cp and cp.occurrence_receiver and Model.get(cp.occurrence_receiver).tag ~= "known" then
+                slot.value, slot.place_path = Data.capture_place(engine, cp.occurrence_receiver)
+                for _, field in ipairs(cp.occurrence_path or {}) do
+                    slot.place_path[#slot.place_path + 1] = field
+                end
+                slot.type = Model.get(slot.value).type
             elseif cp and cp.tag == "place" then
                 slot.value, slot.place_path = Data.capture_place(engine, captured)
                 slot.type = Model.get(slot.value).type

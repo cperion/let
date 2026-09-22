@@ -92,6 +92,127 @@ H.test("deferred child schemas inherit declared owners but unrelated type demand
     H.eq(s._engine.scope:current(), nil)
 end)
 
+H.test("immutable nested snapshots retain only their selected actual owner occurrence", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Inner = word{value = U32,
+            read = word(Unit, function() return bias + value end),
+            bump = word(U32, function(n) bias = bias + n; return bias + value end)}
+        local Outer = word{bias = U32, left = Inner, right = Inner}
+        local Fixed = Outer:of{bias = 3, left = {value = 4}, right = {value = 9}}
+        local Half = Outer:of{left = {value = 4}, right = {value = 9}}
+        local consume = word(Inner, function(child) return child.read(nil) end)
+        return {Inner = Inner, Outer = Outer, Fixed = Fixed, Half = Half, consume = consume}
+    ]])
+    H.eq(s:value(m.Fixed.left.read(nil)), 7)
+    H.eq(s:value(s:normalize(m.Fixed.right.read:of(nil))), 12)
+    H.raises("reject", "missing-receiver", function() m.Half.left.read(nil) end)
+    local h = m.Half{bias = 10}
+    local left, right = h.left, h.right
+    H.eq(s:value(left.read(nil)), 14); H.eq(s:value(right.read(nil)), 19)
+    H.eq(s:value(left.bump(2)), 16); H.eq(s:value(h.bias), 12)
+    H.raises("reject", "unknown-name", function() m.consume(left) end)
+    local Detached = s.word{child = m.Inner}:of{child = m.Fixed.left}
+    H.raises("reject", "unknown-name", function() Detached.child.read(nil) end)
+    H.eq(s._engine.scope:current(), nil)
+end)
+
+H.test("borrowed immutable snapshot occurrences lift through their live root paths", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Inner = word{value = U32, read = word(Unit, function() return bias + value end)}
+        local Outer = word{bias = U32, left = Inner}
+        local Half = Outer:of{left = {value = 4}}
+        local Unary = word(U32)
+        local apply = word(Unary, U32, function(f, x) return f(x) end)
+        return {Unary = Unary, functions = {
+            run = word(U32, U32, function(initial, n)
+                local h = Half{bias = initial}
+                local selected = h.left
+                local loop
+                loop = word(U32, function(x)
+                    if x:eq(0) then return selected.read(nil) end
+                    h.bias = h.bias + 1
+                    return loop(x - 1)
+                end)
+                return loop(n)
+            end),
+            escape = word(U32, function(initial)
+                local h = Half{bias = initial}
+                local selected = h.left
+                return word(U32, function(x) return selected.read(nil) + x end)
+            end),
+            metadata = word(U32, function(initial)
+                local h = Half{bias = initial}
+                local selected = h.left
+                local f = word(U32, function(x) return selected.read(nil) + x end)
+                return apply:of(f)(1)
+            end),
+        }}
+    ]])
+    H.eq(s:value(m.functions.run(10, 3)), 17)
+    local program = s:compile{functions = {run = m.functions.run}}
+    assert(IR.verify(program))
+    local address, captures = false, false
+    for _, fn in ipairs(program.functions) do for _, block in ipairs(fn.blocks) do
+        for _, ins in ipairs(block.instructions) do
+            address = address or ins.op == "Address"
+            captures = captures or ins.op == "Capture"
+        end
+    end end
+    assert(address and captures)
+    H.raises("reject", "borrow-escape", function()
+        s:compile{functions = {escape = m.functions.escape}, results = {[m.Unary] = s.U32}}
+    end)
+    H.raises("reject", "capture-type", function()
+        s:compile{functions = {metadata = m.functions.metadata}}
+    end)
+    H.eq(s._engine.scope:current(), nil)
+end)
+
+H.test("immutable occurrence captures key and trace the rooted outer snapshot", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Inner = word{value = U32, read = word(Unit, function() return bias + value end)}
+        local Outer = word{bias = U32, left = Inner}
+        local A = Outer:of{bias = 3, left = {value = 4}}
+        local B = Outer:of{bias = 10, left = {value = 4}}
+        local function make(selected)
+            return word(U32, function(n)
+                local loop
+                loop = word(U32, function(x)
+                    if x:eq(0) then return selected.read(nil) end
+                    return loop(x - 1)
+                end)
+                return loop(n)
+            end)
+        end
+        return {A = A, B = B, functions = {a = make(A.left), b = make(B.left)}}
+    ]])
+    H.eq(s:value(m.functions.a(1)), 7); H.eq(s:value(m.functions.b(1)), 14)
+    local a = require("word.trace").describe(m.A.left)
+    local b = require("word.trace").describe(m.B.left)
+    H.eq(a.tag, "occurrence"); H.eq(b.tag, "occurrence"); assert(a.owner ~= b.owner)
+    local program = s:compile{functions = m.functions}
+    assert(IR.verify(program)); H.eq(#program.functions, 4)
+end)
+
+H.test("unbound nested interfaces retain static root keys and lexical occurrence identity", function()
+    local s = Word.new(); local m = s:load_string([[
+        local Inner = word{value = U32, read = word(Unit, function() return bias + value end)}
+        local Outer = word{bias = U32, left = Inner, right = Inner}
+        local A = Outer:of{left = {value = 1}, right = {value = 20}}
+        local B = Outer:of{left = {value = 2}, right = {value = 30}}
+        return {A = A, B = B}
+    ]])
+    local program = s:compile{functions = {
+        aleft = m.A.left.read, aright = m.A.right.read, bleft = m.B.left.read}}
+    assert(IR.verify(program))
+    local exports = {}; for _, export in ipairs(program.exports) do exports[export.name] = export.target end
+    assert(exports.aleft ~= exports.aright and exports.aleft ~= exports.bleft)
+    for _, name in ipairs({"aleft", "aright", "bleft"}) do
+        H.eq(program.functions[exports[name]].receiver.type,
+            name == "bleft" and s:type(m.B) or s:type(m.A))
+    end
+end)
+
 H.test("nested keyed method views cannot escape and detached copies do not invent owners", function()
     local s = Word.new(); local m = s:load_string([[
         local Inner = word{value = U32, read = word(Unit, function() return bias + value end)}
