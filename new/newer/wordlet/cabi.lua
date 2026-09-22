@@ -33,6 +33,10 @@ function M.close(compilation)
         layouts.recordOrder[#layouts.recordOrder + 1] = layout
         for _, field in ipairs(ty.fields) do
             layout.fields[#layout.fields + 1] = { name = "f_" .. M.escape(field.name), type = field.type }
+            -- Name nested field types too, so their declarations precede this struct.
+            if S.runtime(field.type) and field.type ~= S.Unit then
+                layouts:cType(field.type)
+            end
         end
         return layout
     end
@@ -82,6 +86,26 @@ function M.close(compilation)
         layouts.views[ty] = layout
         layouts.viewOrder[#layouts.viewOrder + 1] = layout
         return layout
+    end
+
+    -- An adapter binds a callable's hidden inputs so it can be invoked through a view. Its struct
+    -- holds the bound values (or borrowed pointers) and its function forwards the visible inputs.
+    layouts.adapterIndex, layouts.adapterOrder = {}, {}
+    function layouts:viewAdapter(entry, bound)
+        local key = entry .. "|" .. #bound
+        for _, slot in ipairs(bound) do key = key .. "|" .. S.encode(slot.type) .. (slot.pointer and "*" or "") end
+        local existing = self.adapterIndex[key]
+        if existing then return existing end
+        local index = #self.adapterOrder + 1
+        local fields = {}
+        for position, slot in ipairs(bound) do
+            fields[position] = { name = "f_" .. position, type = slot.type, pointer = slot.pointer }
+        end
+        local adapter = { name = "wordletadapterstruct_" .. index, fn = "wordletadapterfn_" .. index,
+            entry = entry, bound = fields, struct = "wordletadapterstruct_" .. index }
+        self.adapterIndex[key] = adapter
+        self.adapterOrder[#self.adapterOrder + 1] = adapter
+        return adapter
     end
 
     layouts.recordLayout, layouts.resultLayout, layouts.viewLayout = recordLayout, resultLayout, viewLayout
@@ -143,6 +167,13 @@ function M.close(compilation)
         layouts.typeExports[#layouts.typeExports + 1] = {
             name = "wordtype_" .. M.escape(entry.name), layout = layout, entry = entry,
         }
+    end
+    -- An adapter function's return type must be named before the adapter body is printed.
+    for _, instance in ipairs(compilation.session.order) do
+        local signature = signatures[instance.target]
+        if signature and signature.results.kind == "scalar" and S.runtime(signature.results.type) then
+            layouts:cType(signature.results.type)
+        end
     end
     -- Name every runtime type before emission, so aggregate declarations precede their uses.
     -- A parameter's type is named by `signature`, but a result type is not.

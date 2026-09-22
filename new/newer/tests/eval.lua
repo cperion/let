@@ -274,10 +274,6 @@ check(interpret("read_through", { 1 }, BORROWED)[1] == 106,
 rejects("borrow-escape", "let C = { v: U32, bump(): U32 = v }\n"
     .. "let bad(n: U32): (U32): U32 = do let c = C { v = n } return |k: U32| -> c.bump() + k end\n"
     .. "return { types = { C }, functions = { bad } }")
--- A signature-typed field cannot hold callable code at all, which is reported before the borrow.
-rejects("callable-storage", "let C = { v: U32, bump(): U32 = v }\nlet S = { f: (U32): U32 }\n"
-    .. "let bad(n: U32): U32 = do let c = C { v = n } let s = S { f = |k: U32| -> c.bump() } return 0 end\n"
-    .. "return { types = { C, S }, functions = { bad } }")
 
 -- Opaque runtime callables: the invocation-pointer ABI -----------------------------------------
 local EXTERNAL = [==[
@@ -430,10 +426,30 @@ rejects("type-mismatch", RECORDS, "bump", { 7 })
 -- A callable with no known code needs a function-pointer ABI.
 -- Exporting a callable parameter is supported (it becomes a view); an argument that is neither
 -- known code nor a view is still rejected.
-rejects("callable-storage", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
-    .. "let S = { f: (U32): U32 }\n"
-    .. "let bad(s: U32): U32 = do let h = S { f = |y: U32| -> y + s } return apply(h.f, s) end\n"
-    .. "return { types = { S }, functions = { bad } }")
+-- A signature-typed field is represented by the borrowed callable ABI, so a record holding one is
+-- usable locally but cannot escape.
+local CALLABLE_FIELD = [==[
+let Holder = { f: (U32): U32 }
+let use(n: U32): U32 = do
+  let h = Holder { f = |x: U32| -> x + n }
+  return h.f(1)
+end
+let chase(n: U32): U32 = do
+  let h = Holder { f = |x: U32| -> x * 2 }
+  return h.f(h.f(n))
+end
+return { types = { Holder }, functions = { use, chase } }
+]==]
+check(interpret("use", { 5 }, CALLABLE_FIELD)[1] == 6, "a callable field is invoked through its view")
+check(interpret("chase", { 3 }, CALLABLE_FIELD)[1] == 12, "a capture-free callable field still invokes")
+local fieldUnit = wordlet.compile{ source = CALLABLE_FIELD, name = "field.let" }:unit()
+check(fieldUnit:find("wordletadapterstruct_1", 1, true) ~= nil, "an adapter struct is emitted")
+check(fieldUnit:find(".invoke = wordletadapterfn_1", 1, true) ~= nil, "the view is built from the adapter")
+rejects("borrow-escape", "let H = { f: (U32): U32 }\n"
+    .. "let make(n: U32) = H { f = |x: U32| -> x + n }\nreturn { types = { H }, functions = { make } }")
+rejects("borrow-escape", "let H = { f: (U32): U32 }\nlet shared = H { f = |x: U32| -> x }\n"
+    .. "let set(n: U32): U32 = do shared.f = |y: U32| -> y + n return 0 end\n"
+    .. "return { types = { H }, functions = { set } }")
 
 rejects("callable-shape", "let apply(f: (U32): U32, x: U32) : U32 = f(x)\n"
     .. "let bad(x: U32) : U32 = apply(|y: U32| -> true, x)\nreturn { functions = { bad } }")

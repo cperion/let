@@ -138,6 +138,8 @@ function Emitter:statements(list)
             self:call(stmt)
         elseif kind == "Indirect" then
             self:indirect(stmt)
+        elseif kind == "View" then
+            self:makeView(stmt)
         elseif kind == "Return" then
             self:line(self:returnText(stmt.values))
         else
@@ -182,6 +184,46 @@ function Emitter:call(stmt)
     end
 end
 
+-- The adapter that lets a known callable be invoked through a view.
+function M.adapterBodies(layouts)
+    local lines = {}
+    for _, adapter in ipairs(layouts.adapterOrder or {}) do
+        local signature = layouts.signatures[adapter.entry]
+        if not signature then D.bug("c-adapter", "Adapter target " .. adapter.entry .. " has no signature") end
+        local returns = signature.results.kind == "void" and "void"
+            or (signature.results.kind == "scalar" and layouts:cType(signature.results.type)
+                or signature.results.name)
+        local visible, calls = {}, {}
+        for index = #adapter.bound + 1, #signature.params do
+            local param = signature.params[index]
+            local name = "a" .. (index - #adapter.bound)
+            visible[#visible + 1] = layouts:cType(param.type) .. (param.pointer and " *" or " ") .. name
+            calls[#calls + 1] = name
+        end
+        for _, field in ipairs(adapter.bound) do calls[#calls + 1] = "env->" .. field.name end
+        -- The bound inputs come first, matching the callee's hidden prefix.
+        local ordered = {}
+        for _, field in ipairs(adapter.bound) do ordered[#ordered + 1] = "env->" .. field.name end
+        for index = #adapter.bound + 1, #signature.params do
+            ordered[#ordered + 1] = "a" .. (index - #adapter.bound)
+        end
+        local body = {}
+        body[#body + 1] = "static " .. returns .. " " .. adapter.fn .. "(const void *environment"
+            .. (#visible > 0 and (", " .. table.concat(visible, ", ")) or ", void") .. ") {"
+        if #adapter.bound == 0 then
+            body[#body + 1] = "    (void)environment;"
+        else
+            body[#body + 1] = "    const " .. adapter.struct .. " *env = (const " .. adapter.struct
+                .. " *)environment;"
+        end
+        local call = signature.name .. "(" .. table.concat(ordered, ", ") .. ")"
+        body[#body + 1] = signature.results.kind == "void" and ("    " .. call .. ";") or ("    return " .. call .. ";")
+        body[#body + 1] = "}"
+        lines[#lines + 1] = table.concat(body, "\n")
+    end
+    return lines
+end
+
 -- An opaque callable is invoked through the pointer its view carries.
 function Emitter:indirect(stmt)
     local types = stmt.callable.type
@@ -206,6 +248,38 @@ function Emitter:indirect(stmt)
                 "t" .. stmt.results[1].id .. ".f_" .. index)
         end
     end
+end
+
+-- Binds a callable's hidden inputs in a local adapter and takes its address.
+function Emitter:makeView(stmt)
+    local types = stmt.type
+    if not S.isView(types) then D.bug("c-view", "View needs a view type") end
+    local layout = self.layouts.viewLayout(types)
+    local bound, args = {}, {}
+    for _, slot in ipairs(stmt.slots) do
+        if slot.kind == "BorrowArg" then
+            bound[#bound + 1] = { type = self:placeType(slot.place), pointer = true }
+            args[#args + 1] = self:borrow(slot.place)
+        else
+            bound[#bound + 1] = { type = slot.value.type, pointer = false }
+            args[#args + 1] = self:expr(slot.value)
+        end
+    end
+    local adapter = self.layouts:viewAdapter(stmt.entry, bound)
+    local value = self:value(stmt.value.id)
+    if #args == 0 then
+        self:line(layout.name .. " " .. value .. " = { .invoke = " .. adapter.fn
+            .. ", .environment = NULL };")
+        return
+    end
+    local adapterName = "a" .. stmt.value.id
+    local fields = {}
+    for index, field in ipairs(adapter.bound) do
+        fields[#fields + 1] = "." .. field.name .. " = " .. args[index]
+    end
+    self:line(adapter.name .. " " .. adapterName .. " = {" .. table.concat(fields, ", ") .. "};")
+    self:line(layout.name .. " " .. value .. " = { .invoke = " .. adapter.fn
+        .. ", .environment = &" .. adapterName .. " };")
 end
 
 function Emitter:returnText(values)
@@ -240,6 +314,19 @@ function M.typeDeclarations(layouts)
         lines[#lines + 1] = "typedef struct " .. view.name .. " {\n    "
             .. view.returns .. " (*invoke)" .. view.invoke .. ";"
             .. "\n    const void *environment;\n} " .. view.name .. ";"
+    end
+    for _, adapter in ipairs(layouts.adapterOrder or {}) do
+        local fields = {}
+        if #adapter.bound == 0 then
+            fields[1] = "    unsigned char wordlet_pad;"
+        else
+            for _, field in ipairs(adapter.bound) do
+                fields[#fields + 1] = "    " .. layouts:cType(field.type)
+                    .. (field.pointer and " *" or " ") .. field.name .. ";"
+            end
+        end
+        lines[#lines + 1] = "typedef struct " .. adapter.name .. " {\n"
+            .. table.concat(fields, "\n") .. "\n} " .. adapter.name .. ";"
     end
     for _, tuple in ipairs(layouts.tupleOrder) do aggregate(tuple.name, tuple.fields) end
     for _, record in ipairs(layouts.recordOrder) do aggregate(record.name, record.fields) end
@@ -330,7 +417,11 @@ function M.moduleDeclarations(layouts)
     return lines
 end
 
+-- Bodies are emitted first: doing so is what registers the views, adapters and nested record
+-- layouts that the declarations have to name.
 function M.unit(layouts)
+    local bodies = M.bodies(layouts)
+    local adapters = M.adapterBodies(layouts)
     local lines = {}
     for _, line in ipairs(INCLUDES) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
@@ -340,7 +431,11 @@ function M.unit(layouts)
     lines[#lines + 1] = ""
     for _, line in ipairs(M.prelude()) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
-    for _, body in ipairs(M.bodies(layouts)) do
+    for _, line in ipairs(adapters) do
+        lines[#lines + 1] = line
+        lines[#lines + 1] = ""
+    end
+    for _, body in ipairs(bodies) do
         lines[#lines + 1] = body
         lines[#lines + 1] = ""
     end
@@ -348,6 +443,8 @@ function M.unit(layouts)
 end
 
 function M.source(layouts, headerName)
+    local bodies = M.bodies(layouts)
+    local adapters = M.adapterBodies(layouts)
     local lines = {}
     if headerName then lines[#lines + 1] = '#include "' .. headerName .. '"' end
     for _, line in ipairs(INCLUDES) do lines[#lines + 1] = line end
@@ -358,7 +455,11 @@ function M.source(layouts, headerName)
     lines[#lines + 1] = ""
     for _, line in ipairs(M.prelude()) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
-    for _, body in ipairs(M.bodies(layouts)) do
+    for _, line in ipairs(adapters) do
+        lines[#lines + 1] = line
+        lines[#lines + 1] = ""
+    end
+    for _, body in ipairs(bodies) do
         lines[#lines + 1] = body
         lines[#lines + 1] = ""
     end
@@ -366,6 +467,9 @@ function M.source(layouts, headerName)
 end
 
 function M.header(layouts, name)
+    -- The header is a view of the same closed artifact, so bodies must have been emitted for the
+    -- type closure to be complete.
+    M.bodies(layouts)
     local guard = "WORDLET_" .. M.escape(name or "unit"):upper() .. "_H"
     local lines = { "#ifndef " .. guard, "#define " .. guard, "", "#include <stdint.h>", "#include <stdbool.h>", "" }
     for _, line in ipairs(M.typeDeclarations(layouts)) do lines[#lines + 1] = line end

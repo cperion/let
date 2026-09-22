@@ -14,7 +14,7 @@ function M.u32(n) return make{ tag = "u32", ty = S.U32, n = n } end
 function M.bool(b) return make{ tag = "bool", ty = S.Bool, b = b } end
 function M.unit() return make{ tag = "unit", ty = S.Unit } end
 function M.type(ty) return make{ tag = "type", ty = S.Type, value = ty } end
-function M.ir(expr, ty) return make{ tag = "ir", ty = ty, expr = expr } end
+function M.ir(expr, ty, borrowed) return make{ tag = "ir", ty = ty, expr = expr, borrowed = borrowed } end
 function M.results(values) return make{ tag = "results", values = values } end
 function M.word(def, args, span) return make{ tag = "word", def = def, args = args or {}, span = span } end
 
@@ -25,7 +25,9 @@ function M.record(ty, fields, schema) return make{ tag = "record", ty = ty, fiel
 function M.schema(def) return make{ tag = "schema", def = def, ty = S.Type } end
 
 -- A mutable instance in residual code: its fields live in `place`.
-function M.object(ty, place, schema) return make{ tag = "object", ty = ty, place = place, schema = schema } end
+function M.object(ty, place, schema, borrowed)
+    return make{ tag = "object", ty = ty, place = place, schema = schema, borrowed = borrowed or false }
+end
 
 -- A method selected on an actual receiver.
 function M.method(method, receiver) return make{ tag = "method", def = method, receiver = receiver } end

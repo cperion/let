@@ -44,8 +44,10 @@ function M.eachStmt(statements, fn)
             if stmt.initial then M.eachExpr(stmt.initial, fn) end
         elseif kind == "Store" then
             -- places are not expressions
-        elseif kind == "BundleDef" or kind == "View" then
-            -- arguments are Arg values, walked by the caller when needed
+        elseif kind == "BundleDef" then
+            -- bundle slots are Arg values, walked by the caller when needed
+        elseif kind == "View" then
+            -- view slots are Arg values, walked by the caller when needed
         elseif kind == "Call" or kind == "Indirect" then
             for _, arg in ipairs(stmt.arguments) do
                 if arg.kind == "ValueArg" then M.eachExpr(arg.value, fn) end

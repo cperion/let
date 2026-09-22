@@ -148,6 +148,38 @@ function M.function_(fn, definitions, seeded)
                 if target and #stmt.arguments ~= #target.inputs then
                     D.bug("ir-arity", "Call argument count does not match " .. stmt.target)
                 end
+            elseif kind == "View" then
+                -- A view binds a known callable's hidden prefix in a local adapter.
+                if not S.isView(stmt.type) then D.bug("ir-type", "View needs a view type") end
+                local target = definitions[stmt.entry]
+                if not target then D.bug("ir-target", "View binds unknown code " .. stmt.entry) end
+                if #stmt.slots > #target.inputs then
+                    D.bug("ir-arity", "View binds more inputs than " .. stmt.entry .. " has")
+                end
+                for index, slot in ipairs(stmt.slots) do
+                    local input = target.inputs[index]
+                    if input.kind == "InValue" and slot.kind ~= "ValueArg" then
+                        D.bug("ir-arg", "A by-value hidden input needs a value slot")
+                    end
+                    if input.kind == "InPlace" and slot.kind ~= "BorrowArg" then
+                        D.bug("ir-arg", "A borrowed hidden input needs a place slot")
+                    end
+                    if slot.kind == "ValueArg" and M.expr(slot.value, visible) ~= input.type then
+                        D.bug("ir-type", "View slot type does not match the hidden input")
+                    end
+                    if slot.kind == "BorrowArg" and M.place(slot.place, storages) ~= input.type then
+                        D.bug("ir-type", "View slot place does not match the hidden input")
+                    end
+                    if #stmt.slots ~= 0 then end
+                end
+                -- The visible remainder must match the view's signature.
+                for index, input in ipairs(stmt.type.visible.inputs) do
+                    local hidden = target.inputs[#stmt.slots + index]
+                    if not hidden or S.encode(hidden) ~= S.encode(input) then
+                        D.bug("ir-type", "View signature does not match the remaining inputs")
+                    end
+                end
+                bind(visible, stmt.value.id)
             elseif kind == "Trap" then
                 M.expr(stmt.failure, visible)
             elseif kind == "Return" then

@@ -376,6 +376,32 @@ int main(void) {
         "module-level storage did not persist across calls")
 end
 
+-- A callable stored in a signature-typed field: the field holds a view built from a local adapter.
+do
+    local source = "let Holder = { f: (U32): U32 }\n"
+        .. "let use(n: U32): U32 = do\n  let h = Holder { f = |x: U32| -> x + n }\n  return h.f(1)\nend\n"
+        .. "let chase(n: U32): U32 = do\n  let h = Holder { f = |x: U32| -> x * 2 }\n"
+        .. "  return h.f(h.f(n))\nend\n"
+        .. "return { types = { Holder }, functions = { use, chase } }"
+    local generated = wordlet.compile{ source = source, name = "field.let" }:unit()
+    local path = directory .. "/field.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    assert(wordlet_use(UINT32_C(5)) == UINT32_C(6));
+    assert(wordlet_chase(UINT32_C(3)) == UINT32_C(12));
+    return 0;
+}
+]])
+    local exe = directory .. "/field"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/flderr.txt") == 0,
+        "callable-field C failed to compile:\n" .. read(directory .. "/flderr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "a callable field did not run correctly")
+end
+
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.
 -- This checks the shipped artifact, not just the checkout modules.
 local root = (source:match("^(.*[/\\])") or "./") .. "../"

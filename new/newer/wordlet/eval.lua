@@ -181,6 +181,7 @@ function Eval:moduleObject(slot, span)
     self.nextModule = (self.nextModule or 0) + 1
     local storage = Ir.Storage(MODULE_STORAGE_BASE + self.nextModule)
     local object = V.object(value.ty, Ir.Local(storage), schema)
+    object.module = true
     self.moduleStorages[#self.moduleStorages + 1] = {
         storage = storage, type = value.ty, initial = value, name = slot.name,
     }
@@ -359,6 +360,17 @@ function Eval:recordExpr(ctx, value)
     return ctx.builder:make(ty, fields)
 end
 
+-- A returned value must not refer to storage that dies with this activation.
+function Eval:checkReturn(values, span)
+    for _, value in ipairs(values) do
+        if self:isBorrowed(value) then
+            D.reject("borrow-escape",
+                "A value that refers to this activation's storage cannot be returned; the borrow "
+                .. "would outlive it", span)
+        end
+    end
+end
+
 function Eval:fieldExpr(ctx, value, name)
     if V.tag(value) == "record" then return self:expression(ctx, value.fields[name]) end
     local ty = S.field(value.ty, name)
@@ -372,10 +384,11 @@ end
 -- instead of building mistyped IR.
 function Eval:expression(ctx, value, want)
     local tag = V.tag(value)
-    if (tag == "closure" or tag == "word") and want and S.isSig(want) then
-        D.todo("callable-storage",
-            "A position typed only as a signature cannot store callable code: an owning erased "
-            .. "callable needs a storage policy, and a view would not be retained", ctx.span)
+    if (tag == "closure" or tag == "word") and want and (S.isSig(want) or S.isView(want)) then
+        if ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization", "A view needs runtime code", ctx.span)
+        end
+        return self:makeView(ctx, value, S.isView(want) and want.visible or want)
     end
     if tag == "ir" then return value.expr end
     if tag == "u32" then return ctx.builder:u32(value.n) end
@@ -437,13 +450,24 @@ end
 -- Checks a value against a requirement. A signature requirement is satisfied by a callable whose
 -- shape matches, which is what lets an unannotated lambda be checked against it.
 function Eval:requireAgainst(value, ty, span)
-    if S.isSig(ty) and (V.tag(value) == "closure" or V.tag(value) == "word") then
-        if self:callableMatches(value, ty) == false then
+    local wanted = (S.isSig(ty) and ty) or (S.isView(ty) and ty.visible) or nil
+    if wanted and (V.tag(value) == "closure" or V.tag(value) == "word") then
+        if self:callableMatches(value, wanted) == false then
             D.reject("callable-shape", "Callable does not match the required signature", span)
         end
         return
     end
+    if S.isView(ty) and V.tag(value) == "ir" and value.ty == ty then return end
     self:requireType(value, ty, span)
+end
+
+-- A value is borrowed when it refers to storage owned by the current activation: a mutable
+-- instance, a view bound to a local adapter, or an aggregate containing one.
+function Eval:isBorrowed(value)
+    local tag = V.tag(value)
+    if tag == "object" or tag == "record" or tag == "ir" then return value.borrowed == true end
+    if tag == "closure" then return #(value.plan.borrowedOrder or {}) > 0 end
+    return false
 end
 
 function Eval:requireType(value, ty, span)
@@ -698,6 +722,9 @@ function Eval:newSchema(ctx, expr, statics, readonly, base)
         if member.kind == "FieldMember" then
             local name = member.name.text
             local ty = self:typeOf(member.type, ctx.scope, member.span)
+            -- A field declared as a signature is represented by the borrowed callable ABI: the
+            -- field holds an invocation pointer and an environment pointer, not callable code.
+            if S.isSig(ty) then ty = S.view(ty) end
             if def.fields[name] or def.methods[name] then
                 D.reject("duplicate", "Duplicate schema member " .. name, member.name.span)
             end
@@ -773,12 +800,16 @@ function Eval:evalSupply(ctx, expr)
         for _, name in ipairs(def.fieldNames) do fields[name] = values[name] end
         return V.record(ty, fields, def)
     end
-    local exprs = {}
+    local exprs, borrowed = {}, false
     for index, field in ipairs(ty.fields) do
-        exprs[index] = self:expression(ctx, values[field.name], field.type)
+        local fieldValue = values[field.name]
+        exprs[index] = self:expression(ctx, fieldValue, field.type)
+        -- A signature-typed field is a view whose environment points at a local adapter, so an
+        -- instance holding one is itself tied to this activation.
+        if self:isBorrowed(fieldValue) or S.isView(field.type) then borrowed = true end
     end
     local storage = ctx.builder:var(ctx.body, ty, ctx.builder:make(ty, exprs))
-    return V.object(ty, Ir.Local(storage), def)
+    return V.object(ty, Ir.Local(storage), def, borrowed)
 end
 
 function Eval:evalFieldSelect(ctx, expr)
@@ -811,7 +842,8 @@ function Eval:evalFieldSelect(ctx, expr)
 end
 
 function Eval:fieldSlot(def, object, name)
-    return { kind = "field", name = name, ty = def.fields[name], place = Ir.Project(object.place, Ir.Field(name)),
+    return { kind = "field", name = name, ty = def.fields[name],
+        place = Ir.Project(object.place, Ir.Field(name)), record = object,
         static = def.statics[name], readonly = def.readonly[name] and true or false }
 end
 
@@ -826,7 +858,7 @@ function Eval:execStore(ctx, stmt)
     local operator = stmt.operator
     if operator == "=" then
         local value = self:evalExpr(ctx, stmt.value)
-        self:requireType(value, slot.ty, stmt.value.span)
+        self:requireAgainst(value, slot.ty, stmt.value.span)
         return self:writeSlot(ctx, slot, place, value)
     end
     local binary = COMPOUND[operator]
@@ -847,9 +879,20 @@ end
 function Eval:writeSlot(ctx, slot, place, value)
     if slot.kind == "concrete-field" then
         slot.record.fields[slot.name] = value
+        if self:isBorrowed(value) then slot.record.borrowed = true end
         return
     end
+    -- Assigning callable code to a signature-typed field builds a view whose environment is a
+    -- local adapter, so the assignment is a borrow even when the code itself is not.
+    local becomesBorrowed = self:isBorrowed(value) or S.isView(slot.ty)
+    if becomesBorrowed and (slot.retaining or (slot.record and slot.record.module)) then
+        D.reject("borrow-escape",
+            "Module storage outlives the activation that made this borrow, so it cannot hold one",
+            ctx.span)
+    end
     ctx.builder:store(ctx.body, place, self:expression(ctx, value, slot.ty))
+    -- Storing a borrow into an instance makes that instance non-retaining too.
+    if becomesBorrowed and slot.record then slot.record.borrowed = true end
 end
 
 -- Resolves a store target to a place, plus the slot describing it.
@@ -926,6 +969,36 @@ function Eval:applyClosure(ctx, plan, envExprs, args, span, bound)
     end
     local callable = { plan = plan, env = self:closureEnvironment(plan, envExprs) }
     return self:callClosure(ctx, callable, args, span)
+end
+
+-- Binds a known callable's hidden inputs in a local adapter and yields a view value.
+function Eval:makeView(ctx, value, sig)
+    local viewType = S.view(sig)
+    local entry, slots, borrowed = nil, {}, false
+    local tag = V.tag(value)
+    if tag == "closure" then
+        local plan = value.plan
+        entry = self:callableInstance({ plan = plan }, value.bound or {}, ctx.span).target
+        for _, name in ipairs(plan.runtimeOrder) do
+            local capture = plan.runtime[name]
+            slots[#slots + 1] = Ir.ValueArg(self:expression(ctx, capture, capture.ty))
+        end
+        for _, name in ipairs(plan.borrowedOrder) do
+            slots[#slots + 1] = Ir.BorrowArg(plan.borrowed[name].place)
+            borrowed = true
+        end
+    elseif tag == "word" then
+        entry = self:instanceFor(value.def, ctx.span, value.args).target
+    else
+        D.bug("c-view", "Only known code can be bound into a view")
+    end
+    local id = ctx.builder:valueId()
+    ctx.builder:emit(ctx.body, Ir.View(id, viewType, entry, S.list(slots)))
+    -- The environment points at a local adapter, so the view is not retaining. The frontend value
+    -- records that, so the borrow can be tracked to its escape.
+    ctx.borrowedViews = ctx.borrowedViews or {}
+    ctx.borrowedViews[id.id] = true
+    return ctx.builder:ref(id, viewType)
 end
 
 -- An opaque callable is invoked through its view: the environment pointer plus the argument list.
@@ -1394,6 +1467,7 @@ function Eval:execBlock(ctx, statements)
             ctx.tail, ctx.terminated = #stmt.values == 1, false
             local values = self:evalList(ctx, stmt.values)
             ctx.expectedResult, ctx.tail = savedExpected, savedTail
+            self:checkReturn(values, stmt.span)
             if ctx.terminated then return true end
             ctx.terminated = savedTerminated
             if ctx.mode == "residual" then
@@ -1816,8 +1890,10 @@ function Eval:buildInstance(key, def, values, span, receiver)
             if rdef.statics[name] then
                 declare(sc, name, { kind = "value", name = name, value = rdef.statics[name] }, def.span)
             else
+                -- A receiver belongs to the caller, so storing a borrow in it would outlive the
+                -- activation that produced the borrow.
                 declare(sc, name, { kind = "field", name = name, ty = rdef.fields[name],
-                    place = Ir.Project(Ir.Local(storage), Ir.Field(name)) }, def.span)
+                    place = Ir.Project(Ir.Local(storage), Ir.Field(name)), retaining = true }, def.span)
             end
         end
     end
@@ -1982,7 +2058,9 @@ end
 function Eval:execBody(ctx, body, span)
     if body.kind == "Expression" then
         local value = self:evalExpected(ctx, body.value, ctx.expectedResult)
-        return self:expand(value)
+        local values = self:expand(value)
+        self:checkReturn(values, span)
+        return values
     end
     ctx.result = nil
     local returned = self:execBlock(ctx, body.statements)
@@ -1997,6 +2075,7 @@ function Eval:execBodyResidual(ctx, body, span)
         if ctx.terminated then return end
         ctx.tail = false
         local values = self:expand(value)
+        self:checkReturn(values, span)
         ctx.builder:return_(ctx.body, self:materializeAll(ctx, values,
             ctx.instance and ctx.instance.results or nil))
         ctx.resultTypes = {}
