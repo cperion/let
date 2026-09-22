@@ -213,6 +213,34 @@ for _, instance in ipairs(retSession.order) do
 end
 check(sawOwnedInput, "the callable travels as a by-value environment input")
 
+-- Contextual typing: a signature requirement supplies a lambda's missing parameter types -------
+local CONTEXTUAL = [==[
+let twice(f: (U32): U32, x: U32): U32 = f(f(x))
+let adder(n: U32): (U32): U32 = |x| -> x + n
+let inc: (U32): U32 = |x| -> x + 1
+let use(n, x: U32): U32 = do
+  let f = adder(n)
+  return twice(f, x) + inc(x)
+end
+let inline(x: U32): U32 = twice(|y| -> y * 2, x)
+let capture(x: U32): U32 = twice(|y| -> y + x, 1)
+return { functions = { use, inline, capture } }
+]==]
+check(interpret("use", { 3, 4 }, CONTEXTUAL)[1] == 15,
+    "a lambda argument, a signature result and a declared callable binding all infer")
+check(interpret("inline", { 5 }, CONTEXTUAL)[1] == 20, "an unannotated lambda argument takes its type")
+check(interpret("capture", { 10 }, CONTEXTUAL)[1] == 21, "a contextually typed lambda may capture")
+
+rejects("lambda-annotation", "let g = |x| -> x + 1\nlet f(y: U32): U32 = g(y)\nreturn { functions = { f } }")
+rejects("callable-shape", "let twice(f: (U32): U32, x: U32): U32 = f(f(x))\n"
+    .. "let a(x: U32): U32 = twice(|y, z: U32| -> y + z + x, 1)\nreturn { functions = { a } }")
+rejects("callable-shape", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
+    .. "let a(x: U32): U32 = apply(|y: U32| -> true, x)\nreturn { functions = { a } }")
+-- Two different lambdas in one conditional have different code identities, so no single callable
+-- type describes the result; a tagged callable would need a variant representation.
+rejects("branch-result", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
+    .. "return { functions = { pick } }")
+
 -- Rejections ---; non-tail recursion stays a call -------------------------------
 local loopSession = Eval.session()
 loopSession:compile(Parse.source("let sum_to(n, acc: U32) : U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
@@ -241,6 +269,34 @@ local staticSession = Eval.session()
 staticSession:compile(Parse.source("let scale(k, x: U32) : U32 = if k == 0 then x else scale(0, x + 1)\n"
     .. "let five(x: U32) : U32 = scale(5, x)\nreturn { functions = { five } }", "s.let"))
 check(#staticSession.order >= 2, "changing a static argument creates a new instance")
+
+-- Contextual typing: a signature requirement supplies a lambda's missing parameter types -------
+local CONTEXTUAL = [==[
+let twice(f: (U32): U32, x: U32): U32 = f(f(x))
+let adder(n: U32): (U32): U32 = |x| -> x + n
+let inc: (U32): U32 = |x| -> x + 1
+let use(n, x: U32): U32 = do
+  let f = adder(n)
+  return twice(f, x) + inc(x)
+end
+let inline(x: U32): U32 = twice(|y| -> y * 2, x)
+let capture(x: U32): U32 = twice(|y| -> y + x, 1)
+return { functions = { use, inline, capture } }
+]==]
+check(interpret("use", { 3, 4 }, CONTEXTUAL)[1] == 15,
+    "a lambda argument, a signature result and a declared callable binding all infer")
+check(interpret("inline", { 5 }, CONTEXTUAL)[1] == 20, "an unannotated lambda argument takes its type")
+check(interpret("capture", { 10 }, CONTEXTUAL)[1] == 21, "a contextually typed lambda may capture")
+
+rejects("lambda-annotation", "let g = |x| -> x + 1\nlet f(y: U32): U32 = g(y)\nreturn { functions = { f } }")
+rejects("callable-shape", "let twice(f: (U32): U32, x: U32): U32 = f(f(x))\n"
+    .. "let a(x: U32): U32 = twice(|y, z: U32| -> y + z + x, 1)\nreturn { functions = { a } }")
+rejects("callable-shape", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
+    .. "let a(x: U32): U32 = apply(|y: U32| -> true, x)\nreturn { functions = { a } }")
+-- Two different lambdas in one conditional have different code identities, so no single callable
+-- type describes the result; a tagged callable would need a variant representation.
+rejects("branch-result", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
+    .. "return { functions = { pick } }")
 
 -- Rejections ------------------------------------------------------------------------------------
 rejects("unknown-name", "let f(x: U32) = y\nreturn { functions = { f } }")
@@ -272,8 +328,7 @@ rejects("borrowed-capture", "let C = { v: U32, inc() : U32 = v }\n"
 -- A callable with no known code needs a function-pointer ABI.
 rejects("opaque-callable", "let apply(f: (U32): U32, x: U32) : U32 = f(x)\n"
     .. "return { functions = { apply } }")
-rejects("lambda-annotation", "let twice(f: (U32): U32, x: U32) : U32 = f(f(x))\n"
-    .. "let a(x: U32) : U32 = twice(|y| -> y + 1, x)\nreturn { functions = { a } }")
+
 rejects("callable-shape", "let apply(f: (U32): U32, x: U32) : U32 = f(x)\n"
     .. "let bad(x: U32) : U32 = apply(|y: U32| -> true, x)\nreturn { functions = { bad } }")
 rejects("unknown-member", "let P = { x: U32 }\nlet f(a: U32) : U32 = do"

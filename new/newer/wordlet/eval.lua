@@ -47,7 +47,7 @@ Ctx.__index = Ctx
 function Ctx:arm(list)
     return setmetatable({ session = self.session, mode = self.mode, scope = self.scope,
         span = self.span, builder = self.builder, body = list,
-        instance = self.instance, tail = self.tail }, Ctx)
+        instance = self.instance, tail = self.tail, expectedResult = self.expectedResult }, Ctx)
 end
 
 function M.session(options)
@@ -279,7 +279,7 @@ end
 function Eval:evalList(ctx, exprs)
     local values = {}
     for index, expr in ipairs(exprs) do
-        local value = self:evalExpr(ctx, expr)
+        local value = self:evalExpected(ctx, expr, ctx.expectedResult)
         if index < #exprs then
             values[#values + 1] = self:first(value)
         else
@@ -334,23 +334,45 @@ end
 
 -- A callable argument satisfies a signature requirement when its shape matches. Results are
 -- compared only when the callable's own result types are already known.
+function Eval:sigMatches(a, b)
+    if #a.inputs ~= #b.inputs or #a.results ~= #b.results then return false end
+    for index = 1, #a.inputs do
+        if S.encode(a.inputs[index]) ~= S.encode(b.inputs[index]) then return false end
+    end
+    for index = 1, #a.results do
+        if S.encode(a.results[index]) ~= S.encode(b.results[index]) then return false end
+    end
+    return true
+end
+
 function Eval:callableMatches(value, sig)
     local tag = V.tag(value)
     if tag == "closure" then
-        local inputs, results = value.plan.sig.inputs, value.plan.sig.results
-        if #inputs ~= #sig.inputs then return false end
-        for index = 1, #inputs do
-            if S.encode(inputs[index]) ~= S.encode(sig.inputs[index]) then return false end
+        local own = value.plan.sig
+        if #own.results == 0 then
+            return #own.inputs == #sig.inputs
         end
-        if #results > 0 then
-            if #results ~= #sig.results then return false end
-            for index = 1, #results do
-                if S.encode(results[index]) ~= S.encode(sig.results[index]) then return false end
-            end
-        end
-        return true
+        return self:sigMatches(own, sig)
     end
     return nil   -- named words are checked by their own calling requirement
+end
+
+-- A value type that satisfies a signature requirement: a callable whose visible shape matches.
+function Eval:typeMatchesSignature(ty, sig)
+    if S.isOwned(ty) then return self:sigMatches(ty.visible, sig) end
+    return false
+end
+
+-- Checks a value against a requirement. A signature requirement is satisfied by a callable whose
+-- shape matches, which is what lets an unannotated lambda be checked against it.
+function Eval:requireAgainst(value, ty, span)
+    if S.isSig(ty) and (V.tag(value) == "closure" or V.tag(value) == "word") then
+        if self:callableMatches(value, ty) == false then
+            D.reject("callable-shape", "Callable does not match the required signature", span)
+        end
+        return
+    end
+    self:requireType(value, ty, span)
 end
 
 function Eval:requireType(value, ty, span)
@@ -369,12 +391,12 @@ function Eval:evalExpr(ctx, expr)
     elseif kind == "Reference" then return self:evalReference(ctx, expr)
     elseif kind == "UnaryExpr" then return self:evalUnary(ctx, expr)
     elseif kind == "BinaryExpr" then return self:evalBinary(ctx, expr)
-    elseif kind == "Condition" then return self:evalCondition(ctx, expr)
+    elseif kind == "Condition" then return self:evalCondition(ctx, expr, nil)
     elseif kind == "Apply" then return self:evalApply(ctx, expr)
     elseif kind == "SchemaExpr" then return self:evalSchema(ctx, expr)
     elseif kind == "RecordSupply" then return self:evalSupply(ctx, expr)
     elseif kind == "FieldSelect" then return self:evalFieldSelect(ctx, expr)
-    elseif kind == "Lambda" then return self:evalLambda(ctx, expr)
+    elseif kind == "Lambda" then return self:evalLambda(ctx, expr, nil)
     elseif kind == "SignatureExpr" then return self:evalSignature(ctx, expr)
     end
     D.todo("expression", "Unsupported expression form: " .. tostring(kind), expr.span)
@@ -535,19 +557,28 @@ function Eval:evalShortCircuit(ctx, expr)
     return V.ir(builder:ref(builder:read(ctx.body, S.Bool, place), S.Bool), S.Bool)
 end
 
-function Eval:evalCondition(ctx, expr)
+-- Evaluates an expression in an expected-signature position. Only a lambda (or a conditional
+-- choosing between lambdas) consumes the expectation; anything else evaluates normally.
+function Eval:evalExpected(ctx, expr, expected)
+    if expected == nil then return self:evalExpr(ctx, expr) end
+    if expr.kind == "Lambda" then return self:evalLambda(ctx, expr, expected) end
+    if expr.kind == "Condition" then return self:evalCondition(ctx, expr, expected) end
+    return self:evalExpr(ctx, expr)
+end
+
+function Eval:evalCondition(ctx, expr, expected)
     local test = self:evalExpr(ctx, expr.test)
     self:requireType(test, S.Bool, expr.test.span)
     if V.tag(test) == "bool" then
-        return test.b and self:evalExpr(ctx, expr.yes) or self:evalExpr(ctx, expr.no)
+        return self:evalExpected(ctx, test.b and expr.yes or expr.no, expected)
     end
     local builder = ctx.builder
     local testExpr = self:expression(ctx, test)
     local yesList, noList = {}, {}
     local yesCtx, noCtx = ctx:arm(yesList), ctx:arm(noList)
-    local yesValue = self:evalExpr(yesCtx, expr.yes)
+    local yesValue = self:evalExpected(yesCtx, expr.yes, expected)
     local yesTerminated = yesCtx.terminated or false
-    local noValue = self:evalExpr(noCtx, expr.no)
+    local noValue = self:evalExpected(noCtx, expr.no, expected)
     local noTerminated = noCtx.terminated or false
     -- An arm that transfers control (a tail back edge) never reaches the continuation.
     if yesTerminated and noTerminated then
@@ -866,7 +897,7 @@ function Eval:captureValue(ctx, name, span)
     D.bug("capture", "Unknown capture binding kind " .. tostring(slot.kind))
 end
 
-function Eval:evalLambda(ctx, expr)
+function Eval:evalLambda(ctx, expr, expected)
     local names, out = {}, {}
     for _, param in ipairs(expr.params) do names[param.name.text] = true end
     freeNames(expr.body, names, out)
@@ -897,14 +928,31 @@ function Eval:evalLambda(ctx, expr)
 
     local inputs, results = {}, {}
     for index, param in ipairs(expr.params) do
-        if not param.annotation then
-            D.todo("lambda-annotation",
-                "A lambda parameter without a type annotation needs a contextual signature; write the "
-                .. "annotation explicitly", param.span)
+        if param.annotation then
+            inputs[index] = S.inValue(self:typeOf(param.annotation, ctx.scope, expr.span))
+        else
+            -- Contextual typing: the expected signature supplies the missing annotation.
+            if expected == nil then
+                D.todo("lambda-annotation",
+                    "A lambda parameter without a type annotation needs an expected signature; either "
+                    .. "annotate it or pass the lambda where a signature is required", param.span)
+            end
+            if #expr.params > #expected.inputs then
+                D.reject("callable-shape", "The lambda takes more parameters than its expected signature",
+                    expr.span)
+            end
+            local input = expected.inputs[index]
+            if input.kind ~= "InValue" then
+                D.todo("lambda-annotation", "A lambda parameter cannot be a borrowed place", param.span)
+            end
+            inputs[index] = input
         end
-        inputs[index] = S.inValue(self:typeOf(param.annotation, ctx.scope, expr.span))
     end
     if expr.annotation then results[1] = expr.annotation end
+    -- Resolved parameter types travel with the plan: a contextually typed lambda has no annotation
+    -- to re-evaluate when its body is compiled.
+    plan.paramTypes = {}
+    for index, input in ipairs(inputs) do plan.paramTypes[index] = input.type end
     plan.sig = S.sig(inputs, results)
     plan.envNames = {}
     local envFields = {}
@@ -1033,20 +1081,26 @@ function Eval:buildCallableInstance(key, callable, args, span)
     end
 
     for index, param in ipairs(def.params) do
-        local ty = self:requirement(def, index, sc, span)
+        -- A contextually typed lambda carries its resolved parameter types on the plan.
+        local ty = plan.paramTypes[index] or self:requirement(def, index, sc, span)
         local supplied = args[index]
         local bound = false
         if S.isSig(ty) then
             -- A callable parameter: static code is specialised away entirely; otherwise the Owned
             -- type carries the code identity, so the call stays direct and only the environment
             -- travels as a by-value input.
-            if supplied ~= nil and V.isStatic(supplied) then
+            if supplied ~= nil and (V.tag(supplied) == "closure" or V.tag(supplied) == "word") then
                 if self:callableMatches(supplied, ty) == false then
                     D.reject("callable-shape", "Callable does not match the required signature", param.span)
                 end
-                declare(sc, param.name.text, { kind = "value", name = param.name.text, value = supplied },
-                    param.span)
-                bound = true
+                if V.isStatic(supplied) then
+                    declare(sc, param.name.text, { kind = "value", name = param.name.text, value = supplied },
+                        param.span)
+                    bound = true
+                else
+                    -- A closure with a runtime environment travels by value as that environment.
+                    ty = supplied.ty
+                end
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
                 ty = supplied.ty
             else
@@ -1128,12 +1182,14 @@ function Eval:execBlock(ctx, statements)
             local def = self:define(stmt.def, ctx.scope, nil)
             declare(ctx.scope, stmt.def.name.text, { kind = "word", name = stmt.def.name.text, def = def }, stmt.def.name.span)
         elseif kind == "ReturnStmt" then
-            -- Only a single returned value can be a tail self-call: in a result vector the
-            -- non-final values are adjusted to one value each and are not tail positions.
-            local savedTail, savedTerminated = ctx.tail, ctx.terminated
+            -- A signature result annotation types a returned lambda. Only a single returned value
+            -- can be a tail self-call: in a result vector the non-final values are adjusted to one
+            -- value each and are not tail positions.
+            local savedExpected, savedTail, savedTerminated = ctx.expectedResult, ctx.tail, ctx.terminated
+            if #stmt.values ~= 1 then ctx.expectedResult = nil end
             ctx.tail, ctx.terminated = #stmt.values == 1, false
             local values = self:evalList(ctx, stmt.values)
-            ctx.tail = savedTail
+            ctx.expectedResult, ctx.tail = savedExpected, savedTail
             if ctx.terminated then return true end
             ctx.terminated = savedTerminated
             if ctx.mode == "residual" then
@@ -1181,7 +1237,23 @@ end
 -- Value definitions and annotations -----------------------------------------------------------
 
 function Eval:evalValueDef(ctx, def)
-    local values = self:evalList(ctx, def.values)
+    -- Evaluate signature annotations first: they supply missing lambda parameter types.
+    local expectations = {}
+    for index, binder in ipairs(def.binders) do
+        if binder.annotation and binder.annotation.kind == "SignatureExpr" then
+            local ty = self:typeOf(binder.annotation, ctx.scope, binder.span)
+            if S.isSig(ty) then expectations[index] = ty end
+        end
+    end
+    local values = {}
+    for index, expr in ipairs(def.values) do
+        local value = self:evalExpected(ctx, expr, expectations[index])
+        if index < #def.values then
+            values[#values + 1] = self:first(value)
+        else
+            for _, item in ipairs(self:expand(value)) do values[#values + 1] = item end
+        end
+    end
     local bound = {}
     for index, binder in ipairs(def.binders) do
         bound[index] = self:checkAnnotation(ctx, binder, values[index] or V.unit())
@@ -1193,7 +1265,7 @@ end
 function Eval:checkAnnotation(ctx, binder, value)
     if not binder.annotation then return value end
     local ty = self:typeOf(binder.annotation, ctx.scope, binder.span)
-    self:requireType(value, ty, binder.span)
+    self:requireAgainst(value, ty, binder.span)
     return value
 end
 
@@ -1221,9 +1293,46 @@ end
 
 -- Application ---------------------------------------------------------------------------------
 
+-- Argument expectations come from parameters whose annotation is written as a signature, so an
+-- unannotated lambda argument is typed by the requirement it is passed to.
+function Eval:evalArguments(ctx, exprs, callee)
+    local def, offset
+    local tag = V.tag(callee)
+    if tag == "word" then
+        def = callee.def
+        offset = #callee.args
+    elseif tag == "closure" then
+        def = callee.plan.def
+        offset = 0
+    elseif tag == "method" then
+        def = callee.def
+        offset = #(callee.args or {})
+    end
+    local sc = (def and offset == 0) and scope(def.lexical) or nil
+    local values = {}
+    for index, expr in ipairs(exprs) do
+        local param = sc and def.params[index] or nil
+        local expected
+        if param and param.annotation and param.annotation.kind == "SignatureExpr" then
+            local ty = self:typeOf(param.annotation, sc, param.span)
+            if S.isSig(ty) then expected = ty end
+        end
+        local value = self:evalExpected(ctx, expr, expected)
+        if index < #exprs then
+            local adjusted = self:first(value)
+            values[#values + 1] = adjusted
+            if param then declare(sc, param.name.text, { kind = "value", name = param.name.text,
+                value = adjusted }, param.span) end
+        else
+            for _, item in ipairs(self:expand(value)) do values[#values + 1] = item end
+        end
+    end
+    return values
+end
+
 function Eval:evalApply(ctx, expr)
     local callee = self:evalExpr(ctx, expr.callee)
-    local args = self:evalList(ctx, expr.arguments)
+    local args = self:evalArguments(ctx, expr.arguments, callee)
     local tag = V.tag(callee)
     if tag == "word" then return self:apply(ctx, callee, args, expr.span) end
     if tag == "method" then return self:applyMethod(ctx, callee, args, expr.span) end
@@ -1315,15 +1424,7 @@ function Eval:parameterScope(def, values, receiver)
         -- since a later annotation may depend on an earlier parameter.
         local ty = self:requirement(def, index, sc, def.span)
         local value = self:copyArgument(values[index])
-        if value then
-            if S.isSig(ty) and (V.tag(value) == "closure" or V.tag(value) == "word") then
-                if self:callableMatches(value, ty) == false then
-                    D.reject("callable-shape", "Callable does not match the required signature", param.span)
-                end
-            else
-                self:requireType(value, ty, param.span)
-            end
-        end
+        if value then self:requireAgainst(value, ty, param.span) end
         declare(sc, param.name.text, { kind = "value", name = param.name.text, value = value }, param.span)
     end
     return sc
@@ -1340,14 +1441,27 @@ end
 
 function Eval:applyStatically(def, values, span, receiver)
     local sc = self:parameterScope(def, values, receiver)
-    local result = self:execBody(self:context("normalize", sc, span), def.body, span)
-    local declared = self:declaredResult(def, sc, span)
+    local declared, requirements = self:declaredResult(def, sc, span)
+    local ctx = self:context("normalize", sc, span)
+    ctx.expectedResult = self:resultExpectation(requirements)
+    local result = self:execBody(ctx, def.body, span)
     if declared then
         if #declared ~= #result then
             D.reject("branch-result", "Word " .. def.name .. " returned " .. #result
                 .. " values but declares " .. #declared, span)
         end
-        for index, ty in ipairs(declared) do self:requireType(result[index], ty, span) end
+        for index, ty in ipairs(declared) do
+            if ty ~= false then self:requireAgainst(result[index], ty, span) end
+        end
+    end
+    if requirements then
+        for index, requirement in pairs(requirements) do
+            local actual = result[index]
+            if not actual or not self:typeMatchesSignature(actual.ty, requirement) then
+                D.reject("callable-shape",
+                    "The returned callable does not match the declared result signature", span)
+            end
+        end
     end
     if #result == 0 then return V.unit() end
     if #result == 1 then return result[1] end
@@ -1505,12 +1619,18 @@ function Eval:buildInstance(key, def, values, span, receiver)
             -- type carries the code identity, so the call stays direct and only the environment
             -- travels as a by-value input.
             local supplied = values[index]
-            if supplied ~= nil and V.isStatic(supplied) then
+            if supplied ~= nil and (V.tag(supplied) == "closure" or V.tag(supplied) == "word") then
                 if self:callableMatches(supplied, ty) == false then
                     D.reject("callable-shape", "Callable does not match the required signature", param.span)
                 end
-                declare(sc, param.name.text, { kind = "value", name = param.name.text, value = supplied }, param.span)
-                goto continue
+                if V.isStatic(supplied) then
+                    declare(sc, param.name.text, { kind = "value", name = param.name.text, value = supplied },
+                        param.span)
+                    goto continue
+                else
+                    -- A closure with a runtime environment travels by value as that environment.
+                    ty = supplied.ty
+                end
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
                 ty = supplied.ty
             else
@@ -1559,13 +1679,30 @@ function Eval:buildInstance(key, def, values, span, receiver)
         ::continue::
     end
 
-    instance.results = self:declaredResult(def, sc, span)
+    local declared, requirements = self:declaredResult(def, sc, span)
+    instance.results, instance.resultRequirements = declared, requirements
     local ctx = setmetatable({ session = self, mode = "residual", scope = sc, span = span,
-        builder = builder, body = body, fn = { id = instance.target }, instance = instance }, Ctx)
+        builder = builder, body = body, fn = { id = instance.target }, instance = instance,
+        expectedResult = self:resultExpectation(requirements) }, Ctx)
     self:execBodyResidual(ctx, def.body, span)
-    if not instance.results then instance.results = ctx.resultTypes end
+    if instance.results then
+        for index, ty in ipairs(instance.results) do
+            if ty == false then instance.results[index] = ctx.resultTypes and ctx.resultTypes[index] end
+        end
+    else
+        instance.results = ctx.resultTypes
+    end
     if not instance.results then
         D.reject("recursive-result", "Word " .. def.name .. " has no returning path", span)
+    end
+    if requirements then
+        for index, requirement in pairs(requirements) do
+            local actual = instance.results[index]
+            if not actual or not self:typeMatchesSignature(actual, requirement) then
+                D.reject("callable-shape",
+                    "The returned callable does not match the declared result signature", span)
+            end
+        end
     end
     for _, ty in ipairs(instance.results) do
         if not S.representable(ty) then
@@ -1587,25 +1724,48 @@ function Eval:buildInstance(key, def, values, span, receiver)
     return instance
 end
 
+-- A result annotation that is a signature states what the returned callable must look like, not a
+-- concrete type: the body fixes the code identity, so that slot stays open until the body returns.
 function Eval:declaredResult(def, sc, span)
     local result = def.result
-    if not result then return nil end
+    if not result then return nil, nil end
     sc = sc or def.lexical
-    local types = {}
+    local expressions = {}
     if result.kind == "Single" then
-        types[1] = self:typeOf(result.type, sc, span)
+        expressions[1] = result.type
     else
-        for index, item in ipairs(result.types) do types[index] = self:typeOf(item, sc, span) end
+        for index, item in ipairs(result.types) do expressions[index] = item end
     end
-    for _, ty in ipairs(types) do S.checkRuntime(ty, span) end
-    return types
+    local types, requirements = {}, {}
+    for index, expr in ipairs(expressions) do
+        local ty = self:typeOf(expr, sc, span)
+        if S.isSig(ty) then
+            types[index], requirements[index] = false, ty
+        else
+            S.checkRuntime(ty, span)
+            types[index] = ty
+        end
+    end
+    if next(requirements) == nil then return types, nil end
+    return types, requirements
+end
+
+-- One open result slot, or none, is what a signature result annotation can fix.
+function Eval:resultExpectation(requirements)
+    if not requirements then return nil end
+    local only
+    for _, requirement in pairs(requirements) do
+        if only then return nil end
+        only = requirement
+    end
+    return only
 end
 
 -- Body execution ------------------------------------------------------------------------------
 
 function Eval:execBody(ctx, body, span)
     if body.kind == "Expression" then
-        local value = self:evalExpr(ctx, body.value)
+        local value = self:evalExpected(ctx, body.value, ctx.expectedResult)
         return self:expand(value)
     end
     ctx.result = nil
@@ -1617,7 +1777,7 @@ end
 function Eval:execBodyResidual(ctx, body, span)
     if body.kind == "Expression" then
         ctx.tail, ctx.terminated = true, false
-        local value = self:evalExpr(ctx, body.value)
+        local value = self:evalExpected(ctx, body.value, ctx.expectedResult)
         if ctx.terminated then return end
         ctx.tail = false
         local values = self:expand(value)

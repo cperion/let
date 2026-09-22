@@ -173,6 +173,20 @@ local CASES = {
         inputs = { { 5, 7 }, { 0, 0 }, { 3 }, { 7 }, { 3, 4, 10 }, { 0, 0, 0 }, { 1 }, { 4294967295 } },
     },
     {
+        name = "contextual",
+        source = "let twice(f: (U32): U32, x: U32): U32 = f(f(x))\n"
+            .. "let adder(n: U32): (U32): U32 = |x| -> x + n\n"
+            .. "let inc: (U32): U32 = |x| -> x + 1\n"
+            .. "let use(n, x: U32): U32 = do\n"
+            .. "  let f = adder(n)\n  return twice(f, x) + inc(x)\nend\n"
+            .. "let inline(x: U32): U32 = twice(|y| -> y * 2, x)\n"
+            .. "let capture(x: U32): U32 = twice(|y| -> y + x, 1)\n"
+            .. "return { functions = { use, inline, capture } }",
+        entries = { { entry = "use", arity = 2 }, { entry = "inline", arity = 1 },
+            { entry = "capture", arity = 1 } },
+        inputs = { { 3, 4 }, { 0, 0 }, { 7, 5 }, { 5 }, { 0 }, { 10 } },
+    },
+    {
         name = "alias",
         source = "let inc(x: U32) : U32 = x + 1\nreturn { functions = { a = inc, b = inc } }",
         entries = { { entry = "a", arity = 1 }, { entry = "b", arity = 1 } },

@@ -22,7 +22,8 @@ this section states exactly how much of it runs today.
 | Closures and higher-order words | implemented: by-value environments, direct calls, capture-free lambdas as static code |
 | Borrowed captures (a captured receiver or method) | **rejected** (`borrowed-capture`); needs a non-retaining environment |
 | A callable with no known code (an opaque function pointer) | **rejected** (`opaque-callable`) |
-| Contextual lambda parameter types (`|x| -> ...`) | **rejected** (`lambda-annotation`); annotate the parameter |
+| Contextual lambda parameter types | implemented: a binding annotation, a parameter requirement or a result contract supplies them. A lambda with no expectation anywhere is still rejected (`lambda-annotation`) |
+| Two different lambdas returned from one conditional | **rejected** (`branch-result`); a tagged callable needs a variant representation |
 | Self-tail calls (`Loop`/`Next` back edges) | implemented; tails run at constant C stack depth |
 | Module-level mutable records captured by runtime code | **rejected** (`module-mutable-capture`); needs a runtime storage interface |
 
@@ -43,7 +44,12 @@ form a by-value environment passed to the compiled lambda as leading hidden inpu
 identity lives in the value's type, calling a closure stays a **direct call** — no function pointer is
 needed while the code is known.
 
-`tests/eval.lua` (142 checks) and `tests/c.lua` (200 checks, 15 programs) cover this.
+An unannotated lambda takes its parameter types from the context it is written in — a binding
+annotation (`let inc: (U32): U32 = |x| -> x + 1`), a parameter requirement
+(`twice(|y| -> y + 1, x)`) or a result contract (`let adder(n: U32): (U32): U32 = |x| -> x + n`,
+where the signature also becomes a checked requirement on what the body returns).
+
+`tests/eval.lua` (176 checks) and `tests/c.lua` (217 checks, 16 programs) cover this.
 
 
 - [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.
