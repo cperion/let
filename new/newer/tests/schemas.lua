@@ -48,6 +48,21 @@ assert(tagged == i.Ty.Tagged(sig, L{i.Ty.Field("closure:1", i.Ty.Unit),
 assert(tagged ~= i.Ty.Tagged(sig, L{i.Ty.Field("closure:1", i.Ty.Unit)}))
 assert(i.Ty.Tagged:isclassof(tagged) and i.Ty.V:isclassof(tagged))
 
+-- A reference interns by its target and a named cell by its identity, and neither subsumes the
+-- other: a recursive definition is one knot, not two spellings of it.
+local named = i.Ty.Named("Node#1")
+assert(i.Ty.Ref(named) == i.Ty.Ref(i.Ty.Named("Node#1")))
+assert(i.Ty.Ref(named) ~= i.Ty.Ref(i.Ty.U32))
+assert(i.Ty.Named("Node#1") ~= i.Ty.Named("Node#2"))
+assert(i.Ty.Ref:isclassof(i.Ty.Ref(named)) and i.Ty.V:isclassof(i.Ty.Ref(named)))
+assert(i.Ty.Named:isclassof(named) and i.Ty.V:isclassof(named))
+
+-- An address is a pure expression over a place, and a dereference is a place.
+local refPlace = i.Ir.Local(i.Ir.Storage(1))
+assert(i.Ir.Expr:isclassof(i.Ir.Addr(refPlace, i.Ty.Ref(named))))
+assert(i.Ir.Place:isclassof(i.Ir.Deref(refPlace, named)))
+assert(i.Ir.Addr(refPlace, i.Ty.Ref(named)) ~= i.Ir.Addr(refPlace, i.Ty.Ref(i.Ty.U32)))
+
 -- Function-local ID descriptors are interned so equality is cheap.
 assert(i.Ir.Value(1) == i.Ir.Value(1) and i.Ir.Storage(1) == i.Ir.Storage(1))
 assert(i.Ir.Bundle(1) == i.Ir.Bundle(1) and i.Ir.Field("x") == i.Ir.Field("x"))

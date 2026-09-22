@@ -348,15 +348,15 @@ Ir.Fn    = (id, role, hidden, Ty.Input* inputs, Ty.V* results, Param* params, St
 ```
 
 A reference is a type whose representation is a pointer but whose meaning is a checked borrow: the
-target must provably outlive every use (section 8.2). Its implementation order follows the same rule
-as every other family here: schema first, then the frontend and its rejections, then layout. Concretely
-`Ty.Ref`/`Ty.Named` and the two IR additions; the `Ref` builtin whose terminal returns a type for a
-type argument and a reference for a place argument; the reservation of an open cell around a `let`
-type definition and the `type-cycle` rejection when a knot closes by value; the two lifetime rules
-with `ref-target` and `ref-escape`; `cType`/`placeC` for `T *` and `(*p).field`, which the existing
-forward declarations and dependency-ordered emission already accept; then the differential C cases in
-section 8.2's validation list. The `c-order` check stays as the layout backstop for a cycle that slips
-past the type-level rejection. It is the only indirection boundary that makes
+target must provably outlive every use (section 8.2). Its implementation follows the same order as every other
+family here: `Ty.Ref`/`Ty.Named` and the two IR additions first; then the `Ref` builtin, whose terminal
+returns a type for a type argument and a reference for a place argument, so no new syntax is needed;
+then the reservation of an open cell around a `let` type definition and the `type-cycle` rejection
+when a knot closes by value, with a sealed definition canonicalising its own occurrences so one knot
+stays one type; then the two lifetime rules, `ref-target` and `ref-escape`; then `cType`/`placeC` for
+`T *` and `(*p).field`, which the existing forward declarations and dependency-ordered emission
+already accept. The `c-order` check stays as the layout backstop for a cycle that slips past the
+type-level rejection. It is the only indirection boundary that makes
 a recursive layout finite, and `Named` is the identity a recursive definition reserves for itself
 while its own layout is still being computed. A `Ref` field makes its holder non-retaining in one
 direction and tied to its target lifetime in the other, and a by-value cycle stays rejected.

@@ -63,7 +63,7 @@ function M.function_(fn, definitions, seeded)
         for _, stmt in ipairs(list) do
             local kind = stmt.kind
             if kind == "Let" then
-                if M.expr(stmt.expr, visible) ~= stmt.type then
+                if M.expr(stmt.expr, visible, storages) ~= stmt.type then
                     D.bug("ir-type", "Let type does not match its expression")
                 end
                 bind(visible, stmt.value.id, stmt.type)
@@ -79,17 +79,17 @@ function M.function_(fn, definitions, seeded)
             elseif kind == "Var" then
                 storages[stmt.storage.id] = stmt.type
                 if stmt.initial then
-                    if M.expr(stmt.initial, visible) ~= stmt.type then
+                    if M.expr(stmt.initial, visible, storages) ~= stmt.type then
                         D.bug("ir-type", "Var initialiser does not match the storage type")
                     end
                 end
             elseif kind == "Store" then
                 local placeType = M.place(stmt.place, storages)
-                if M.expr(stmt.value, visible) ~= placeType then
+                if M.expr(stmt.value, visible, storages) ~= placeType then
                     D.bug("ir-type", "Store value does not match the place's type")
                 end
             elseif kind == "If" then
-                M.expr(stmt.test, visible)
+                M.expr(stmt.test, visible, storages)
                 checkList(stmt.yes, set, copy(visible), storages, inLoop)
                 checkList(stmt.no, set, copy(visible), storages, inLoop)
             elseif kind == "Loop" then
@@ -105,7 +105,7 @@ function M.function_(fn, definitions, seeded)
                     D.bug("ir-arity", "Call result count does not match " .. stmt.target)
                 end
                 if kind == "Indirect" then
-                    local callable = M.expr(stmt.callable, visible)
+                    local callable = M.expr(stmt.callable, visible, storages)
                     if not S.isView(callable) then D.bug("ir-type", "Indirect needs a view-typed callable") end
                     if #stmt.results ~= #callable.visible.results then
                         D.bug("ir-arity", "Indirect result count does not match the view's signature")
@@ -139,7 +139,7 @@ function M.function_(fn, definitions, seeded)
                         end
                         if arg.kind == "ValueArg" and input.kind == "InValue"
                             and arg.value.type ~= nil then
-                            if M.expr(arg.value, visible) ~= input.type then
+                            if M.expr(arg.value, visible, storages) ~= input.type then
                                 D.bug("ir-type", "Call argument type does not match the target input")
                             end
                         end
@@ -178,7 +178,7 @@ function M.function_(fn, definitions, seeded)
                     if input.kind == "InPlace" and slot.kind ~= "BorrowArg" then
                         D.bug("ir-arg", "A borrowed hidden input needs a place slot")
                     end
-                    if slot.kind == "ValueArg" and M.expr(slot.value, visible) ~= input.type then
+                    if slot.kind == "ValueArg" and M.expr(slot.value, visible, storages) ~= input.type then
                         D.bug("ir-type", "View slot type does not match the hidden input")
                     end
                     if slot.kind == "BorrowArg" and M.place(slot.place, storages) ~= input.type then
@@ -208,7 +208,7 @@ function M.function_(fn, definitions, seeded)
                     if not stmt.payload then
                         D.bug("ir-type", "Alternative " .. stmt.tag .. " needs a payload")
                     end
-                    if M.expr(stmt.payload, visible) ~= caseType then
+                    if M.expr(stmt.payload, visible, storages) ~= caseType then
                         D.bug("ir-type", "Variant payload does not match alternative " .. stmt.tag)
                     end
                 end
@@ -235,14 +235,14 @@ function M.function_(fn, definitions, seeded)
                 end
                 bind(visible, stmt.value.id, caseType)
             elseif kind == "Trap" then
-                M.expr(stmt.failure, visible)
+                M.expr(stmt.failure, visible, storages)
             elseif kind == "Return" then
                 if #stmt.values ~= #fn.results then
                     D.bug("ir-return", "Function " .. fn.id .. " returns " .. #stmt.values
                         .. " values but declares " .. #fn.results)
                 end
                 for index, value in ipairs(stmt.values) do
-                    if M.expr(value, visible) ~= fn.results[index] then
+                    if M.expr(value, visible, storages) ~= fn.results[index] then
                         D.bug("ir-return", "Returned value type does not match the declared result")
                     end
                 end
@@ -272,7 +272,7 @@ function M.function_(fn, definitions, seeded)
     return true
 end
 
-function M.expr(expr, locals)
+function M.expr(expr, locals, storages)
     local kind = expr.kind
     if kind == "Const" then
         if expr.type == S.U32 then
@@ -295,20 +295,31 @@ function M.expr(expr, locals)
             D.bug("ir-arity", "Make field count does not match the record type")
         end
         for index, field in ipairs(record.fields) do
-            if M.expr(expr.fields[index], locals) ~= field.type then
+            if M.expr(expr.fields[index], locals, storages) ~= field.type then
                 D.bug("ir-type", "Make field type does not match " .. field.name)
             end
         end
         return expr.type
+    elseif kind == "Addr" then
+        -- An address is pure: it computes the address of a place and reads nothing. The pointee
+        -- identity is a type-cell fact the verifier does not re-derive, so this checks the recorded
+        -- type is a reference and that the place is well formed.
+        if not S.isRef(expr.type) then D.bug("ir-type", "Addr needs a reference type") end
+        local placeType = M.place(expr.place, storages)
+        if placeType == nil then D.bug("ir-place", "Addr needs a place with a known type") end
+        if not S.isNamed(expr.type.target) and placeType ~= expr.type.target then
+            D.bug("ir-type", "Addr place type does not match the reference target")
+        end
+        return expr.type
     elseif kind == "Get" then
-        local aggregate = S.environmentOf(M.expr(expr.aggregate, locals))
+        local aggregate = S.environmentOf(M.expr(expr.aggregate, locals, storages))
         if not S.isRecord(aggregate) then D.bug("ir-type", "Get needs a record aggregate") end
         local field = S.field(aggregate, expr.field.name)
         if not field then D.bug("ir-field", "Get names an unknown field " .. expr.field.name) end
         if field ~= expr.type then D.bug("ir-type", "Get type does not match the field type") end
         return expr.type
     elseif kind == "Un" then
-        local operand = M.expr(expr.operand, locals)
+        local operand = M.expr(expr.operand, locals, storages)
         local op = expr.op.kind
         if op == "Not" then
             if operand ~= S.Bool or expr.type ~= S.Bool then D.bug("ir-type", "Not requires Bool") end
@@ -319,8 +330,8 @@ function M.expr(expr, locals)
         end
         return expr.type
     elseif kind == "Bin" then
-        local left = M.expr(expr.left, locals)
-        local right = M.expr(expr.right, locals)
+        local left = M.expr(expr.left, locals, storages)
+        local right = M.expr(expr.right, locals, storages)
         local op = expr.op.kind
         local arithmetic = { Add = true, Sub = true, Mul = true, Div = true, Rem = true, Pow = true,
             BitAnd = true, BitOr = true, BitXor = true, Shl = true, Shr = true }
@@ -345,6 +356,13 @@ end
 -- Returns the type the place refers to, or nil for places without a known type yet.
 function M.place(place, storages)
     local kind = place.kind
+    if kind == "Deref" then
+        -- A reference names the place it points at. The pointee type is recorded on the node, and
+        -- the base must itself be a place holding a reference.
+        local base = M.place(place.base, storages)
+        if not S.isRef(base) then D.bug("ir-place", "Deref needs a reference place") end
+        return place.type
+    end
     if kind == "Local" then
         local ty = storages and storages[place.storage.id]
         if not ty then D.bug("ir-place", "Place refers to undeclared storage " .. place.storage.id) end
@@ -363,7 +381,7 @@ function M.place(place, storages)
 end
 
 function M.arg(arg, locals, storages)
-    if arg.kind == "ValueArg" then return M.expr(arg.value, locals) end
+    if arg.kind == "ValueArg" then return M.expr(arg.value, locals, storages) end
     if arg.kind == "BorrowArg" then return M.place(arg.place, storages) end
     if arg.kind == "BundleArg" then return true end
     D.bug("ir-arg", "Unknown argument variant " .. tostring(arg.kind))

@@ -15,6 +15,9 @@ function M.functionName(name) return "wordlet_" .. M.escape(name) end
 function M.close(compilation)
     local layouts = {
         compilation = compilation,
+        -- Named cells are the identity of a recursive type definition; a reference to one resolves
+        -- to the definition's layout, which must be named so its forward declaration is emitted.
+        typeCells = (compilation.session and compilation.session.typeCells) or {},
         tuples = {},        -- result vector -> { name, fields }
         tupleOrder = {},
         views = {},         -- Ty.View -> invocation-pointer layout
@@ -143,7 +146,20 @@ function M.close(compilation)
     layouts.taggedLayout = taggedLayout
     function layouts.tagLayout(ty) return S.isTagged(ty) and taggedLayout(ty) or sumLayout(ty) end
 
+    function layouts:resolveNamed(ty)
+        local cell = layouts.typeCells[ty.cell]
+        if not cell then
+            D.bug("c-named", "A named type cell has no definition: " .. tostring(ty.cell))
+        end
+        return cell
+    end
+
     function layouts:cType(ty)
+        if S.isNamed(ty) then return layouts:cType(layouts:resolveNamed(ty)) end
+        if S.isRef(ty) then
+            -- A pointer to a target, so the target needs a declaration but not a definition here.
+            return layouts:cType(ty.target) .. " *"
+        end
         if ty == S.U32 then return "uint32_t" end
         if ty == S.Bool then return "bool" end
         if ty == S.Unit then return "void" end

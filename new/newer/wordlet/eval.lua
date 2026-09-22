@@ -63,6 +63,9 @@ function M.session(options)
         definitions = {}, instances = {}, order = {}, moduleStorages = {},
         -- Tagged-callable arms, keyed by the code identity that names them in a type.
         arms = {},
+        -- Sealed definitions of named cells, keyed by the identity a recursive definition reserved.
+        typeCells = {},
+        nextTypeCell = 0,
         nextDef = 0, nextFn = 0, steps = 0,
         maxSteps = limits.steps or 1000000,
     }, Eval)
@@ -88,12 +91,30 @@ function Eval:load(program)
             slot.def = self:define(decl.def, top, nil)
         else
             local binder = decl.def.binders[1]
-            declare(top, binder.name.text, { kind = "value", name = binder.name.text, decl = decl, scope = top }, decl.span)
+            local slot = declare(top, binder.name.text,
+                { kind = "value", name = binder.name.text, decl = decl, scope = top }, decl.span)
+            -- A file-scope binding outlives every activation, which is what makes it a legal
+            -- reference target in both modes: residual code promotes it to named module storage and
+            -- the interpreter already holds its record.
+            slot.atTop = true
         end
     end
     for _, name in ipairs({ "U32", "Bool", "Unit", "Type" }) do
         declare(top, name, { kind = "value", name = name, value = V.type(S[name]) })
     end
+    -- `Ref(T)` is a type and `Ref(place)` is a reference to that place. Both are the same ordinary
+    -- word, dispatched on whether the argument is a type value or a place, so no new syntax is
+    -- needed and the builtin is applied, supplied and checked like any other word.
+    local refBuiltin = self:builtin("Ref", { { name = "target" } }, function(engine, ctx, values, span)
+        local target = values[1]
+        local ty = engine:asType(target, span)
+        if ty then return V.type(S.ref(engine:canonicalize(ty))) end
+        return engine:makeReference(ctx, target, span)
+    end)
+    -- A reference must name a place, and only the argument expression says whether that place has
+    -- an identity that outlives the reference, so `Ref` needs the expression as well as the value.
+    refBuiltin.refOf = true
+    declare(top, "Ref", { kind = "word", name = "Ref", def = refBuiltin })
     -- `OneOf(cases)` builds a sum type; the cases are a keyed schema whose fields are the
     -- alternatives. Nothing new is needed in the grammar: member selection names a constructor and
     -- keyed application matches on the tag.
@@ -204,6 +225,8 @@ function Eval:moduleObject(slot, span)
     local storage = Ir.Storage(MODULE_STORAGE_BASE + self.nextModule)
     local object = V.object(value.ty, Ir.Local(storage), schema)
     object.module = true
+    -- The interpreter reads and writes that record directly, so both modes observe one state.
+    object.backing = value
     self.moduleStorages[#self.moduleStorages + 1] = {
         storage = storage, type = value.ty, initial = value, name = slot.name,
     }
@@ -254,12 +277,61 @@ function Eval:demand(slot, span)
     if slot.kind ~= "value" or slot.value ~= nil then return slot end
     if slot.demanding then D.reject("initializer-cycle", "Eager value cycle through " .. slot.name, span) end
     slot.demanding = true
+    -- A binding that its own type computation demands reserves a cell, so the definition can refer
+    -- to itself through an indirection instead of forcing its layout.
+    if slot.cell == nil then
+        self.nextTypeCell = self.nextTypeCell + 1
+        slot.cell = slot.name .. "#" .. tostring(self.nextTypeCell)
+    end
+    slot.open = true
     local ctx = self:context("normalize", slot.scope, slot.decl.span)
     local ok, result = pcall(self.evalValueDef, self, ctx, slot.decl.def)
     slot.demanding = nil
+    slot.open = false
     if not ok then error(result, 0) end
     slot.value = result
+    self:sealCell(slot, span)
     return slot
+end
+
+-- Seals a reserved cell with the type the binding computed. A cell that nothing referred to needs no
+-- definition, and a definition that mentions its own cell by value rather than through a reference
+-- has no finite layout.
+function Eval:sealCell(slot, span)
+    span = span or (slot.decl and slot.decl.span)
+    local ty = self:asType(slot.value, span)
+    if self.referencedCells == nil then self.referencedCells = {} end
+    if ty then
+        self.typeCells[slot.cell] = ty
+        self.namedByMeaning = self.namedByMeaning or {}
+        self.namedByMeaning[S.encode(ty)] = S.named(slot.cell)
+    end
+    if ty and self.referencedCells[slot.cell] then
+        self:checkNoValueCycle(ty, slot, span)
+    end
+    return ty
+end
+
+-- A cell may only appear behind a reference. Every other occurrence would embed the definition in
+-- itself, which no finite layout can represent.
+function Eval:checkNoValueCycle(ty, slot, span, seen)
+    seen = seen or {}
+    if S.isNamed(ty) then
+        D.reject("type-cycle", "Type " .. slot.name .. " contains itself by value; a recursive type "
+            .. "needs a reference boundary, as in Ref(" .. slot.name .. ")", span)
+    end
+    if S.isRef(ty) or S.isSig(ty) or S.isView(ty) then return end
+    if seen[ty] then return end
+    seen[ty] = true
+    if S.isRecord(ty) then
+        for _, field in ipairs(ty.fields) do self:checkNoValueCycle(field.type, slot, span, seen) end
+    elseif S.isTuple(ty) then
+        for _, item in ipairs(ty.fields) do self:checkNoValueCycle(item, slot, span, seen) end
+    elseif S.isTaggedType(ty) then
+        for _, field in ipairs(S.alternatives(ty)) do self:checkNoValueCycle(field.type, slot, span, seen) end
+    elseif S.isOwned(ty) then
+        self:checkNoValueCycle(S.environmentOf(ty), slot, span, seen)
+    end
 end
 
 -- Result adjustment ---------------------------------------------------------------------------
@@ -300,6 +372,7 @@ end
 -- A returned value must not refer to storage that dies with this activation.
 function Eval:checkReturn(values, span)
     for _, value in ipairs(values) do
+        if V.tag(value) == "ref" and value.tied then D.reject("ref-escape", self:refEscapeMessage(), span) end
         if self:isBorrowed(value) then
             D.reject("borrow-escape",
                 "A value that refers to this activation's storage cannot be returned; the borrow "
@@ -460,6 +533,154 @@ end
 -- non-retaining view instead, so the borrow stays tracked to its activation.
 function Eval:borrowsStorage(value)
     return V.tag(value) == "closure" and #(value.plan.borrowedOrder or {}) > 0
+end
+
+-- References --------------------------------------------------------------------------------------
+-- A reference names a place instead of copying it. Only two targets provably outlive every use of a
+-- reference: module-level storage, and a place that belongs to an enclosing activation. Anything
+-- else is a local or a temporary of this activation, and the reference would outlive it.
+
+function Eval:placeRoot(place)
+    while place and place.kind == "Project" do place = place.base end
+    return place
+end
+
+-- A named cell resolves to the definition it reserved. Every other type is already its own meaning,
+-- so this is the one place recursion has to be unwound for inspection.
+function Eval:resolveType(ty, span)
+    if S.isNamed(ty) then
+        local cell = self.typeCells[ty.cell]
+        if not cell then
+            D.bug("type-cell", "A named type cell has no definition: " .. tostring(ty.cell))
+        end
+        return cell
+    end
+    return ty
+end
+
+-- A sealed recursive definition is named, so every occurrence of that type in a reference has to be
+-- the same nominal thing: otherwise the type written inside the definition and the type of an
+-- instance built from it would not compare equal.
+function Eval:canonicalize(ty)
+    local named = self.namedByMeaning and self.namedByMeaning[S.encode(ty)]
+    if named then return named end
+    if S.isRef(ty) then
+        local target = self:canonicalize(ty.target)
+        if target ~= ty.target then return S.ref(target) end
+    end
+    return ty
+end
+
+-- The record type a reference points at, unwinding the cell a recursive definition reserved.
+function Eval:refTargetType(ty)
+    local target = S.environmentOf(ty.target)
+    if S.isNamed(target) then target = self:resolveType(target) end
+    return target
+end
+
+-- Classifies a reference target: "module" for file-scope storage, "enclosing" for a place that
+-- belongs to an enclosing activation, and nil for anything this activation owns.
+function Eval:referenceTarget(value)
+    if V.tag(value) == "ref" then return value.tied and "enclosing" or "module" end
+    if V.tag(value) == "record" then
+        -- A statically evaluated closure binds its captured receiver as a record value; the closure
+        -- itself is what makes that record an enclosing owner rather than a local of this body.
+        return value.enclosing and "enclosing" or nil
+    end
+    if V.tag(value) ~= "object" then return nil end
+    -- Module storage is a named file-scope object, so it outlives every activation.
+    if value.module or (value.schema and value.schema.module) then return "module" end
+    local root = self:placeRoot(value.place)
+    if value.enclosing or (root and root.kind == "Captured") then return "enclosing" end
+    return nil
+end
+
+-- A reference names a place, so selecting or storing through it selects that place. A frontend
+-- reference therefore behaves exactly like the instance it names.
+function Eval:placeObject(value)
+    if V.tag(value) ~= "ref" then return nil end
+    local target = S.environmentOf(self:resolveType(value.ty.target))
+    local schema = value.schema
+    if not schema and S.isRecord(target) then
+        schema = { fields = S.fieldsOf(target), fieldNames = S.fieldNames(target),
+            statics = {}, readonly = {}, methods = {}, type = target }
+    end
+    local object = V.object(target, value.place, schema, value.tied)
+    object.backing = value.record
+    return object
+end
+
+-- The place a reference value names, spilling a reference that only exists as an SSA value into
+-- storage so it has an address to go through.
+function Eval:derefPlace(ctx, value, span)
+    -- A runtime reference is a pointer; `value.place` is where that pointer lives, so the target is
+    -- one dereference further on. The pointee type travels with the place, like every other typed
+    -- IR node, so the verifier needs no type-cell table to check it.
+    local pointee = S.environmentOf(self:refTargetType(value.ty))
+    if value.place then return Ir.Deref(value.place, pointee) end
+    if ctx.mode ~= "residual" then
+        D.reject("runtime-in-normalization", "A runtime reference needs runtime code", span)
+    end
+    local storage = ctx.builder:var(ctx.body, value.ty, self:expression(ctx, value, value.ty))
+    return Ir.Deref(Ir.Local(storage), pointee)
+end
+
+-- `Ref(x)`: a reference to the place `x` names. A file-scope binding is module storage, which the
+-- interpreter already holds as a record and residual code promotes to a named object, so both modes
+-- classify it the same way.
+-- A binding whose initialiser is a schema literal is a type definition, so a demand that arrives
+-- while it is open is the recursion knot rather than a value demand.
+function Eval:isTypeDefinition(slot)
+    local def = slot.decl and slot.decl.def
+    if not def or #def.binders ~= 1 or #def.values ~= 1 then return false end
+    local value = def.values[1]
+    -- A schema literal or a type-constructor application denotes a type; anything else is a value,
+    -- and a value that demands itself is an initializer cycle rather than a recursive type.
+    return value.kind == "SchemaExpr" or value.kind == "Apply"
+end
+
+function Eval:evalRef(ctx, expr)
+    local slot
+    if expr.kind == "Reference" then
+        slot = lookup(ctx.scope, expr.name.text)
+        -- `Ref(Node)` inside Node's own definition must not demand Node's layout: it refers to the
+        -- cell that definition reserved, which is what makes the recursion finite.
+        if slot and slot.open and slot.value == nil and slot.cell and self:isTypeDefinition(slot) then
+            if self.referencedCells == nil then self.referencedCells = {} end
+            self.referencedCells[slot.cell] = true
+            return V.type(S.ref(S.named(slot.cell)))
+        end
+    end
+    local value = self:evalExpr(ctx, expr)
+    local ty = self:asType(value, expr.span)
+    if ty then return V.type(S.ref(self:canonicalize(ty))) end
+    if slot and slot.atTop and V.tag(value) == "record" then
+        -- A file-scope binding has an identity that outlives every activation, so a reference to it
+        -- is a reference to named module storage whichever mode built it.
+        return self:makeReference(ctx, self:moduleObject(slot, expr.span), expr.span)
+    end
+    return self:makeReference(ctx, value, expr.span)
+end
+
+-- A reference to an enclosing owner cannot outlive that activation, so it and anything holding it
+-- stay inside.
+function Eval:refEscapeMessage()
+    return "A reference to a place in an enclosing activation cannot escape it; use it where the "
+        .. "place is still live, or name module storage instead"
+end
+
+function Eval:makeReference(ctx, target, span)
+    local kind = self:referenceTarget(target)
+    if not kind then
+        D.reject("ref-target",
+            "A reference may only name module storage or a place that encloses it; a local or a "
+            .. "temporary of this activation does not outlive the reference", span)
+    end
+    -- A reference also carries the frontend value it names, when there is one: normalize code reads
+    -- and writes that directly, and residual code uses the place.
+    local held = V.tag(target) == "record" and target or target.backing
+    return V.ref(S.ref(self:canonicalize(target.ty)), target.place, target.schema,
+        kind == "enclosing", held)
 end
 
 -- Callable arms of a tagged callable -----------------------------------------------------------
@@ -653,6 +874,16 @@ function Eval:expression(ctx, value, want)
     if tag == "u32" then return ctx.builder:u32(value.n) end
     if tag == "bool" then return ctx.builder:bool(value.b) end
     if tag == "record" or tag == "object" then return self:recordExpr(ctx, value) end
+    if tag == "ref" then
+        if value.place == nil then
+            D.reject("ref-target", "A reference to a compile-time value has no address; it can only "
+                .. "be used where the value itself is", ctx.span)
+        end
+        if ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization", "A reference needs runtime code", ctx.span)
+        end
+        return ctx.builder:addr(value.place, value.ty)
+    end
     if tag == "variant" then
         -- A variant already emitted under runtime code refers to its own instruction.
         if value.expr then return value.expr end
@@ -757,6 +988,7 @@ end
 -- instance, a view bound to a local adapter, or an aggregate containing one.
 function Eval:isBorrowed(value)
     local tag = V.tag(value)
+    if tag == "ref" then return value.tied == true end
     if tag == "object" or tag == "record" or tag == "ir" then return value.borrowed == true end
     if tag == "closure" then return #(value.plan.borrowedOrder or {}) > 0 end
     return false
@@ -836,10 +1068,18 @@ end
 function Eval:readFieldValue(ctx, slot, span)
     if slot.static then return slot.static end
     if ctx.mode ~= "residual" then
+        -- Normalize code reads the frontend value a borrowed or module place stands for directly.
+        local record = slot.record and slot.record.backing
+        if record then
+            local held = record.fields[slot.name]
+            if held == nil then D.bug("module-field", "Module storage has no field " .. slot.name) end
+            return held
+        end
         D.reject("runtime-in-normalization", "Field " .. slot.name .. " is runtime storage", span)
     end
     local read = ctx.builder:read(ctx.body, slot.ty, slot.place)
-    return V.ir(ctx.builder:ref(read, slot.ty), slot.ty)
+    -- The place travels with the value: a reference read from storage needs it to reach its target.
+    return V.ir(ctx.builder:ref(read, slot.ty), slot.ty, nil, slot.place)
 end
 
 function Eval:evalUnary(ctx, expr)
@@ -1164,6 +1404,9 @@ end
 function Eval:evalFieldSelect(ctx, expr)
     local base = self:evalExpr(ctx, expr.base)
     local name = expr.field.text
+    -- Selection through a reference selects from the instance it names, so the reference is read as
+    -- that instance and the ordinary member rules apply.
+    base = self:placeObject(base) or base
     local tag = V.tag(base)
     if tag == "object" then
         local def = base.schema
@@ -1184,6 +1427,13 @@ function Eval:evalFieldSelect(ctx, expr)
         local caseType = S.caseOf(base.value, name)
         if not caseType then D.reject("unknown-member", "Sum type has no alternative " .. name, expr.field.span) end
         return V.ctor(base.value, name, caseType)
+    elseif tag == "ir" and S.isRef(base.ty) then
+        -- A runtime reference is a pointer, so the field lives at the place it points to.
+        local ty = S.field(self:refTargetType(base.ty), name)
+        if not ty then D.reject("unknown-member", "Record has no field " .. name, expr.field.span) end
+        local place = Ir.Project(self:derefPlace(ctx, base, expr.span), Ir.Field(name))
+        local read = ctx.builder:read(ctx.body, ty, place)
+        return V.ir(ctx.builder:ref(read, ty), ty)
     elseif tag == "ir" and S.isRecord(base.ty) then
         local ty = S.field(base.ty, name)
         if not ty then D.reject("unknown-member", "Record has no field " .. name, expr.field.span) end
@@ -1196,8 +1446,10 @@ function Eval:evalFieldSelect(ctx, expr)
 end
 
 function Eval:fieldSlot(def, object, name)
+    -- A compile-time object has no storage, so the place is only built when there is one; such a
+    -- slot is read and written through the frontend value instead.
     return { kind = "field", name = name, ty = def.fields[name],
-        place = Ir.Project(object.place, Ir.Field(name)), record = object,
+        place = object.place and Ir.Project(object.place, Ir.Field(name)) or nil, record = object,
         static = def.statics[name], readonly = def.readonly[name] and true or false }
 end
 
@@ -1239,6 +1491,9 @@ function Eval:writeSlot(ctx, slot, place, value)
     -- Assigning callable code to a signature-typed field builds a view whose environment is a
     -- local adapter, so the assignment is a borrow even when the code itself is not.
     local becomesBorrowed = self:isBorrowed(value) or S.isView(slot.ty)
+    if V.tag(value) == "ref" and value.tied and (slot.retaining or (slot.record and slot.record.module)) then
+        D.reject("ref-escape", self:refEscapeMessage(), ctx.span)
+    end
     if becomesBorrowed and (slot.retaining or (slot.record and slot.record.module)) then
         D.reject("borrow-escape",
             "Module storage outlives the activation that made this borrow, so it cannot hold one",
@@ -1264,11 +1519,24 @@ function Eval:storeTarget(ctx, target)
         D.reject("not-a-place", "Only record fields can be assigned", target.span)
     elseif target.kind == "FieldSelect" then
         local base = self:evalExpr(ctx, target.base)
+        base = self:placeObject(base) or base
         local name = target.field.text
         if V.tag(base) == "record" then
             local ty = S.field(base.ty, name)
             if not ty then D.reject("unknown-member", "Record has no field " .. name, target.field.span) end
             return { kind = "concrete-field", name = name, record = base, ty = ty }, nil
+        end
+        if V.tag(base) == "ir" and S.isRef(base.ty) then
+            local targetTy = self:refTargetType(base.ty)
+            local ty = S.field(targetTy, name)
+            if not ty then D.reject("unknown-member", "Record has no field " .. name, target.field.span) end
+            if ctx.mode ~= "residual" then
+                D.reject("runtime-in-normalization", "Cannot store through a runtime reference here",
+                    target.span)
+            end
+            local place = Ir.Project(self:derefPlace(ctx, base, target.span), Ir.Field(name))
+            return { kind = "field", name = name, ty = ty, place = place, static = nil, readonly = false },
+                place
         end
         if V.tag(base) ~= "object" then
             D.reject("not-a-place", "Only a mutable record instance has assignable fields", target.span)
@@ -1278,6 +1546,12 @@ function Eval:storeTarget(ctx, target)
             D.reject("unknown-member", "Record has no field " .. name, target.field.span)
         end
         if ctx.mode ~= "residual" then
+            -- Normalize code stores into the frontend value the place stands for, so every later
+            -- read in this mode sees the store.
+            local record = base.backing
+            if record and record.fields[name] ~= nil then
+                return { kind = "concrete-field", name = name, record = record, ty = def.fields[name] }, nil
+            end
             D.reject("runtime-in-normalization", "Cannot store to runtime field " .. name, target.span)
         end
         return self:fieldSlot(def, base, name), Ir.Project(base.place, Ir.Field(name))
@@ -1428,8 +1702,15 @@ function Eval:applyClosureStatically(plan, args, span)
         if not borrowed.record then
             D.bug("borrowed-capture", "A statically evaluated closure must borrow a concrete record")
         end
-        local value = borrowed.kind == "method" and V.method(borrowed.method, borrowed.record)
-            or borrowed.record
+        -- The receiver belongs to the enclosing activation, so a reference to it is an enclosing
+        -- owner rather than a local of this body. The flag is set on a copy: the captured value is
+        -- shared and must stay as it is everywhere else.
+        local held = borrowed.record
+        if V.tag(held) == "record" and not held.enclosing then
+            held = V.record(held.ty, held.fields, held.schema)
+            held.enclosing = true
+        end
+        local value = borrowed.kind == "method" and V.method(borrowed.method, held) or held
         declare(sc, name, { kind = "value", name = name, value = value }, span)
     end
     for name, value in pairs(plan.static) do
@@ -1708,7 +1989,8 @@ function Eval:buildCallableInstance(key, callable, args, span)
         inputs[#inputs + 1] = S.inPlace(borrowed.ty)
         paramTypes[#paramTypes + 1] = borrowed.ty
         instance.inputTypes[#instance.inputTypes + 1] = borrowed.ty
-        local object = V.object(borrowed.ty, Ir.Local(storage), borrowed.schema)
+        -- The place parameter belongs to the caller, so the object is an enclosing owner here.
+        local object = V.object(borrowed.ty, Ir.Local(storage), borrowed.schema, nil, true)
         if borrowed.kind == "method" then
             declare(sc, name, { kind = "value", name = name,
                 value = V.method(borrowed.method, object) }, span)
@@ -1940,6 +2222,16 @@ function Eval:asType(value, span)
 end
 
 function Eval:typeOf(expr, sc, span)
+    if expr.kind == "Reference" then
+        local slot = lookup(sc, expr.name.text)
+        -- The name is being computed right now, so this is the recursion knot: hand back the cell it
+        -- reserved rather than demanding its layout.
+        if slot and slot.open and slot.cell and self:isTypeDefinition(slot) then
+            if self.referencedCells == nil then self.referencedCells = {} end
+            self.referencedCells[slot.cell] = true
+            return S.named(slot.cell)
+        end
+    end
     local value = self:evalExpr(self:context("normalize", sc, span), expr)
     local ty = self:asType(value, span)
     if not ty then D.reject("type-required", "Expected a type", expr.span) end
@@ -1995,6 +2287,9 @@ end
 
 function Eval:evalApply(ctx, expr)
     local callee = self:evalExpr(ctx, expr.callee)
+    if V.tag(callee) == "word" and callee.def.refOf and #callee.args == 0 and #expr.arguments == 1 then
+        return self:evalRef(ctx, expr.arguments[1])
+    end
     local args = self:evalArguments(ctx, expr.arguments, callee)
     local tag = V.tag(callee)
     if tag == "word" then return self:apply(ctx, callee, args, expr.span) end

@@ -14,7 +14,11 @@ function M.u32(n) return make{ tag = "u32", ty = S.U32, n = n } end
 function M.bool(b) return make{ tag = "bool", ty = S.Bool, b = b } end
 function M.unit() return make{ tag = "unit", ty = S.Unit } end
 function M.type(ty) return make{ tag = "type", ty = S.Type, value = ty } end
-function M.ir(expr, ty, borrowed) return make{ tag = "ir", ty = ty, expr = expr, borrowed = borrowed } end
+-- `place` is the place the value was read from, when there is one: a reference read from storage
+-- needs it to reach its target.
+function M.ir(expr, ty, borrowed, place)
+    return make{ tag = "ir", ty = ty, expr = expr, borrowed = borrowed, place = place }
+end
 function M.results(values) return make{ tag = "results", values = values } end
 function M.word(def, args, span) return make{ tag = "word", def = def, args = args or {}, span = span } end
 
@@ -25,8 +29,20 @@ function M.record(ty, fields, schema) return make{ tag = "record", ty = ty, fiel
 function M.schema(def) return make{ tag = "schema", def = def, ty = S.Type } end
 
 -- A mutable instance in residual code: its fields live in `place`.
-function M.object(ty, place, schema, borrowed)
-    return make{ tag = "object", ty = ty, place = place, schema = schema, borrowed = borrowed or false }
+-- `enclosing` marks storage that belongs to an enclosing activation (a borrowed capture or a place
+-- parameter) rather than to this one, which is what makes it a legal reference target.
+function M.object(ty, place, schema, borrowed, enclosing)
+    return make{ tag = "object", ty = ty, place = place, schema = schema, borrowed = borrowed or false,
+        enclosing = enclosing or false }
+end
+
+-- A reference: a checked borrow of the place it names. `tied` records that the target belongs to an
+-- enclosing activation, so the reference cannot escape; a reference to module storage is untied.
+-- `record`, when present, is the frontend record a module reference also names: normalize code reads
+-- and writes that record directly, and residual code uses `place`.
+function M.ref(ty, place, schema, tied, record)
+    return make{ tag = "ref", ty = ty, place = place, schema = schema, tied = tied or false,
+        record = record }
 end
 
 -- A constructor for one alternative of a sum type, named by member selection on the type.

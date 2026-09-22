@@ -27,6 +27,10 @@ untrusted module source or manifest code.
   remain a snapshot despite the method call. At U32 maximum, increment wraps to zero.
 - examples/captures.let: run(5,7)=12. An exported make_adder result must remain callable after
   its creator returns and copy its captured value by value.
+- examples/references.let: read_shared(1)=6, bump_shared(1)=7, borrowed(2)=55, following()=10,
+  bump_following()=15. A reference to module storage persists a store; a reference to a captured
+  record is live for the caller; a recursive Node/Link reaches and mutates its neighbour through a
+  stored reference.
 - examples/tagged.let: pick(true)=11, pick(false)=9, scaled(true,5)=11, scaled(false,5)=4,
   across(true,4)=5, across(false,4)=12. Two words, two lambdas that capture, and a tagged callable
   returned from a call all dispatch on the tag without a function pointer.
@@ -72,10 +76,13 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    identities; escaping a borrowed closure is rejected; an opaque callable uses a signature-specific
    invocation pointer, and a callable with no known code and no view is rejected rather than
    mis-compiled.
-8b. **References and recursion:** reference construction from each legal target, selection, store and
-   aliasing through a reference, by-value copying of a reference, both lifetime rejections
-   (`ref-target`, `ref-escape`), a finite recursive list over module storage built and traversed, and
-   by-value cycles rejected across one and several definitions (`type-cycle`).
+8b. **References and recursion (implemented):** reference construction from a module binding and from
+   an enclosing owner, selection, store and aliasing through a reference, both lifetime rejections
+   (`ref-target` for a local, a copy or a temporary; `ref-escape` for a reference to an enclosing
+   owner that escapes), a recursive Node/Link list over module storage built and traversed with a
+   mutation seen through a stored reference, and by-value cycles rejected across one and several
+   definitions (`type-cycle`) while a cycle through a reference is accepted with a finite
+   forward-declared layout.
 9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.

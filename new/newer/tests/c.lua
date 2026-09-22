@@ -357,6 +357,37 @@ return { types = { C }, functions = { run, twice } }
         entries = { { entry = "run", arity = 1 }, { entry = "twice", arity = 1 } },
         inputs = { { 0 }, { 1 }, { 5 }, { 4294967295 } },
     },
+    {
+        -- A reference names a place in an enclosing activation, so it is live: a store through it is
+        -- visible to the caller, and two references to one instance observe each other. Nothing here
+        -- touches module state, so each input stands alone and the interpreter is a valid oracle.
+        name = "references",
+        source = [==[
+let Counter = { value: U32 }
+let borrowed(x: U32): U32 = do
+  let c = Counter { value = x }
+  let f = |d: U32| -> do
+    let r = Ref(c)
+    r.value += d
+    return r.value
+  end
+  return f(3) * 10 + c.value
+end
+let aliased(x: U32): U32 = do
+  let c = Counter { value = x }
+  let g = |d: U32| -> do
+    let r = Ref(c)
+    r.value += d
+    let s = Ref(c)
+    return s.value
+  end
+  return g(1) + g(2)
+end
+return { types = { Counter }, functions = { borrowed, aliased } }
+]==],
+        entries = { { entry = "borrowed", arity = 1 }, { entry = "aliased", arity = 1 } },
+        inputs = { { 0 }, { 1 }, { 2 }, { 100 }, { 4294967295 } },
+    },
 }
 
 local function cLiteral(value)
@@ -679,6 +710,61 @@ int main(void) {
         "pure-code C failed to compile:\n" .. read(directory .. "/pureerr.txt"))
     check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
         "pure code did not cross the ABI as a null-environment view")
+end
+
+-- Module-storage references and a recursive structure over them. The host calls the exported
+-- initialiser first, and the state then persists, so this is C-only.
+do
+    local source = [==[
+let Counter = { value: U32 }
+let shared = Counter { value = 5 }
+let read_shared(x: U32): U32 = Ref(shared).value + x
+let bump_shared(x: U32): U32 = do
+  let r = Ref(shared)
+  r.value += 1
+  return r.value + x
+end
+let Node = { value: U32, next: Link }
+let Link = OneOf({ none: Unit, some: Ref(Node) })
+let n1 = Node { value = 10, next = Link.none() }
+let n0 = Node { value = 1, next = Link.some(Ref(n1)) }
+let following(): U32 = n0.next {
+  none = |u: Unit| -> 0,
+  some = |r: Ref(Node)| -> r.value,
+}
+let bump_following(): U32 = n0.next {
+  none = |u: Unit| -> 0,
+  some = |r: Ref(Node)| -> do
+    r.value += 5
+    return r.value
+  end,
+}
+return { types = { Counter, Node, Link }, functions = { read_shared, bump_shared, following, bump_following } }
+]==]
+    local generated = wordlet.compile{ source = source, name = "refmod.let" }:unit()
+    local path = directory .. "/refmod.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    wordlet_init();
+    assert(wordlet_read_5Fshared(UINT32_C(1)) == UINT32_C(6));
+    assert(wordlet_bump_5Fshared(UINT32_C(1)) == UINT32_C(7));
+    /* the bump stores the incremented value and returns it plus its argument */
+    assert(wordlet_read_5Fshared(UINT32_C(0)) == UINT32_C(6));
+    /* a point in a stored structure, reached by a reference and mutated through it */
+    assert(wordlet_following() == UINT32_C(10));
+    assert(wordlet_bump_5Ffollowing() == UINT32_C(15));
+    assert(wordlet_following() == UINT32_C(15));
+    return 0;
+}
+]])
+    local exe = directory .. "/refmod"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/refmoderr.txt") == 0,
+        "reference and recursion C failed to compile:\n" .. read(directory .. "/refmoderr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "a reference over module storage or a recursive structure did not run correctly")
 end
 
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.

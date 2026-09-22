@@ -755,6 +755,124 @@ end
 return { types = { C }, functions = { leak } }
 ]==])
 
+
+-- References and recursion ------------------------------------------------------------------------
+-- A reference names a place. It may only name module storage or a place belonging to an enclosing
+-- activation, and it is the indirection boundary that makes a recursive type finite.
+local REFS = [==[
+let Counter = { value: U32 }
+let shared = Counter { value = 5 }
+let read_shared(x: U32): U32 = Ref(shared).value + x
+let bump_shared(x: U32): U32 = do
+  let r = Ref(shared)
+  r.value += 1
+  return r.value + x
+end
+let two_refs(d: U32): U32 = do
+  let a = Ref(shared)
+  let b = Ref(shared)
+  a.value += d
+  return b.value
+end
+let borrowed(x: U32): U32 = do
+  let c = Counter { value = x }
+  let f = |d: U32| -> do
+    let r = Ref(c)
+    r.value += d
+    return r.value
+  end
+  return f(3) * 10 + c.value
+end
+return { types = { Counter }, functions = { read_shared, bump_shared, two_refs, borrowed } }
+]==]
+check(interpret("read_shared", { 1 }, REFS)[1] == 6, "a reference reads through to its target")
+check(interpret("bump_shared", { 1 }, REFS)[1] == 7, "a store through a reference reaches the target")
+check(interpret("two_refs", { 3 }, REFS)[1] == 8, "two references to one instance observe each other")
+check(interpret("borrowed", { 1 }, REFS)[1] == 44,
+    "a reference to an enclosing owner mutation is visible to the caller")
+local refsUnit = compile(REFS):unit()
+check(refsUnit:find("wordletrecord_1 *", 1, true) ~= nil or refsUnit:find("wordletmodule_1", 1, true) ~= nil,
+    "references lower to pointers over named storage")
+
+-- A recursive type: the definition reserves its own identity, and the reference is the boundary.
+local RECURSIVE = [==[
+let Node = { value: U32, next: Link }
+let Link = OneOf({ none: Unit, some: Ref(Node) })
+let n1 = Node { value = 10, next = Link.none() }
+let n0 = Node { value = 1, next = Link.some(Ref(n1)) }
+let head(): U32 = n0.value
+let following(): U32 = n0.next {
+  none = |u: Unit| -> 0,
+  some = |r: Ref(Node)| -> r.value,
+}
+let bump_following(): U32 = n0.next {
+  none = |u: Unit| -> 0,
+  some = |r: Ref(Node)| -> do
+    r.value += 5
+    return r.value
+  end,
+}
+return { types = { Node, Link }, functions = { head, following, bump_following } }
+]==]
+check(interpret("head", {}, RECURSIVE)[1] == 1, "a recursive structure reaches its first node")
+check(interpret("following", {}, RECURSIVE)[1] == 10,
+    "a reference stored in a recursive node is followed")
+check(interpret("bump_following", {}, RECURSIVE)[1] == 15,
+    "a store through a reference read back out of a recursive node reaches that node")
+local recursiveUnit = compile(RECURSIVE):unit()
+check(recursiveUnit:find("typedef struct wordletrecord_1 wordletrecord_1;", 1, true) ~= nil
+    and recursiveUnit:find("wordletrecord_1 * f_some;", 1, true) ~= nil,
+    "a recursive type is a forward-declared struct reached through a pointer")
+
+-- Rejections --------------------------------------------------------------------------------------
+-- A reference needs a place: a local of this activation, a copy or a temporary has no identity.
+rejects("ref-target", [==[
+let Counter = { value: U32 }
+let bad(x: U32): U32 = do
+  let c = Counter { value = x }
+  return Ref(c).value
+end
+return { types = { Counter }, functions = { bad } }
+]==])
+rejects("ref-target", [==[
+let Counter = { value: U32 }
+let bad(): U32 = Ref(Counter { value = 1 }).value
+return { types = { Counter }, functions = { bad } }
+]==])
+-- A reference to an enclosing owner cannot outlive that activation.
+rejects("ref-escape", [==[
+let Counter = { value: U32 }
+let leak(x: U32): U32 = do
+  let c = Counter { value = x }
+  let f = |d: U32| -> do
+    let r = Ref(c)
+    return r
+  end
+  return f(1).value
+end
+return { types = { Counter }, functions = { leak } }
+]==])
+-- A type that contains itself by value has no finite layout, however many definitions it crosses.
+rejects("type-cycle", [==[
+let Bad = { child: Bad }
+let f(n: U32): U32 = n
+return { types = { Bad }, functions = { f } }
+]==])
+rejects("type-cycle", [==[
+let A = { b: B }
+let B = { a: A }
+let f(n: U32): U32 = n
+return { types = { A, B }, functions = { f } }
+]==])
+-- A cycle that crosses a reference is finite, so it is accepted.
+local finite = compile([==[
+let Good = { child: Ref(Good), value: U32 }
+let f(n: U32): U32 = n
+return { types = { Good }, functions = { f } }
+]==]):unit()
+check(finite:find("wordletrecord_1 * f_child;", 1, true) ~= nil,
+    "a cycle through a reference is finite and emits a pointer")
+
 -- The interpreter refuses an unsaturated entry rather than inventing a value.
 local ok, err = pcall(wordlet.interpret, { source = "let f(a, b: U32) : U32 = a + b\n"
     .. "return { functions = { f } }", entry = "f", args = { 1 } })

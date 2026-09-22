@@ -10,6 +10,8 @@ module Ty {
     | View(Sig visible) unique
     | Sum(string meaning, Field* cases) unique
     | Tagged(Sig visible, Field* arms) unique
+    | Ref(V target) unique
+    | Named(string cell) unique
   Field = (string name, V type) unique
   Input = InValue(V type) unique | InPlace(V type) unique | InBundle(V env) unique
   Env = (Slot* slots) unique
@@ -38,10 +40,12 @@ module Ir {
        | Get(Expr aggregate, Field field, Ty.V type)
        | Make(Ty.V type, Expr* fields)
        | Owned(Expr environment, Ty.V type)
+       | Addr(Place place, Ty.V type)
 
   Place = Local(Storage storage)
         | Captured(Bundle bundle, number slot)
         | Project(Place base, Field field)
+        | Deref(Place base, Ty.V type)
 
   Arg = ValueArg(Expr value) | BorrowArg(Place place) | BundleArg(Bundle bundle)
 

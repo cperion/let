@@ -21,6 +21,7 @@ function M.isBool(t) return t == Ty.Bool end
 function M.isUnit(t) return t == Ty.Unit end
 function M.isType(t) return t == Ty.Type end
 function M.isRecord(t) return type(t) == "table" and t.kind == "Record" end
+function M.isTuple(t) return type(t) == "table" and t.kind == "Tuple" end
 function M.isSig(t) return type(t) == "table" and t.kind == "Sig" end
 
 -- A record type is the runtime data layout: methods and static supplies live in the source
@@ -125,6 +126,17 @@ function M.tagIndex(t, name)
         if field.name == name then return index - 1 end
     end
 end
+-- A reference is a checked borrow of a place: its representation is a pointer, its meaning is the
+-- lifetime rule in section 8.2 of the syntax contract.
+function M.ref(target) return Ty.Ref(target) end
+function M.isRef(t) return type(t) == "table" and t.kind == "Ref" end
+
+-- A named cell is the identity a recursive type definition reserves for itself while its own layout
+-- is still being computed. It may only appear as a reference target, so it is deliberately not a
+-- record, a sum or anything else a value could be built from.
+function M.named(cell) return Ty.Named(cell) end
+function M.isNamed(t) return type(t) == "table" and t.kind == "Named" end
+
 function M.isOwned(t) return type(t) == "table" and t.kind == "Owned" end
 -- The runtime representation of a type: an Owned callable is represented by its environment.
 function M.environmentOf(t) return M.isOwned(t) and t.environment or t end
@@ -161,6 +173,16 @@ end
 function M.runtime(t, visiting)
     if t == Ty.U32 or t == Ty.Bool or t == Ty.Unit then return true end
     if t == Ty.Type then return false end
+    if M.isRef(t) then
+        -- A pointer is a runtime value whatever it points at; a named cell is always a data type
+        -- that was sealed, so the target's own runtime-ness was checked when it was defined.
+        return M.isNamed(t.target) or M.runtime(t.target, visiting)
+    end
+    if M.isNamed(t) then
+        -- A bare named cell must never reach a value position: it stands for a definition still
+        -- being computed, and the definition decides. Rejecting it here keeps that invariant loud.
+        return false
+    end
     if M.isOwned(t) then return M.runtime(t.environment, visiting) end
     if M.isTaggedType(t) then
         -- A tag plus a payload whose size is the largest alternative.
@@ -201,6 +223,8 @@ end
 -- pure code, and pure code already has a representation: the invocation pointer plus a null
 -- environment that a view is, so it is representable as well.
 function M.representable(t)
+    if M.isRef(t) then return M.runtime(t) end
+    if M.isNamed(t) then return false end
     if M.isView(t) then return M.runtime(t) end
     if M.isTaggedType(t) then return M.runtime(t) end
     if M.isOwned(t) then

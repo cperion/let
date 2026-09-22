@@ -26,6 +26,10 @@ function M.eachExpr(expr, fn)
         for _, field in ipairs(expr.fields) do M.eachExpr(field, fn) end
     elseif kind == "Owned" then
         M.eachExpr(expr.environment, fn)
+    elseif kind == "Addr" then
+        -- An address is a pure computation over a place, which is a root plus field names; there is
+        -- no sub-expression to walk and nothing is read.
+        return
     else
         D.bug("ir-expr", "Unknown expression variant: " .. tostring(kind))
     end
@@ -172,6 +176,11 @@ function Builder:get(aggregate, name, ty)
 end
 
 function Builder:make(ty, fields) return Ir.Make(ty, S.list(fields)) end
+function Builder:addr(place, ty)
+    return self:intern("addr|" .. S.encode(place) .. "|" .. S.encode(ty), function()
+        return Ir.Addr(place, ty)
+    end)
+end
 
 -- Statement emitters append to a list and return any result values.
 function Builder:emit(list, stmt)

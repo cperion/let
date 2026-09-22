@@ -69,6 +69,9 @@ function Emitter:expr(expr)
         return "(" .. layout.name .. "){" .. table.concat(fields, ", ") .. "}"
     elseif kind == "Get" then
         return "(" .. self:expr(expr.aggregate) .. ")." .. fieldName(expr.field.name)
+    elseif kind == "Addr" then
+        -- The address of a place: a root plus field names, with no load.
+        return "&(" .. self:placeC(expr.place) .. ")"
     end
     D.todo("c-expr", "No C lowering for expression " .. tostring(kind))
 end
@@ -83,6 +86,9 @@ function Emitter:placeC(place)
     end
     if place.kind == "Project" then
         return self:placeC(place.base) .. "." .. fieldName(place.field.name)
+    end
+    if place.kind == "Deref" then
+        return "(*(" .. self:placeC(place.base) .. "))"
     end
     D.todo("c-place", "No C lowering for place " .. tostring(place.kind))
 end
