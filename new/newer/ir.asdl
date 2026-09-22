@@ -8,6 +8,7 @@ module Ty {
     | Owned(string entry, Sig visible, V environment) unique
     | View(Sig visible) unique
     | Sum(string meaning, Field* cases) unique
+    | Tagged(Sig visible, Field* arms) unique
   Field = (string name, V type) unique
   Input = InValue(V type) unique | InPlace(V type) unique | InBundle(V env) unique
   Env = (Slot* slots) unique

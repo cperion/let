@@ -27,6 +27,9 @@ untrusted module source or manifest code.
   remain a snapshot despite the method call. At U32 maximum, increment wraps to zero.
 - examples/captures.let: run(5,7)=12. An exported make_adder result must remain callable after
   its creator returns and copy its captured value by value.
+- examples/tagged.let: pick(true)=11, pick(false)=9, scaled(true,5)=11, scaled(false,5)=4,
+  across(true,4)=5, across(false,4)=12. Two words, two lambdas that capture, and a tagged callable
+  returned from a call all dispatch on the tag without a function pointer.
 - examples/sums.let: area_of_circle(5)=25, area_of_round(6)=36, area_of_box(4)=12, scaled(3)=36,
   total(0)=6, total(4)=16, unwrap_or(0,9)=9, unwrap_or(4,9)=4. A known alternative resolves its
   match while compiling; a run-time alternative becomes a C tag test; a Unit alternative carries no
@@ -59,7 +62,10 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    inside the arm. C lowers to a tag plus a union and a `Unit` parameter is erased. Non-schema cases,
    an empty schema, unknown alternatives, missing or duplicated handlers, unknown payload fields and
    disagreeing arm types all reject.
-8. **Callables:** owned environments survive creator return (make_adder/run/compose/snap); a captured
+8. **Callables:** two callables of one signature chosen at run time join into a tagged callable and
+   dispatch on its tag; a multi-result tagged call and one crossing a call boundary agree with the
+   interpreter; mismatched signatures, a borrowing arm, an undeclared word arm and erasure into a
+   signature all reject. owned environments survive creator return (make_adder/run/compose/snap); a captured
    field is a snapshot while a captured receiver is a live borrow; distinct lambdas are distinct code
    identities; escaping a borrowed closure is rejected; an opaque callable uses a signature-specific
    invocation pointer, and a callable with no known code and no view is rejected rather than

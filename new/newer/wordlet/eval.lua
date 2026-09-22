@@ -61,6 +61,8 @@ function M.session(options)
     return setmetatable({
         options = options, limits = limits,
         definitions = {}, instances = {}, order = {}, moduleStorages = {},
+        -- Tagged-callable arms, keyed by the code identity that names them in a type.
+        arms = {},
         nextDef = 0, nextFn = 0, steps = 0,
         maxSteps = limits.steps or 1000000,
     }, Eval)
@@ -378,6 +380,12 @@ function Eval:applyAny(ctx, callee, args, span)
     if tag == "word" then return self:apply(ctx, callee, args, span) end
     if tag == "closure" then return self:applyClosure(ctx, callee.plan, nil, args, span, callee.bound) end
     if tag == "method" then return self:applyMethod(ctx, callee, args, span) end
+    if tag == "variant" and callee.ty and S.isTagged(callee.ty) then
+        return self:applyTagged(ctx, callee, args, span)
+    end
+    if tag == "ir" and S.isTagged(callee.ty) then
+        return self:applyTagged(ctx, callee, args, span)
+    end
     D.reject("callable-required", "Only words, methods and closures can be applied", span)
 end
 
@@ -439,11 +447,195 @@ function sumValueId(value)
     D.bug("sum-value", "An opaque sum value must be an SSA reference")
 end
 
+-- An owning callable selected at run time cannot become a non-retaining signature value: the view
+-- would have to point at the environment that carries the tag, and a view does not retain it.
+function Eval:rejectTaggedErase(span)
+    D.reject("callable-erase",
+        "A callable selected at run time cannot be erased into a signature, because a view does not "
+        .. "retain the environment that carries the tag; call it where it was selected, or select the "
+        .. "arm before erasing it", span)
+end
+
+-- Callable arms of a tagged callable -----------------------------------------------------------
+-- A conditional whose arms are two different callable code identities joins into one tagged
+-- callable: the tag names the code to run and the payload is that code's environment. Each arm is
+-- registered under the identity that names it in the type, so a call site can dispatch from the
+-- type alone.
+
+function Eval:isCallableValue(value)
+    local tag = V.tag(value)
+    return tag == "word" or tag == "closure"
+end
+
+-- The identity, environment type and visible signature of one callable arm. A word needs a fully
+-- declared signature, because its call site has no annotation to fall back on.
+function Eval:callableArm(value, span)
+    if V.tag(value) == "word" then
+        local def, bound = value.def, value.args or {}
+        local sc = scope(def.lexical)
+        local inputs = {}
+        for index = 1, #def.params do
+            local ty = self:requirement(def, index, sc, span)
+            S.checkRuntime(ty, span)
+            inputs[index] = S.inValue(ty)
+        end
+        local results = self:declaredResult(def, sc, span)
+        if not results then
+            D.reject("callable-branch", "Word " .. tostring(def.name)
+                .. " needs declared result types to be selected at run time", span)
+        end
+        for _, item in ipairs(results) do S.checkRuntime(item, span) end
+        local key = V.encode(value)
+        if not key then
+            D.reject("callable-branch", "A word selected at run time needs static arguments", span)
+        end
+        self.arms[key] = { kind = "word", def = def, bound = bound }
+        return key, S.Unit, S.sig(inputs, results)
+    end
+    local plan = value.plan
+    if #(plan.borrowedOrder or {}) > 0 then
+        D.reject("callable-branch",
+            "A closure that borrows storage cannot be selected at run time, because a tagged callable "
+            .. "holds its environments by value; return the receiver and select its method instead", span)
+    end
+    local parts = { plan.ty.entry }
+    for _, arg in ipairs(value.bound or {}) do
+        local encoded = V.encode(arg)
+        if not encoded then
+            D.reject("callable-branch",
+                "A partially applied closure selected at run time needs static arguments", span)
+        end
+        parts[#parts + 1] = encoded
+    end
+    local key = table.concat(parts, "|")
+    self.arms[key] = { kind = "closure", plan = plan, bound = value.bound or {} }
+    return key, plan.envTy, plan.sig
+end
+
+-- The tagged representation of one arm: the tag names the code, the payload is its environment.
+function Eval:taggedArmValue(ty, key, value, span)
+    local envTy = S.caseOf(ty, key)
+    if envTy == S.Unit then return V.variant(ty, key, V.unit()) end
+    local plan = value.plan
+    if #plan.runtimeOrder ~= #(plan.envNames or {}) then
+        D.bug("tagged-arm", "A tagged environment must match the plan's runtime captures")
+    end
+    local fields = {}
+    for index, envName in ipairs(plan.envNames) do
+        fields[envName] = plan.runtime[plan.runtimeOrder[index]]
+    end
+    return V.variant(ty, key, V.record(envTy, fields))
+end
+
+-- Joins two callable arms, rejecting a shape mismatch rather than inventing a representation.
+function Eval:joinCallables(yesValue, noValue, span)
+    local keyA, envA, sigA = self:callableArm(yesValue, span)
+    local keyB, envB, sigB = self:callableArm(noValue, span)
+    if S.encode(sigA) ~= S.encode(sigB) then
+        D.reject("callable-branch", "Both arms must be callable the same way: "
+            .. S.encode(sigA) .. " and " .. S.encode(sigB), span)
+    end
+    local ty = S.tagged(sigA, { [keyA] = envA, [keyB] = envB })
+    return ty, self:taggedArmValue(ty, keyA, yesValue, span), self:taggedArmValue(ty, keyB, noValue, span)
+end
+
+-- Calls one arm. A residual tagged value projects that arm's environment out of the payload; the
+-- arm's own code then runs as an ordinary direct call, exactly as a non-tagged callable would.
+function Eval:callTaggedArm(ctx, name, variantId, taggedTy, args, span)
+    local descriptor = self.arms[name]
+    if not descriptor then D.bug("tagged-arm", "Tagged callable has no arm " .. name) end
+    local envTy = S.caseOf(taggedTy, name)
+    if descriptor.kind == "word" then
+        if envTy ~= S.Unit then D.bug("tagged-arm", "A word arm carries no environment") end
+        local values = {}
+        for _, item in ipairs(descriptor.bound) do values[#values + 1] = item end
+        for _, item in ipairs(args) do values[#values + 1] = item end
+        return self:applyResidual(ctx, descriptor.def, values, span)
+    end
+    local plan = descriptor.plan
+    local merged = {}
+    for _, item in ipairs(descriptor.bound) do merged[#merged + 1] = item end
+    for _, item in ipairs(args) do merged[#merged + 1] = item end
+    local envExprs = {}
+    if envTy ~= S.Unit then
+        local id = ctx.builder:valueId()
+        ctx.builder:emit(ctx.body, Ir.VariantPayload(id, variantId, taggedTy, name))
+        local payload = ctx.builder:ref(id, envTy)
+        local envTys = {}
+        for _, field in ipairs(S.environmentOf(envTy).fields) do envTys[field.name] = field.type end
+        for _, envName in ipairs(plan.envNames) do
+            envExprs[#envExprs + 1] = ctx.builder:get(payload, envName, envTys[envName])
+        end
+    end
+    return self:applyClosure(ctx, plan, envExprs, merged, span)
+end
+
+-- A call on a tagged callable: test the tag, then run that arm's code directly. Every arm shares the
+-- one visible signature, so the results join through a slot per result.
+function Eval:applyTagged(ctx, value, args, span)
+    local ty = value.ty
+    if ctx.mode ~= "residual" then
+        D.reject("runtime-in-normalization", "A tagged call needs runtime code", span)
+    end
+    local expr = value.expr
+    if expr == nil then
+        -- A tagged value built in this expression has not been emitted yet.
+        expr = self:expression(ctx, value, ty)
+    end
+    if expr.kind ~= "Ref" then D.bug("tagged-call", "A tagged callable must be an SSA value") end
+    local variantId = expr.value
+    local builder = ctx.builder
+    local results = ty.visible.results
+    local slots = {}
+    for index = 1, #results do slots[index] = builder:var(ctx.body, results[index], nil) end
+    local pieces = {}
+    for _, name in ipairs(S.casesOf(ty)) do
+        local arm = {}
+        local armCtx = ctx:arm(arm)
+        local result = self:callTaggedArm(armCtx, name, variantId, ty, args, span)
+        pieces[#pieces + 1] = { name = name, list = arm, ctx = armCtx, value = result,
+            terminated = armCtx.terminated }
+    end
+    for _, piece in ipairs(pieces) do
+        if not piece.terminated then
+            local values = self:expand(piece.value)
+            if #values ~= #results then
+                D.bug("tagged-arity", "A tagged arm returned the wrong number of results")
+            end
+            for index, item in ipairs(values) do
+                builder:store(piece.list, Ir.Local(slots[index]),
+                    self:expression(piece.ctx, item, results[index]))
+            end
+        end
+    end
+    local child = pieces[#pieces].list
+    for index = #pieces - 1, 1, -1 do
+        local piece = pieces[index]
+        local parent = {}
+        local id = builder:valueId()
+        builder:emit(parent, Ir.VariantMatches(id, variantId, ty, piece.name))
+        builder:emit(parent, Ir.If(builder:ref(id, S.Bool), S.list(piece.list), S.list(child)))
+        child = parent
+    end
+    for _, stmt in ipairs(child) do ctx.body[#ctx.body + 1] = stmt end
+    local out = {}
+    for index, resultTy in ipairs(results) do
+        local place = Ir.Local(slots[index])
+        out[index] = V.ir(builder:ref(builder:read(ctx.body, resultTy, place), resultTy), resultTy)
+    end
+    if #out == 0 then return V.unit() end
+    if #out == 1 then return out[1] end
+    return V.results(out)
+end
+
 -- Materialises a value for a runtime position. `want` is the destination type when the context
 -- knows it, which is what lets an unrepresentable callable be rejected with a source diagnostic
 -- instead of building mistyped IR.
 function Eval:expression(ctx, value, want)
     local tag = V.tag(value)
+    if want and (S.isSig(want) or S.isView(want)) and value.ty and S.isTagged(value.ty) then
+        self:rejectTaggedErase(ctx.span)
+    end
     if (tag == "closure" or tag == "word") and want and (S.isSig(want) or S.isView(want)) then
         if ctx.mode ~= "residual" then
             D.reject("runtime-in-normalization", "A view needs runtime code", ctx.span)
@@ -520,10 +712,25 @@ function Eval:typeMatchesSignature(ty, sig)
     return false
 end
 
+-- A declared signature result must be satisfied by a callable of matching shape. A tagged callable
+-- has that shape and still cannot be returned as a signature, because a view cannot retain the
+-- environment that carries its tag, so that case reports the erasure rather than a shape mismatch.
+function Eval:requireResultSignature(actual, sig, span)
+    if actual and actual.ty and S.isTagged(actual.ty) and self:sigMatches(actual.ty.visible, sig) then
+        self:rejectTaggedErase(span)
+    end
+    if not actual or not self:typeMatchesSignature(actual.ty, sig) then
+        D.reject("callable-shape", "The returned callable does not match the declared result signature", span)
+    end
+end
+
 -- Checks a value against a requirement. A signature requirement is satisfied by a callable whose
 -- shape matches, which is what lets an unannotated lambda be checked against it.
 function Eval:requireAgainst(value, ty, span)
     local wanted = (S.isSig(ty) and ty) or (S.isView(ty) and ty.visible) or nil
+    if wanted and value.ty and S.isTagged(value.ty) then
+        self:rejectTaggedErase(span)
+    end
     if wanted and (V.tag(value) == "closure" or V.tag(value) == "word") then
         if self:callableMatches(value, wanted) == false then
             D.reject("callable-shape", "Callable does not match the required signature", span)
@@ -752,14 +959,23 @@ function Eval:evalCondition(ctx, expr, expected)
         ctx.terminated = true
         return V.unit()
     end
-    if not yesTerminated and not noTerminated and yesValue.ty ~= noValue.ty then
-        if S.isOwned(yesValue.ty) and S.isOwned(noValue.ty) then
-            D.todo("callable-branch",
-                "Each arm returns a different callable, so the join would need a tagged callable "
-                .. "representation; an erased view is non-retaining and cannot be returned", expr.span)
+    if not yesTerminated and not noTerminated then
+        -- Two callable arms whose types differ join into one tagged callable, unless they are the
+        -- same code identity, in which case their callable type already agrees.
+        local yesCallable, noCallable = self:isCallableValue(yesValue), self:isCallableValue(noValue)
+        local sameCallable = yesCallable and noCallable and yesValue.ty ~= nil and yesValue.ty == noValue.ty
+        if yesCallable and noCallable and not sameCallable then
+            local _, joinedYes, joinedNo = self:joinCallables(yesValue, noValue, expr.span)
+            yesValue, noValue = joinedYes, joinedNo
+        elseif (yesCallable or noCallable) and yesValue.ty ~= noValue.ty then
+            local other = yesCallable and noValue or yesValue
+            D.reject("branch-result", "One arm is a callable and the other is "
+                .. (other.ty and S.encode(other.ty) or "a bare word with no callable type"), expr.span)
         end
-        D.reject("branch-result", "Conditional arms have different types: "
-            .. S.encode(yesValue.ty) .. " and " .. S.encode(noValue.ty), expr.span)
+        if yesValue.ty ~= noValue.ty then
+            D.reject("branch-result", "Conditional arms have different types: "
+                .. S.encode(yesValue.ty) .. " and " .. S.encode(noValue.ty), expr.span)
+        end
     end
     local ty = yesTerminated and noValue.ty or yesValue.ty
     local storage = builder:var(ctx.body, ty, nil)
@@ -1753,6 +1969,9 @@ function Eval:evalApply(ctx, expr)
     if tag == "ir" and S.isView(callee.ty) then
         return self:applyView(ctx, callee, args, expr.span)
     end
+    if (tag == "ir" or tag == "variant") and callee.ty and S.isTagged(callee.ty) then
+        return self:applyTagged(ctx, callee, args, expr.span)
+    end
     if tag == "ctor" then
         -- An alternative whose payload is not a record takes one positional argument; a Unit
         -- alternative takes none.
@@ -1892,10 +2111,7 @@ function Eval:applyStatically(def, values, span, receiver)
     if requirements then
         for index, requirement in pairs(requirements) do
             local actual = result[index]
-            if not actual or not self:typeMatchesSignature(actual.ty, requirement) then
-                D.reject("callable-shape",
-                    "The returned callable does not match the declared result signature", span)
-            end
+            self:requireResultSignature(actual, requirement, span)
         end
     end
     if #result == 0 then return V.unit() end
@@ -2148,10 +2364,7 @@ function Eval:buildInstance(key, def, values, span, receiver)
     if requirements then
         for index, requirement in pairs(requirements) do
             local actual = instance.results[index]
-            if not actual or not self:typeMatchesSignature(actual, requirement) then
-                D.reject("callable-shape",
-                    "The returned callable does not match the declared result signature", span)
-            end
+            self:requireResultSignature(actual and { ty = actual } or nil, requirement, span)
         end
     end
     for _, ty in ipairs(instance.results) do

@@ -138,13 +138,12 @@ function Emitter:statements(list)
         elseif kind == "ConstructVariant" then
             self:construct(stmt)
         elseif kind == "VariantMatches" then
-            local layout = self.layouts.sumLayout(stmt.sum)
             local tag = S.tagIndex(stmt.sum, stmt.tag)
             self:declare(S.Bool, self:value(stmt.value.id),
                 "(" .. self:value(stmt.variant.id) .. ".wordlet_tag == " .. tag .. ")")
         elseif kind == "VariantPayload" then
             local case = S.caseOf(stmt.sum, stmt.tag)
-            local cased = self.layouts.sumLayout(stmt.sum).cases[S.tagIndex(stmt.sum, stmt.tag) + 1]
+            local cased = self.layouts.tagLayout(stmt.sum).cases[S.tagIndex(stmt.sum, stmt.tag) + 1]
             self:declare(case, self:value(stmt.value.id),
                 "(" .. self:value(stmt.variant.id) .. ".payload." .. cased.name .. ")")
         elseif kind == "Call" then
@@ -163,7 +162,7 @@ end
 
 -- A variant is a compound literal with the tag and the one payload member set by name.
 function Emitter:construct(stmt)
-    local layout = self.layouts.sumLayout(stmt.type)
+    local layout = self.layouts.tagLayout(stmt.type)
     local cased = layout.cases[S.tagIndex(stmt.type, stmt.tag) + 1]
     local text = "(" .. layout.name .. "){ .wordlet_tag = " .. cased.tag
     if stmt.payload then
@@ -354,26 +353,30 @@ function M.typeDeclarations(layouts)
     end
     for _, tuple in ipairs(layouts.tupleOrder) do aggregate(tuple.name, tuple.fields) end
     for _, record in ipairs(layouts.recordOrder) do aggregate(record.name, record.fields) end
-    for _, sum in ipairs(layouts.sumOrder) do
+    -- A sum and a tagged callable share one shape: a tag word plus a union of payloads, held by
+    -- value so construction and projection are plain assignments.
+    local function tagStruct(layout)
         local body = { "    uint32_t wordlet_tag;" }
-        if #sum.cases == 0 then
+        local members = {}
+        for _, cased in ipairs(layout.cases) do
+            if cased.type == S.Unit then
+                members[#members + 1] = "        unsigned char " .. cased.name .. ";"
+            else
+                members[#members + 1] = "        " .. layouts:cType(cased.type) .. " " .. cased.name .. ";"
+            end
+        end
+        if #members == 0 then
             body[#body + 1] = "    unsigned char wordlet_pad;"
         else
-            local members = {}
-            for _, cased in ipairs(sum.cases) do
-                if cased.type == S.Unit then
-                    members[#members + 1] = "        unsigned char " .. cased.name .. ";"
-                else
-                    members[#members + 1] = "        " .. layouts:cType(cased.type) .. " " .. cased.name .. ";"
-                end
-            end
             body[#body + 1] = "    union {"
             for _, member in ipairs(members) do body[#body + 1] = member end
             body[#body + 1] = "    } payload;"
         end
-        lines[#lines + 1] = "typedef struct " .. sum.name .. " {\n"
-            .. table.concat(body, "\n") .. "\n} " .. sum.name .. ";"
+        lines[#lines + 1] = "typedef struct " .. layout.name .. " {\n"
+            .. table.concat(body, "\n") .. "\n} " .. layout.name .. ";"
     end
+    for _, sum in ipairs(layouts.sumOrder) do tagStruct(sum) end
+    for _, tagged in ipairs(layouts.taggedOrder) do tagStruct(tagged) end
     for _, exported in ipairs(layouts.typeExports or {}) do
         lines[#lines + 1] = "typedef " .. exported.layout.name .. " " .. exported.name .. ";"
     end

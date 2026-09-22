@@ -264,6 +264,49 @@ return { types = { R }, functions = { wrap, width_of } }
         entries = { { entry = "width_of", arity = 1 } },
         inputs = { { 0 }, { 1 }, { 9 }, { 4294967295 } },
     },
+    {
+        -- Two callables of one signature chosen at run time join into a tagged callable. The
+        -- interpreter selects the arm statically, so it is an independent oracle for the dispatch.
+        name = "tagged",
+        source = [==[
+let inc(x: U32): U32 = x + 1
+let dec(x: U32): U32 = x - 1
+let pick(c: Bool): U32 = do
+  let f = if c then inc else dec
+  return f(10)
+end
+let twice(c: Bool, x: U32): U32 = do
+  let f = if c then |y: U32| -> y + x else |y: U32| -> y * 2
+  return f(f(1))
+end
+let choose(c: Bool, x: U32): U32 = do
+  let f = if c then |y: U32| -> y + x else |y: U32| -> y * x
+  return f(3) + f(4)
+end
+let with_zero(c: Bool, x: U32): U32 = do
+  let f = if c then inc else |y: U32| -> y * 0
+  return f(x)
+end
+let pair(c: Bool, x: U32): (U32, U32) = do
+  let f = if c then inc else dec
+  return f(x), f(f(x))
+end
+let length(c: Bool, x: U32): U32 = (if c then |y: U32| -> y + x else |y: U32| -> y * x)(7)
+-- A tagged callable that crosses a call boundary: the tag is only known at run time.
+let mk(c: Bool) = if c then inc else |y: U32| -> y * 3
+let use(c: Bool, x: U32): U32 = do
+  let f = mk(c)
+  return f(x)
+end
+return { functions = { pick, twice, choose, with_zero, pair, length, mk, use } }
+]==],
+        entries = { { entry = "pick", arity = 1 }, { entry = "twice", arity = 2 },
+            { entry = "choose", arity = 2 }, { entry = "with_zero", arity = 2 },
+            { entry = "pair", arity = 2 }, { entry = "length", arity = 2 },
+            { entry = "use", arity = 2 } },
+        inputs = { { true }, { false }, { true, 5 }, { false, 5 }, { true, 0 }, { false, 0 },
+            { true, 4294967295 }, { false, 4294967295 }, { true, 1 } },
+    },
 }
 
 local function cLiteral(value)
@@ -510,6 +553,42 @@ int main(void) {
         "Unit-parameter C failed to compile:\n" .. read(directory .. "/opterr.txt"))
     check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
         "a Unit alternative did not erase cleanly at the ABI")
+end
+
+-- A tagged callable as a host-visible value: the tag is a plain word and the payload union holds
+-- that arm environment, so a host can hold one and pass it back.
+do
+    local source = [==[
+let inc(x: U32): U32 = x + 1
+let dec(x: U32): U32 = x - 1
+let mk(c: Bool) = if c then inc else dec
+let use(c: Bool, x: U32): U32 = do
+  let f = mk(c)
+  return f(x)
+end
+return { functions = { mk, use } }
+]==]
+    local generated = wordlet.compile{ source = source, name = "tag.let" }:unit()
+    local path = directory .. "/tag.c"
+    write(path, generated .. [[
+
+#include <assert.h>
+int main(void) {
+    wordlettag_1 up = wordlet_mk(true);
+    wordlettag_1 down = wordlet_mk(false);
+    assert(up.wordlet_tag != down.wordlet_tag);
+    assert(up.wordlet_tag < 2 && down.wordlet_tag < 2);
+    assert(wordlet_use(true, UINT32_C(10)) == UINT32_C(11));
+    assert(wordlet_use(false, UINT32_C(10)) == UINT32_C(9));
+    return 0;
+}
+]])
+    local exe = directory .. "/tag"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/tagerr.txt") == 0,
+        "tagged-callable C failed to compile:\n" .. read(directory .. "/tagerr.txt"))
+    check(shell("timeout --kill-after=2s 10s '" .. exe .. "'") == 0,
+        "a tagged callable did not cross the ABI correctly")
 end
 
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.

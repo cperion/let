@@ -40,6 +40,14 @@ assert(sum == i.Ty.Sum("m", L{i.Ty.Field("circle", i.Ty.U32), i.Ty.Field("rect",
 assert(sum ~= i.Ty.Sum("m", L{i.Ty.Field("circle", i.Ty.U32)}))
 assert(i.Ty.Sum:isclassof(sum) and i.Ty.V:isclassof(sum))
 
+-- A tagged callable interns by its canonical arms too, and shares the tag operations with a sum.
+local tagged = i.Ty.Tagged(sig, L{i.Ty.Field("closure:1", i.Ty.Unit),
+    i.Ty.Field("closure:2", record or i.Ty.U32)})
+assert(tagged == i.Ty.Tagged(sig, L{i.Ty.Field("closure:1", i.Ty.Unit),
+    i.Ty.Field("closure:2", record or i.Ty.U32)}))
+assert(tagged ~= i.Ty.Tagged(sig, L{i.Ty.Field("closure:1", i.Ty.Unit)}))
+assert(i.Ty.Tagged:isclassof(tagged) and i.Ty.V:isclassof(tagged))
+
 -- Function-local ID descriptors are interned so equality is cheap.
 assert(i.Ir.Value(1) == i.Ir.Value(1) and i.Ir.Storage(1) == i.Ir.Storage(1))
 assert(i.Ir.Bundle(1) == i.Ir.Bundle(1) and i.Ir.Field("x") == i.Ir.Field("x"))

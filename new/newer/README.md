@@ -27,7 +27,8 @@ this section states exactly how much of it runs today.
 | A callable stored in a signature-typed field | implemented through the borrowed callable ABI: the field holds `{ invoke, environment }` built from a local adapter, so the record is non-retaining and cannot escape (`borrow-escape`) |
 | Partial application of a closure | implemented: `add(5)` yields a closure with a static argument bound |
 | Contextual lambda parameter types | implemented: a binding annotation, a parameter requirement or a result contract supplies them. A lambda with no expectation anywhere is still rejected (`lambda-annotation`) |
-| Two different lambdas returned from one conditional | **rejected** (`callable-branch`); the join would need a tagged callable |
+| Two different callables selected by one conditional | implemented as a tagged callable: a tag plus a union of the arm environments. A call tests the tag and runs that arm's own code directly, so it needs no function pointer. The same code identity in both arms needs no tag |
+| Erasing a runtime-tagged callable into a signature (`callable-erase`) | **rejected**: a view does not retain the environment that carries the tag. Call it where it was selected, or select the arm first |
 | Self-tail calls (`Loop`/`Next` back edges) | implemented; tails run at constant C stack depth |
 | Module-level mutable records captured by runtime code | implemented as named file-scope storage plus an exported `wordlet_init()`. The host owns initialisation order; nothing is called implicitly |
 

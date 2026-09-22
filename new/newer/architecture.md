@@ -77,6 +77,7 @@ ConcreteStorage(root, field_path, type_meaning)
 OwnedCallable(code_identity, environment)
 BorrowedCallable(code_identity_or_signature, environment_bindings)
 Sum(alternative_names_and_payload_types)
+TaggedCallable(visible_signature, arms_of_code_identity_and_environment)
 ```
 
 A sum value is a tag plus one payload. Its alternatives are canonical (sorted by name), so two
@@ -340,6 +341,13 @@ Ir.Param = ValueParam | PlaceParam | BundleParam
 Ir.Fn    = (id, role, hidden, Ty.Input* inputs, Ty.V* results, Param* params, Stmt* body)
 ```
 
+A tagged callable is the callable counterpart of a sum: a closed set of code identities that share
+one visible signature, where the tag selects which code a call of the value runs and the payload is
+that code's environment. It owns its environments, so it may be returned or stored, and a call
+becomes a tag test per arm followed by that arm's ordinary direct call. Because a sum and a tagged
+callable are both a tag plus one of several payloads, they share the three IR statements, the C
+layout and the lowering; only the type family and how the arms are called differ.
+
 A sum is the one aggregate family whose alternatives are selected by a tag rather than by a static
 field name, so it has three statements of its own. `ConstructVariant(value, Ty.Sum, tag, Expr?)`
 builds one alternative; the payload expression is absent for a `Unit` alternative.
@@ -468,6 +476,7 @@ helpers. No historical helper names or facade signatures are compatibility requi
 | Unit | erased payload, while logical result positions remain tracked |
 | record value | struct, by value, fields in canonical name order |
 | sum value | struct with a tag plus a union of alternative payloads, by value |
+| tagged callable | the same tag plus union shape, holding each arm environment |
 | multiple runtime results | internal ordered result struct |
 | actual receiver borrow | typed pointer, optionally proven const |
 | concrete owned callable | inline environment struct; static code identity |

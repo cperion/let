@@ -23,6 +23,8 @@ function M.close(compilation)
         recordOrder = {},
         sums = {},          -- Ty.Sum -> { name, cases }
         sumOrder = {},
+        tagged = {},        -- Ty.Tagged -> { name, cases }
+        taggedOrder = {},
         signatures = {},
     }
 
@@ -44,20 +46,26 @@ function M.close(compilation)
     end
 
 
-    -- A sum is a tag plus a union of the alternative payloads. Payloads are held by value so that
-    -- construction and projection are plain assignments.
-    local function sumLayout(ty)
-        local existing = layouts.sums[ty]
+    -- A sum and a tagged callable are both a tag plus a union of alternative payloads, so they share
+    -- one layout: only the struct name and the table that owns it differ. Payloads are held by value
+    -- so construction and projection are plain assignments.
+    local function tagLayout(prefix, table_, order, ty)
+        local existing = table_[ty]
         if existing then return existing end
-        local layout = { name = "wordletsum_" .. (#layouts.sumOrder + 1), type = ty, cases = {} }
-        layouts.sums[ty] = layout
-        layouts.sumOrder[#layouts.sumOrder + 1] = layout
-        for index, field in ipairs(ty.cases) do
+        local layout = { name = prefix .. (#order + 1), type = ty, cases = {} }
+        table_[ty] = layout
+        order[#order + 1] = layout
+        for index, field in ipairs(S.alternatives(ty)) do
             layout.cases[#layout.cases + 1] = { name = "f_" .. M.escape(field.name), type = field.type,
                 tag = index - 1 }
             if field.type ~= S.Unit and S.runtime(field.type) then layouts:cType(field.type) end
         end
         return layout
+    end
+
+    local function sumLayout(ty) return tagLayout("wordletsum_", layouts.sums, layouts.sumOrder, ty) end
+    local function taggedLayout(ty)
+        return tagLayout("wordlettag_", layouts.tagged, layouts.taggedOrder, ty)
     end
 
     local function resultLayout(results)
@@ -127,7 +135,10 @@ function M.close(compilation)
     end
 
     layouts.recordLayout, layouts.resultLayout, layouts.viewLayout = recordLayout, resultLayout, viewLayout
+    -- Either tagged family, which is what the variant statements name.
     layouts.sumLayout = sumLayout
+    layouts.taggedLayout = taggedLayout
+    function layouts.tagLayout(ty) return S.isTagged(ty) and taggedLayout(ty) or sumLayout(ty) end
 
     function layouts:cType(ty)
         if ty == S.U32 then return "uint32_t" end
@@ -137,6 +148,7 @@ function M.close(compilation)
         if S.isOwned(ty) then return layouts:cType(ty.environment) end
         if S.isRecord(ty) then return recordLayout(ty).name end
         if S.isSum(ty) then return sumLayout(ty).name end
+        if S.isTagged(ty) then return taggedLayout(ty).name end
         D.todo("c-type", "No C representation for " .. S.encode(ty))
     end
 

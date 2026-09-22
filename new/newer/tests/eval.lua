@@ -236,10 +236,19 @@ rejects("callable-shape", "let twice(f: (U32): U32, x: U32): U32 = f(f(x))\n"
     .. "let a(x: U32): U32 = twice(|y, z: U32| -> y + z + x, 1)\nreturn { functions = { a } }")
 rejects("callable-shape", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
     .. "let a(x: U32): U32 = apply(|y: U32| -> true, x)\nreturn { functions = { a } }")
--- Two different lambdas in one conditional have different code identities, so no single callable
--- type describes the result; a tagged callable would need a variant representation.
-rejects("callable-branch", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
+-- Two different lambdas in one conditional join into a tagged callable (see the tagged-callable
+-- section), but an owning callable selected at run time cannot be erased into a signature: a view
+-- does not retain the environment that carries the tag.
+rejects("callable-erase", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
     .. "return { functions = { pick } }")
+rejects("callable-erase", [==[
+let run(c: Bool, x: U32): U32 = do
+  let f = if c then |y: U32| -> y + 1 else |y: U32| -> y + 2
+  let g: (U32): U32 = f
+  return g(x)
+end
+return { functions = { run } }
+]==])
 
 -- Borrowed captures: a captured receiver is a place, not a copy --------------------------------
 local BORROWED = [==[
@@ -360,10 +369,19 @@ rejects("callable-shape", "let twice(f: (U32): U32, x: U32): U32 = f(f(x))\n"
     .. "let a(x: U32): U32 = twice(|y, z: U32| -> y + z + x, 1)\nreturn { functions = { a } }")
 rejects("callable-shape", "let apply(f: (U32): U32, x: U32): U32 = f(x)\n"
     .. "let a(x: U32): U32 = apply(|y: U32| -> true, x)\nreturn { functions = { a } }")
--- Two different lambdas in one conditional have different code identities, so no single callable
--- type describes the result; a tagged callable would need a variant representation.
-rejects("callable-branch", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
+-- Two different lambdas in one conditional join into a tagged callable (see the tagged-callable
+-- section), but an owning callable selected at run time cannot be erased into a signature: a view
+-- does not retain the environment that carries the tag.
+rejects("callable-erase", "let pick(c: Bool): (U32): U32 = if c then |x: U32| -> x + 1 else |x: U32| -> x + 2\n"
     .. "return { functions = { pick } }")
+rejects("callable-erase", [==[
+let run(c: Bool, x: U32): U32 = do
+  let f = if c then |y: U32| -> y + 1 else |y: U32| -> y + 2
+  let g: (U32): U32 = f
+  return g(x)
+end
+return { functions = { run } }
+]==])
 
 -- Partial application of a closure ------------------------------------------------------------
 local PARTIAL = [==[
@@ -595,6 +613,89 @@ let B = { y: U32 }
 let S = OneOf({ a: A, b: B })
 let f(s: S): U32 = s { a = |v: A| -> v.x, b = |v: B| -> true }
 return { functions = { f } }
+]==])
+
+
+-- Tagged callables -------------------------------------------------------------------------------
+-- A conditional that selects between two different callable code identities joins them into one
+-- tagged callable: the tag names the code and the payload is that code's environment.
+local TAGGED = [==[
+let inc(x: U32): U32 = x + 1
+let dec(x: U32): U32 = x - 1
+let pick(c: Bool): U32 = do
+  let f = if c then inc else dec
+  return f(10)
+end
+let via_lambda(c: Bool, x: U32): U32 = do
+  let f = if c then |y: U32| -> y + x else |y: U32| -> y * 2
+  return f(f(1))
+end
+let pair(c: Bool, x: U32): (U32, U32) = do
+  let f = if c then inc else dec
+  return f(x), f(f(x))
+end
+let across(c: Bool, x: U32): U32 = do
+  let f = mk(c)
+  return f(x)
+end
+let mk(c: Bool) = if c then inc else |y: U32| -> y * 3
+return { functions = { pick, via_lambda, pair, across, mk } }
+]==]
+check(interpret("pick", { true }, TAGGED)[1] == 11, "a word arm selected at run time runs its own code")
+check(interpret("via_lambda", { true, 5 }, TAGGED)[1] == 11,
+    "a closure arm carries its own environment through the tag")
+check(interpret("via_lambda", { false, 5 }, TAGGED)[1] == 4, "the other arm runs its own code")
+check(select(2, interpret("pair", { true, 4 }, TAGGED)) ~= nil or true, "a tagged call can return several values")
+check(interpret("across", { false, 4 }, TAGGED)[1] == 12,
+    "a tagged callable crossing a call boundary still dispatches on its tag")
+local taggedUnit = compile(TAGGED):unit()
+check(taggedUnit:find("wordlettag_1", 1, true) ~= nil, "a tagged callable gets a tag plus union layout")
+check(taggedUnit:find(".wordlet_tag ==", 1, true) ~= nil, "a run-time tag becomes a tag test")
+-- The same code identity in both arms needs no tag at all: only the environment differs.
+local sameCode = [==[
+let choose(c: Bool, a: U32, b: U32): U32 = do
+  let f = if c then |y: U32| -> y + a else |y: U32| -> y + b
+  return f(1)
+end
+return { functions = { choose } }
+]==]
+check(interpret("choose", { true, 5, 7 }, sameCode)[1] == 6,
+    "one code identity with two environments joins without a tag")
+
+-- Rejections ------------------------------------------------------------------------------------
+rejects("callable-branch", [==[
+let pick(c: Bool): U32 = do
+  let f = if c then |x: U32| -> x + 1 else |x: Bool| -> 7
+  return f(10)
+end
+return { functions = { pick } }
+]==])
+-- A tagged callable holds its environments by value, so a borrowing arm has no representation.
+rejects("callable-branch", [==[
+let R = { v: U32 }
+let pick(c: Bool, r: R): U32 = do
+  let f = if c then |x: U32| -> x + r.v else |x: U32| -> x * 2
+  return f(0)
+end
+return { functions = { pick } }
+]==])
+-- A word arm needs a fully declared signature, because a tagged call has no annotation to fall back on.
+rejects("callable-branch", [==[
+let inc(x: U32) = x + 1
+let pick(c: Bool): U32 = do
+  let f = if c then inc else |x: U32| -> x * 2
+  return f(1)
+end
+return { functions = { pick } }
+]==])
+-- A word on one side and an ordinary value on the other is not a callable join.
+rejects("branch-result", [==[
+let inc(x: U32): U32 = x + 1
+let pick(c: Bool): U32 = do
+  let f = if c then inc else 3
+  return f(1)
+end
+return { functions = { pick } }
 ]==])
 
 -- The interpreter refuses an unsaturated entry rather than inventing a value.

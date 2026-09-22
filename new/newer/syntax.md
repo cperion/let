@@ -440,6 +440,19 @@ Known executable arguments retain code identity and specialize. Unknown runtime 
 are checked against a complete calling signature and use a non-retaining callable view. There is
 no `dyn` keyword; binding time and representation requirements decide which is needed.
 
+A conditional whose two arms are callables of one signature but different code joins them into a
+tagged callable: the tag names the code and the payload is that code's environment. A call on such a
+value tests the tag and then runs that arm's own body, so the call is still direct and no function
+pointer is involved. Both arms must be callable the same way; a word arm also needs declared result
+types, because a tagged call site has no annotation to fall back on, and a partially applied arm
+needs static arguments. An arm that borrows storage has no representation in a tagged value, because
+the value holds its environments by value.
+
+A tagged callable owns its environments like any other owned callable, so it may be returned or
+stored. It cannot be erased into a bare signature: a view does not retain the environment that
+carries the tag, so that conversion rejects (`callable-erase`) rather than dangling. Erasing a
+callable whose arm is already known is ordinary erasure of that one callable.
+
 Lambda captures follow lexical bindings. A captured scalar/read snapshot is an immutable value.
 Capturing a mutable record instance or a method retains its actual place; copying its binding does
 not secretly copy its state. Owned value captures form a by-value environment. A closure containing

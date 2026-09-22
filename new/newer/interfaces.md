@@ -222,16 +222,25 @@ These are the obligations `check.lua` verifies; the builder should not rely on t
    and no `Ir.Param` and appears in no argument list. The parameter's name is bound to the `Unit`
    value directly, and because there is no `Ir.Literal` for `Unit`, a `Unit` value can never be
    materialised as an `Ir.Expr`.
-6. **Sum tags.** `Ir.ConstructVariant`/`Ir.VariantMatches`/`Ir.VariantPayload` each name their
+6. **Tagged callables.** A `Ty.Tagged` value is a tag plus the environment of the arm that tag
+   names. Its arms are registered in `Eval.arms` under the identity that names them in the type, so a
+   call site dispatches from the type alone: `Eval:applyTagged` tests each tag, projects that arm's
+   environment out of the payload, and calls the arm's own code directly — the arm's environment is
+   the call's hidden prefix, exactly as for a non-tagged owned callable. Every arm shares the visible
+   signature, so the results join through one slot per result. A join needs both arms to be callables
+   of one signature; a word arm needs declared result types and a closure arm may not borrow storage,
+   because the value holds its environments by value. Erasing a runtime-tagged value into a signature
+   rejects (`callable-erase`).
+7. **Sum tags.** `Ir.ConstructVariant`/`Ir.VariantMatches`/`Ir.VariantPayload` each name their
    `Ty.Sum`. The tag must be one of its alternatives; a construct of a `Unit` alternative must omit
    its payload and any other alternative must have one whose type matches; a projection must not
    target a `Unit` alternative, and its operand value must have been bound with that exact sum type.
    A projection is only ever reachable inside an arm whose test established the tag, which is a
    builder obligation the checker cannot see from the statement list alone.
-7. **Visible versus actual signature.** `Ty.Owned`/`Ty.View` carry the source-visible signature.
+8. **Visible versus actual signature.** `Ty.Owned`/`Ty.View` carry the source-visible signature.
    `Ir.Fn.inputs` carries the actual ABI including the hidden owner/capture prefix. The two are
    related by `Meta.projections`/`hidden` and must not be conflated.
-8. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
+9. **Traps.** A dynamic `Div`/`Rem` is preceded on every path by `Trap(zero?, "division-zero")`
    testing the same operand value.
 
 ## 7. Diagnostics

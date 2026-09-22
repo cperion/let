@@ -84,19 +84,46 @@ end
 
 function M.isSum(t) return type(t) == "table" and t.kind == "Sum" end
 
--- The case names of a sum type, in the canonical order that fixes its tag numbering.
+-- A tagged callable is a closed set of code identities that share one visible signature. Each arm
+-- names an entry and holds that entry's environment type; the tag selects which code a call runs.
+function M.tagged(visible, arms)
+    local names = {}
+    for name in pairs(arms) do names[#names + 1] = name end
+    table.sort(names)
+    local list = {}
+    for _, name in ipairs(names) do list[#list + 1] = Ty.Field(name, arms[name]) end
+    return Ty.Tagged(visible, ASDL.List(list))
+end
+
+function M.isTagged(t) return type(t) == "table" and t.kind == "Tagged" end
+
+-- A sum and a tagged callable are both a tag plus one of several payloads, so the tag operations
+-- and the three IR statements that manipulate them are shared.
+function M.isTaggedType(t) return M.isSum(t) or M.isTagged(t) end
+
+function M.alternatives(t)
+    if M.isTagged(t) then return t.arms end
+    if M.isSum(t) then return t.cases end
+    return nil
+end
+
+-- The alternative names, in the canonical order that fixes the tag numbering.
 function M.casesOf(t)
     local names = {}
-    for _, field in ipairs(t.cases) do names[#names + 1] = field.name end
+    for _, field in ipairs(M.alternatives(t) or {}) do names[#names + 1] = field.name end
     return names
 end
 
 function M.caseOf(t, name)
-    for _, field in ipairs(t.cases) do if field.name == name then return field.type end end
+    for _, field in ipairs(M.alternatives(t) or {}) do
+        if field.name == name then return field.type end
+    end
 end
 
 function M.tagIndex(t, name)
-    for index, field in ipairs(t.cases) do if field.name == name then return index - 1 end end
+    for index, field in ipairs(M.alternatives(t) or {}) do
+        if field.name == name then return index - 1 end
+    end
 end
 function M.isOwned(t) return type(t) == "table" and t.kind == "Owned" end
 -- The runtime representation of a type: an Owned callable is represented by its environment.
@@ -135,9 +162,9 @@ function M.runtime(t, visiting)
     if t == Ty.U32 or t == Ty.Bool or t == Ty.Unit then return true end
     if t == Ty.Type then return false end
     if M.isOwned(t) then return M.runtime(t.environment, visiting) end
-    if M.isSum(t) then
+    if M.isTaggedType(t) then
         -- A tag plus a payload whose size is the largest alternative.
-        for _, field in ipairs(t.cases) do
+        for _, field in ipairs(M.alternatives(t)) do
             if not M.runtime(field.type, visiting) then return false end
         end
         return true
@@ -174,7 +201,7 @@ end
 -- code identity, so it has no representation and must stay a compile-time fact.
 function M.representable(t)
     if M.isView(t) then return M.runtime(t) end
-    if M.isSum(t) then return M.runtime(t) end
+    if M.isTaggedType(t) then return M.runtime(t) end
     if M.isOwned(t) then
         if t.environment == Ty.Unit then return false end
         return M.runtime(t.environment)

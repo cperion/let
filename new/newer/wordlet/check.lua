@@ -191,8 +191,8 @@ function M.function_(fn, definitions, seeded)
                 end
                 bind(visible, stmt.value.id, stmt.type)
             elseif kind == "ConstructVariant" then
-                if not S.isSum(stmt.type) then
-                    D.bug("ir-type", "ConstructVariant needs a sum type")
+                if not S.isTaggedType(stmt.type) then
+                    D.bug("ir-type", "ConstructVariant needs a sum or tagged type")
                 end
                 local caseType = S.caseOf(stmt.type, stmt.tag)
                 if not caseType then D.bug("ir-type", "Sum type has no alternative " .. stmt.tag) end
@@ -210,7 +210,9 @@ function M.function_(fn, definitions, seeded)
                 end
                 bind(visible, stmt.value.id, stmt.type)
             elseif kind == "VariantMatches" then
-                if not S.isSum(stmt.sum) then D.bug("ir-type", "VariantMatches needs a sum type") end
+                if not S.isTaggedType(stmt.sum) then
+                    D.bug("ir-type", "VariantMatches needs a sum or tagged type")
+                end
                 if not S.caseOf(stmt.sum, stmt.tag) then
                     D.bug("ir-type", "Sum type has no alternative " .. stmt.tag)
                 end
