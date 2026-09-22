@@ -98,13 +98,15 @@ function Parser:expression()
     if self:at("|") then return self:lambda() end
     if self:at("if") then return self:ifExpression() end
     local left = self:binary(1)
-    if self:at("->") then
-        D.reject("parse", "A signature is written 'A :: B'; '->' introduces a lambda body", self:peek().span)
-    end
     if self:at("::") then
-        self:next()
-        local results = self:resultSpec()
-        return A.c.SignatureExpr(asList({ left }), results, mergeSpan(left.span, spanOf(results) or left.span))
+        D.reject("parse", "A signature is written '(inputs): results'", self:peek().span)
+    end
+    if self:at(":") then
+        D.reject("parse", "Signature inputs must be parenthesized: '(U32): U32'", self:peek().span)
+    end
+    if self:at("->") then
+        D.reject("parse", "'->' introduces a lambda body; a signature is written '(inputs): results'",
+            self:peek().span)
     end
     return left
 end
@@ -227,7 +229,8 @@ function Parser:primary()
     D.reject("parse", string.format("Expected an expression but found %q", token.text), token.span)
 end
 
--- `(e)` groups; `(a, b)` and `()` are signature input lists and require `::`.
+-- `(e)` groups; `(a, b)` and `()` are signature input lists and require `:` with a result.
+-- Requiring the parentheses is what keeps `:` after a name (an annotation) distinguishable.
 function Parser:parenOrSignature()
     local open = self:expect("(")
     local items = {}
@@ -237,8 +240,8 @@ function Parser:parenOrSignature()
         end)
     end
     local close = self:expect(")")
-    if #items == 1 and not self:at("::") then return items[1] end
-    self:expect("::", "'::' after a parenthesized type list")
+    if #items == 1 and not self:at(":") then return items[1] end
+    self:expect(":", "':' and a result type after a parenthesized input list")
     local results = self:resultSpec()
     return A.c.SignatureExpr(asList(items), results, mergeSpan(open.span, spanOf(results) or close.span))
 end
@@ -348,14 +351,16 @@ function Parser:declaration()
     return A.c.ValueDecl(def, mergeSpan(let.span, spanOf(values) or name.span))
 end
 
--- Shared tail of a named definition and a method: `:: result? = body`.
+-- Shared tail of a named definition and a method: `: result? = body`, after the `)`.
 function Parser:definitionBody(name, params)
     local result = nil
-    if self:at("::") then
+    if self:at(":") then
         self:next()
         result = self:resultSpec()
+    elseif self:at("::") then
+        D.reject("parse", "A result is declared with ':'", self:peek().span)
     elseif self:at("->") then
-        D.reject("parse", "A result is declared with '::'; '->' introduces a lambda body", self:peek().span)
+        D.reject("parse", "A result is declared with ':'; '->' introduces a lambda body", self:peek().span)
     end
     self:expect("=")
     return A.c.WordDef(name, params, result, self:body())
@@ -365,12 +370,18 @@ Parser.methodSuffix = Parser.definitionBody
 
 function Parser:resultSpec()
     if self:at("(") then
+        local mark = self.pos
         self:next()
         local items = {}
         if not self:at(")") then
-            repeat items[#items + 1] = self:expression() until not self:take(",")
+            repeat items[#items + 1] = self:expression() until not self:more(")")
         end
         self:expect(")")
+        if self:at(":") then
+            -- The parentheses were a signature's input list, so reparse the whole thing.
+            self.pos = mark
+            return A.c.Single(self:expression())
+        end
         if #items == 1 then return A.c.Single(items[1]) end
         return A.c.Many(asList(items))
     end

@@ -30,7 +30,7 @@ an operator, not part of a literal. There are no float, string, nil or implicit 
 `true` and `false` are Bool. `Unit()` is the Unit value.
 
 Comments begin with `--` and continue to the next newline. This is the only newline-sensitive lexical
-rule. Operators use longest-token matching, so `!=`, `<<=`, `::` and `->` are single tokens.
+rule. Operators use longest-token matching, so `!=`, `<<=` and `->` are single tokens.
 
 An item boundary is grammatical, not visual. In a block, `let`, `return`, statement `if`, and `end`
 cannot continue an ordinary expression. Adjacent names do not apply functions. A postfix `(` or `{`
@@ -43,7 +43,7 @@ unreachable), not inferred from a line break.
 ```
 let x = 42
 let flag: Bool = true
-let affine(a, b, x: U32) :: U32 = a * x + b
+let affine(a, b, x: U32) : U32 = a * x + b
 ```
 
 `let` introduces an immutable lexical binding. An optional annotation checks its value; it is not a
@@ -126,13 +126,13 @@ Every lambda uses pipes:
 || -> Unit()
 ```
 
-Bare `x -> ...` is NOT a lambda form: `->` only ever introduces a lambda body. Results and
-signatures use `::`, so a signature is unambiguous even when its type aliases are lowercase and
-even inside a lambda's parameter list:
+Bare `x -> ...` is NOT a lambda form: `->` only ever introduces a lambda body. A result is written
+with `:`, and a signature's inputs are parenthesized, so a signature is unambiguous even when its
+type aliases are lowercase and even inside a lambda's parameter list:
 
 ```
 let number = U32
-let Endo = number :: number
+let Endo = (number): number
 ```
 
 Lambda parameters use the same grouping rule as named parameters. Missing annotations require an
@@ -141,8 +141,8 @@ contract. Every missing parameter type must be determined by that context; arbit
 parameter inference is not performed. An untyped standalone lambda rejects.
 
 ```
-let inc: U32 :: U32 = |x| -> x + 1
-let twice(f: U32 :: U32, x: U32) = f(f(x))
+let inc: (U32): U32 = |x| -> x + 1
+let twice(f: (U32): U32, x: U32) = f(f(x))
 let inc_2x = twice(|x| -> x + 1)
 ```
 
@@ -152,23 +152,22 @@ a signature, propagate that expectation into both value-producing arms.
 
 `->` introduces a lambda's BODY; it never denotes a result type. A lambda's result is declared by an
 annotated binding or by the requirement it is passed to. Typed lambda parameters plus an inferred
-result are also valid, and a lambda body may itself be a signature: `|x: U32| -> (U32 :: U32)`.
+result are also valid, and a lambda body may itself be a signature: `|x: U32| -> (U32): U32`.
 
 Signature forms are:
 
 ```
-U32 :: U32                    -- one input, one result
-(U32, U32) :: U32             -- two inputs
-() :: U32                    -- no inputs
-U32 :: (U32, U32)             -- two results
-U32 :: ()                    -- Unit result contract
-U32 :: (U32 :: U32)           -- one callable result
+(U32): U32                    -- one input, one result
+(U32, U32): U32               -- two inputs
+(): U32                       -- no inputs
+(U32): (U32, U32)             -- two results
+(U32): ()                     -- Unit result contract
+(U32): ((U32): U32)           -- one callable result
 ```
 
-A single type on either side means one slot. Parenthesized comma lists are allowed ONLY as signature
-input/result lists and named-definition result annotations; they do not create tuple values. An empty
-result list denotes one Unit result. A parenthesized single type is grouping and is equivalent to
-that type. The arrow is right-associative: `U32 :: U32 :: U32` has one callable result, not two results.
+A parenthesized comma list before the `:` is the input list; a comma list after it is the result
+list. Neither creates tuple values. An empty list denotes no inputs, or one Unit result. A
+parenthesized single type is grouping and is equivalent to that type, so `(U32): U32` has one input.
 
 A signature is a calling requirement, not executable code. Checking known code against it verifies
 parameter and result requirements without arbitrarily erasing known implementation identity. Unknown
@@ -227,7 +226,7 @@ from the enclosing word does not reach the continuation. A missing statement els
 continuing arm. Thus this is complete without any fictitious value from the first arm:
 
 ```
-let skip(s, n: U32) :: U32 = do
+let skip(s, n: U32) : U32 = do
   if n == 0 then return s end
   return skip(next32(s), n - 1)
 end
@@ -238,7 +237,7 @@ end
 Multiple results are an ordered result vector, not a tuple value:
 
 ```
-let divmod(a, b: U32) :: (U32, U32) = do
+let divmod(a, b: U32) : (U32, U32) = do
   return a / b, a % b
 end
 
@@ -292,10 +291,9 @@ Tightest first:
 | comparison | `==`, `!=`, `<`, `<=`, `>`, `>=` | non-associative |
 | logical and | `and` | left |
 | logical or | `or` | left |
-| signature | `::` | right |
 
 Pipes in prefix position introduce a lambda; infix pipe is bitwise-or. A lambda parameter annotation
-stops at the closing pipe, so `|f: U32 :: U32| -> f` reads as one parameter whose type is a signature.
+stops at the closing pipe, so `|f: (U32): U32| -> f` reads as one parameter whose type is a signature.
 The lambda body extends as a full body/expression to its enclosing delimiter. Signature arrows do
 not introduce parameter names or executable bodies.
 
@@ -356,13 +354,13 @@ into fields and returns have value-copy semantics; local aliases to an instance 
 ```
 let Rng = {
   state: U32,
-  draw() :: U32 = do
+  draw() : U32 = do
     state = next32(state)
     return state
   end,
 }
 
-let draw_once(s: U32) :: U32 = do
+let draw_once(s: U32) : U32 = do
   let r = Rng { state = s }
   let before = r.state
   r.draw()                      -- saturated call statement; result discarded
@@ -422,7 +420,7 @@ Generics are ordinary words with Type parameters:
 
 ```
 let identity(T: Type, x: T) = x
-let twice(T: Type, f: T :: T, x: T) = f(f(x))
+let twice(T: Type, f: (T): T, x: T) = f(f(x))
 let identity_u32 = identity(U32)
 ```
 
@@ -497,7 +495,7 @@ value-binding   := 'let' binder (',' binder)* '=' expression-list
 binder          := Name (':' type-expression)?
 parameters      := '(' parameter-groups? ')'
 parameter-group := Name (',' Name)* ':' type-expression
-result-annotation := '::' result-spec
+result-annotation := ':' result-spec
 result-spec     := type-expression | '(' type-list? ')'
 body            := expression | 'do' statement* 'end'
 statement       := local-let | field-store | call-statement | return-statement
@@ -512,8 +510,7 @@ initializer     := '{' (Name '=' expression) (',' Name '=' expression)* ','? '}'
 schema          := '{' schema-members? '}'
 schema-member   := Name ':' type-expression | Name parameters result-annotation? '=' body
 if-expression   := 'if' expression 'then' expression 'else' expression
-signature       := signature-input '::' result-spec
-signature-input := an expression evaluating to one type | '(' type-list? ')'
+signature       := '(' type-list? ')' ':' result-spec
 ```
 
 Top-let has local-let's syntax but module visibility rules. Optional semicolons delimit complete
@@ -529,7 +526,7 @@ to guess whether a name before an arrow binds a variable or denotes a type.
 Type expressions use expression syntax but must evaluate to a type/calling requirement. There is no
 separate capitalization rule or implicit conversion of a value into its type. Their surrounding
 colon, arrow or list delimiter determines where they end. A result-spec's comma list is distinct
-from a single signature-valued result, e.g. `:: (U32 :: U32)`.
+from a single signature-valued result, e.g. `: ((U32): U32)`.
 
 `if a then if b then x else y else z` associates each else with its structurally pending expression
 conditional. Statement conditionals have explicit end tokens and cannot consume an expression's else
@@ -539,7 +536,7 @@ across an intended item boundary. Full grammar/parser tests must cover these bou
 ## 13. Worked example
 
 ```
-let xorshift(a, b, c, s: U32) :: U32 = do
+let xorshift(a, b, c, s: U32) : U32 = do
   let s1 = s ~ (s << a)
   let s2 = s1 ~ (s1 >> b)
   return s2 ~ (s2 << c)
@@ -548,17 +545,17 @@ end
 let next32 = xorshift(13, 17, 5)
 let seed(s: U32) = if s == 0 then 2463534242 else s
 
-let skip(s, n: U32) :: U32 = do
+let skip(s, n: U32) : U32 = do
   if n == 0 then return s end
   return skip(next32(s), n - 1)
 end
 
-let step(s: U32) :: (U32, U32) = do
+let step(s: U32) : (U32, U32) = do
   let t = next32(s)
   return t, t
 end
 
-let roll(bound, s: U32) :: (U32, U32) = do
+let roll(bound, s: U32) : (U32, U32) = do
   let t = next32(s)
   return t, t % bound + 1
 end
@@ -568,13 +565,13 @@ let d20 = roll(20)
 
 let Rng = {
   state: U32,
-  draw() :: U32 = do
+  draw() : U32 = do
     state = next32(state)
     return state
   end,
 }
 
-let roll_then_step(s: U32) :: (U32, U32) = do
+let roll_then_step(s: U32) : (U32, U32) = do
   let next, face = d6(s)
   return next32(next), face
 end

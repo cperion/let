@@ -32,7 +32,8 @@ multiple results and result-list binding, static partial application, automatic 
 specialisation, calls compiled to independently elaborated bodies, recursion with an explicit result
 annotation, and records with methods, borrowed receivers, field reads and compound stores.
 
-Results and signatures are written with `::`; `->` introduces a lambda body and nothing else.
+A result is written with `:` after the parameter list; `->` introduces a lambda body and nothing
+else; a signature's inputs are parenthesized, so `(U32): U32` is a word from U32 to U32.
 A call to the instance currently being built, in tail position, becomes a back edge: a `for (;;)`
 loop with a `continue`, with every next argument evaluated before any parameter is rebound. Calling
 it with different static arguments is a different instance and stays an ordinary call.

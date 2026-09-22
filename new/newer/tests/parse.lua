@@ -31,7 +31,7 @@ local function dump(text)
 end
 
 -- definitions, application, blocks -------------------------------------------
-local program = parses("let affine(a, b, x: U32) :: U32 = a * x + b\nreturn { functions = { affine } }")
+local program = parses("let affine(a, b, x: U32) : U32 = a * x + b\nreturn { functions = { affine } }")
 check(#program.declarations == 1, "one declaration")
 local word = program.declarations[1]
 check(word.kind == "WordDecl" and word.def.name.text == "affine", "named definition")
@@ -50,7 +50,7 @@ local partial = parses("let affine(a, b, x: U32) = a * x + b\nlet t = affine(4, 
 check(partial.declarations[2].def.values[1].kind == "Apply", "partial application is an Apply")
 
 -- multiple results ------------------------------------------------------------
-local multi = parses("let divmod(a, b: U32) :: (U32, U32) = do return a / b, a % b end\nreturn { functions = {} }")
+local multi = parses("let divmod(a, b: U32) : (U32, U32) = do return a / b, a % b end\nreturn { functions = {} }")
 check(multi.declarations[1].def.result.kind == "Many", "multiple result annotation")
 check(multi.declarations[1].def.result.types and #multi.declarations[1].def.result.types == 2, "two result slots")
 local ret = multi.declarations[1].def.body.statements[1]
@@ -64,28 +64,36 @@ check(parses("let g = |a, b: U32| -> a + b\nreturn { functions = {} }").declarat
     "grouped lambda parameters")
 check(parses("let g = || -> Unit()\nreturn { functions = {} }").declarations[1].def.values[1].kind == "Lambda",
     "empty lambda parameters")
-local inner = parses("let g = |f: U32 :: U32| -> f\nreturn { functions = {} }").declarations[1].def.values[1]
+local inner = parses("let g = |f: (U32): U32| -> f\nreturn { functions = {} }").declarations[1].def.values[1]
 check(inner.kind == "Lambda" and inner.params[1].annotation.kind == "SignatureExpr",
     "a signature annotation inside pipes is not read as bitwise-or")
-check(parses("let E = U32 :: U32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
-    ":: makes a signature")
-check(parses("let E = (U32, U32) :: U32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
+check(parses("let E = (U32): U32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
+    "a parenthesized input list with a result makes a signature")
+check(parses("let E = (U32, U32) : U32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
     "parenthesized signature inputs")
-check(parses("let E = () :: U32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
+check(parses("let E = () : U32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
     "empty signature inputs")
-check(parses("let E = (U32) :: U32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
+check(parses("let E = (U32) : U32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
     "one-element parenthesized input list")
-check(parses("let E = U32 :: (U32 :: U32)\nreturn { functions = {} }").declarations[1].def.values[1].kind
-    == "SignatureExpr", ":: nests as a callable result")
--- `->` is a lambda body arrow only; a result or signature written with it is rejected.
+check(parses("let E = (U32): ((U32): U32)\nreturn { functions = {} }").declarations[1].def.values[1].kind
+    == "SignatureExpr", "a parenthesized input list nests as a callable result")
+-- `->` introduces a lambda body only; `::` is gone; signature inputs must be parenthesized.
 rejects("parse", "let f(x: U32) -> U32 = x\nreturn { functions = { f } }")
-rejects("parse", "let E = U32 -> U32\nreturn { functions = {} }")
 rejects("parse", "let C = { v: U32, get() -> U32 = v }\nreturn { types = { C } }")
+rejects("parse", "let f(x: U32) :: U32 = x\nreturn { functions = { f } }")
+rejects("parse", "let E = U32 :: U32\nreturn { functions = {} }")
+rejects("parse", "let E = U32: U32\nreturn { functions = {} }")
+-- A `:` after a name is an annotation, so a signature needs its inputs parenthesized.
+check(parses("let g: (U32): U32 = |x| -> x + 1\nreturn { functions = {} }")
+    .declarations[1].def.binders[1].annotation.kind == "SignatureExpr",
+    "a binding annotation may be a signature")
+check(parses("let f(x: U32): (U32): U32 = |y: U32| -> y\nreturn { functions = { f } }")
+    .declarations[1].def.result.kind == "Single", "a result may itself be a signature")
 local grouped = parses("let x = (1 + 2) * 3\nreturn { functions = {} }").declarations[1].def.values[1]
 check(grouped.kind == "BinaryExpr" and grouped.left.kind == "BinaryExpr", "parenthesized expression groups")
 
 -- records, schemas, methods ---------------------------------------------------
-local schema = parses("let Counter = { value: U32, inc() :: U32 = do value += 1 return value end, }\nreturn { types = { Counter } }")
+local schema = parses("let Counter = { value: U32, inc() : U32 = do value += 1 return value end, }\nreturn { types = { Counter } }")
 local members = schema.declarations[1].def.values[1].members
 check(#members == 2 and members[1].kind == "FieldMember" and members[2].kind == "MethodMember",
     "schema members; trailing comma accepted")
@@ -99,7 +107,7 @@ check(parses("let y = r.value\nreturn { functions = {} }").declarations[1].def.v
 
 -- statements ------------------------------------------------------------------
 local stmts = parses([[
-let f(x: U32) :: U32 = do
+let f(x: U32) : U32 = do
   let a = x + 1
   let b = a
   counter.total += b
@@ -118,8 +126,8 @@ check(stmts[6].yes[1].kind == "ReturnStmt" and stmts[6].yes[1].values[1].kind ==
 
 -- local word definitions in a block -------------------------------------------
 local localWord = parses([[
-let outer(x: U32) :: U32 = do
-  let inner(y: U32) :: U32 = y + 1
+let outer(x: U32) : U32 = do
+  let inner(y: U32) : U32 = y + 1
   return inner(x)
 end
 return { functions = { outer } }
@@ -146,9 +154,9 @@ check(parses("let f(x: U32) = x\nreturn { functions = { f }, }").export ~= nil, 
 -- comments, whitespace, one-line equivalence ----------------------------------
 check(#parses("-- only a comment\nlet f(x: U32) = x -- trailing\nreturn { functions = { f } }").declarations == 1,
     "comments are ignored")
-local oneLine = "let f(x: U32) :: U32 = do let y = x + 1 return y end return { functions = { f } }"
+local oneLine = "let f(x: U32) : U32 = do let y = x + 1 return y end return { functions = { f } }"
 check(dump(oneLine) == dump([[
-let f(x: U32) :: U32 = do
+let f(x: U32) : U32 = do
   let y = x + 1
   return y
 end

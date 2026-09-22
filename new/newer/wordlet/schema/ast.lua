@@ -10,7 +10,7 @@ module Ast {
   Decl = WordDecl(WordDef def, Span span)
        | ValueDecl(ValueDef def, Span span)
 
-  # let f(a, b: U32) :: (U32, U32) = body
+  # let f(a, b: U32): (U32, U32) = body
   WordDef = (Name name, Param* params, ResultSpec? result, Body body)
   # let a: U32, b = expr
   ValueDef = (Binder* binders, Expr* values)

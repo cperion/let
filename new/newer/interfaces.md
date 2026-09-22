@@ -265,15 +265,17 @@ Two compilations of identical input produce byte-identical header and source.
 Source (`app.let`):
 
 ```
-let inc(x: U32) :: U32 = x + 1
-let apply(f: U32 :: U32, x: U32) :: U32 = f(x)
-let run(x: U32) :: U32 = apply(inc, x)
+let inc(x: U32) : U32 = x + 1
+let apply(f: (U32): U32, x: U32) : U32 = f(x)
+let run(x: U32) : U32 = apply(inc, x)
 return { functions = { inc, run } }
 ```
 
-Resolution: `inc`/`apply`/`run` are top-level; `f`/`x` are params; `apply(inc, x)`'s `inc` is a
-`WordShape` with no captures (a `Static` free name); `f(x)` is a tail-position call to an unknown
-callable, not to the current key, so it stays `Call`/`Indirect`.
+Resolution: `inc`/`apply`/`run` are top-level; `f`/`x` are params; `apply(inc, x)`'s `inc` is known
+code with no captures, so it is a `Static` argument. `apply` is therefore specialised on `inc`, `f` is
+erased from the ABI, and `f(x)` becomes a **direct call**. No `Ir.Indirect` is emitted: it is reserved
+for a callable whose code is not known in this compilation, which is rejected today rather than
+lowered.
 
 Evaluation produces (schematically):
 
@@ -285,8 +287,8 @@ Fn id=run  role=Entry hidden=0 inputs=[InValue U32] results=[U32]
   body: Call([v1], "inc", [ValueArg(Ref(x))])
         Return( Ref(v1) )
 
-Fn id=body#1 role=Body hidden=0 inputs=[InValue (U32->U32), InValue U32] results=[U32]
-  body: Indirect([v1], Ref(f), [ValueArg(Ref(x))])
+Fn id=body#1 role=Body hidden=0 inputs=[InValue U32] results=[U32]
+  body: Call([v1], "inc", [ValueArg(Ref(x))])   -- f is a static fact, so no callable input
         Return( Ref(v1) )
 ```
 

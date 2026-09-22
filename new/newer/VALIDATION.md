@@ -38,7 +38,7 @@ Gates 1–5 and 8–10 have their first executable form in `tests/parse.lua`, `t
 1. **Concrete schemas:** `ast.asdl`/`ir.asdl` parse and construct (tests/schemas.lua); stable source
    spans; every semantic visitor covers every AST/IR variant; immutable canonical lists; no effect
    occurrence interning; builder-level per-function expression interning.
-2. **Grammar:** free-form equivalence, comments/tokens, operator precedence, `::` results versus `->` lambda bodies,
+2. **Grammar:** free-form equivalence, comments/tokens, operator precedence, `:` results versus `->` lambda bodies, parenthesized signature inputs,
    named/shared parameters, per-binding annotations, schemas/initializers/configuration, separators.
 3. **Interpreter:** U32 rules, Bool-only short circuit, exact application adjustment, static partial
    supply, Type-dependent requirements, lexical scope and lazy top-level dependencies.

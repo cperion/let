@@ -41,87 +41,87 @@ end
 local CASES = {
     {
         name = "affine",
-        source = "let affine(a, b, x: U32) :: U32 = a * x + b\nreturn { functions = { affine } }",
+        source = "let affine(a, b, x: U32) : U32 = a * x + b\nreturn { functions = { affine } }",
         entry = "affine", arity = 3,
         inputs = { { 3, 7, 4 }, { 1, 0, 0 }, { 4294967295, 1, 1 }, { 65536, 65536, 65537 } },
     },
     {
         name = "branch",
-        source = "let pick(x: U32) :: U32 = if x == 0 then 7 else x * 2\nreturn { functions = { pick } }",
+        source = "let pick(x: U32) : U32 = if x == 0 then 7 else x * 2\nreturn { functions = { pick } }",
         entry = "pick", arity = 1,
         inputs = { { 0 }, { 1 }, { 2147483648 }, { 4294967295 } },
     },
     {
         name = "comparison",
-        source = "let classify(x: U32) :: U32 = if x < 10 then 1 else if x == 10 then 2 else 3\n"
+        source = "let classify(x: U32) : U32 = if x < 10 then 1 else if x == 10 then 2 else 3\n"
             .. "return { functions = { classify } }",
         entry = "classify", arity = 1,
         inputs = { { 0 }, { 9 }, { 10 }, { 11 }, { 4294967295 } },
     },
     {
         name = "results",
-        source = "let divmod(a, b: U32) :: (U32, U32) = do return a / b, a % b end\n"
-            .. "let recompose(a, b: U32) :: U32 = do let q, r = divmod(a, b) return q * b + r end\n"
+        source = "let divmod(a, b: U32) : (U32, U32) = do return a / b, a % b end\n"
+            .. "let recompose(a, b: U32) : U32 = do let q, r = divmod(a, b) return q * b + r end\n"
             .. "return { functions = { divmod, recompose } }",
         entries = { { entry = "divmod", arity = 2 }, { entry = "recompose", arity = 2 } },
         inputs = { { 17, 5 }, { 1, 1 }, { 4294967295, 3 }, { 100, 7 } },
     },
     {
         name = "calls",
-        source = "let inc(x: U32) :: U32 = x + 1\n"
-            .. "let twice(x: U32) :: U32 = inc(inc(x))\n"
-            .. "let offset(x: U32) :: U32 = twice(x) + inc(x)\n"
+        source = "let inc(x: U32) : U32 = x + 1\n"
+            .. "let twice(x: U32) : U32 = inc(inc(x))\n"
+            .. "let offset(x: U32) : U32 = twice(x) + inc(x)\n"
             .. "return { functions = { twice, offset } }",
         entries = { { entry = "twice", arity = 1 }, { entry = "offset", arity = 1 } },
         inputs = { { 0 }, { 1 }, { 4294967294 } },
     },
     {
         name = "recursion",
-        source = "let sum_to(n: U32) :: U32 = if n == 0 then 0 else n + sum_to(n - 1)\n"
-            .. "let factorial(n: U32) :: U32 = if n == 0 then 1 else n * factorial(n - 1)\n"
+        source = "let sum_to(n: U32) : U32 = if n == 0 then 0 else n + sum_to(n - 1)\n"
+            .. "let factorial(n: U32) : U32 = if n == 0 then 1 else n * factorial(n - 1)\n"
             .. "return { functions = { sum_to, factorial } }",
         entries = { { entry = "sum_to", arity = 1 }, { entry = "factorial", arity = 1 } },
         inputs = { { 0 }, { 1 }, { 5 }, { 10 } },
     },
     {
         name = "staticspecialization",
-        source = "let scale(k, x: U32) :: U32 = k * x\n"
+        source = "let scale(k, x: U32) : U32 = k * x\n"
             .. "let by3 = scale(3)\n"
-            .. "let scaled(x: U32) :: U32 = by3(x) + scale(5)(x)\n"
+            .. "let scaled(x: U32) : U32 = by3(x) + scale(5)(x)\n"
             .. "return { functions = { scaled } }",
         entry = "scaled", arity = 1,
         inputs = { { 0 }, { 1 }, { 7 }, { 1000000 } },
     },
     {
         name = "shifts",
-        source = "let xorshift(a, b, c, s: U32) :: U32 = do\n"
+        source = "let xorshift(a, b, c, s: U32) : U32 = do\n"
             .. "  let s1 = s ~ (s << a)\n  let s2 = s1 ~ (s1 >> b)\n  return s2 ~ (s2 << c)\nend\n"
             .. "let next32 = xorshift(13, 17, 5)\n"
-            .. "let third(s: U32) :: U32 = next32(next32(next32(s)))\n"
+            .. "let third(s: U32) : U32 = next32(next32(next32(s)))\n"
             .. "return { functions = { next32, third } }",
         entries = { { entry = "next32", arity = 1 }, { entry = "third", arity = 1 } },
         inputs = { { 0 }, { 1 }, { 42 }, { 4294967295 } },
     },
     {
         name = "guard",
-        source = "let safe_div(a, b: U32) :: U32 = a / b\nreturn { functions = { safe_div } }",
+        source = "let safe_div(a, b: U32) : U32 = a / b\nreturn { functions = { safe_div } }",
         entry = "safe_div", arity = 2,
         inputs = { { 100, 3 }, { 7, 1 }, { 4294967295, 65536 } },
     },
     {
         name = "records",
         source = "let P = { x: U32, y: U32 }\n"
-            .. "let build(a, b: U32) :: U32 = do\n"
+            .. "let build(a, b: U32) : U32 = do\n"
             .. "  let p = P { x = a, y = b }\n  return p.x * 1000 + p.y\nend\n"
-            .. "let bump(p: P) :: U32 = do p.x += 1 return p.x end\n"
-            .. "let caller(n: U32) :: U32 = do\n"
+            .. "let bump(p: P) : U32 = do p.x += 1 return p.x end\n"
+            .. "let caller(n: U32) : U32 = do\n"
             .. "  let p = P { x = n, y = 5 }\n  let raised = bump(p)\n"
             .. "  return raised * 1000 + p.x * 10 + p.y\nend\n"
-            .. "let pair(a: U32) :: P = P { x = a, y = a + 1 }\n"
-            .. "let use(a: U32) :: U32 = do let q = pair(a) return q.x * 10 + q.y end\n"
-            .. "let alias(n: U32) :: U32 = do\n"
+            .. "let pair(a: U32) : P = P { x = a, y = a + 1 }\n"
+            .. "let use(a: U32) : U32 = do let q = pair(a) return q.x * 10 + q.y end\n"
+            .. "let alias(n: U32) : U32 = do\n"
             .. "  let p = P { x = n, y = 0 }\n  let q = p\n  q.y = 9\n  return p.x * 10 + p.y\nend\n"
-            .. "let compound(n: U32) :: U32 = do\n"
+            .. "let compound(n: U32) : U32 = do\n"
             .. "  let p = P { x = n, y = 3 }\n  p.x += 4\n  p.y *= 2\n  p.x -= 1\n"
             .. "  return p.x * 100 + p.y\nend\n"
             .. "return { types = { P }, functions = { build, caller, use, alias, compound } }",
@@ -134,12 +134,12 @@ local CASES = {
     },
     {
         name = "methods",
-        source = "let Counter = {\n  value: U32,\n  inc() :: U32 = do value += 1 return value end,\n"
-            .. "  add(n: U32) :: U32 = do value += n return value end,\n}\n"
-            .. "let observe(n: U32, change: Bool) :: (U32, U32) = do\n"
+        source = "let Counter = {\n  value: U32,\n  inc() : U32 = do value += 1 return value end,\n"
+            .. "  add(n: U32) : U32 = do value += n return value end,\n}\n"
+            .. "let observe(n: U32, change: Bool) : (U32, U32) = do\n"
             .. "  let c = Counter { value = n }\n  let old = c.value\n"
             .. "  if change then c.inc() end\n  return old, c.value\nend\n"
-            .. "let twice(n: U32) :: U32 = do\n"
+            .. "let twice(n: U32) : U32 = do\n"
             .. "  let c = Counter { value = n }\n  c.inc()\n  c.add(5)\n  return c.value\nend\n"
             .. "return { types = { Counter }, functions = { observe, twice } }",
         entries = { { entry = "observe", arity = 2 }, { entry = "twice", arity = 1 } },
@@ -147,9 +147,9 @@ local CASES = {
     },
     {
         name = "tails",
-        source = "let sum_to(n, acc: U32) :: U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
-            .. "let count_down(n: U32) :: U32 = if n == 0 then 7 else count_down(n - 1)\n"
-            .. "let swapdown(a, b: U32) :: U32 = if a == 0 then b else swapdown(b, a - 1)\n"
+        source = "let sum_to(n, acc: U32) : U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
+            .. "let count_down(n: U32) : U32 = if n == 0 then 7 else count_down(n - 1)\n"
+            .. "let swapdown(a, b: U32) : U32 = if a == 0 then b else swapdown(b, a - 1)\n"
             .. "return { functions = { sum_to, count_down, swapdown } }",
         entries = { { entry = "sum_to", arity = 2 }, { entry = "count_down", arity = 1 },
             { entry = "swapdown", arity = 2 } },
@@ -157,15 +157,15 @@ local CASES = {
     },
     {
         name = "closures",
-        source = "let apply(f: U32 :: U32, x: U32) :: U32 = f(x)\n"
-            .. "let twice(f: U32 :: U32, x: U32) :: U32 = f(f(x))\n"
+        source = "let apply(f: (U32): U32, x: U32) : U32 = f(x)\n"
+            .. "let twice(f: (U32): U32, x: U32) : U32 = f(f(x))\n"
             .. "let make_adder(n: U32) = |x: U32| -> n + x\n"
-            .. "let run(n, x: U32) :: U32 = do let add = make_adder(n) return apply(add, x) end\n"
-            .. "let inline(x: U32) :: U32 = twice(|y: U32| -> y + 1, x)\n"
-            .. "let compose(a, b, x: U32) :: U32 = do\n"
+            .. "let run(n, x: U32) : U32 = do let add = make_adder(n) return apply(add, x) end\n"
+            .. "let inline(x: U32) : U32 = twice(|y: U32| -> y + 1, x)\n"
+            .. "let compose(a, b, x: U32) : U32 = do\n"
             .. "  let f = make_adder(a)\n  let g = make_adder(b)\n  return apply(f, apply(g, x))\nend\n"
             .. "let C = { v: U32, mk() = |x: U32| -> v + x }\n"
-            .. "let snap(n: U32) :: U32 = do\n"
+            .. "let snap(n: U32) : U32 = do\n"
             .. "  let c = C { v = n }\n  let f = c.mk()\n  c.v += 5\n  return f(100)\nend\n"
             .. "return { types = { C }, functions = { run, inline, compose, snap } }",
         entries = { { entry = "run", arity = 2 }, { entry = "inline", arity = 1 },
@@ -174,14 +174,14 @@ local CASES = {
     },
     {
         name = "alias",
-        source = "let inc(x: U32) :: U32 = x + 1\nreturn { functions = { a = inc, b = inc } }",
+        source = "let inc(x: U32) : U32 = x + 1\nreturn { functions = { a = inc, b = inc } }",
         entries = { { entry = "a", arity = 1 }, { entry = "b", arity = 1 } },
         inputs = { { 0 }, { 5 } },
     },
     {
         name = "unitandbool",
-        source = "let flag(x: U32) :: Bool = x != 0\n"
-            .. "let both(a, b: U32) :: Bool = (a < b) and (b != 0)\n"
+        source = "let flag(x: U32) : Bool = x != 0\n"
+            .. "let both(a, b: U32) : Bool = (a < b) and (b != 0)\n"
             .. "return { functions = { flag, both } }",
         entries = { { entry = "flag", arity = 1 }, { entry = "both", arity = 2 } },
         inputs = { { 0 }, { 1 }, { 5, 0 }, { 3, 9 }, { 9, 3 } },
@@ -203,7 +203,7 @@ local function runCase(case)
     local checksList = {}
     for _, target in ipairs(case.entries or { { entry = case.entry, arity = case.arity } }) do
         for _, input in ipairs(case.inputs) do
-            if #input < target.arity then goto continue end
+          if #input >= target.arity then
             local args = {}
             for index = 1, target.arity do args[index] = input[index] end
             local expected = wordlet.interpret{ source = case.source, name = case.name .. ".let",
@@ -226,7 +226,7 @@ local function runCase(case)
                 checksList[#checksList + 1] = "    { " .. struct .. " r = " .. call .. "; "
                     .. "assert(r.f_1 == " .. expectedC[1] .. " && r.f_2 == " .. expectedC[2] .. "); }"
             end
-            ::continue::
+          end
         end
     end
 
@@ -251,8 +251,8 @@ for _, case in ipairs(CASES) do runCase(case) end
 -- the call is a back edge and the depth is constant. This runs only in C because the reference
 -- interpreter would recurse in Lua.
 do
-    local source = "let count_down(n: U32) :: U32 = if n == 0 then 7 else count_down(n - 1)\n"
-        .. "let sum_to(n, acc: U32) :: U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
+    local source = "let count_down(n: U32) : U32 = if n == 0 then 7 else count_down(n - 1)\n"
+        .. "let sum_to(n, acc: U32) : U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
         .. "return { functions = { count_down, sum_to } }"
     local generated = wordlet.compile{ source = source, name = "deep.let" }:unit()
     local path = directory .. "/deep.c"
