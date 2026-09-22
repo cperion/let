@@ -4,6 +4,7 @@ local D = require("word.diagnostic")
 local M = {}
 
 function M.type(t)
+    if Model.borrow_target(t) then return true end
     local abi = Model.callable(t)
     if abi then return not abi.code or (abi.environment ~= nil and not abi.value_environment) end
     local record = Model.record(t)
@@ -21,6 +22,8 @@ function M.value(engine, value, seen)
     seen[value] = true
     if p.tag == "callable_known" then return M.value(engine, p.code, seen) end
     if p.tag == "word" then
+        if p.capture_env and M.type(Model.get(p.capture_env).type) then return true end
+        if p.definition.borrowed_fields then return true end
         if p.receiver and Model.get(p.receiver).tag ~= "known" and not p.definition.capture_fields then return true end
         local terminal = p.definition.terminal
         if terminal then
@@ -69,6 +72,7 @@ function M.verify(program)
     for _, fn in ipairs(program.functions) do
         local values = {}
         for _, p in ipairs(fn.parameters) do values[p.id] = M.type(p.type) end
+        if fn.captures then values[fn.captures.id] = M.type(fn.captures.type) end
         for _, block in ipairs(fn.blocks) do
             for _, ins in ipairs(block.instructions) do
                 local borrowed = M.type(ins.type)
@@ -80,6 +84,7 @@ function M.verify(program)
                 elseif ins.op == "Local" then borrowed = values[ins.initial]
                 end
                 if ins.op == "Call" then
+                    if ins.captures and values[ins.captures] then borrowing_calls[ins] = true end
                     for _, id in ipairs(ins.args) do
                         if values[id] then borrowing_calls[ins] = true end
                     end

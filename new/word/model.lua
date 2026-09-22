@@ -80,6 +80,21 @@ function M.callable(t)
     local p = M.word(t)
     return p and p.definition.callable
 end
+-- Compiler-only non-retaining storage references. No source Ref constructor or
+-- allocation/lifetime policy is implied by this internal capture representation.
+function M.borrow_target(t)
+    local p = M.word(t)
+    return p and p.definition.borrow_target
+end
+function M.borrow_type(engine, target)
+    engine.borrow_types = engine.borrow_types or {}
+    if not engine.borrow_types[target] then
+        local def = engine:definition({}, nil)
+        def.shape, def.borrow_target = "borrow", target
+        engine.borrow_types[target] = engine:handle(def, {})
+    end
+    return engine.borrow_types[target]
+end
 function M.record(t)
     local p = M.word(t)
     return p and p.definition.shape == "keyed" and p.definition.sealed and p.definition or nil
@@ -93,6 +108,8 @@ function M.host_type(t)
 end
 function M.runtime_type(t, visiting)
     if M.callable(t) then return true end
+    local target = M.borrow_target(t)
+    if target then return M.record(target) ~= nil and M.runtime_type(target, visiting) end
     local primitive = M.primitive(t)
     if primitive then return primitive == "U32" or primitive == "Bool" or primitive == "Unit" end
     local def = M.record(t)

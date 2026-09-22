@@ -134,6 +134,7 @@ function M.explore(run, max_paths, max_values, functions)
             end
             if ins.callable then out.callable = use(ins.callable) end
             if ins.captures then out.captures = use(ins.captures) end
+            if ins.reference then out.reference = use(ins.reference) end
             if ins.initial then out.initial = use(ins.initial) end
             if ins.root then out.root = use(ins.root) end
             if ins.receiver then

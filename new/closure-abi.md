@@ -79,9 +79,23 @@ An immutable lexical receiver is different: it can remain checked static metadat
 runtime values form an ordinary owned environment. Such closures can escape, including through nested
 factories. See `examples/lexical_captures.lua` and `test/lexical_captures.lua`.
 
-Additional borrowed captures (for example, a runtime callback captured alongside the receiver) still
-need a non-retaining outlined environment representation. They can inline but do not become ordinary
-retaining record fields; the remaining `staged-definitions` witness covers this boundary.
+## Additional borrowed captures
+
+Runtime callbacks and bound methods can be captured in explicitly non-retaining environments. Mutable
+record places are captured through compiler-only typed references to their actual roots, with field
+paths retained as code metadata. Restoring a place preserves aliasing, replacement and lexical owners;
+it does not copy the referent or infer an enclosing object from an address.
+
+`Capture` IR constructs these temporary environments; ordinary `Construct` and retaining `Store`
+operations still reject borrowed fields. `Address`/`Deref` carry checked storage provenance. These
+references are not a source `Ref` facility. The environment and its referents must remain live for each
+call, and any closure carrying such bindings is borrowed even when its primary receiver is immutable.
+Borrowed closures cannot be returned or placed in source record fields. Returning a copy of a captured
+record's data remains valid when that data itself contains no borrows.
+
+Tail-call rewriting examines captured operands as well as ordinary arguments, retaining activations
+needed by local storage/callback environments. This is a local non-retention check, not general lifetime
+inference. See `examples/borrowed_captures.lua` and `test/borrowed_captures.lua`.
 
 See `examples/immutable_closures.lua`. C exposes `wordresult_make` and `wordcall_make` for a factory named
 `make`; nested callable results get `wordresult_call_make` and `wordcall_make_result`. The type-specific

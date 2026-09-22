@@ -484,8 +484,11 @@ parameter alongside their borrowed receiver. Graph signatures, typed Call/Functi
 renaming preserve both operands. Self tails snapshot the next capture environment with ordinary inputs.
 Callback adapters use caller-local bundles containing the receiver pointer and copied environment;
 non-retention checks prevent their escape. Frozen lexical owners remain checked static metadata and
-can disappear into ordinary owned closure environments. Additional borrowed captures still trap
-`staged-definitions` on outlining; they require a non-retaining capture ABI, not an owned record field.
+can disappear into ordinary owned closure environments. Additional callbacks, bound methods and
+record places use explicitly non-retaining environments. Compiler-only `Capture` IR allows borrowed
+bindings without weakening source record construction. `Address` and `Deref` carry actual root storage
+with typed references; field paths remain code metadata. Borrow checks reject retention and block
+unsafe tail replacement through capture operands. No public `Ref` or allocator interface is implied.
 
 All runtime effects must be residual operations. Arbitrary host-upvalue mutation, I/O, randomness, and time
 are not rolled back by this algorithm. Prefix comparison can detect some divergence, not prove purity.

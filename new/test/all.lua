@@ -30,7 +30,7 @@ function H.gap(id, fn)
     end
 end
 
-for _, name in ipairs({ "host", "luajit", "model", "normalize", "records", "keyed", "callable", "methods", "replay", "primitive", "aggregate", "recursion", "helpers", "groups", "receiver_recursion", "numeric", "literals", "results", "constraints", "runtime_contracts", "method_interfaces", "namespaces", "borrow", "closures", "lexical", "owners", "lexical_captures", "c" }) do
+for _, name in ipairs({ "host", "luajit", "model", "normalize", "records", "keyed", "callable", "methods", "replay", "primitive", "aggregate", "recursion", "helpers", "groups", "receiver_recursion", "numeric", "literals", "results", "constraints", "runtime_contracts", "method_interfaces", "namespaces", "borrow", "closures", "lexical", "owners", "lexical_captures", "borrowed_captures", "c" }) do
     assert(loadfile(root .. "test/" .. name .. ".lua"))(H)
 end
 -- Roadmap categories can be partially implemented without a remaining TODO trap.

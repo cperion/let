@@ -263,7 +263,7 @@ function E:as_type(w, lexical_names)
     if not p or p.tag ~= "word" then D.reject("type-required", "Expected a static type word") end
     self:check_word(w)
     local def = p.definition
-    if Model.primitive(w) or Model.callable(w) then return w end
+    if Model.primitive(w) or Model.callable(w) or Model.borrow_target(w) then return w end
     if def.sealed then return Callable.record(self, w) end
     if def.shape == "keyed" then
         return self:stage(def.source, "type_word", w, function()
@@ -571,10 +571,10 @@ function E:captures(def, seen, occurrence)
                 p.owner == occurrence.owner and p.receiver == occurrence.receiver
             if not lexical_link and (p.tag == "symbol" or p.tag == "place" or
                 (p.receiver and Model.get(p.receiver).tag ~= "known")) then
-                if not def.staged then D.todo("host-captures", "Dynamic captured value/storage/receiver") end
+                if not def.staged and not def.transient then D.todo("host-captures", "Dynamic captured value/storage/receiver") end
                 local captured = p.receiver and Model.get(p.receiver) or p
                 local builder = captured.root and captured.root.builder or captured.builder
-                if not builder or not self:context() or builder ~= self:context().builder then
+                if (def.staged and not builder) or (builder and (not self:context() or builder ~= self:context().builder)) then
                     D.reject("symbol-extent", "Staged capture escaped its construction trace")
                 end
                 def.dynamic_captures = true
@@ -690,8 +690,7 @@ function E:execute(w, args, context)
     local p = self:word_payload(w)
     local def = p.definition
     if not def.terminal then D.reject("signature-call", "A positional signature has no implementation") end
-    if context.mode == "residualize" and def.staged and
-        (def.lexical_owner or not p.owner and not require("word.borrow").value(self, w)) then
+    if context.mode == "residualize" and def.staged then
         local lifted = require("word.closure").lift(self, w)
         if lifted ~= w then return self:execute(lifted, args, context) end
     end
@@ -739,12 +738,12 @@ function E:execute(w, args, context)
     end
     if self.scope:count("executing") >= 32 then D.resource("call-depth", "Word invocation nesting exceeds 32") end
     local terminal, check_captures = def.terminal
-    if def.capture_fields or def.lexical_fields then terminal, check_captures = require("word.closure").instantiate(self, w)
+    if def.capture_fields or def.lexical_fields or def.borrowed_fields then terminal, check_captures = require("word.closure").instantiate(self, w)
     elseif def.lexical_owner then terminal, check_captures = require("word.closure").lexical(self, w) end
     local frame = { context = context, source = def.source, executing = identity, terminal = terminal,
         invoked = w, decisions = context.oracle and context.oracle.index or 0,
         lookup_names = context.mode == "normalize" and {} or nil }
-    if def.lexical_static or p.owner and not def.capture_fields then
+    if def.lexical_static or p.owner and not def.capture_fields and not def.borrowed_fields then
         local binding = def.lexical_static or p
         if not binding.receiver then D.reject("missing-receiver", "Select the method on an instance") end
         frame.lexical_binding = binding

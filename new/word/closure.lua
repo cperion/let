@@ -1,4 +1,4 @@
--- Immutable capture conversion. Code templates never retain a trace's values.
+-- Owned and non-retaining capture conversion. Code templates never retain a trace's values.
 local Model = require("word.model")
 local Data = require("word.data")
 local Borrow = require("word.borrow")
@@ -41,15 +41,14 @@ local function token(value)
     return type(value) .. ":" .. tostring(value)
 end
 
-function M.lift(engine, word)
+local function lift(engine, word)
     local p, context = Model.word(word), engine:context()
-    if not p or not p.definition.staged or p.definition.capture_fields or p.definition.lexical_fields then return word end
+    if not p or not p.definition.staged or p.definition.capture_fields or p.definition.lexical_fields or p.definition.borrowed_fields then return word end
     local lexical = p.owner and p.definition.lexical_owner and p.receiver
     local borrowed_receiver = lexical and Model.get(p.receiver).tag ~= "known"
     if p.owner and not lexical then return word end
-    if not lexical then Borrow.check(Borrow.value(engine, word)) end
     engine:check_word(word)
-    local nodes, visited, unsupported = {}, {}, false
+    local nodes, visited = {}, {}
     local function visit(value)
         if visited[value] then return visited[value] end
         local wp = Model.word(value)
@@ -64,8 +63,13 @@ function M.lift(engine, word)
             if lexical and cp and cp.tag == "word" and cp.definition.lexical_owner and
                 not cp.definition.lexical_fields and cp.owner == p.owner and cp.receiver == p.receiver then
                 slot.link = visit(captured)
-            elseif lexical and cp and Borrow.value(engine, captured) then
-                unsupported = true -- Preserve valid local inlining of other borrowed captures.
+            elseif cp and cp.tag == "place" then
+                slot.value, slot.place_path = Data.capture_place(engine, captured)
+                slot.type = Model.get(slot.value).type
+            elseif cp and Borrow.value(engine, captured) and
+                (Model.callable(cp.type) or cp.tag == "word" and cp.owner) then
+                slot.value = require("word.callable").borrowed(engine, captured)
+                slot.type = Model.get(slot.value).type
             elseif not lexical and cp and cp.tag == "word" and cp.definition.staged and cp.definition.terminal and not cp.owner then
                 slot.link = visit(captured)
             elseif cp and (cp.tag == "symbol" or cp.tag == "callable_known" or
@@ -75,24 +79,21 @@ function M.lift(engine, word)
                 if cp.tag == "word" or cp.tag == "callable_known" then
                     captured = require("word.callable").infer(engine, cp.code or captured); cp = Model.get(captured)
                 end
-                if Borrow.type(cp.type) or not Model.runtime_type(cp.type) then
-                    D.reject("capture-type", "An immutable environment needs concrete, non-borrowed capture types")
+                if not Model.runtime_type(cp.type) then
+                    D.reject("capture-type", "A capture environment needs concrete runtime types")
                 end
                 slot.type, slot.value = cp.type, captured
-            elseif lexical and cp and (cp.tag == "place" or cp.receiver and Model.get(cp.receiver).tag ~= "known") then
-                unsupported = true -- Other borrowed storage still needs a separate binding ABI.
             end
             node.captures[i] = slot; i = i + 1
         end
         return node
     end
     local root = visit(word)
-    if unsupported then return word end
     -- Only recursive code links share an environment. Acyclic captured functions
     -- are ordinary immutable values, whether already materialized or still known.
     local component, changed = {[root] = true}, true
-    -- Lexical siblings already share one borrowed receiver. Their code links
-    -- remain static even when acyclic; immutable capture values travel together.
+    -- Lexical siblings already share one receiver. Their code links remain
+    -- static even when acyclic; capture values and borrowed bindings travel together.
     if lexical then for _, node in ipairs(nodes) do component[node] = true end end
     while changed do
         changed = false
@@ -118,7 +119,7 @@ function M.lift(engine, word)
         return a.sort < b.sort
     end)
     for i, node in ipairs(nodes) do node.index = i end
-    local fields, order, values, parts = {}, {}, {}, {}
+    local fields, order, values, parts, borrowed_values = {}, {}, {}, {}, false
     local function key(s) parts[#parts + 1] = #s .. ":" .. s end
     key(lexical and "lexical" or "owned")
     if lexical then
@@ -138,6 +139,8 @@ function M.lift(engine, word)
                 local name = "c" .. node.index .. "_" .. i
                 slot.field = name; fields[name] = slot.type; order[#order + 1] = name; values[name] = slot.value
                 key("field:" .. Model.key(slot.type))
+                if slot.place_path then key("place:" .. require("word.owner").path_key(slot.place_path)) end
+                borrowed_values = borrowed_values or Borrow.type(slot.type)
             else static_capture(slot.value); key(token(slot.value)) end
         end
     end
@@ -153,18 +156,19 @@ function M.lift(engine, word)
             local def = engine:definition(original.inputs, terminal)
             def.staged, def.source, def.capture_group = true, original.source, group
             local descriptors = {}
-            if borrowed_receiver then
+            if lexical and (borrowed_receiver or borrowed_values) then
                 def.lexical_fields, def.lexical_owner = descriptors, p.owner
                 if #order > 0 then def.lexical_environment = group.type end
                 group.paths[i] = node.payload.scope_path
             else
-                def.capture_fields = descriptors
+                if borrowed_values then def.borrowed_fields = descriptors
+                else def.capture_fields = descriptors end
                 if lexical then
                     def.lexical_static = {owner = p.owner, receiver = p.receiver, scope_path = node.payload.scope_path}
                 end
             end
             for j, slot in ipairs(node.captures) do
-                local descriptor = {field = slot.field, link = slot.link and slot.link.index}
+                local descriptor = {field = slot.field, link = slot.link and slot.link.index, place_path = slot.place_path}
                 descriptors[j] = descriptor
                 -- Only immutable static captures survive in the code template.
                 local value = slot.value
@@ -175,9 +179,23 @@ function M.lift(engine, word)
         end
         graph.capture_templates[identity] = group
     end
-    local environment = #order > 0 and Data.construct(engine, group.type, values) or nil
-    if borrowed_receiver then return engine:bind_method(group.words[root.index], p.owner, p.receiver, p.scope_path, environment) end
+    local environment
+    if #order > 0 then
+        environment = (borrowed_values and Data.capture_environment or Data.construct)(engine, group.type, values)
+    end
+    if lexical and (borrowed_receiver or borrowed_values) then
+        return engine:bind_method(group.words[root.index], p.owner, p.receiver, p.scope_path, environment)
+    end
     return engine:bind_method(group.words[root.index], group.type, environment)
+end
+
+function M.lift(engine, word)
+    local scope = engine.scope
+    if scope:find("capture_lift", word) then
+        D.reject("recursive-result", "A recursively captured implementation needs a grounded callable result before its environment can be materialized")
+    end
+    if scope:count("capture_lift") >= 32 then D.resource("capture-depth", "Capture conversion nesting exceeds 32") end
+    return scope:with({context = engine:context(), capture_lift = word}, function() return lift(engine, word) end)
 end
 
 -- Rebind a fresh Lua terminal, not the source closure or any previous trace's upvalues.
@@ -186,9 +204,11 @@ function M.instantiate(engine, word)
     local def = p.definition
     local receiver = def.lexical_fields and p.capture_env or p.receiver
     local terminal, expected = clone(def.terminal), {}
-    for i, slot in ipairs(def.capture_fields or def.lexical_fields) do
+    for i, slot in ipairs(def.capture_fields or def.lexical_fields or def.borrowed_fields) do
         local _, value = debug.getupvalue(def.terminal, i)
-        if slot.field then value = Data.read(engine, receiver, slot.field)
+        if slot.field then
+            value = Data.read(engine, receiver, slot.field)
+            if slot.place_path then value = Data.restore_place(engine, value, slot.place_path) end
         elseif slot.link then
             if def.lexical_fields then
                 value = engine:bind_method(def.capture_group.words[slot.link], p.owner, p.receiver,
@@ -201,15 +221,15 @@ function M.instantiate(engine, word)
         for i, item in ipairs(expected) do
             local _, value = debug.getupvalue(terminal, i)
             if not rawequal(value, item.value) then
-                D.reject("capture-changed", "An immutable closure cannot reassign a captured binding")
+                D.reject("capture-changed", "A closure cannot reassign a captured binding")
             end
         end
     end
 end
 
--- Captures convertible to immutable environments are lifted above. Other
--- borrowed captures can still inline, but cannot be smuggled into an outlined
--- function as construction-trace symbols or hidden retaining record fields.
+-- Outlining must consume converted templates, never construction-trace
+-- symbols. All residual source capture kinds are converted above; reaching
+-- this check with an unconverted dynamic lexical capture is a compiler error.
 function M.check_lexical_outline(word)
     local p = Model.word(word)
     if not p.definition.lexical_owner or p.definition.lexical_fields then return end
@@ -222,7 +242,7 @@ function M.check_lexical_outline(word)
         if captured and not self_link and
             (captured.tag == "symbol" or captured.tag == "place" or captured.tag == "callable_known" or
             (captured.receiver and Model.get(captured.receiver).tag ~= "known")) then
-            D.todo("staged-definitions", "Outlining additional borrowed captures needs a non-retaining capture ABI (capture: " .. name .. ")")
+            D.bug("unconverted-capture", "Outlined lexical word still retains a construction-trace capture: " .. name)
         end
         i = i + 1
     end

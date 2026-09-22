@@ -8,12 +8,11 @@ LuaJIT is the host baseline; C11 is the residual target. `README.md` describes w
 | Category | Working now | Remaining work / executable evidence |
 | --- | --- | --- |
 | `keyed-words` | Signature-valued members; immediate and locally constructed lexical methods; nested mutable record selections retain actual enclosing roots and lexical paths, including recursive sibling occurrences. | Complete nested immutable-snapshot owner binding and unbound nested interfaces requiring outer owners. `test/owners.lua` covers the retained-root slice, shadowing, replacement, copies and absence of dynamic caller inheritance. Missing detached owners are never inferred. |
-| `staged-definitions` | Replay-stable local construction; immutable scalar/callable environments; recursive code groups; outlined lexical words carry immutable captures by value alongside a borrowed receiver. Callback adapters use stack-only bundles; immutable lexical owners can disappear into owned escaping closures. | Additional **borrowed** captures still need a non-retaining capture ABI. `H.gap` in `test/model.lua` captures an opaque runtime callback in a local receiver-dependent recursive word. Such captures can inline, but must not become retaining record fields or construction-trace symbols in outlined code. |
 | `host-captures` | Checked primitive/word captures and typed immutable aggregate snapshots. | Explicit freezing/registration for host tables/helpers and typed residual foreign effects. The host-table capture in `test/model.lua` remains an executable TODO. Arbitrary Lua-effect replay is not an implementation strategy. |
 
 `keyed-words` remains a roadmap category without a dedicated active TODO trap; successful retained-root
-selection does not establish support for every owner-binding interface. The two active TODO categories
-are witnessed in `test/model.lua`. No category is retired merely to make the ledger look complete.
+selection does not establish support for every owner-binding interface. The remaining active TODO
+trap is `host-captures`, witnessed in `test/model.lua`.
 
 ## Retired callable-input trap
 
@@ -25,7 +24,25 @@ They do not claim the runtime ABI is unimplemented.
 `test/runtime_contracts.lua` checks nested fields, higher-order interfaces, recursive callback helpers,
 compilation-local declarations and preservation of static input-only callable requirements. Existing
 C tests cover runtime callback invocation and immutable closure environments. The `callable-inputs`
-catalogue entry is retired; remaining additional-borrow capture work is tracked above.
+catalogue entry is retired.
+
+## Retired staged-definition trap
+
+Replay-stable construction and capture conversion now cover owned values, non-retaining callbacks,
+bound methods and mutable record places. Outlined lexical words pass capture environments alongside
+their receiver; ownerless borrowed closures use a borrowed environment receiver. Captured places retain
+their actual root and field path, preserving aliasing, replacement and lexical owner lookup.
+
+Compiler-only `Capture`, `Address` and `Deref` IR distinguish temporary borrowing from source record
+construction. Borrowed fields cannot escape through results or retaining stores. Tail replacement is
+blocked when capture arguments may borrow the current activation. No heap allocation or public `Ref`
+facility is introduced. Capture bindings remain immutable even when their referents can mutate.
+
+The former `staged-definitions` witnesses are positive tests in `test/model.lua`.
+`test/borrowed_captures.lua` and C integration tests cover callbacks, extra state, method views,
+readonly primary owners, root/path preservation, escaping rejection and caller-local lifetimes.
+`examples/borrowed_captures.lua` exercises the same interfaces. Recursive captured implementations
+still need grounded callable results; capture conversion nesting is bounded at 32.
 
 ## State and executable results
 

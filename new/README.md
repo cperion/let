@@ -380,8 +380,12 @@ Self/mutual code links share the capture schema without retaining source-trace s
 callback adapters package receiver pointers and copied captures in caller-local storage; they do not
 allocate. Immutable lexical receivers can instead specialize away, leaving owned escaping environments.
 See `new/examples/lexical_captures.lua`.
-The remaining `staged-definitions` trap is outlining additional borrowed captures, such as an opaque
-runtime callback captured by a receiver-dependent word. That combination can still inline.
+Additional borrowed callbacks, bound methods and mutable record places also have a non-retaining
+capture ABI. Captured places retain their actual root and field path; they are not copied or detached
+from their lexical owners. Compiler-only capture environments can carry these borrows, but source
+records and results cannot retain them. Tail rewriting is disabled when capture operands may borrow
+the current activation. This introduces no public reference constructor or allocation policy.
+See `new/examples/borrowed_captures.lua`. The `staged-definitions` trap is retired.
 Try `new/examples/branches.lua` for scalar, Bool, Unit, record, and receiver-effect branches.
 
 ## Executable TODOs as a progress ledger

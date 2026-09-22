@@ -208,7 +208,7 @@ H.test("outlined staged words transport immutable snapshots alongside lexical re
     ]])
     assert(IR.verify(s:compile{functions = m}))
 end)
-H.gap("staged-definitions", function()
+H.test("outlined lexical words transport additional borrowed callbacks without retention", function()
     local s = Word.new(); local m = s:load_string([[
         local Callback = word(U32)
         local C = word{value = U32, run = word(Callback, U32, function(callback, n)
@@ -221,7 +221,7 @@ H.gap("staged-definitions", function()
         end)}
         return {functions = {run = C.run}, results = {[Callback] = U32}}
     ]])
-    s:compile(m)
+    assert(IR.verify(s:compile(m)))
 end)
 H.test("local staged definitions compile", function()
     local s = Word.new()

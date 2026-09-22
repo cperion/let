@@ -983,6 +983,44 @@ H.test("by-value environments interoperate with borrowed runtime callback inputs
     ]]), "")
 end)
 
+H.test("borrowed callback, method and place captures preserve C lifetimes and aliasing", function()
+    local s = Word.new(); local m = s:load(H.root .. "examples/borrowed_captures.lua")
+    local c = s:emit_c(m)
+    assert(not c:find("malloc", 1, true))
+    H.eq(run_c(c .. [[
+        #include <assert.h>
+        static uint32_t host_callback(void *environment, uint32_t x) {
+            uint32_t *value = environment;
+            *value += 1;
+            return *value + x;
+        }
+        int main(void) {
+            uint32_t seed = 5;
+            wordtype_Callbacks callbacks = {.f_call = {.invoke = host_callback, .environment = &seed}};
+            wordtype_Counter counter = {.f_value = 3};
+            wordtype_State other = {.f_value = 10};
+            wordresult_run r = word_run(&counter, callbacks.f_call, other, 4);
+            assert(r.f_r1 == 34 && r.f_r2 == 18);
+            assert(counter.f_value == 7 && other.f_value == 10 && seed == 6);
+            assert(word_plain(callbacks.f_call, 4) == 14 && seed == 7);
+            assert(word_frozen(callbacks.f_call, 4) == 19 && seed == 8);
+            /* The callback may alias the receiver: loads must stay ordered. */
+            counter.f_value = 3;
+            callbacks.f_call.environment = &counter.f_value;
+            r = word_run(&counter, callbacks.f_call, other, 2);
+            assert(r.f_r1 == 28 && r.f_r2 == 14 && counter.f_value == 6);
+            wordresult_method method = word_method(4);
+            assert(method.f_r1 == 4 && method.f_r2 == 4);
+            assert(word_replacement(4) == 34);
+            assert(word_paths(0) == 30 && word_paths(4) == 15);
+            assert(word_frames(30) == 466);
+            wordtype_State copy = word_copy(other, 4);
+            assert(copy.f_value == 14 && other.f_value == 10);
+            return 0;
+        }
+    ]]), "")
+end)
+
 H.test("outlined lexical captures retain snapshots across recursion and borrowed callback adapters", function()
     local s = Word.new(); local m = s:load(H.root .. "examples/lexical_captures.lua")
     local c = s:emit_c(m)

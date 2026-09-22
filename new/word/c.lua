@@ -23,6 +23,8 @@ function M.emit(program)
     local function ctype(t)
         local primitive = Model.primitive(t)
         if primitive then return assert(({ U32 = "uint32_t", Bool = "bool", Unit = "void" })[primitive]) end
+        local borrowed = Model.borrow_target(t)
+        if borrowed then return ctype(borrowed) .. " *" end
         if not names[t] then
             serial = serial + 1
             local abi = Model.callable(t)
@@ -92,9 +94,17 @@ function M.emit(program)
             out[#out + 1] = "typedef " .. ctype(t) .. " " .. M.result_type_name(export.name) .. ";"
         end
     end
+    local pointer_roots = {}
+    for _, fn in ipairs(program.functions) do
+        local roots = {}; pointer_roots[fn] = roots
+        if fn.receiver then roots[fn.receiver.id] = true end
+        for _, block in ipairs(fn.blocks) do for _, ins in ipairs(block.instructions) do
+            if ins.op == "Deref" then roots[ins.id] = true end
+        end end
+    end
     local function target(ins, fn)
         if ins.closure then return "(" .. (ins.by_value and "" or "*") .. v(ins.closure) .. ".environment)" end
-        local path = fn.receiver and ins.root == fn.receiver.id and ("(*" .. v(ins.root) .. ")") or v(ins.root)
+        local path = pointer_roots[fn][ins.root] and ("(*" .. v(ins.root) .. ")") or v(ins.root)
         for _, name in ipairs(ins.path) do path = path .. "." .. M.field_name(name) end
         return path
     end
@@ -297,6 +307,8 @@ function M.emit(program)
                     if ins.op == "Constant" then expression = literal(ins.type, ins.value)
                     elseif ins.op == "Local" then expression = v(ins.initial)
                     elseif ins.op == "Load" then expression = target(ins, fn)
+                    elseif ins.op == "Address" then expression = "&(" .. target(ins, fn) .. ")"
+                    elseif ins.op == "Deref" then expression = v(ins.reference)
                     elseif ins.op == "Call" or ins.op == "IndirectCall" then expression = call(ins)
                     elseif ins.op == "FunctionRef" then
                         local abi = Model.callable(ins.type)
@@ -317,7 +329,7 @@ function M.emit(program)
                     elseif ins.op == "Compare" then
                         local operator = ({eq = "==", lt = "<", le = "<="})[ins.predicate]
                         expression = v(ins.args[1]) .. " " .. operator .. " " .. v(ins.args[2])
-                    elseif ins.op == "Construct" then
+                    elseif ins.op == "Construct" or ins.op == "Capture" then
                         local fields = {}
                         for _, name in ipairs(Model.record(ins.type).runtime_order) do
                             if ins.fields[name] then fields[#fields + 1] = "." .. M.field_name(name) .. " = " .. v(ins.fields[name]) end
@@ -332,7 +344,7 @@ function M.emit(program)
                             expression = "(" .. v(ins.args[2]) .. " >= UINT32_C(32) ? UINT32_C(0) : " .. expression .. ")"
                         end
                     end
-                    out[#out + 1] = indent .. ctype(ins.type) .. " " .. v(ins.id) .. " = " .. expression .. ";"
+                    out[#out + 1] = indent .. ctype(ins.type) .. (ins.op == "Deref" and " *" or " ") .. v(ins.id) .. " = " .. expression .. ";"
                     out[#out + 1] = indent .. "(void)" .. v(ins.id) .. ";"
                 end
             end

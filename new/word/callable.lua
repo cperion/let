@@ -57,6 +57,22 @@ function M.infer(engine, value)
     return M.coerce(engine, t, value)
 end
 
+-- A captured borrowed implementation uses an explicit non-retaining interface,
+-- including any receiver/capture bundle. Do not pretend that it is owned code.
+function M.borrowed(engine, value)
+    local p = Model.get(value)
+    if p and p.tag == "symbol" and Model.callable(p.type) then
+        local abi = Model.callable(p.type)
+        if not abi.code then return value end
+        return M.coerce(engine, M.type(engine, abi.signature, abi.result), value)
+    end
+    if p and p.tag == "callable_known" then value = p.code end
+    value = require("word.closure").lift(engine, value)
+    local graph = engine:context().graph
+    local target = graph:require(value, true)
+    return M.coerce(engine, M.type(engine, value, graph.functions[target].result), value)
+end
+
 local function compatible(a, b)
     if a.result ~= b.result or #a.parameters ~= #b.parameters then return false end
     for i, p in ipairs(a.parameters) do if p.type ~= b.parameters[i].type then return false end end

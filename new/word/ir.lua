@@ -111,8 +111,7 @@ function M.verify_function(fn, functions)
         define(fn.receiver.id, fn.receiver.type, true)
     end
     if fn.captures then
-        check(type(fn.captures) == "table" and Model.record(fn.captures.type) and
-            not require("word.borrow").type(fn.captures.type), "Captures require an owned by-value record")
+        check(type(fn.captures) == "table" and Model.record(fn.captures.type), "Captures require a typed environment record")
         define(fn.captures.id, fn.captures.type, true)
     end
     for _, p in ipairs(fn.parameters) do define(p.id, p.type) end
@@ -140,7 +139,7 @@ function M.verify_function(fn, functions)
                     ((ins.predicate == "eq" and (t == "U32" or t == "Bool")) or
                     ((ins.predicate == "lt" or ins.predicate == "le") and t == "U32")), "Comparison type/arity")
                 value(ins.args[1], ins.operand_type); value(ins.args[2], ins.operand_type)
-            elseif ins.op == "Construct" then
+            elseif ins.op == "Construct" or ins.op == "Capture" then
                 local def = Model.record(ins.type)
                 check(def and type(ins.fields) == "table", "Invalid record construction")
                 for name, operand in pairs(ins.fields) do
@@ -153,6 +152,14 @@ function M.verify_function(fn, functions)
             elseif ins.op == "Local" then
                 check(Model.record(ins.type), "Local storage requires a record type"); value(ins.initial, ins.type)
             elseif ins.op == "Load" then target(ins)
+            elseif ins.op == "Address" then
+                check(Model.record(ins.target_type) and Model.borrow_target(ins.type) == ins.target_type,
+                    "Invalid captured storage reference type")
+                target{root = ins.root, path = ins.path, type = ins.target_type}
+            elseif ins.op == "Deref" then
+                check(Model.record(ins.type) and Model.borrow_target(ins.reference_type) == ins.type,
+                    "Invalid borrowed reference projection")
+                value(ins.reference, ins.reference_type)
             elseif ins.op == "FunctionRef" then
                 local abi, callee = Model.callable(ins.type), functions and functions[ins.target]
                 check(abi and callee and callee.result == abi.result and
@@ -192,7 +199,7 @@ function M.verify_function(fn, functions)
                 target(ins); value(ins.value, ins.type); check(ins.id == nil, "Store must not define a value")
             else D.bug("invalid-ir", "Unknown residual operation") end
             if ins.op ~= "Store" and not ((ins.op == "Call" or ins.op == "IndirectCall") and Model.primitive(ins.type) == "Unit") then
-                define(ins.id, ins.type, ins.op == "Local")
+                define(ins.id, ins.type, ins.op == "Local" or ins.op == "Deref")
             end
         end
         local exit = block.exit

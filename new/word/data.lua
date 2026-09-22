@@ -134,6 +134,27 @@ function M.address(engine, value)
     return {type = p.type, root = p.root.id, path = {table.unpack(p.path)}}
 end
 
+-- Capture an actual root, not a by-value snapshot or an inferred parent. The
+-- lexical field path stays in code metadata and is reapplied on invocation.
+function M.capture_place(engine, value)
+    local p = validate(engine, value)
+    if p.tag ~= "place" or not p.root.builder then D.reject("receiver-storage", "Captured storage needs a live residual root") end
+    local t = Model.borrow_type(engine, p.root.type)
+    local id = p.root.builder:emit{op = "Address", type = t, root = p.root.id, path = {}, target_type = p.root.type}
+    return engine:symbol(id, t, p.root.builder), {table.unpack(p.path)}
+end
+function M.restore_place(engine, reference, path)
+    local p = Model.get(reference)
+    local t = p and Model.borrow_target(p.type)
+    if not t then D.bug("capture-reference", "Expected a typed borrowed capture reference") end
+    engine:coerce(p.type, reference)
+    local builder = engine:context().builder
+    local id = builder:emit{op = "Deref", type = t, reference = engine:reference(reference), reference_type = p.type}
+    local root = wrap(engine, t, {id = id, builder = builder})
+    for _, name in ipairs(path) do root = M.read(engine, root, name) end
+    return root
+end
+
 function M.copy(engine, value)
     local p = validate(engine, value)
     local context = phase(engine)
@@ -146,8 +167,9 @@ function M.copy(engine, value)
     return wrap(engine, p.type, { data = clone(p.type, at(p)) })
 end
 
-function M.construct(engine, t, values)
+local function construct(engine, t, values, captures)
     local context = phase(engine)
+    if captures and not (context and context.builder) then D.bug("capture-context", "Capture environments are residual-only") end
     Borrow.check(Borrow.value(engine, t)) -- Methods cannot hide mutable captures outside their record.
     t = engine:as_type(t)
     if not (context and context.builder and Model.runtime_type(t) or
@@ -158,18 +180,22 @@ function M.construct(engine, t, values)
         local ft = def.fields[name]
         if values[name] == nil and ft ~= engine.Unit then D.reject("missing-field", "Missing field: " .. name) end
         local value = engine:coerce(ft, values[name])
-        Borrow.check(Borrow.value(engine, value))
+        if not captures then Borrow.check(Borrow.value(engine, value)) end
         if context and context.builder then
             if ft ~= engine.Unit then fields[name] = engine:reference(value) end
         elseif Model.record(ft) then fields[name] = clone(ft, at(Model.get(value)))
         else fields[name] = value end
     end
     if context and context.builder then
-        local initial = context.builder:construct(t, fields)
+        local initial = captures and context.builder:emit{op = "Capture", type = t, fields = fields} or
+            context.builder:construct(t, fields)
         return wrap(engine, t, { id = context.builder:local_record(t, initial), builder = context.builder })
     end
     return wrap(engine, t, { data = fields })
 end
+
+function M.construct(engine, t, values) return construct(engine, t, values, false) end
+function M.capture_environment(engine, t, values) return construct(engine, t, values, true) end
 
 function M.read(engine, value, name)
     local p = validate(engine, value)
