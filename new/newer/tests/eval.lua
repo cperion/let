@@ -790,6 +790,45 @@ check(interpret("bump_shared", { 1 }, REFS)[1] == 7, "a store through a referenc
 check(interpret("two_refs", { 3 }, REFS)[1] == 8, "two references to one instance observe each other")
 check(interpret("borrowed", { 1 }, REFS)[1] == 44,
     "a reference to an enclosing owner mutation is visible to the caller")
+-- A reference is an ordinary value, so it is a parameter and a result like any other.
+local REFPARAM = [==[
+let Counter = { value: U32 }
+let shared = Counter { value = 5 }
+let get(r: Ref(Counter)): U32 = r.value
+let set(r: Ref(Counter), v: U32): U32 = do
+  r.value = v
+  return r.value
+end
+let shared_ref(): Ref(Counter) = Ref(shared)
+let read(x: U32): U32 = shared_ref().value + x
+let use(x: U32): U32 = set(Ref(shared), x) + get(Ref(shared))
+return { types = { Counter }, functions = { get, set, shared_ref, read, use } }
+]==]
+check(interpret("read", { 2 }, REFPARAM)[1] == 7,
+    "a reference to module storage may be returned from a call and followed there")
+check(interpret("use", { 9 }, REFPARAM)[1] == 18,
+    "a module reference passed to a parameter writes through to the same storage")
+local refParamUnit = compile(REFPARAM):unit()
+check(refParamUnit:find("wordletrecord_1 *", 1, true) ~= nil,
+    "a reference parameter and result are pointers in the ABI")
+-- A reference read out of a local record reaches the instance it names.
+local REFHELD = [==[
+let Counter = { value: U32 }
+let Holder = { r: Ref(Counter) }
+let use(x: U32): U32 = do
+  let c = Counter { value = x }
+  let f = |d: U32| -> do
+    c.value += d
+    let h = Holder { r = Ref(c) }
+    h.r.value += 1
+    return h.r.value
+  end
+  return f(3) * 10 + c.value
+end
+return { types = { Counter, Holder }, functions = { use } }
+]==]
+check(interpret("use", { 2 }, REFHELD)[1] == 66,
+    "a tied reference stored in a local record reaches the enclosing instance")
 local refsUnit = compile(REFS):unit()
 check(refsUnit:find("wordletrecord_1 *", 1, true) ~= nil or refsUnit:find("wordletmodule_1", 1, true) ~= nil,
     "references lower to pointers over named storage")
@@ -837,6 +876,13 @@ return { types = { Counter }, functions = { bad } }
 rejects("ref-target", [==[
 let Counter = { value: U32 }
 let bad(): U32 = Ref(Counter { value = 1 }).value
+return { types = { Counter }, functions = { bad } }
+]==])
+-- A reference is not itself a place to reference again.
+rejects("ref-target", [==[
+let Counter = { value: U32 }
+let shared = Counter { value = 5 }
+let bad(x: U32): U32 = Ref(Ref(shared)).value + x
 return { types = { Counter }, functions = { bad } }
 ]==])
 -- A reference to an enclosing owner cannot outlive that activation.

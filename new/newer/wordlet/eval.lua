@@ -581,7 +581,6 @@ end
 -- Classifies a reference target: "module" for file-scope storage, "enclosing" for a place that
 -- belongs to an enclosing activation, and nil for anything this activation owns.
 function Eval:referenceTarget(value)
-    if V.tag(value) == "ref" then return value.tied and "enclosing" or "module" end
     if V.tag(value) == "record" then
         -- A statically evaluated closure binds its captured receiver as a record value; the closure
         -- itself is what makes that record an enclosing owner rather than a local of this body.
@@ -670,6 +669,11 @@ function Eval:refEscapeMessage()
 end
 
 function Eval:makeReference(ctx, target, span)
+    if V.tag(target) == "ref" then
+        D.reject("ref-target",
+            "A reference is not itself a place to reference: the second reference would need the "
+            .. "first one to have storage of its own, which it does not", span)
+    end
     local kind = self:referenceTarget(target)
     if not kind then
         D.reject("ref-target",

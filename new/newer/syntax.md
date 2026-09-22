@@ -455,6 +455,11 @@ r.value = 20                   -- writes c.value: selection through a reference 
 let again = Ref(c)             -- a second reference to the same instance
 ```
 
+A reference is an ordinary value: it may be a parameter, a result, a field or a local binding, and
+passing or returning one passes the reference, not the instance. A function may therefore take
+`Ref(T)` and write through it, and a reference to module storage may be returned from a call and
+followed there. A host that holds such a pointer may pass it directly.
+
 `Ref(T)` is not a copy of `T`. Reading or writing through a reference reaches the referenced
 instance, exactly as selecting that instance directly would, and two references to one instance
 observe each other's writes. A reference has stable identity under copying: copying a record that
@@ -476,7 +481,9 @@ targets qualify:
    reference to it may be copied, stored and returned freely.
 
 Anything else rejects (`ref-target`): a local that does not enclose the reference, a temporary, a
-field of a record that is about to be copied, and a place that has already been replaced.
+field of a record that is about to be copied, and a place that has already been replaced. A reference
+is not itself a place to reference again, so `Ref(Ref(x))` rejects rather than collapsing two
+indirections into one.
 
 A record that holds a reference to an enclosing owner is itself tied to that activation: it may be
 used, copied and passed within the activation, but returning it, storing it in module storage or

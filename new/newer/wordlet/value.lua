@@ -104,7 +104,11 @@ end
 function M.isStatic(v)
     if not M.is(v) then return false end
     local tag = v.tag
-    if tag == "u32" or tag == "bool" or tag == "unit" or tag == "type" then return true end
+    -- A schema and a type are compile-time descriptions: capturing one is a static fact, not a
+    -- runtime environment entry.
+    if tag == "u32" or tag == "bool" or tag == "unit" or tag == "type" or tag == "schema" then
+        return true
+    end
     if tag == "word" then
         for _, arg in ipairs(v.args) do if not M.isStatic(arg) then return false end end
         return true

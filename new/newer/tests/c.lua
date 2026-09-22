@@ -719,6 +719,11 @@ do
 let Counter = { value: U32 }
 let shared = Counter { value = 5 }
 let read_shared(x: U32): U32 = Ref(shared).value + x
+let via(r: Ref(Counter)): U32 = r.value
+let via_set(r: Ref(Counter), v: U32): U32 = do
+  r.value = v
+  return r.value
+end
 let bump_shared(x: U32): U32 = do
   let r = Ref(shared)
   r.value += 1
@@ -739,7 +744,7 @@ let bump_following(): U32 = n0.next {
     return r.value
   end,
 }
-return { types = { Counter, Node, Link }, functions = { read_shared, bump_shared, following, bump_following } }
+return { types = { Counter, Node, Link }, functions = { read_shared, via, via_set, bump_shared, following, bump_following } }
 ]==]
     local generated = wordlet.compile{ source = source, name = "refmod.let" }:unit()
     local path = directory .. "/refmod.c"
@@ -752,6 +757,10 @@ int main(void) {
     assert(wordlet_bump_5Fshared(UINT32_C(1)) == UINT32_C(7));
     /* the bump stores the incremented value and returns it plus its argument */
     assert(wordlet_read_5Fshared(UINT32_C(0)) == UINT32_C(6));
+    /* a host may pass a pointer for a reference parameter */
+    assert(wordlet_via(&wordletmodule_1) == UINT32_C(6));
+    assert(wordlet_via_5Fset(&wordletmodule_1, UINT32_C(20)) == UINT32_C(20));
+    assert(wordlet_read_5Fshared(UINT32_C(0)) == UINT32_C(20));
     /* a point in a stored structure, reached by a reference and mutated through it */
     assert(wordlet_following() == UINT32_C(10));
     assert(wordlet_bump_5Ffollowing() == UINT32_C(15));

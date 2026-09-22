@@ -82,7 +82,9 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    owner that escapes), a recursive Node/Link list over module storage built and traversed with a
    mutation seen through a stored reference, and by-value cycles rejected across one and several
    definitions (`type-cycle`) while a cycle through a reference is accepted with a finite
-   forward-declared layout.
+   forward-declared layout. A reference is also a parameter, a result and a field: a host may pass a
+   pointer for `Ref(T)`, a reference to module storage may be returned from a call and followed, and
+   a tied reference held in a local record reaches the enclosing instance.
 9. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    module storage seeded outside every function,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
