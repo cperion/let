@@ -730,6 +730,21 @@ check(interpret("run", { 5 }, BORROWED_PASS)[1] == 15,
     "a borrowing closure is passed to a callable parameter and still reads its receiver")
 check(compile(BORROWED_PASS):unit():find("wordletadapterstruct_1", 1, true) ~= nil,
     "a borrowed callable argument gets a local adapter")
+-- A method value borrows its receiver for the same reason, so the parameter likewise takes a view.
+local METHOD_PASS = [==[
+let C = { v: U32, bump(): U32 = do v += 1 return v end }
+let apply(f: (): U32, x: U32): U32 = f() + x
+let run(x: U32): U32 = do
+  let c = C { v = 10 }
+  return apply(c.bump, x)
+end
+return { types = { C }, functions = { run } }
+]==]
+check(interpret("run", { 5 }, METHOD_PASS)[1] == 16,
+    "a method is passed to a callable parameter and still writes its own receiver")
+check(compile(METHOD_PASS):unit():find("wordletadapterfn_1", 1, true) ~= nil,
+    "a method argument is bound through a local adapter")
+
 -- The borrow stays tracked, so it still cannot escape its activation.
 rejects("borrow-escape", [==[
 let C = { v: U32 }

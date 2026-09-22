@@ -62,7 +62,9 @@ Gates 1–5 and 9–11 have their first executable form in `tests/parse.lua`, `t
    inside the arm. C lowers to a tag plus a union and a `Unit` parameter is erased. Non-schema cases,
    an empty schema, unknown alternatives, missing or duplicated handlers, unknown payload fields and
    disagreeing arm types all reject.
-8. **Callables:** two callables of one signature chosen at run time join into a tagged callable and
+8. **Callables:** a callable that borrows (a closure over a receiver, or a method value) crosses a
+   callable parameter as a non-retaining view whose adapter holds the borrowed place, pure code
+   crosses as a null-environment view, and each still agrees with the interpreter. ** two callables of one signature chosen at run time join into a tagged callable and
    dispatch on its tag; a multi-result tagged call and one crossing a call boundary agree with the
    interpreter; mismatched signatures, a borrowing arm, an undeclared word arm and erasure into a
    signature all reject. owned environments survive creator return (make_adder/run/compose/snap); a captured

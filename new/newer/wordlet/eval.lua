@@ -642,7 +642,8 @@ function Eval:expression(ctx, value, want)
     if want and (S.isSig(want) or S.isView(want)) and value.ty and S.isTagged(value.ty) then
         self:rejectTaggedErase(ctx.span)
     end
-    if (tag == "closure" or tag == "word") and want and (S.isSig(want) or S.isView(want)) then
+    if (tag == "closure" or tag == "word" or tag == "method") and want
+        and (S.isSig(want) or S.isView(want)) then
         if ctx.mode ~= "residual" then
             D.reject("runtime-in-normalization", "A view needs runtime code", ctx.span)
         end
@@ -742,7 +743,7 @@ function Eval:requireAgainst(value, ty, span)
     if wanted and value.ty and S.isTagged(value.ty) then
         self:rejectTaggedErase(span)
     end
-    if wanted and (V.tag(value) == "closure" or V.tag(value) == "word") then
+    if wanted and (V.tag(value) == "closure" or V.tag(value) == "word" or V.tag(value) == "method") then
         if self:callableMatches(value, wanted) == false then
             D.reject("callable-shape", "Callable does not match the required signature", span)
         end
@@ -1342,6 +1343,22 @@ function Eval:makeView(ctx, value, sig)
         end
     elseif tag == "word" then
         entry = self:instanceFor(value.def, ctx.span, value.args).target
+    elseif tag == "method" then
+        -- A method value borrows its receiver, which is exactly the hidden prefix of its instance.
+        local def = value.def
+        local instance = self:instanceFor(def, ctx.span, {}, value.receiver)
+        local sc = scope(def.lexical)
+        local inputs = {}
+        for index = 1, #def.params do
+            inputs[index] = S.inValue(self:requirement(def, index, sc, ctx.span))
+        end
+        if not self:sigMatches(S.sig(inputs, instance.results), sig) then
+            D.reject("callable-shape", "Method " .. tostring(def.name)
+                .. " does not match the required signature", ctx.span)
+        end
+        entry = instance.target
+        slots[#slots + 1] = Ir.BorrowArg(value.receiver.place)
+        borrowed = true
     else
         D.bug("c-view", "Only known code can be bound into a view")
     end
@@ -1727,6 +1744,10 @@ function Eval:buildCallableInstance(key, callable, args, span)
                     -- borrowed places.
                     ty = self:borrowsStorage(supplied) and S.view(ty) or supplied.ty
                 end
+            elseif V.tag(supplied) == "method" then
+                -- A method borrows its receiver, so it is non-retaining for the same reason a
+                -- borrowing closure is: the parameter takes a view.
+                ty = S.view(ty)
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
                 ty = supplied.ty
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isView(supplied.ty) then
@@ -2307,6 +2328,10 @@ function Eval:buildInstance(key, def, values, span, receiver)
                     -- borrowed places.
                     ty = self:borrowsStorage(supplied) and S.view(ty) or supplied.ty
                 end
+            elseif V.tag(supplied) == "method" then
+                -- A method borrows its receiver, so it is non-retaining for the same reason a
+                -- borrowing closure is: the parameter takes a view.
+                ty = S.view(ty)
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isOwned(supplied.ty) then
                 ty = supplied.ty
             elseif supplied ~= nil and V.tag(supplied) == "ir" and S.isView(supplied.ty) then

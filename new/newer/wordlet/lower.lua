@@ -231,8 +231,10 @@ function M.adapterBodies(layouts)
             ordered[#ordered + 1] = "a" .. (index - #adapter.bound)
         end
         local body = {}
+        -- The environment parameter is always present, so a bound callable with no visible inputs
+        -- still has one parameter; `void` here would be the only parameter and is invalid C.
         body[#body + 1] = "static " .. returns .. " " .. adapter.fn .. "(const void *environment"
-            .. (#visible > 0 and (", " .. table.concat(visible, ", ")) or ", void") .. ") {"
+            .. (#visible > 0 and (", " .. table.concat(visible, ", ")) or "") .. ") {"
         if #adapter.bound == 0 then
             body[#body + 1] = "    (void)environment;"
         else

@@ -58,9 +58,11 @@ function M.isIr(v) return M.is(v) and v.tag == "ir" end
 function M.isKnown(v)
     if not M.is(v) then return false end
     local tag = v.tag
-    if tag == "ir" or tag == "object" or tag == "method" or tag == "schema" or tag == "callable" then
+    if tag == "ir" or tag == "object" or tag == "schema" or tag == "callable" then
         return false
     end
+    -- A bound method is as known as the receiver it borrows.
+    if tag == "method" then return M.isKnown(v.receiver) end
     if tag == "closure" then
         if #v.plan.runtimeOrder > 0 then return false end
         for _, capture in ipairs(v.plan.order) do

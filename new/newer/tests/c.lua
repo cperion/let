@@ -336,6 +336,27 @@ return { types = { C }, functions = { run, chained, mk, pure } }
             { entry = "pure", arity = 1 } },
         inputs = { { 0 }, { 1 }, { 5 }, { 4294967295 } },
     },
+    {
+        -- A method borrows its receiver, so a callable parameter takes a view whose local adapter
+        -- holds that borrowed place. The interpreter binds the receiver to a concrete record, so it
+        -- is an independent oracle.
+        name = "methodpass",
+        source = [==[
+let C = { v: U32, bump(): U32 = do v += 1 return v end }
+let apply(f: (): U32, x: U32): U32 = f() + x
+let run(x: U32): U32 = do
+  let c = C { v = 10 }
+  return apply(c.bump, x)
+end
+let twice(x: U32): U32 = do
+  let c = C { v = 0 }
+  return apply(c.bump, apply(c.bump, x))
+end
+return { types = { C }, functions = { run, twice } }
+]==],
+        entries = { { entry = "run", arity = 1 }, { entry = "twice", arity = 1 } },
+        inputs = { { 0 }, { 1 }, { 5 }, { 4294967295 } },
+    },
 }
 
 local function cLiteral(value)
