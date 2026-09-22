@@ -20,7 +20,7 @@ this section states exactly how much of it runs today.
 | Single-file bundle and CLI | implemented; `dist/wordlet.lua` |
 | Records, schemas, methods and field stores | implemented, including compound stores and by-value copy |
 | Lambdas and closures | **not implemented** (they parse) |
-| Loops and the self-tail rewrite | **not implemented**; recursion stays ordinary C calls |
+| Self-tail calls (`Loop`/`Next` back edges) | implemented; tails run at constant C stack depth |
 | Module-level mutable records captured by runtime code | **rejected** (`module-mutable-capture`); needs a runtime storage interface |
 
 Working end to end today: U32/Bool/Unit, `let` bindings, named definitions with parameter and result
@@ -30,7 +30,11 @@ specialisation, calls compiled to independently elaborated bodies, recursion wit
 annotation, and records with methods, borrowed receivers, field reads and compound stores.
 
 Results and signatures are written with `::`; `->` introduces a lambda body and nothing else.
-`tests/eval.lua` (111 checks) and `tests/c.lua` (148 checks, 13 programs) cover this.
+A call to the instance currently being built, in tail position, becomes a back edge: a `for (;;)`
+loop with a `continue`, with every next argument evaluated before any parameter is rebound. Calling
+it with different static arguments is a different instance and stays an ordinary call.
+
+`tests/eval.lua` (117 checks) and `tests/c.lua` (176 checks, 14 programs) cover this.
 
 
 - [syntax.md](syntax.md): Wordlet source syntax and semantic decisions.

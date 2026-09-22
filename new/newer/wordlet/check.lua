@@ -55,7 +55,7 @@ function M.function_(fn, definitions)
         for key in pairs(set) do out[key] = true end
         return out
     end
-    local function checkList(list, inputs, visible, storages)
+    local function checkList(list, inputs, visible, storages, inLoop)
         local set = initialized(list, inputs)
         for _, stmt in ipairs(list) do
             local kind = stmt.kind
@@ -87,10 +87,12 @@ function M.function_(fn, definitions)
                 end
             elseif kind == "If" then
                 M.expr(stmt.test, visible)
-                checkList(stmt.yes, set, copy(visible), storages)
-                checkList(stmt.no, set, copy(visible), storages)
+                checkList(stmt.yes, set, copy(visible), storages, inLoop)
+                checkList(stmt.no, set, copy(visible), storages, inLoop)
             elseif kind == "Loop" then
-                checkList(stmt.body, set, copy(visible), storages)
+                -- A loop body may fall through only if it never falls out; the builder always ends
+                -- it with a Return or a Next, so an empty body is the only rejected shape.
+                checkList(stmt.body, set, copy(visible), storages, true)
             elseif kind == "Call" or kind == "Indirect" then
                 for _, result in ipairs(stmt.results) do bind(visible, result.id) end
                 local target = definitions[stmt.target]
@@ -143,7 +145,7 @@ function M.function_(fn, definitions)
                     end
                 end
             elseif kind == "Next" then
-                -- no operands
+                if not inLoop then D.bug("ir-next", "Next appears outside any Loop") end
             else
                 D.bug("ir-stmt", "Unknown statement variant " .. tostring(kind))
             end

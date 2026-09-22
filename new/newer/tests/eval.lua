@@ -8,6 +8,7 @@ local Eval = require("wordlet.eval")
 local Parse = require("wordlet.parse")
 local D = require("wordlet.diag")
 local C = require("wordlet.cabi")
+local A = require("wordlet.ast")
 local checks = 0
 local function check(ok, message) assert(ok, message); checks = checks + 1 end
 
@@ -151,6 +152,35 @@ local STATIC_FIELD = "let C = { v: U32, get() :: U32 = v }\n"
     .. "let f(x: U32) :: U32 = do let c = C { v = x } return c.get() end\n"
     .. "return { types = { C }, functions = { f } }"
 check(interpret("f", { 12 }, STATIC_FIELD)[1] == 12, "a runtime receiver field is loaded, not folded")
+
+-- Tail self-calls become loops; non-tail recursion stays a call -------------------------------
+local loopSession = Eval.session()
+loopSession:compile(Parse.source("let sum_to(n, acc: U32) :: U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
+    .. "return { functions = { sum_to } }", "l.let"))
+check(#loopSession.order == 1, "a tail self-call reuses the instance it is defined in")
+local loopIR = A.dump(loopSession.order[1].fn)
+check(loopIR:find("Loop", 1, true) ~= nil and loopIR:find("Next", 1, true) ~= nil,
+    "the body carries a Loop with a back edge")
+check(loopIR:find("Call", 1, true) == nil, "the tail call emits no call at all")
+
+local recSession = Eval.session()
+recSession:compile(Parse.source("let f(a: U32) :: U32 = if a == 0 then 1 else a * f(a - 1)\n"
+    .. "return { functions = { f } }", "r.let"))
+check(A.dump(recSession.order[1].fn):find("Loop", 1, true) == nil,
+    "recursion outside tail position stays an ordinary call")
+
+-- A conditional in tail position loops from either arm.
+local bothSession = Eval.session()
+bothSession:compile(Parse.source("let count(n: U32) :: U32 =\n"
+    .. "  if n == 0 then 0 else if n == 1 then count(0) else count(n - 2)\n"
+    .. "return { functions = { count } }", "b.let"))
+check(A.dump(bothSession.order[1].fn):find("Loop", 1, true) ~= nil, "either tail arm may loop")
+
+-- A tail call with different static arguments is a different instance, so it is a real call.
+local staticSession = Eval.session()
+staticSession:compile(Parse.source("let scale(k, x: U32) :: U32 = if k == 0 then x else scale(0, x + 1)\n"
+    .. "let five(x: U32) :: U32 = scale(5, x)\nreturn { functions = { five } }", "s.let"))
+check(#staticSession.order >= 2, "changing a static argument creates a new instance")
 
 -- Rejections ------------------------------------------------------------------------------------
 rejects("unknown-name", "let f(x: U32) = y\nreturn { functions = { f } }")

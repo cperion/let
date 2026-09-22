@@ -120,6 +120,14 @@ function Emitter:statements(list)
                 self.indent = self.indent - 1
             end
             self:line("}")
+        elseif kind == "Loop" then
+            self:line("for (;;) {")
+            self.indent = self.indent + 1
+            self:statements(stmt.body)
+            self.indent = self.indent - 1
+            self:line("}")
+        elseif kind == "Next" then
+            self:line("continue;")
         elseif kind == "Trap" then
             self:line("if (" .. self:expr(stmt.failure) .. ") abort();")
         elseif kind == "Call" then

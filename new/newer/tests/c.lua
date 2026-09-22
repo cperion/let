@@ -146,6 +146,16 @@ local CASES = {
         inputs = { { 7, true }, { 7, false }, { 0, true }, { 4294967295, true }, { 1 }, { 100 } },
     },
     {
+        name = "tails",
+        source = "let sum_to(n, acc: U32) :: U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
+            .. "let count_down(n: U32) :: U32 = if n == 0 then 7 else count_down(n - 1)\n"
+            .. "let swapdown(a, b: U32) :: U32 = if a == 0 then b else swapdown(b, a - 1)\n"
+            .. "return { functions = { sum_to, count_down, swapdown } }",
+        entries = { { entry = "sum_to", arity = 2 }, { entry = "count_down", arity = 1 },
+            { entry = "swapdown", arity = 2 } },
+        inputs = { { 0, 5 }, { 1, 0 }, { 10, 3 }, { 5, 0 }, { 3, 4 }, { 0, 0 }, { 2, 5 }, { 7, 1 } },
+    },
+    {
         name = "alias",
         source = "let inc(x: U32) :: U32 = x + 1\nreturn { functions = { a = inc, b = inc } }",
         entries = { { entry = "a", arity = 1 }, { entry = "b", arity = 1 } },
@@ -219,6 +229,28 @@ local function runCase(case)
 end
 
 for _, case in ipairs(CASES) do runCase(case) end
+
+-- A self-tail call must not consume C stack. Without the loop rewrite this overflows; with it,
+-- the call is a back edge and the depth is constant. This runs only in C because the reference
+-- interpreter would recurse in Lua.
+do
+    local source = "let count_down(n: U32) :: U32 = if n == 0 then 7 else count_down(n - 1)\n"
+        .. "let sum_to(n, acc: U32) :: U32 = if n == 0 then acc else sum_to(n - 1, acc + n)\n"
+        .. "return { functions = { count_down, sum_to } }"
+    local generated = wordlet.compile{ source = source, name = "deep.let" }:unit()
+    local path = directory .. "/deep.c"
+    write(path, generated .. "\n#include <assert.h>\n"
+        .. "int main(void) {\n"
+        .. "    assert(wordlet_count_5Fdown(UINT32_C(5000000)) == UINT32_C(7));\n"
+        .. "    assert(wordlet_sum_5Fto(UINT32_C(65535), UINT32_C(0)) == (uint32_t)((uint64_t)65535*65536/2));\n"
+        .. "    return 0;\n}\n")
+    local exe = directory .. "/deep"
+    check(shell("timeout --kill-after=2s 30s " .. CC .. " -std=c11 -Wall -Wextra -Werror -O2 -o '"
+        .. exe .. "' '" .. path .. "' 2> " .. directory .. "/derr.txt") == 0,
+        "deep-recursion C failed to compile:\n" .. read(directory .. "/derr.txt"))
+    check(shell("timeout --kill-after=2s 30s '" .. exe .. "'") == 0,
+        "a self-tail call must run at constant C stack depth")
+end
 
 -- Single-file distribution: bundle the compiler, then compile a program through the bundle's CLI.
 -- This checks the shipped artifact, not just the checkout modules.

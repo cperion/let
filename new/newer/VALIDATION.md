@@ -53,6 +53,7 @@ Gates 1–5 and 8–10 have their first executable form in `tests/parse.lua`, `t
 8. **IR/checking:** storage/value distinction, scope and definite assignment, target signature checks,
    dynamic failure guards, transitive borrow provenance, finite layouts, no metadata runtime slots.
 9. **C:** strict C11 compile/run, arithmetic boundary values, side-effect order, safe tail permutations,
+   constant-stack self-tails (5,000,000 iterations),
    no dangling environment, separate header/source consumer, stable names and Unit erasure.
 10. **Distribution:** replace wordletkit with the REAL facade/CLI in the manifest; bundle parity with the
     checkout implementation; clean relocated builds and runtime execution without source search paths.

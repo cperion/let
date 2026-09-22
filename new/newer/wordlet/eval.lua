@@ -46,7 +46,8 @@ local Ctx = {}
 Ctx.__index = Ctx
 function Ctx:arm(list)
     return setmetatable({ session = self.session, mode = self.mode, scope = self.scope,
-        span = self.span, builder = self.builder, body = list }, Ctx)
+        span = self.span, builder = self.builder, body = list,
+        instance = self.instance, tail = self.tail }, Ctx)
 end
 
 function M.session(options)
@@ -146,12 +147,47 @@ function Eval:exportedWord(slot, span, name)
     return value
 end
 
+-- Syntactic test for a tail self-call. In this language `return` is explicit, so every ReturnStmt
+-- value is a tail position, and an expression body's root is one too. Nested words are separate
+-- functions and are not entered. A false positive only costs the loop-capable parameter layout.
+local function tailValue(node, name)
+    if node == nil then return false end
+    local kind = node.kind
+    if kind == "Apply" then
+        return node.callee.kind == "Reference" and node.callee.name.text == name
+    elseif kind == "Condition" then
+        return tailValue(node.yes, name) or tailValue(node.no, name)
+    end
+    return false
+end
+
+local function hasTailCall(node, name)
+    if node == nil then return false end
+    local kind = node.kind
+    if kind == "ReturnStmt" then
+        for _, value in ipairs(node.values) do if tailValue(value, name) then return true end end
+        return false
+    elseif kind == "Expression" then
+        return tailValue(node.value, name)
+    elseif kind == "Block" then
+        for _, stmt in ipairs(node.statements) do if hasTailCall(stmt, name) then return true end end
+        return false
+    elseif kind == "IfStmt" then
+        for _, arm in ipairs({ node.yes, node.no }) do
+            for _, stmt in ipairs(arm) do if hasTailCall(stmt, name) then return true end end
+        end
+        return false
+    end
+    return false   -- Lambda, SchemaExpr, ValueStmt, WordStmt, CallStmt, StoreStmt
+end
+
 function Eval:define(node, lexical, fields)
     self.nextDef = self.nextDef + 1
     return {
         id = self.nextDef, name = node.name.text, node = node, span = node.name.span,
         params = node.params, result = node.result, body = node.body,
         lexical = lexical, fields = fields,
+        tailSelf = hasTailCall(node.body, node.name.text),
     }
 end
 
@@ -266,6 +302,12 @@ function Eval:evalReference(ctx, expr)
         return self:readFieldValue(ctx, slot, expr.name.span)
     elseif slot.kind == "concrete-field" then
         return slot.record.fields[slot.name] or V.unit()
+    elseif slot.kind == "param" then
+        if ctx.mode ~= "residual" then
+            D.reject("runtime-in-normalization", "Parameter " .. slot.name .. " is runtime storage", expr.name.span)
+        end
+        local read = ctx.builder:read(ctx.body, slot.ty, Ir.Local(slot.storage))
+        return V.ir(ctx.builder:ref(read, slot.ty), slot.ty)
     end
     D.bug("binding", "Unknown binding kind " .. tostring(slot.kind))
 end
@@ -389,17 +431,25 @@ function Eval:evalCondition(ctx, expr)
     local builder = ctx.builder
     local testExpr = self:expression(ctx, test)
     local yesList, noList = {}, {}
-    local yesValue = self:evalExpr(ctx:arm(yesList), expr.yes)
-    local noValue = self:evalExpr(ctx:arm(noList), expr.no)
-    if yesValue.ty ~= noValue.ty then
+    local yesCtx, noCtx = ctx:arm(yesList), ctx:arm(noList)
+    local yesValue = self:evalExpr(yesCtx, expr.yes)
+    local yesTerminated = yesCtx.terminated or false
+    local noValue = self:evalExpr(noCtx, expr.no)
+    local noTerminated = noCtx.terminated or false
+    -- An arm that transfers control (a tail back edge) never reaches the continuation.
+    if yesTerminated and noTerminated then
+        ctx.terminated = true
+        return V.unit()
+    end
+    if not yesTerminated and not noTerminated and yesValue.ty ~= noValue.ty then
         D.reject("branch-result", "Conditional arms have different types: "
             .. S.encode(yesValue.ty) .. " and " .. S.encode(noValue.ty), expr.span)
     end
-    local ty = yesValue.ty
+    local ty = yesTerminated and noValue.ty or yesValue.ty
     local storage = builder:var(ctx.body, ty, nil)
     local place = Ir.Local(storage)
-    builder:store(yesList, place, self:expression(ctx, yesValue))
-    builder:store(noList, place, self:expression(ctx, noValue))
+    if not yesTerminated then builder:store(yesList, place, self:expression(ctx, yesValue)) end
+    if not noTerminated then builder:store(noList, place, self:expression(ctx, noValue)) end
     builder:emit(ctx.body, Ir.If(testExpr, S.list(yesList), S.list(noList)))
     return V.ir(builder:ref(builder:read(ctx.body, ty, place), ty), ty)
 end
@@ -634,7 +684,14 @@ function Eval:execBlock(ctx, statements)
             local def = self:define(stmt.def, ctx.scope, nil)
             declare(ctx.scope, stmt.def.name.text, { kind = "word", name = stmt.def.name.text, def = def }, stmt.def.name.span)
         elseif kind == "ReturnStmt" then
+            -- Only a single returned value can be a tail self-call: in a result vector the
+            -- non-final values are adjusted to one value each and are not tail positions.
+            local savedTail, savedTerminated = ctx.tail, ctx.terminated
+            ctx.tail, ctx.terminated = #stmt.values == 1, false
             local values = self:evalList(ctx, stmt.values)
+            ctx.tail = savedTail
+            if ctx.terminated then return true end
+            ctx.terminated = savedTerminated
             if ctx.mode == "residual" then
                 ctx.builder:emit(ctx.body, Ir.Return(S.list(self:materializeAll(ctx, values))))
                 ctx.resultTypes = {}
@@ -842,7 +899,31 @@ function Eval:applyResidual(ctx, def, values, span)
     if instance.status == "building" and not instance.results then
         D.reject("recursive-result", "Recursive word " .. def.name .. " needs an explicit result annotation", span)
     end
+    -- A tail call to the instance currently being built is a back edge, not a recursive call.
+    if ctx.tail and ctx.instance == instance and instance.loopTargets then
+        self:emitLoopBack(ctx, instance, values, span)
+        return V.unit()
+    end
     return self:emitCall(ctx, instance, values, span, nil)
+end
+
+-- Evaluate every next argument before assigning any parameter, then transfer to the loop head.
+function Eval:emitLoopBack(ctx, instance, values, span)
+    local builder = ctx.builder
+    local temporaries = {}
+    for index, target in ipairs(instance.loopTargets) do
+        local value = values[target.position]
+        self:requireType(value, target.ty, span)
+        local id = builder:valueId()
+        builder:emit(ctx.body, Ir.Let(id, target.ty, self:expression(ctx, value)))
+        temporaries[index] = Ir.Ref(id, target.ty)
+    end
+    for index, target in ipairs(instance.loopTargets) do
+        builder:store(ctx.body, Ir.Local(target.storage), temporaries[index])
+    end
+    builder:emit(ctx.body, Ir.Next)
+    instance.loopBack = true
+    ctx.terminated = true
 end
 
 function Eval:applyMethodResidual(ctx, def, values, receiver, span)
@@ -894,8 +975,11 @@ function Eval:instanceKey(def, values, receiver)
             parts[#parts + 1] = name .. "=" .. encoded
         end
     end
-    for _, value in ipairs(values) do
-        if V.isStatic(value) then
+    -- Every parameter position contributes to the key, including unsupplied ones. An export face
+    -- passes no values, but it must still name the same instance as an ordinary call to it.
+    for index = 1, #def.params do
+        local value = values[index]
+        if value ~= nil and V.isStatic(value) then
             local encoded = V.encode(value)
             if not encoded then D.bug("instance-key", "A static argument has no encoding") end
             parts[#parts + 1] = S.encode(value.ty) .. "=" .. encoded
@@ -917,6 +1001,11 @@ function Eval:instanceFor(def, span, values, receiver)
     return self:buildInstance(key, def, values, span, receiver)
 end
 
+function Eval:loopTarget(instance, position, storage, ty)
+    instance.loopTargets = instance.loopTargets or {}
+    instance.loopTargets[#instance.loopTargets + 1] = { position = position, storage = storage, ty = ty }
+end
+
 function Eval:buildInstance(key, def, values, span, receiver)
     self.nextFn = self.nextFn + 1
     local instance = { key = key, def = def, target = "wordletfn_" .. self.nextFn,
@@ -924,7 +1013,7 @@ function Eval:buildInstance(key, def, values, span, receiver)
     self.instances[key] = instance
     self.order[#self.order + 1] = instance
 
-    local body = {}
+    local body, setup = {}, {}
     local builder = IR.builder({ id = instance.target })
     local sc = scope(def.lexical)
     local params, paramTypes, inputs = {}, {}, {}
@@ -963,11 +1052,21 @@ function Eval:buildInstance(key, def, values, span, receiver)
                 -- A by-value record parameter owns fresh local storage, so field writes and method
                 -- calls do not touch the caller's instance.
                 local storage = builder:storageId()
-                builder:emit(body, Ir.Var(storage, ty, Ir.Ref(value, ty)))
+                setup[#setup + 1] = Ir.Var(storage, ty, Ir.Ref(value, ty))
                 declare(sc, param.name.text, { kind = "value", name = param.name.text,
                     value = V.object(ty, Ir.Local(storage), { fields = S.fieldsOf(ty),
                         fieldNames = S.fieldNames(ty), statics = {}, readonly = {}, methods = {}, type = ty }) },
                     param.span)
+                if def.tailSelf then
+                    self:loopTarget(instance, index, storage, ty)
+                end
+            elseif def.tailSelf then
+                -- Loop-carried parameters need mutable storage so a back edge can rebind them.
+                local storage = builder:storageId()
+                setup[#setup + 1] = Ir.Var(storage, ty, Ir.Ref(value, ty))
+                self:loopTarget(instance, index, storage, ty)
+                declare(sc, param.name.text, { kind = "param", name = param.name.text, ty = ty,
+                    storage = storage }, param.span)
             else
                 declare(sc, param.name.text, { kind = "value", name = param.name.text,
                     value = V.ir(Ir.Ref(value, ty), ty) }, param.span)
@@ -977,14 +1076,21 @@ function Eval:buildInstance(key, def, values, span, receiver)
 
     instance.results = self:declaredResult(def, sc, span)
     local ctx = setmetatable({ session = self, mode = "residual", scope = sc, span = span,
-        builder = builder, body = body, fn = { id = instance.target } }, Ctx)
+        builder = builder, body = body, fn = { id = instance.target }, instance = instance }, Ctx)
     self:execBodyResidual(ctx, def.body, span)
     if not instance.results then instance.results = ctx.resultTypes end
     if not instance.results then
         D.reject("recursive-result", "Word " .. def.name .. " has no returning path", span)
     end
+    -- Loop-carried parameter storage lives outside the loop so it survives each iteration.
+    local statements = setup
+    if instance.loopBack then
+        statements[#statements + 1] = Ir.Loop(S.list(body))
+    else
+        for _, stmt in ipairs(body) do statements[#statements + 1] = stmt end
+    end
     instance.fn = Ir.Fn(instance.target, Ir.Body, receiver and 1 or 0, S.list(inputs),
-        S.list(instance.results), S.list(params), S.list(body))
+        S.list(instance.results), S.list(params), S.list(statements))
     instance.paramTypes = paramTypes
     instance.status = "done"
     return instance
@@ -1019,7 +1125,10 @@ end
 
 function Eval:execBodyResidual(ctx, body, span)
     if body.kind == "Expression" then
+        ctx.tail, ctx.terminated = true, false
         local value = self:evalExpr(ctx, body.value)
+        if ctx.terminated then return end
+        ctx.tail = false
         local values = self:expand(value)
         ctx.builder:return_(ctx.body, self:materializeAll(ctx, values))
         ctx.resultTypes = {}
