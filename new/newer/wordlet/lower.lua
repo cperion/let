@@ -4,6 +4,7 @@ local D = require("wordlet.diag")
 local M = {}
 
 local Ir = S.Ir
+local U64Kernel = require("wordletkit.u64")
 
 -- Same injective escape as the ABI layer: every non-alphanumeric byte becomes _XX.
 function M.escape(name)
@@ -33,6 +34,11 @@ function Emitter:storage(id) return "s" .. id end
 function Emitter:expr(expr)
     local kind = expr.kind
     if kind == "Const" then
+        if expr.literal.kind == "UInt64" then
+            local text = U64Kernel.tostring(expr.literal.high, expr.literal.low, S.isSigned(expr.type))
+            if S.isSigned(expr.type) then return "INT64_C(" .. text .. ")" end
+            return "UINT64_C(" .. text .. ")"
+        end
         if expr.literal.kind == "UInt" then
             if S.isSigned(expr.type) then return "INT32_C(" .. expr.literal.value .. ")" end
             return "UINT32_C(" .. expr.literal.value .. ")"
@@ -66,6 +72,52 @@ function Emitter:expr(expr)
         local cOp = BINARY_OP[op]
         if not cOp then D.bug("c-op", "No C operator for " .. tostring(op)) end
         local resultType = self.layouts:cType(expr.type)
+        if S.isWide(expr.type) then
+            -- A signed 64-bit operation reinterprets the bit pattern of its operands.
+            if S.isSigned(expr.type) then
+                self.layouts.usesi64 = true
+                self.layouts.usesu64 = true
+            end
+            if op == "Div" then
+                if S.isSigned(expr.type) then self.layouts.usesdiv = true end
+                if S.isSigned(expr.type) then return "wordlet_div_i64(" .. left .. ", " .. right .. ")" end
+                return "(" .. left .. " / " .. right .. ")"
+            end
+            if op == "Rem" then
+                if S.isSigned(expr.type) then
+                    self.layouts.usesrem = true
+                    return "wordlet_rem_i64(" .. left .. ", " .. right .. ")"
+                end
+                return "(" .. left .. " % " .. right .. ")"
+            end
+            if op == "Pow" then
+                self.layouts.usespow = true
+                if S.isSigned(expr.type) then
+                    return "wordlet_i64(wordlet_pow64(wordlet_u64(" .. left .. "), wordlet_u64("
+                        .. right .. ")))"
+                end
+                return "wordlet_pow64(" .. left .. ", " .. right .. ")"
+            end
+            if S.isSigned(expr.type) then
+                -- Arithmetic on the bit pattern, so overflow wraps rather than being undefined.
+                if op == "Add" or op == "Sub" or op == "Mul" then
+                    return "wordlet_i64(wordlet_u64(" .. left .. ") " .. cOp .. " wordlet_u64("
+                        .. right .. "))"
+                end
+                if op == "Shl" then
+                    return "wordlet_i64(wordlet_u64(" .. left .. ") << ((" .. right
+                        .. ") >= UINT64_C(64) ? UINT64_C(0) : (" .. right .. ")))"
+                end
+                if op == "Shr" then
+                    self.layouts.usesshr = true
+                    return "wordlet_shr_i64(" .. left .. ", wordlet_u64(" .. right .. "))"
+                end
+                if op == "BitAnd" or op == "BitOr" or op == "BitXor" then
+                    return "wordlet_i64(wordlet_u64(" .. left .. ") " .. cOp .. " wordlet_u64("
+                        .. right .. "))"
+                end
+            end
+        end
         if op == "Div" and S.isSigned(expr.type) then
             return "wordlet_div_i32(" .. left .. ", " .. right .. ")"
         end
@@ -120,14 +172,23 @@ function Emitter:expr(expr)
     elseif kind == "Get" then
         return "(" .. self:expr(expr.aggregate) .. ")." .. fieldName(expr.field.name)
     elseif kind == "Convert" then
-        -- A cast makes a width change exact, and a signedness change reinterprets the bit pattern.
+        -- A cast makes a width change exact, and a signedness change at one width reinterprets the
+        -- bit pattern. The source type is cast first, so a widening sign extends when it should.
         local operand = self:expr(expr.operand)
         local from, to = expr.operand.type, expr.type
         if S.isSigned(from) ~= S.isSigned(to) and S.widthOf(from) == S.widthOf(to) then
+            if S.isWide(to) then
+                if S.isSigned(to) then
+                    self.layouts.usesi64 = true
+                    return "wordlet_i64(" .. operand .. ")"
+                end
+                self.layouts.usesu64 = true
+                return "wordlet_u64(" .. operand .. ")"
+            end
             if S.isSigned(to) then return "wordlet_i32(" .. operand .. ")" end
             return "wordlet_u32(" .. operand .. ")"
         end
-        return "(" .. self.layouts:cType(to) .. ")(" .. operand .. ")"
+        return "(" .. self.layouts:cType(to) .. ")(" .. self.layouts:cType(from) .. ")(" .. operand .. ")"
     elseif kind == "Addr" then
         -- The address of a place: a root plus field names, with no load.
         return "&(" .. self:placeC(expr.place) .. ")"
@@ -654,6 +715,76 @@ end
 
 local INCLUDES = { "#include <stdint.h>", "#include <stdbool.h>", "#include <stdlib.h>" }
 
+-- A 64-bit value is a C integer of its own width, but the signed operations still go through helpers
+-- so that the cases C leaves undefined or implementation-defined - an overflowing signed operation,
+-- the most negative value divided by -1, and a shift of a negative value - behave as two's complement.
+-- Each wide helper is emitted only when a body needs it, because an unused static function is a
+-- diagnostic under `-Werror`. The flags are set while bodies are emitted, which is why the helper text
+-- is assembled after them.
+local WIDE_HELPERS = {
+    i64 = {
+        "static int64_t wordlet_i64(uint64_t bits) { int64_t value; memcpy(&value, &bits, sizeof value); return value; }",
+    },
+    u64 = {
+        "static uint64_t wordlet_u64(int64_t value) { uint64_t bits; memcpy(&bits, &value, sizeof bits); return bits; }",
+    },
+    div = {
+        "static int64_t wordlet_div_i64(int64_t a, int64_t b) {",
+        "    if (b == -1) return wordlet_i64(UINT64_C(0) - wordlet_u64(a));",
+        "    return a / b;",
+        "}",
+    },
+    rem = {
+        "static int64_t wordlet_rem_i64(int64_t a, int64_t b) {",
+        "    if (b == -1) return 0;",
+        "    return a % b;",
+        "}",
+    },
+    shr = {
+        "static int64_t wordlet_shr_i64(int64_t value, uint64_t amount) {",
+        "    if (amount == 0) return value;",
+        "    if (amount >= 64) return value < 0 ? -1 : 0;",
+        "    uint64_t filled = value < 0 ? (~UINT64_C(0) << (64 - amount)) : UINT64_C(0);",
+        "    return wordlet_i64((wordlet_u64(value) >> amount) | filled);",
+        "}",
+    },
+    -- An unsigned 64-bit power, which the 32-bit helper cannot express.
+    pow = {
+        "static uint64_t wordlet_pow64(uint64_t base, uint64_t exponent) {",
+        "    uint64_t result = UINT64_C(1);",
+        "    while (exponent > UINT64_C(0)) {",
+        "        if ((exponent & UINT64_C(1)) != UINT64_C(0)) result = result * base;",
+        "        exponent = exponent >> 1;",
+        "        if (exponent > UINT64_C(0)) base = base * base;",
+        "    }",
+        "    return result;",
+        "}",
+    },
+}
+
+-- The wide helpers a layout needs, in dependency order. A helper that reinterprets the bit pattern
+-- implies the two reinterpretation functions, because it is written in terms of them.
+local WIDE_ORDER = { "i64", "u64", "div", "rem", "shr", "pow" }
+local WIDE_DEPENDS = { div = { "i64", "u64" }, shr = { "i64", "u64" } }
+
+function M.wideHelpers(layouts)
+    local needed = {}
+    for _, name in ipairs(WIDE_ORDER) do
+        if layouts["uses" .. name] then
+            needed[name] = true
+            for _, dependency in ipairs(WIDE_DEPENDS[name] or {}) do needed[dependency] = true end
+        end
+    end
+    if next(needed) == nil then return {} end
+    local lines = { "#include <string.h>" }
+    for _, name in ipairs(WIDE_ORDER) do
+        if needed[name] then
+            for _, line in ipairs(WIDE_HELPERS[name]) do lines[#lines + 1] = line end
+        end
+    end
+    return lines
+end
+
 -- Signed 32-bit values are held as their unsigned bit pattern and reinterpreted, because converting
 -- an out-of-range unsigned value to a signed type is implementation-defined. Division and the right
 -- shift are written out so that the two cases C leaves undefined or implementation-defined - the most
@@ -702,6 +833,11 @@ function M.unit(layouts)
         for _, line in ipairs(SIGNED_HELPERS) do lines[#lines + 1] = line end
         lines[#lines + 1] = ""
     end
+    local wide = M.wideHelpers(layouts)
+    if #wide > 0 then
+        for _, line in ipairs(wide) do lines[#lines + 1] = line end
+        lines[#lines + 1] = ""
+    end
     for _, line in ipairs(declarations) do lines[#lines + 1] = line end
     lines[#lines + 1] = ""
     for _, line in ipairs(M.prototypes(layouts)) do lines[#lines + 1] = line end
@@ -730,6 +866,11 @@ function M.source(layouts, headerName)
     lines[#lines + 1] = ""
     if layouts.usesSigned then
         for _, line in ipairs(SIGNED_HELPERS) do lines[#lines + 1] = line end
+        lines[#lines + 1] = ""
+    end
+    local wide = M.wideHelpers(layouts)
+    if #wide > 0 then
+        for _, line in ipairs(wide) do lines[#lines + 1] = line end
         lines[#lines + 1] = ""
     end
     for _, line in ipairs(declarations) do lines[#lines + 1] = line end

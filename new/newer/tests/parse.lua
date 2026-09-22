@@ -169,7 +169,10 @@ rejects("parse", "let f(x: U32) = 1 < x < 2\nreturn { functions = {} }")
 rejects("parse", "let f(x: U32) = do x + 1 return x end\nreturn { functions = {} }")
 rejects("parse", "return { widgets = {} }")
 rejects("parse", "let f(x: U32, y) = x\nreturn { functions = {} }")
-rejects("lex-range", "let x = 4294967296\nreturn { functions = {} }")
+-- A literal above 64 bits is refused, while one that only exceeds a word is a 64-bit literal.
+rejects("lex-range", "let x = 18446744073709551616\nreturn { functions = {} }")
+check(#P.source("let x = 4294967296\nreturn { functions = {} }", "t.let").declarations == 1,
+    "a literal above a word is a 64-bit literal")
 rejects("lex-char", "let x = $\nreturn { functions = {} }")
 rejects("parse", "let f(x: U32) = x\nreturn { functions = { f }\n")
 

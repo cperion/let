@@ -13,6 +13,7 @@ M.Ir = M.ctx.Ir
 
 local Ty = M.Ty
 M.U32, M.U8, M.U16, M.I32 = Ty.U32, Ty.U8, Ty.U16, Ty.I32
+M.U64, M.I64 = Ty.U64, Ty.I64
 M.Bool, M.Unit, M.Type = Ty.Bool, Ty.Unit, Ty.Type
 
 function M.list(items) return ASDL.List(items) end
@@ -24,16 +25,40 @@ function M.isU16(t) return t == Ty.U16 end
 -- The integer widths this version has. An integer wraps at its own width, and a conversion that
 -- changes width is checked. A signed integer is two's complement, so its range is the same width
 -- shifted by half.
-local WIDTHS = { [Ty.U8] = 8, [Ty.U16] = 16, [Ty.U32] = 32, [Ty.I32] = 32 }
+local WIDTHS = { [Ty.U8] = 8, [Ty.U16] = 16, [Ty.U32] = 32, [Ty.I32] = 32,
+    [Ty.U64] = 64, [Ty.I64] = 64 }
+-- A 64-bit bound is not a Lua number, so the bounds of every width are held as two words and the
+-- exact kernel compares them. MAXIMA and MINIMA therefore only describe the widths that fit one.
 local MAXIMA = { [Ty.U8] = 255, [Ty.U16] = 65535, [Ty.U32] = 4294967295, [Ty.I32] = 2147483647 }
 local MINIMA = { [Ty.I32] = -2147483648 }
-local SIGNED = { [Ty.I32] = true }
+local SIGNED = { [Ty.I32] = true, [Ty.I64] = true }
 function M.isInteger(t) return WIDTHS[t] ~= nil end
 function M.widthOf(t) return WIDTHS[t] end
+function M.isWide(t) return WIDTHS[t] == 64 end
 function M.maxOf(t) return MAXIMA[t] end
 function M.minOf(t) return MINIMA[t] or 0 end
 function M.isSigned(t) return SIGNED[t] == true end
 function M.modulusOf(t) return 2 ^ WIDTHS[t] end
+
+-- The largest and smallest value of an integer type as a pair of words, so that "does this value
+-- fit" is one comparison in the exact kernel for every width. A signed type sign extends its bounds.
+function M.maxWordsOf(t)
+    if M.isWide(t) then
+        if M.isSigned(t) then return 2147483647, 4294967295 end
+        return 4294967295, 4294967295
+    end
+    return 0, M.maxOf(t)
+end
+
+function M.minWordsOf(t)
+    if M.isWide(t) then
+        if M.isSigned(t) then return 2147483648, 0 end
+        return 0, 0
+    end
+    local minimum = M.minOf(t)
+    if minimum < 0 then return 4294967295, minimum + 4294967296 end
+    return 0, 0
+end
 
 -- A wider integer of the same signedness holds every value of a narrower one. Changing signedness
 -- reinterprets the bits at one width and is checked when the width changes, so it is never implicit.

@@ -120,6 +120,7 @@ function Builder:const(ty, literal)
 end
 function Builder:u32(n) return self:const(S.U32, Ir.UInt(n)) end
 function Builder:int(ty, n) return self:const(ty, Ir.UInt(n)) end
+function Builder:int64(ty, high, low) return self:const(ty, Ir.UInt64(high, low)) end
 function Builder:bool(b) return self:const(S.Bool, Ir.Boolean(b)) end
 function Builder:ref(value, ty)
     return self:intern("ref|" .. value.id .. "|" .. S.encode(ty), function()
@@ -136,7 +137,10 @@ end
 
 local function foldBinary(op, ty, a, b)
     if a.kind ~= "Const" or b.kind ~= "Const" then return nil end
+    -- A 64-bit constant is two words and a wide type wraps at its own width, so it is left to the
+    -- evaluator's exact folding rather than folded here.
     if a.literal.kind ~= "UInt" or b.literal.kind ~= "UInt" then return nil end
+    if S.isWide(ty) then return nil end
     local x, y = a.literal.value, b.literal.value
     if S.isInteger(ty) and ty ~= S.U32 then
         -- A narrower width wraps at its own width, so the exact 32-bit kernel does not apply.

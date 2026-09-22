@@ -13,6 +13,10 @@ local function make(t) return setmetatable(t, V) end
 -- An integer value of a given width. Its type says which width, so the arithmetic and the
 -- conversions are decided by the type rather than by a separate kind.
 function M.int(ty, n) return make{ tag = "int", ty = ty, n = n } end
+
+-- A 64-bit integer, held as the two words of its value because a Lua number cannot hold it.
+function M.int64(ty, high, low) return make{ tag = "int", ty = ty, high = high, low = low } end
+function M.isWide(v) return v.tag == "int" and v.high ~= nil end
 function M.u32(n) return M.int(S.U32, n) end
 function M.u8(n) return M.int(S.U8, n) end
 function M.u16(n) return M.int(S.U16, n) end
@@ -158,7 +162,10 @@ end
 function M.encode(v)
     if not M.is(v) then return S.encode(v) end
     local tag = v.tag
-    if tag == "int" then return S.encode(v.ty) .. ":" .. tostring(v.n) end
+    if tag == "int" then
+        if v.high then return S.encode(v.ty) .. ":" .. tostring(v.high) .. ":" .. tostring(v.low) end
+        return S.encode(v.ty) .. ":" .. tostring(v.n)
+    end
     if tag == "bool" then return "bool:" .. tostring(v.b) end
     if tag == "unit" then return "unit" end
     if tag == "type" then return "type:" .. S.encode(v.value) end

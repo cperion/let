@@ -276,10 +276,19 @@ function M.expr(expr, locals, storages)
     local kind = expr.kind
     if kind == "Const" then
         if S.isInteger(expr.type) then
-            if expr.literal.kind ~= "UInt" then
+            if expr.literal.kind == "UInt64" then
+                -- A two-word constant is only meaningful for a 64-bit type.
+                if not S.isWide(expr.type) then
+                    D.bug("ir-literal", "A two-word constant needs a 64-bit type")
+                end
+            elseif expr.literal.kind ~= "UInt" then
                 D.bug("ir-literal", "An integer constant needs a UInt literal")
-            end
-            if expr.literal.value > S.maxOf(expr.type) then
+            elseif S.isWide(expr.type) then
+                -- A one-word constant of a 64-bit type has to be a word.
+                if expr.literal.value > 4294967295 then
+                    D.bug("ir-literal", "A one-word constant is out of range")
+                end
+            elseif expr.literal.value > S.maxOf(expr.type) then
                 D.bug("ir-literal", "A constant does not fit in its own width")
             end
         elseif expr.type == S.Bool then

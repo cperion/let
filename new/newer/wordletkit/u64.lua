@@ -231,4 +231,26 @@ function M.tofloat(ah, al)
     return result
 end
 
+-- Reads a decimal or hexadecimal literal, with or without the `0x`, into two words. A literal that
+-- would need more than 64 bits is refused rather than wrapped, which is what a source literal needs.
+function M.fromstring(text)
+    local digits, base = text, 10
+    if digits:lower():sub(1, 2) == "0x" then digits, base = digits:sub(3), 16 end
+    if #digits == 0 then return nil end
+    local high, low = 0, 0
+    for index = 1, #digits do
+        local digit = tonumber(digits:sub(index, index), base)
+        if not digit then return nil end
+        -- (high:low) * base + digit, refusing a result that would need a 65th bit.
+        local product, productHigh = mul32(low, base)
+        local scaled, scaledHigh = mul32(high, base)
+        if scaledHigh ~= 0 then return nil end
+        local newLow = product + digit
+        local newHigh = scaled + productHigh + math.floor(newLow / WORD)
+        if newHigh >= WORD then return nil end
+        high, low = newHigh, newLow % WORD
+    end
+    return high, low
+end
+
 return M

@@ -1244,6 +1244,62 @@ end
 return { functions = { f } }
 ]==])
 
+
+-- 64-bit integers ----------------------------------------------------------------------------------
+-- A 64-bit value does not fit a Lua number, so it is held as two words and the exact kernel decides
+-- its arithmetic. A literal that does not fit a word is a 64-bit literal.
+local WIDE = [==[
+let low(): U32 = U32(0xFFFFFFFFFFFFFFFF % 4294967296)
+let high(): U32 = U32(0xFFFFFFFFFFFFFFFF / 4294967296)
+let masked(n: U32): U32 = U32(U64(n) * U64(n) % 4294967296)
+let above(n: U32): U32 = U32(U64(n) * U64(n) / 4294967296)
+let negative(n: U32): U32 = U32((I64(4294967296) - I64(n)) / I64(2))
+return { types = {  }, functions = { low, high, masked, above, negative } }
+]==]
+check(interpret("low", {}, WIDE)[1] == 4294967295, "the low word of the largest value")
+check(interpret("high", {}, WIDE)[1] == 4294967295, "the high word of the largest value")
+check(interpret("masked", { 4294967295 }, WIDE)[1] == 1,
+    "the square of the largest 32-bit value is one modulo 2^32")
+check(interpret("above", { 4294967295 }, WIDE)[1] == 4294967294,
+    "and its high word is two less than 2^32")
+check(interpret("negative", { 2 }, WIDE)[1] == 2147483647, "a wide subtraction and division")
+local wideUnit = compile(WIDE):unit()
+check(wideUnit:find("uint64_t", 1, true) ~= nil and wideUnit:find("int64_t", 1, true) ~= nil,
+    "the 64-bit types lower to their C types")
+check(wideUnit:find("wordlet_i64", 1, true) ~= nil,
+    "a signed 64-bit value is reinterpreted rather than converted out of range")
+-- Rejections ------------------------------------------------------------------------------------
+-- A width change that can lose a value is checked, and a negative value has no unsigned counterpart.
+rejects("numeric-range", [==[
+let f(n: U32): U32 = U32(18446744073709551615) + n
+return { functions = { f } }
+]==])
+-- A run-time value that cannot fit is stopped when it is converted rather than refused while
+-- compiling, so the program compiles and the generated code carries a check.
+check(#compile([==[
+let f(n: U32): U32 = U32(U64(n) * U64(n))
+return { functions = { f } }
+]==]):unit() > 0, "a run-time narrowing conversion compiles with a run-time check")
+-- A negative value narrowed to a narrower unsigned type is refused, while the same width read the
+-- other way is a reinterpretation and keeps every bit.
+rejects("numeric-range", [==[
+let f(n: U32): U32 = do
+  let a: I64 = I64(0) - I64(5)
+  let b: U32 = U32(a)
+  return n + b
+end
+return { functions = { f } }
+]==])
+check(interpret("bits", { 3 },
+    "let bits(n: U32): U32 = do\n  let a: I64 = I64(0) - I64(n)\n  let b: U64 = U64(a)\n"
+    .. "  return U32(b % 4294967296)\nend\nreturn { functions = { bits } }")[1] == 4294967293,
+    "a same-width signedness change reinterprets the bits")
+-- A literal above 64 bits is refused rather than wrapped.
+rejects("lex-range", [==[
+let f(n: U32): U32 = U32(18446744073709551616) + n
+return { functions = { f } }
+]==])
+
 -- The interpreter refuses an unsaturated entry rather than inventing a value.
 local ok, err = pcall(wordlet.interpret, { source = "let f(a, b: U32) : U32 = a + b\n"
     .. "return { functions = { f } }", entry = "f", args = { 1 } })

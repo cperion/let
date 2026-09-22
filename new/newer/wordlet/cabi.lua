@@ -180,6 +180,15 @@ function M.close(compilation)
         if ty == S.U32 then return "uint32_t" end
         if ty == S.U8 then return "uint8_t" end
         if ty == S.U16 then return "uint16_t" end
+        if ty == S.U64 then
+            layouts.usesWide = true
+            return "uint64_t"
+        end
+        if ty == S.I64 then
+            layouts.usesWide = true
+            layouts.usesSigned64 = true
+            return "int64_t"
+        end
         if ty == S.I32 then
             -- The unit needs the signed helpers, which reinterpret rather than rely on the
             -- implementation's conversion of an out-of-range value.

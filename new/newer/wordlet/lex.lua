@@ -1,5 +1,6 @@
 -- Free-form lexer. Newlines and indentation are whitespace; only `--` comments are line-sensitive.
 local D = require("wordlet.diag")
+local U64 = require("wordletkit.u64")
 local M = {}
 
 local KEYWORDS = {}
@@ -54,23 +55,21 @@ function M.tokens(source, name)
             if source:sub(i, i + 1):lower() == "0x" then
                 i = i + 2
                 local digits = i
-                while i <= n and source:sub(i, i):match("%x") do
-                    value = (value or 0) * 16 + tonumber(source:sub(i, i), 16)
-                    if value > 4294967295 then
-                        D.reject("lex-range", "Integer literal exceeds the U32 range", span(name, line, start, i + 1))
-                    end
-                    i = i + 1
-                end
+                while i <= n and source:sub(i, i):match("%x") do i = i + 1 end
                 if i == digits then D.reject("lex-number", "Hexadecimal literal has no digits", span(name, line, start, i)) end
             else
-                while i <= n and source:sub(i, i):match("%d") do
-                    local digit = tonumber(source:sub(i, i))
-                    if value and value > math.floor((4294967295 - digit) / 10) then
-                        D.reject("lex-range", "Integer literal exceeds the U32 range", span(name, line, start, i + 1))
-                    end
-                    value = (value or 0) * 10 + digit
-                    i = i + 1
+                while i <= n and source:sub(i, i):match("%d") do i = i + 1 end
+            end
+            -- A literal that does not fit a word arrives as its two words, and one that needs more
+            -- than 64 bits is refused rather than wrapped.
+            local text = source:sub(start, i - 1)
+            value = tonumber(text)
+            if value == nil or value > 4294967295 then
+                local high, low = U64.fromstring(text)
+                if not high then
+                    D.reject("lex-range", "Integer literal exceeds 64 bits", span(name, line, start, i))
                 end
+                value = { high = high, low = low }
             end
             tokens[#tokens + 1] = { kind = "number", text = source:sub(start, i - 1), value = value,
                 span = span(name, line, start, i) }

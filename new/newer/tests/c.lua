@@ -572,6 +572,37 @@ return { types = {  }, functions = { round, quotient, shift, bits, negate } }
             { entry = "negate", arity = 1, inputs = { { 0 }, { 1 }, { 2147483648 } } },
         },
     },
+    {
+        -- 64-bit integers: literals that do not fit a word, widening and narrowing, products that
+        -- need both words, division and remainder of a signed value, and a shift into the high word.
+        name = "wide",
+        source = [==[
+let low(): U32 = U32(0xFFFFFFFFFFFFFFFF % 4294967296)
+let high(): U32 = U32(0xFFFFFFFFFFFFFFFF / 4294967296)
+let square_low(n: U32): U32 = U32(U64(n) * U64(n) % 4294967296)
+let square_high(n: U32): U32 = U32(U64(n) * U64(n) / 4294967296)
+let cube_low(n: U32): U32 = U32(U64(n) * U64(n) * U64(n) % 4294967296)
+let shift_high(n: U32): U32 = U32((U64(1) << (n % 64)) / 4294967296)
+let signed_quotient(n: U32): U32 = U32(I64(n) / I64(3))
+let signed_remainder(n: U32): U32 = U32(I64(n) % I64(3))
+let signed_shift(n: U32): U32 = U32((I64(4294967296) + I64(n)) >> I64(1))
+let big_literal(n: U32): U32 = U32((18446744073709551615 + U64(n)) % 4294967296)
+return { types = {  }, functions = { low, high, square_low, square_high, cube_low, shift_high,
+    signed_quotient, signed_remainder, signed_shift, big_literal } }
+]==],
+        entries = {
+            { entry = "low", arity = 0, inputs = { {} } },
+            { entry = "high", arity = 0, inputs = { {} } },
+            { entry = "square_low", arity = 1, inputs = { { 0 }, { 3 }, { 4294967295 } } },
+            { entry = "square_high", arity = 1, inputs = { { 0 }, { 65536 }, { 4294967295 } } },
+            { entry = "cube_low", arity = 1, inputs = { { 0 }, { 7 }, { 4294967295 } } },
+            { entry = "shift_high", arity = 1, inputs = { { 0 }, { 32 }, { 40 }, { 63 } } },
+            { entry = "signed_quotient", arity = 1, inputs = { { 0 }, { 7 }, { 4294967295 } } },
+            { entry = "signed_remainder", arity = 1, inputs = { { 0 }, { 7 }, { 4294967295 } } },
+            { entry = "signed_shift", arity = 1, inputs = { { 0 }, { 2 }, { 4294967295 } } },
+            { entry = "big_literal", arity = 1, inputs = { { 0 }, { 1 }, { 4294967295 } } },
+        },
+    },
 }
 
 local function cLiteral(value)

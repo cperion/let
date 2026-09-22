@@ -13,6 +13,61 @@ local Eval = {}
 Eval.__index = Eval
 
 local Ir = S.Ir
+local U64Kernel = require("wordletkit.u64")
+
+-- A 64-bit integer is held as two words, because a Lua number cannot hold it. These helpers keep that
+-- representation at the edge of the evaluator: the rest works with plain numbers, and a value only
+-- goes through them when a width of 64 is involved.
+
+-- The words of a known integer value, sign extending a scalar one.
+function wordsOf(value)
+    if value.high then return value.high, value.low end
+    if value.n < 0 then return 4294967295, value.n + 4294967296 end
+    return 0, value.n
+end
+
+-- Whether a pair of words is a value of `ty`.
+function wordsFit(ty, high, low)
+    local minHigh, minLow = S.minWordsOf(ty)
+    local maxHigh, maxLow = S.maxWordsOf(ty)
+    local compare = S.isSigned(ty) and U64Kernel.sle or U64Kernel.le
+    return compare(minHigh, minLow, high, low) and compare(high, low, maxHigh, maxLow)
+end
+
+-- Retags a value with a new type and representation. A runtime value keeps its expression, which is
+-- where its value lives; a type that fits a Lua number also keeps a number.
+function become(value, ty, high, low)
+    if V.tag(value) == "ir" then
+        value.ty = ty
+        return value
+    end
+    if S.isWide(ty) then
+        value.ty, value.n, value.high, value.low = ty, nil, high, low
+    elseif S.isSigned(ty) and low >= 2147483648 then
+        value.ty, value.n, value.high, value.low = ty, low - 4294967296, nil, nil
+    else
+        value.ty, value.n, value.high, value.low = ty, low, nil, nil
+    end
+    return value
+end
+
+-- Whether every value of one integer type is a value of another, so the conversion loses nothing.
+function fitsAlways(from, to)
+    if from == to then return true end
+    local minFromHigh, minFromLow = S.minWordsOf(from)
+    local maxFromHigh, maxFromLow = S.maxWordsOf(from)
+    local minToHigh, minToLow = S.minWordsOf(to)
+    local maxToHigh, maxToLow = S.maxWordsOf(to)
+    local compare = (S.isSigned(from) or S.isSigned(to)) and U64Kernel.sle or U64Kernel.le
+    return compare(minToHigh, minToLow, minFromHigh, minFromLow)
+        and compare(maxFromHigh, maxFromLow, maxToHigh, maxToLow)
+end
+
+-- A readable form of an integer value's words, for a diagnostic.
+function describeWords(ty, high, low)
+    if S.isWide(ty) then return U64Kernel.tostring(high, low, S.isSigned(ty)) end
+    return tostring(high * 4294967296 + low)
+end
 
 -- Module-level mutable storage is emitted as a file-scope object, so its ids must not look like
 -- the function-local storage the builder allocates for each body.
@@ -111,7 +166,7 @@ function Eval:load(program)
         end
         ::continue::
     end
-    for _, name in ipairs({ "U32", "U8", "U16", "I32", "Bool", "Unit", "Type" }) do
+    for _, name in ipairs({ "U32", "U8", "U16", "I32", "U64", "I64", "Bool", "Unit", "Type" }) do
         declare(top, name, { kind = "value", name = name, value = V.type(S[name]) })
     end
     -- `Ref(T)` is a type and `Ref(place)` is a reference to that place. Both are the same ordinary
@@ -1225,7 +1280,10 @@ function Eval:expression(ctx, value, want)
         end
         return value.expr
     end
-    if tag == "int" then return ctx.builder:int(value.ty, value.n) end
+    if tag == "int" then
+        if value.high then return ctx.builder:int64(value.ty, value.high, value.low) end
+        return ctx.builder:int(value.ty, value.n)
+    end
     if tag == "bool" then return ctx.builder:bool(value.b) end
     if tag == "record" or tag == "object" then return self:recordExpr(ctx, value) end
     if tag == "array" then
@@ -1368,28 +1426,27 @@ end
 -- is defined and needs no check; any other change that cannot lose a value is implicit, and one that
 -- can is accepted only for a known value that fits.
 function Eval:convert(value, ty, span)
-    if value.ty == ty then return value end
-    if not (S.isInteger(value.ty) and S.isInteger(ty)) then return nil end
-    if S.isSigned(value.ty) ~= S.isSigned(ty) then
-        if S.widthOf(value.ty) ~= S.widthOf(ty) then return nil end
+    local from = value.ty
+    if from == ty then return value end
+    if not (S.isInteger(from) and S.isInteger(ty)) then return nil end
+    if S.widthOf(from) == S.widthOf(ty) then
+        -- The same width with a different signedness: the bits are the value.
+        if S.isSigned(from) == S.isSigned(ty) then return nil end
         if V.tag(value) == "ir" then value.cast = true end
-        if V.isKnown(value) then value.n = wrap(ty, value.n) end
-        value.ty = ty
-        return value
+        if V.isKnown(value) then return become(value, ty, wordsOf(value)) end
+        return become(value, ty, 0, 0)
     end
-    if S.widthOf(ty) > S.widthOf(value.ty) then
-        -- The cast is applied where the value is materialised, once.
+    if fitsAlways(from, ty) then
+        -- Nothing can be lost, so the conversion is applied where the value is materialised.
         if V.tag(value) == "ir" then value.cast = true end
-        value.ty = ty
-        return value
+        if V.isKnown(value) then return become(value, ty, wordsOf(value)) end
+        return become(value, ty, 0, 0)
     end
     if V.isKnown(value) then
-        if value.n > S.maxOf(ty) or value.n < S.minOf(ty) then
-            D.reject("numeric-range", "Value " .. tostring(value.n) .. " does not fit in "
-                .. S.encode(ty), span)
-        end
-        value.ty = ty
-        return value
+        local high, low = wordsOf(value)
+        if wordsFit(ty, high, low) then return become(value, ty, high, low) end
+        D.reject("numeric-range", "Value " .. describeWords(from, high, low) .. " does not fit in "
+            .. S.encode(ty), span)
     end
     return nil
 end
@@ -1411,8 +1468,13 @@ function Eval:evalExpr(ctx, expr)
     self:step(expr.span)
     local kind = expr.kind
     if kind == "U32Literal" then
-        -- A literal adapts to a narrower operand when it fits, which is decided from the syntax.
+        -- A literal adapts to another operand's type when it fits, which is decided from the syntax.
         local literal = V.u32(expr.value)
+        literal.literal = true
+        return literal
+    elseif kind == "U64Literal" then
+        -- A literal that does not fit a word is a 64-bit literal, held as its two words.
+        local literal = V.int64(S.U64, expr.high, expr.low)
         literal.literal = true
         return literal
     elseif kind == "BoolLiteral" then return V.bool(expr.value)
@@ -1510,6 +1572,11 @@ function Eval:evalUnary(ctx, expr)
     end
     local ty = value.ty
     if V.isInteger(value) then
+        if S.isWide(ty) then
+            local high, low = wordsOf(value)
+            if op == "-" then return V.int64(ty, U64Kernel.neg(high, low)) end
+            return V.int64(ty, U64Kernel.bnot(high, low))
+        end
         local n = op == "-" and wrap(ty, -value.n) or wrap(ty, bit.bnot(value.n))
         return V.int(ty, n)
     end
@@ -1531,9 +1598,9 @@ function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
         -- A comparison widens both sides, which is always safe and never narrows.
         if S.isInteger(left.ty) and S.isInteger(right.ty) and left.ty ~= right.ty then
             local wider
-            if left.literal and not right.literal and left.n <= S.maxOf(right.ty) then
+            if left.literal and not right.literal and wordsFit(right.ty, wordsOf(left)) then
                 wider = right.ty
-            elseif right.literal and not left.literal and right.n <= S.maxOf(left.ty) then
+            elseif right.literal and not left.literal and wordsFit(left.ty, wordsOf(right)) then
                 wider = left.ty
             else
                 wider = S.widerThan(left.ty, right.ty)
@@ -1584,9 +1651,9 @@ function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
         if left.ty ~= right.ty then
             local ty
             if left.literal and not right.literal then
-                if left.n <= S.maxOf(right.ty) then ty = right.ty end
+                if wordsFit(right.ty, wordsOf(left)) then ty = right.ty end
             elseif right.literal and not left.literal then
-                if right.n <= S.maxOf(left.ty) then ty = left.ty end
+                if wordsFit(left.ty, wordsOf(right)) then ty = left.ty end
             else
                 ty = S.widerThan(left.ty, right.ty)
             end
@@ -1602,6 +1669,29 @@ function Eval:binaryOp(ctx, op, left, right, leftSpan, rightSpan, span)
     local ty = left.ty
     if (op == "/" or op == "%") and V.isInteger(right) and right.n == 0 then
         D.reject("division-zero", "Known zero divisor", rightSpan)
+    end
+    if S.isWide(ty) and V.isInteger(left) and V.isInteger(right) then
+        local ah, al = wordsOf(left)
+        local bh, bl = wordsOf(right)
+        local high, low
+        if op == "+" then high, low = U64Kernel.add(ah, al, bh, bl)
+        elseif op == "-" then high, low = U64Kernel.sub(ah, al, bh, bl)
+        elseif op == "*" then high, low = U64Kernel.mul(ah, al, bh, bl)
+        elseif op == "/" then
+            if S.isSigned(ty) then high, low = U64Kernel.sdivmod(ah, al, bh, bl)
+            else high, low = U64Kernel.divmod(ah, al, bh, bl) end
+        elseif op == "%" then
+            if S.isSigned(ty) then _, _, high, low = U64Kernel.sdivmod(ah, al, bh, bl)
+            else _, _, high, low = U64Kernel.divmod(ah, al, bh, bl) end
+        elseif op == "^" then high, low = U64Kernel.pow(ah, al, bh, bl)
+        elseif op == "<<" then high, low = U64Kernel.shl(ah, al, bl)
+        elseif op == ">>" then
+            if S.isSigned(ty) then high, low = U64Kernel.sar(ah, al, bl)
+            else high, low = U64Kernel.shr(ah, al, bl) end
+        elseif op == "&" then high, low = U64Kernel.band(ah, al, bh, bl)
+        elseif op == "|" then high, low = U64Kernel.bor(ah, al, bh, bl)
+        else high, low = U64Kernel.bxor(ah, al, bh, bl) end
+        return V.int64(ty, high, low)
     end
     if V.isInteger(left) and V.isInteger(right) then
         local x, y = left.n, right.n
@@ -2879,30 +2969,47 @@ function Eval:applyConversion(ctx, ty, args, span)
         D.reject("type-mismatch", S.encode(ty) .. " needs an integer, found "
             .. S.encode(value.ty or S.Unit), span)
     end
-    -- Changing signedness at one width reinterprets the bits; everything else is checked.
-    local reinterprets = S.isSigned(value.ty) ~= S.isSigned(ty)
-        and S.widthOf(value.ty) == S.widthOf(ty)
-    if not reinterprets and S.isSigned(value.ty) == S.isSigned(ty)
-        and S.widthOf(value.ty) <= S.widthOf(ty) then
-        return self:convert(value, ty, span)
+    local reinterprets = S.widthOf(value.ty) == S.widthOf(ty)
+        and S.isSigned(value.ty) ~= S.isSigned(ty)
+    if reinterprets then
+        -- The same width read the other way keeps every bit, so nothing is checked.
+        if V.isKnown(value) then return become(value, ty, wordsOf(value)) end
+        return V.ir(ctx.builder:convert(self:expression(ctx, value), ty), ty)
     end
-    if V.isInteger(value) then
-        if reinterprets or (value.n <= S.maxOf(ty) and value.n >= S.minOf(ty)) then
-            return V.int(ty, wrap(ty, value.n))
-        end
-        D.reject("numeric-range", "Value " .. tostring(value.n) .. " does not fit in "
+    local converted = self:convert(value, ty, span)
+    if converted then return converted end
+    if V.isKnown(value) then
+        local high, low = wordsOf(value)
+        if wordsFit(ty, high, low) then return become(value, ty, high, low) end
+        D.reject("numeric-range", "Value " .. describeWords(value.ty, high, low) .. " does not fit in "
             .. S.encode(ty), span)
     end
     local expr = self:expression(ctx, value)
     if not reinterprets then
-        if S.minOf(value.ty) < S.minOf(ty) then
+        -- A run-time value that cannot fit the target is refused when it is converted. The check is
+        -- needed for a bound of the source that the target cannot hold.
+        local sourceMinHigh, sourceMinLow = S.minWordsOf(value.ty)
+        local sourceMaxHigh, sourceMaxLow = S.maxWordsOf(value.ty)
+        local minHigh, minLow = S.minWordsOf(ty)
+        local maxHigh, maxLow = S.maxWordsOf(ty)
+        -- A bound only needs a check when the source can go beyond it, which is a strict comparison.
+        local compare = (S.isSigned(value.ty) or S.isSigned(ty)) and U64Kernel.slt or U64Kernel.lt
+        if compare(sourceMinHigh, sourceMinLow, minHigh, minLow) then
             ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Lt", expr,
-                ctx.builder:int(value.ty, S.minOf(ty)), S.Bool), "numeric-range"))
+                self:constInt(ctx, value.ty, minHigh, minLow), S.Bool), "numeric-range"))
         end
-        ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Gt", expr,
-            ctx.builder:int(value.ty, S.maxOf(ty)), S.Bool), "numeric-range"))
+        if compare(maxHigh, maxLow, sourceMaxHigh, sourceMaxLow) then
+            ctx.builder:emit(ctx.body, Ir.Trap(ctx.builder:bin("Gt", expr,
+                self:constInt(ctx, value.ty, maxHigh, maxLow), S.Bool), "numeric-range"))
+        end
     end
     return V.ir(ctx.builder:convert(expr, ty), ty)
+end
+
+-- An integer constant of a type, which a 64-bit one holds as its two words.
+function Eval:constInt(ctx, ty, high, low)
+    if S.isWide(ty) then return ctx.builder:int64(ty, high, low) end
+    return ctx.builder:int(ty, low)
 end
 
 function Eval:evalApply(ctx, expr)

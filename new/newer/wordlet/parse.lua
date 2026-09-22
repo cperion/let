@@ -229,6 +229,10 @@ function Parser:primary()
     local token = self:peek()
     if token.kind == "number" then
         self:next()
+        -- A literal that does not fit a word arrives as its two words.
+        if type(token.value) == "table" then
+            return A.c.U64Literal(token.value.high, token.value.low, S(token.span))
+        end
         return A.c.U32Literal(token.value, S(token.span))
     elseif token.kind == "keyword" and (token.text == "true" or token.text == "false") then
         self:next()

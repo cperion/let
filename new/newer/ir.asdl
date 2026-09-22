@@ -1,7 +1,7 @@
 # Wordlet runtime semantic types and structured IR. Checkable with vendor/asdl.lua.
 # Ir.Value/Storage/Bundle IDs are function-local; Ir.Fn.id is compilation-wide.
 module Ty {
-  V = U32 | U8 | U16 | I32 | Bool | Unit | Type
+  V = U32 | U8 | U16 | I32 | U64 | I64 | Bool | Unit | Type
     | Record(string meaning, Field* fields) unique
     | Tuple(V* fields) unique
     | Sig(Input* inputs, V* results) unique
@@ -24,7 +24,7 @@ module Ir {
   Bundle = (number id) unique
   Field = (string name) unique
 
-  Literal = UInt(number value) | Boolean(boolean value)
+  Literal = UInt(number value) | UInt64(number high, number low) | Boolean(boolean value)
   Unary = Neg | Not | BitNot
   Binary = Add | Sub | Mul | Div | Rem | Pow
          | BitAnd | BitOr | BitXor | Shl | Shr

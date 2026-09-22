@@ -24,6 +24,7 @@ module Ast {
   Body = Expression(Expr value) | Block(Stmt* statements)
 
   Expr = U32Literal(number value)
+       | U64Literal(number high, number low)
        | BoolLiteral(boolean value)
        | UnitLiteral
        | Reference(Name name)
