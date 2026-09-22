@@ -159,6 +159,103 @@ H.test("nested record C agrees with value copies, field places and U32 snapshots
     H.eq(run_c(table.concat(source, "\n")), "")
 end)
 
+H.test("C record copy cleanup keeps one mutable snapshot and does not rewrite checked IR", function()
+    local s = Word.new(); local m = s:load(H.root .. "examples/records.lua")
+    local program = s:compile{types = {Point = m.types.Point}, functions = {shift = m.functions.shift}}
+    local fn = program.functions[program.exports[1].target]
+    local function ir_shape()
+        local shape = {}
+        for _, block in ipairs(fn.blocks) do
+            for _, ins in ipairs(block.instructions) do
+                shape[#shape + 1] = table.concat({ins.id or "-", ins.op, ins.initial or "-", ins.root or "-",
+                    ins.path and table.concat(ins.path, ".") or "-", ins.value or "-"}, ":")
+            end
+            shape[#shape + 1] = block.exit.op .. ":" .. tostring(block.exit.value)
+        end
+        return table.concat(shape, "|")
+    end
+    local before = ir_shape()
+    local c = C.emit(program)
+    H.eq(ir_shape(), before); assert(require("word.ir").verify(program)); H.eq(C.emit(program), c)
+    local body = assert(c:match("word_shift%b()%s*(%b{})"))
+    local _, copies = body:gsub("wordrecord_%d+ v%d+ = v%d+;", "")
+    H.eq(copies, 2) -- parameter storage plus the required post-mutation return snapshot
+    assert(body:find(" v7 = v3;", 1, true))
+    assert(not body:find(" v8 = v7;", 1, true) and not body:find(" v9 = v8;", 1, true))
+    assert(body:find("return v7;", 1, true))
+end)
+
+H.test("copy cleanup preserves branch snapshots, nested places, borrows and tail permutations", function()
+    local s = Word.new(); local m = s:load_string([[
+        local P = word{x = U32}
+        local Pair = word{left = P, right = P}
+        local Outer = word{left = P, right = P}
+        local Read = word(Unit)
+        local Counter = word{value = U32, read = word(Unit, function() return value end)}
+        local apply
+        apply = word(Read, U32, function(callback, n)
+            if n:eq(0) then return callback(nil) end
+            return apply(callback, n - 1)
+        end)
+        local swap
+        swap = word(P, P, U32, function(a, b, n)
+            if n:eq(0) then return Pair{left = a, right = b} end
+            return swap(b, a, n - 1)
+        end)
+        return {types = {P = P, Pair = Pair, Outer = Outer}, results = {[Read] = U32}, functions = {
+            snapshot = word(P, U32, function(p, n)
+                local before = Pair{left = p, right = p}
+                if n:eq(0) then p.x = p.x + 1 else p.x = p.x + 2 end
+                return before
+            end),
+            nested = word(Outer, function(o)
+                local selected = o.left
+                o.left = o.right
+                selected.x = selected.x + 1
+                return o
+            end),
+            method = word(U32, function(n)
+                local c = Counter{value = n}
+                return apply(c.read, n)
+            end),
+            closure = word(U32, function(n)
+                local c = Counter{value = n}
+                local captured = word(Unit, function() return c.value + 1 end)
+                return apply(captured, n)
+            end),
+            swap = swap,
+        }}
+    ]])
+    local c = s:emit_c(m)
+    local method = assert(c:match("word_method%b()%s*(%b{})"))
+    local closure = assert(c:match("word_closure%b()%s*(%b{})"))
+    local swap = assert(c:match("word_swap%b()%s*(%b{})"))
+    -- FunctionRef receiver and captured-place addresses require real local storage.
+    assert(method:find(" v3 = v2;", 1, true) and method:find(".environment = &(v3)", 1, true))
+    assert(closure:find(" v3 = v2;", 1, true) and closure:find(" = &(v3);", 1, true))
+    -- Aliased record inputs still use simultaneous tail replacement.
+    assert(swap:find("wordnext_1 = v2;", 1, true) and swap:find("wordnext_2 = v1;", 1, true))
+    H.eq(run_c(c .. [[
+        #include <assert.h>
+        int main(void) {
+            wordtype_P p = {.f_x = 7};
+            wordtype_Pair z = word_snapshot(p, 0), o = word_snapshot(p, 1);
+            assert(z.f_left.f_x == 7 && z.f_right.f_x == 7);
+            assert(o.f_left.f_x == 7 && o.f_right.f_x == 7 && p.f_x == 7);
+            wordtype_Outer input = {.f_left = {.f_x = 3}, .f_right = {.f_x = 9}};
+            wordtype_Outer nested = word_nested(input);
+            assert(nested.f_left.f_x == 10 && nested.f_right.f_x == 9);
+            assert(input.f_left.f_x == 3 && input.f_right.f_x == 9);
+            assert(word_method(20) == 20 && word_closure(20) == 21);
+            wordtype_P a = {.f_x = 1}, b = {.f_x = 2};
+            wordtype_Pair even = word_swap(a, b, 100000), odd = word_swap(a, b, 100001);
+            assert(even.f_left.f_x == 1 && even.f_right.f_x == 2);
+            assert(odd.f_left.f_x == 2 && odd.f_right.f_x == 1);
+            return 0;
+        }
+    ]]), "")
+end)
+
 H.test("closed runtime producers, static factory chains and erased Unit fields compile", function()
     local s = Word.new(); local m = s:load_string([=[
         local Point = word{x = U32, y = U32}

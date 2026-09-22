@@ -94,17 +94,40 @@ function M.emit(program)
             out[#out + 1] = "typedef " .. ctype(t) .. " " .. M.result_type_name(export.name) .. ";"
         end
     end
-    local pointer_roots = {}
+    local pointer_roots, value_aliases = {}, {}
+    local function resolve(aliases, id)
+        while aliases and aliases[id] do id = aliases[id] end
+        return id
+    end
     for _, fn in ipairs(program.functions) do
-        local roots = {}; pointer_roots[fn] = roots
+        local roots, locals, exposed = {}, {}, {}
+        pointer_roots[fn], value_aliases[fn] = roots, {}
         if fn.receiver then roots[fn.receiver.id] = true end
+        -- A Local may stand for its initial SSA record only when no operation
+        -- anywhere in the branch tree can mutate it or observe its address.
+        -- This keeps snapshots loaded from mutable roots while removing the
+        -- storage/load scaffolding around an already-snapshotted value.
         for _, block in ipairs(fn.blocks) do for _, ins in ipairs(block.instructions) do
-            if ins.op == "Deref" then roots[ins.id] = true end
+            if ins.op == "Local" then locals[ins.id] = ins
+            elseif ins.op == "Deref" then roots[ins.id] = true end
+            if ins.op == "Store" or ins.op == "Address" then exposed[ins.root] = true end
+            if (ins.op == "Call" or ins.op == "FunctionRef") and ins.receiver and ins.receiver.root then
+                exposed[ins.receiver.root] = true
+            end
+        end end
+        local aliases = value_aliases[fn]
+        for _, block in ipairs(fn.blocks) do for _, ins in ipairs(block.instructions) do
+            if ins.op == "Local" and not exposed[ins.id] then
+                aliases[ins.id] = resolve(aliases, ins.initial)
+            elseif ins.op == "Load" and #ins.path == 0 and locals[ins.root] and not exposed[ins.root] then
+                aliases[ins.id] = resolve(aliases, locals[ins.root].initial)
+            end
         end end
     end
-    local function target(ins, fn)
-        if ins.closure then return "(" .. (ins.by_value and "" or "*") .. v(ins.closure) .. ".environment)" end
-        local path = pointer_roots[fn][ins.root] and ("(*" .. v(ins.root) .. ")") or v(ins.root)
+    local function target(ins, fn, aliases)
+        if ins.closure then return "(" .. (ins.by_value and "" or "*") .. v(resolve(aliases, ins.closure)) .. ".environment)" end
+        local root = resolve(aliases, ins.root)
+        local path = pointer_roots[fn][root] and ("(*" .. v(root) .. ")") or v(root)
         for _, name in ipairs(ins.path) do path = path .. "." .. M.field_name(name) end
         return path
     end
@@ -203,6 +226,8 @@ function M.emit(program)
     out[#out + 1] = ""
     for _, definition in ipairs(definitions) do
         local fn = program.functions[definition.target]
+        local aliases = value_aliases[fn]
+        local function ref(id) return v(resolve(aliases, id)) end
         out[#out + 1] = header(definition)
         out[#out + 1] = "{"
         if fn.receiver then out[#out + 1] = "    (void)" .. v(fn.receiver.id) .. ";" end
@@ -270,12 +295,12 @@ function M.emit(program)
         for _, block in ipairs(fn.blocks) do if tail_call(block) then looping = true end end
         local function call(ins)
             local args = {}
-            if ins.receiver then args[#args + 1] = "&(" .. target(ins.receiver, fn) .. ")" end
-            if ins.captures then args[#args + 1] = v(ins.captures) end
-            for _, id in ipairs(ins.args) do args[#args + 1] = v(id) end
+            if ins.receiver then args[#args + 1] = "&(" .. target(ins.receiver, fn, aliases) .. ")" end
+            if ins.captures then args[#args + 1] = ref(ins.captures) end
+            for _, id in ipairs(ins.args) do args[#args + 1] = ref(id) end
             if ins.op == "IndirectCall" then
-                table.insert(args, 1, v(ins.callable) .. ".environment")
-                return v(ins.callable) .. ".invoke(" .. table.concat(args, ", ") .. ")"
+                table.insert(args, 1, ref(ins.callable) .. ".environment")
+                return ref(ins.callable) .. ".invoke(" .. table.concat(args, ", ") .. ")"
             end
             local name = ins.target == "self" and definition.name or function_names[ins.target]
             return name .. "(" .. table.concat(args, ", ") .. ")"
@@ -285,10 +310,12 @@ function M.emit(program)
             local tail, tail_index = tail_call(block)
             for i = 1, (tail_index or (#block.instructions + 1)) - 1 do
                 local ins = block.instructions[i]
-                if ins.op == "Pow" then
+                if aliases[ins.id] then
+                    -- Backend-local alias only: the checked input IR remains unchanged.
+                elseif ins.op == "Pow" then
                     local base, exponent, result = "wordbase_" .. ins.id, "wordexp_" .. ins.id, v(ins.id)
                     out[#out + 1] = indent .. "uint32_t " .. result .. " = UINT32_C(1);"
-                    out[#out + 1] = indent .. "uint32_t " .. base .. " = " .. v(ins.args[1]) .. ", " .. exponent .. " = " .. v(ins.args[2]) .. ";"
+                    out[#out + 1] = indent .. "uint32_t " .. base .. " = " .. ref(ins.args[1]) .. ", " .. exponent .. " = " .. ref(ins.args[2]) .. ";"
                     out[#out + 1] = indent .. "while (" .. exponent .. " != 0) {"
                     out[#out + 1] = indent .. "    if ((" .. exponent .. " & UINT32_C(1)) != 0) " .. result ..
                         " = (uint32_t)((uint64_t)" .. result .. " * (uint64_t)" .. base .. ");"
@@ -296,52 +323,52 @@ function M.emit(program)
                     out[#out + 1] = indent .. "    " .. base .. " = (uint32_t)((uint64_t)" .. base .. " * (uint64_t)" .. base .. ");"
                     out[#out + 1] = indent .. "}"
                     out[#out + 1] = indent .. "(void)" .. result .. ";"
-                elseif ins.op == "Store" then out[#out + 1] = indent .. target(ins, fn) .. " = " .. v(ins.value) .. ";"
+                elseif ins.op == "Store" then out[#out + 1] = indent .. target(ins, fn, aliases) .. " = " .. ref(ins.value) .. ";"
                 elseif (ins.op == "Call" or ins.op == "IndirectCall") and Model.primitive(ins.type) == "Unit" then
                     out[#out + 1] = indent .. call(ins) .. ";"
                 else
                     local expression
                     if ins.op == "Div" or ins.op == "Mod" then
-                        out[#out + 1] = indent .. "if (" .. v(ins.args[2]) .. " == 0) abort();"
+                        out[#out + 1] = indent .. "if (" .. ref(ins.args[2]) .. " == 0) abort();"
                     end
                     if ins.op == "Constant" then expression = literal(ins.type, ins.value)
-                    elseif ins.op == "Local" then expression = v(ins.initial)
-                    elseif ins.op == "Load" then expression = target(ins, fn)
-                    elseif ins.op == "Address" then expression = "&(" .. target(ins, fn) .. ")"
-                    elseif ins.op == "Deref" then expression = v(ins.reference)
+                    elseif ins.op == "Local" then expression = ref(ins.initial)
+                    elseif ins.op == "Load" then expression = target(ins, fn, aliases)
+                    elseif ins.op == "Address" then expression = "&(" .. target(ins, fn, aliases) .. ")"
+                    elseif ins.op == "Deref" then expression = ref(ins.reference)
                     elseif ins.op == "Call" or ins.op == "IndirectCall" then expression = call(ins)
                     elseif ins.op == "FunctionRef" then
                         local abi = Model.callable(ins.type)
                         if abi.code then
                             expression = "(" .. ctype(ins.type) .. "){ " ..
-                                (ins.receiver and (".environment = " .. (abi.value_environment and "(" or "&(") .. target(ins.receiver, fn) .. ")") or ".word_empty = 0") .. " }"
+                                (ins.receiver and (".environment = " .. (abi.value_environment and "(" or "&(") .. target(ins.receiver, fn, aliases) .. ")") or ".word_empty = 0") .. " }"
                         else
-                            local environment = ins.receiver and ("&(" .. target(ins.receiver, fn) .. ")") or "NULL"
+                            local environment = ins.receiver and ("&(" .. target(ins.receiver, fn, aliases) .. ")") or "NULL"
                             if ins.captures then
                                 local name = "wordenv_" .. ins.id
                                 out[#out + 1] = indent .. bundle(ins.target) .. " " .. name .. " = {" ..
                                     (ins.receiver and (".receiver = " .. environment .. ", ") or "") ..
-                                    ".captures = " .. v(ins.captures) .. "};"
+                                    ".captures = " .. ref(ins.captures) .. "};"
                                 environment = "&" .. name
                             end
                             expression = "(" .. ctype(ins.type) .. "){.invoke = " .. adapter(ins) .. ", .environment = " .. environment .. "}"
                         end
                     elseif ins.op == "Compare" then
                         local operator = ({eq = "==", lt = "<", le = "<="})[ins.predicate]
-                        expression = v(ins.args[1]) .. " " .. operator .. " " .. v(ins.args[2])
+                        expression = ref(ins.args[1]) .. " " .. operator .. " " .. ref(ins.args[2])
                     elseif ins.op == "Construct" or ins.op == "Capture" then
                         local fields = {}
                         for _, name in ipairs(Model.record(ins.type).runtime_order) do
-                            if ins.fields[name] then fields[#fields + 1] = "." .. M.field_name(name) .. " = " .. v(ins.fields[name]) end
+                            if ins.fields[name] then fields[#fields + 1] = "." .. M.field_name(name) .. " = " .. ref(ins.fields[name]) end
                         end
                         if #fields == 0 then fields[1] = ".word_empty = 0" end
                         expression = "(" .. ctype(ins.type) .. "){ " .. table.concat(fields, ", ") .. " }"
                     else
                         local operator = ({Add = "+", Sub = "-", Mul = "*", Div = "/", Mod = "%",
                             And = "&", Or = "|", Xor = "^", Shl = "<<", Shr = ">>"})[ins.op]
-                        expression = "(uint32_t)((uint64_t)" .. v(ins.args[1]) .. " " .. operator .. " (uint64_t)" .. v(ins.args[2]) .. ")"
+                        expression = "(uint32_t)((uint64_t)" .. ref(ins.args[1]) .. " " .. operator .. " (uint64_t)" .. ref(ins.args[2]) .. ")"
                         if ins.op == "Shl" or ins.op == "Shr" then
-                            expression = "(" .. v(ins.args[2]) .. " >= UINT32_C(32) ? UINT32_C(0) : " .. expression .. ")"
+                            expression = "(" .. ref(ins.args[2]) .. " >= UINT32_C(32) ? UINT32_C(0) : " .. expression .. ")"
                         end
                     end
                     out[#out + 1] = indent .. ctype(ins.type) .. (ins.op == "Deref" and " *" or " ") .. v(ins.id) .. " = " .. expression .. ";"
@@ -352,10 +379,10 @@ function M.emit(program)
                 -- Borrow checking excludes arguments that could refer to this activation.
                 -- Snapshot every next argument before replacing any current parameter.
                 if fn.captures then
-                    out[#out + 1] = indent .. ctype(fn.captures.type) .. " wordnext_captures = " .. v(tail.captures) .. ";"
+                    out[#out + 1] = indent .. ctype(fn.captures.type) .. " wordnext_captures = " .. ref(tail.captures) .. ";"
                 end
                 for i, parameter in ipairs(fn.parameters) do
-                    out[#out + 1] = indent .. ctype(parameter.type) .. " wordnext_" .. i .. " = " .. v(tail.args[i]) .. ";"
+                    out[#out + 1] = indent .. ctype(parameter.type) .. " wordnext_" .. i .. " = " .. ref(tail.args[i]) .. ";"
                 end
                 if fn.captures then out[#out + 1] = indent .. v(fn.captures.id) .. " = wordnext_captures;" end
                 for i, parameter in ipairs(fn.parameters) do
@@ -363,13 +390,13 @@ function M.emit(program)
                 end
                 out[#out + 1] = indent .. "continue;"
             elseif block.exit.op == "Branch" then
-                out[#out + 1] = indent .. "if (" .. v(block.exit.condition) .. ") {"
+                out[#out + 1] = indent .. "if (" .. ref(block.exit.condition) .. ") {"
                 emit_block(block.exit.yes, indent .. "    ")
                 out[#out + 1] = indent .. "} else {"
                 emit_block(block.exit.no, indent .. "    ")
                 out[#out + 1] = indent .. "}"
             else
-                out[#out + 1] = block.exit.value and (indent .. "return " .. v(block.exit.value) .. ";") or indent .. "return;"
+                out[#out + 1] = block.exit.value and (indent .. "return " .. ref(block.exit.value) .. ";") or indent .. "return;"
             end
         end
         if looping then out[#out + 1] = "    for (;;) {" end
