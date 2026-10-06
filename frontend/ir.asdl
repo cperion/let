@@ -94,7 +94,7 @@ module Ir {
          | BitAnd | BitOr | BitXor | Shl | Shr
          | Eq | Ne | Lt | Le | Gt | Ge
 
-  DynamicOp = WordNew | WordGet | WordSet | WordHas | WordRemove | WordCount | WordKey | WordSupply | WordFreeze | WordBind(number argument)
+  DynamicOp = WordNew | WordGet | WordSet | WordMethod | WordHas | WordRemove | WordCount | WordKey | WordSupply | WordFreeze | WordBind(number argument)
   # Pure immutable expressions. No read, call, trap or address acquisition.
   # Deliberately NOT marked unique: Value IDs are function-local, so interning is the
   # builder's per-function memo table, not ASDL's context-wide cache.

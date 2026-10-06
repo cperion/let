@@ -51,6 +51,11 @@ local function freeNames(node, bound, out)
         for _, value in ipairs(node.def.values) do freeNames(value, bound, out) end
         for _, binder in ipairs(node.def.binders) do bound[binder.name.text] = true end
         return
+    elseif kind == "OpenMethodStmt" then
+        -- Installing a method reads the receiver now; its body executes as a separate function and
+        -- resolves otherwise-unbound names against that receiver's open fields.
+        local receiver=node.receiver.text;if not bound[receiver] then out[receiver]=true end
+        return
     elseif kind == "WordStmt" then
         -- A local named word is called inside its own activation, so it sees that scope directly
         -- and needs no capture; only its name binds, from here on.

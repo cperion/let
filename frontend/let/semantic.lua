@@ -410,6 +410,31 @@ function Function:dynamicWord(operation,operands,node)
     return self.builder:ref(value,ty)
 end
 
+function Function:openMethod(stmt)
+    if not self.dynamic then reject("slet-forbidden","SLet cannot define an open-word method",stmt) end
+    local binding=self.scope[stmt.receiver.text]
+    if not binding then reject("unknown-name","Unknown open-word receiver `"..stmt.receiver.text.."`",stmt.receiver) end
+    local receiver
+    if binding.storage then local value=self.builder:read(self.body,binding.type,I.Local(binding.storage));receiver=self.builder:ref(value,binding.type)
+    else receiver=self.builder:ref(binding.value,binding.type) end
+    receiver=self:coerce(receiver,S.any,stmt.receiver)
+    local visibleInputs,results,keyed=signature(stmt.def,self.dynamic,self.types)
+    if keyed then reject("parse","An open-word method uses positional parameters",stmt.def) end
+    self.lambdaState.count=self.lambdaState.count+1;local id=self.id.."_open_method_"..self.lambdaState.count
+    local child=setmetatable({id=id,signatures=self.signatures,globals=self.globals,types=self.types,typeCells=self.typeCells,schemas=self.schemas,methodState=self.methodState,builder=IR.builder(),body={},scope={},inputs={S.inValue(S.any)},results=results,params={},dynamic=self.dynamic,managed=self.managed,generated=self.generated,lambdaState=self.lambdaState,deferScopes={}},Function)
+    local receiverValue=child.builder:valueId();child.params[1]=I.ValueParam(0,receiverValue,S.any);child.dynamicReceiver=child.builder:ref(receiverValue,S.any)
+    for index,param in ipairs(stmt.def._semanticParams or stmt.def.params) do
+        local ty=visibleInputs[index].type;local input=#child.inputs;child.inputs[#child.inputs+1]=S.inValue(ty);local value=child.builder:valueId();child.params[#child.params+1]=I.ValueParam(input,value,ty)
+        child.scope[param.name.text]={value=value,type=ty,callable=ty:isView() or ty:isOwned()}
+    end
+    if stmt.def.body.kind=="Expression" then child:returnValues({stmt.def.body.value},stmt.def.body.value) else child:statements(stmt.def.body.statements) end
+    if Check.falls(child.body) then reject("missing-return","Method `"..stmt.def.name.text.."` can finish without returning",stmt.def) end
+    self.generated[#self.generated+1]=located(I.Fn(id,I.Body,0,L(child.inputs),L(results),L(child.params),L(child.body)),stmt)
+    local callable=self.builder:valueId();self.builder:emit(self.body,located(I.View(callable,S.any,id,L{},nil),stmt))
+    local key=self.builder:const(S.string,I.Str(stmt.def.name.text))
+    self:dynamicWord("WordMethod",{receiver,key,self.builder:ref(callable,S.any)},stmt)
+end
+
 function Function:localWord(def, owner)
     local name=def.name.text
     if self.scope[name] then reject("duplicate-name","Local name `"..name.."` is declared twice",owner) end
@@ -473,8 +498,12 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         if receiver and receiver.schema then selectedMethod=self:methodTarget(receiver,node.callee.field.text,node.callee) end
     end
     if selectedMethod then name="<method>"
-    elseif node.callee.kind=="Reference" then name=node.callee.name.text
-    elseif node.callee.kind=="FieldSelect" and node.callee.base.kind=="Reference" then name=node.callee.base.name.text.."."..node.callee.field.text
+    elseif node.callee.kind=="Reference" then
+        local reference=node.callee.name.text
+        if self.dynamicReceiver and not self.scope[reference] and not self.signatures[reference] then callable=self:expr(node.callee);name="<callable>" else name=reference end
+    elseif node.callee.kind=="FieldSelect" and node.callee.base.kind=="Reference" then
+        if self:knownType(node.callee.base)==S.any then callable=self:expr(node.callee);name="<callable>"
+        else name=node.callee.base.name.text.."."..node.callee.field.text end
     else callable=self:expr(node.callee);name="<callable>" end
     local binding=node.callee.kind=="Reference" and self.scope[name] or nil
     local localWord=selectedMethod or (binding and binding.localWord and binding or nil)
@@ -676,8 +705,10 @@ function Function:expr(node, expected)
                 self.builder:emit(self.body,located(I.View(value,ty,target.target or node.name.text,L{},nil),node));expr=self.builder:ref(value,ty)
             else
                 local global=self.globals[node.name.text]
-                if not global then reject("unknown-name", "Unknown value `"..node.name.text.."`", node) end
-                expr=self:expr(global.node,global.type)
+                if global then expr=self:expr(global.node,global.type)
+                elseif self.dynamicReceiver then
+                    local key=self.builder:const(S.string,I.Str(node.name.text));expr=self:dynamicWord("WordGet",{self.dynamicReceiver,key},node)
+                else reject("unknown-name", "Unknown value `"..node.name.text.."`", node) end
             end
         end
     elseif kind=="Apply" then return self:call(node,expected)
@@ -886,6 +917,8 @@ function Function:statements(statements)
         local kind=stmt.kind
         if kind=="WordStmt" then
             self:localWord(stmt.def,stmt)
+        elseif kind=="OpenMethodStmt" then
+            self:openMethod(stmt)
         elseif kind=="ValueStmt" then
             local produced={}
             for index,valueNode in ipairs(stmt.def.values) do
@@ -937,9 +970,10 @@ function Function:statements(statements)
                 end
             end
         elseif kind=="StoreStmt" then
-            if (stmt.target.kind=="FieldSelect" or stmt.target.kind=="IndexExpr") and self:knownType(stmt.target.base)==S.any then
-                local base=self:expr(stmt.target.base)
-                local key=stmt.target.kind=="FieldSelect" and self.builder:const(S.string,I.Str(stmt.target.field.text)) or self:expr(stmt.target.index)
+            local receiverField=stmt.target.kind=="Reference" and not self.scope[stmt.target.name.text] and self.dynamicReceiver
+            if receiverField or ((stmt.target.kind=="FieldSelect" or stmt.target.kind=="IndexExpr") and self:knownType(stmt.target.base)==S.any) then
+                local base=receiverField and self.dynamicReceiver or self:expr(stmt.target.base)
+                local key=receiverField and self.builder:const(S.string,I.Str(stmt.target.name.text)) or stmt.target.kind=="FieldSelect" and self.builder:const(S.string,I.Str(stmt.target.field.text)) or self:expr(stmt.target.index)
                 local value
                 if stmt.operator=="=" then value=self:expr(stmt.value,S.any)
                 else

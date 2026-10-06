@@ -670,7 +670,7 @@ function Function:tailCall(stmt, selected)
         .." "..arguments,stmt)
 end
 function Function:dynamic(stmt)
-    local operations={WordNew="WORD_NEW",WordGet="WORD_GET",WordSet="WORD_SET",WordHas="WORD_HAS",WordRemove="WORD_REMOVE",WordCount="WORD_COUNT",WordKey="WORD_KEY",WordSupply="WORD_SUPPLY",WordFreeze="WORD_FREEZE",WordBind="WORD_BIND"}
+    local operations={WordNew="WORD_NEW",WordGet="WORD_GET",WordSet="WORD_SET",WordMethod="WORD_METHOD",WordHas="WORD_HAS",WordRemove="WORD_REMOVE",WordCount="WORD_COUNT",WordKey="WORD_KEY",WordSupply="WORD_SUPPLY",WordFreeze="WORD_FREEZE",WordBind="WORD_BIND"}
     for _,operand in ipairs(stmt.operands) do self:expr(operand) end
     local instruction=operations[stmt.operation.kind];if not instruction then D.bug("lower-dynamic","Unknown dynamic operation "..tostring(stmt.operation.kind)) end
     if stmt.operation.kind=="WordNew" then instruction=instruction.." "..self.descriptorOf(S.sig({},{}),true)

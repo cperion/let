@@ -572,6 +572,13 @@ function Parser:statement()
         return A.c.Defer(call, mergeSpan(token.span, call.span))
     end
     if token.kind == "keyword" and token.text == "let" then
+        if self:peek(1).kind=="name" and self:peek(2).text=="." then
+            local let=self:next();local receiver=self:expectName("an open-word receiver");self:expect(".")
+            local name=self:expectName("a method name");self:expect("(")
+            local params=self:parameters(")",false);self:expect(")")
+            local def=self:definitionBody(A.name(name),params)
+            return A.c.OpenMethodStmt(A.name(receiver),def,mergeSpan(let.span,spanOf(def) or name.span))
+        end
         local decl = self:declaration()
         if decl.kind == "WordDecl" then return A.c.WordStmt(decl.def, decl.span) end
         return A.c.ValueStmt(decl.def, decl.span)

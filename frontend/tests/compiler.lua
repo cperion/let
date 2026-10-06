@@ -503,6 +503,33 @@ for _,mode in ipairs({"interpreted","eager","lazy"}) do
 end
 ok,err=pcall(Compiler.typed,{profile="slet",name="open-words.slet",source=openWordSource})
 check(not ok and err.code=="slet-forbidden","SLet rejects bare open-word supplies")
+local openMethodSource=[=[
+let increment(x): any = x + 1
+let main(): u32 = do
+  let enemy = { hp = 10, plain = increment }
+  let enemy.hit(damage): bool = do
+    hp -= damage
+    return hp <= 0
+  end
+  if enemy.plain(2) != 3 then return 3 end
+  let hit = enemy.hit
+  if hit(3) then return 0 end
+  let copy = enemy { hp = 5 }
+  if copy.hit(5) != true then return 1 end
+  if u32(enemy.hp) != 7 or u32(copy.hp) != 0 then return 2 end
+  return u32(enemy.hp) * 6
+end
+return { functions = { main } }
+]=]
+local openMethods=Compiler.compile{profile="let",name="open-methods.let",source=openMethodSource}
+check(openMethods.assembly:match("WORD_METHOD"),"open-word methods preserve receiver-binding metadata")
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(openMethods.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"open-word methods bind the selected receiver in "..mode)
+end
+ok,err=pcall(Compiler.typed,{profile="slet",name="open-methods.slet",source=openMethodSource})
+check(not ok and err.code=="slet-forbidden","SLet rejects open-word methods")
+
 local runtimeSupply=Compiler.compile{profile="let",name="runtime-supply.let",source=[=[
 let add(a, b: u32): u32 = a + b
 let main(): u32 = do

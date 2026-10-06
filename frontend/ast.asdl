@@ -63,6 +63,8 @@ module Ast {
                attributes (Span span)
 
   Stmt = WordStmt(WordDef def)
+       # Let-only method attached to an open-word binding: `let receiver.name(args) = body`.
+       | OpenMethodStmt(Name receiver, WordDef def)
        | ValueStmt(ValueDef def)
        | StoreStmt(Expr target, string operator, Expr value)
        | CallStmt(Expr call)

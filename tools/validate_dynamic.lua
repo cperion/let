@@ -149,11 +149,12 @@ same(supplied_word,'main','20 2')
 local method_word=module('method-word',[=[
 .profile dynamic
 .descriptor primitive U u32
+.descriptor primitive A any
 .descriptor signature Empty 0 0
-.descriptor signature Get 0 1 U
-.function nine 0 1 - i
+.descriptor signature Get 1 1 A U
+.function nine 1 1 d i
   PUSH.A 9
-  RET 0 1
+  RET 1 1
 .function main 0 1 - i
   WORD_NEW Empty
   PUSH.A 1
