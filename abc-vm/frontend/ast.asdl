@@ -1,0 +1,78 @@
+# Let source AST. Checkable with vendor/asdl.lua; see interfaces.md.
+# Every expression, statement, declaration and schema member carries its span as an ASDL
+# attribute, so the sum states it once instead of every variant repeating it.
+module Ast {
+  Span = (string file, number line, number start, number finish)
+  Name = (string text, Span span)
+
+  Program = (Decl* declarations, Export export)
+
+  Decl = WordDecl(WordDef def)
+       | ValueDecl(ValueDef def)
+       # `use util.helper`: the dotted name names a file next to this one, and the last segment
+       # names the namespace its exports are reached through. The lexical name is that last
+       # segment, so the loader derives it from `path` rather than storing it twice.
+       | UseDecl(string path)
+       # `extern let name(a: U32) : T`: a host function. It has no body, so its result is required.
+       | ForeignDecl(ForeignDef def)
+       attributes (Span span)
+
+  # let f(a, b: U32): (U32, U32) = body
+  # A word's requirements are either positional or keyed, never both: `let f(a: U32)` and
+  # `let f { a: U32 }` are different spellings of the same idea, and a definition may also take
+  # neither. `parse.lua` checks this invariant where it builds the definition.
+  WordDef = (Name name, Param* params, Param* keyed, ResultSpec? result, Body body)
+  # A host function: a name, annotated requirements and a declared result, and no body, because the
+  # implementation is not written in this language.
+  ForeignDef = (Name name, Param* params, ResultSpec result)
+  # let a: U32, b = expr
+  ValueDef = (Binder* binders, Expr* values)
+  Binder = (Name name, Expr? annotation, Span span)
+
+  Param = (Name name, Expr? annotation, Span span)
+  ResultSpec = Single(Expr type) | Many(Expr* types)
+  Body = Expression(Expr value) | Block(Stmt* statements)
+
+  Expr = U32Literal(number value)
+       | U64Literal(number high, number low)
+       | BoolLiteral(boolean value)
+       | UnitLiteral
+       # A string literal is a byte sequence, not a text type: its bytes are the source bytes.
+       | StringLiteral(string bytes)
+       # A float literal is IEEE-754 double; its value is the number the decimal text denotes.
+       | FloatLiteral(number value)
+       | Reference(Name name)
+       | Apply(Expr callee, Expr* arguments)
+       | FieldSelect(Expr base, Name field)
+       | RecordSupply(Expr schema, FieldSupply* fields)
+       | ArrayExpr(Expr* items)
+       | IndexExpr(Expr base, Expr index)
+       | SchemaExpr(SchemaMember* members)
+       | Lambda(Param* params, Body body)
+       | SignatureExpr(Expr* inputs, ResultSpec results)
+       | UnaryExpr(string operator, Expr operand)
+       | BinaryExpr(string operator, Expr left, Expr right)
+       | Condition(Expr test, Expr yes, Expr no)
+       attributes (Span span)
+
+  FieldSupply = (Name name, Expr value, Span span)
+  SchemaMember = FieldMember(Name name, Expr type)
+               | MethodMember(WordDef def)
+               attributes (Span span)
+
+  Stmt = WordStmt(WordDef def)
+       | ValueStmt(ValueDef def)
+       | StoreStmt(Expr target, string operator, Expr value)
+       | CallStmt(Expr call)
+       | IfStmt(Expr test, Stmt* yes, Stmt* no)
+       | ReturnStmt(Expr* values)
+       # `defer host_free(p)`: a call whose callee and arguments are evaluated here, and whose
+       # invocation happens when the enclosing block is left.
+       | Defer(Expr call)
+       attributes (Span span)
+
+  # Module export configuration; a separate grammar, not a runtime table.
+  Export = (ExportItem* types, ExportItem* functions, ResultEntry* results)
+  ExportItem = ExportName(Name name) | ExportAlias(Name name, Expr value)
+  ResultEntry = (Expr target, ResultSpec result)
+}

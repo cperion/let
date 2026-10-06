@@ -1,0 +1,9 @@
+let seed(x:u64):u64=x
+let add(a,b:u64):u64=a+b
+let main():(u64,u64)=do
+    let base=seed(40)
+    let p=add(base)
+    let q=add(seed(41))
+    return p(2),q(2)
+end
+

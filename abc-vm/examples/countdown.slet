@@ -1,0 +1,12 @@
+-- Constant-space tail calls; a block binding exercises C-frame cleanup.
+let sum(n, acc: u64): u64 = do
+    if n == 0 then
+        return acc
+    else
+        let next = acc + n
+        return sum(n - 1, next)
+    end
+end
+
+let main(): u64 = sum(100_000, 0)
+

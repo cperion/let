@@ -1,0 +1,84 @@
+; Milestone 2 VM demonstration: aggregate return, writable image, string bytes.
+; Image offsets 0..63 are writable; 64..69 are rodata "Hello!".
+ .profile memory
+.datazero 64
+.rodata 48656c6c6f21
+.export main
+.export tick
+.export greet
+.export read
+.export write
+.export fail
+.export frame_limit
+.export head
+.export pair
+
+; Caller-owned hidden result block. Offsets measure backward from C's byte top.
+.function main 0 3
+CALLOC 16
+FADDR.A 16
+CALL.A pair 1
+FLD64.A 16
+FLD64.B 8
+ADD.A
+CFREE 16
+CALL.A tick 0
+GLD8 64
+RET 0 3
+
+; One address argument is the hidden result destination; no scalar results.
+.function pair 1 0 a - 16
+CGET.A 0
+PUSH.B 42
+ST64 0
+CGET.A 0
+PUSH.B 57
+ST64 8
+RET 1 0
+
+; Persistent image state is private to each VM/module pair.
+.function tick 0 1
+GLD64 0
+PUSH.B 1
+ADD.A
+DUP.A
+GST64 0
+RET 0 1
+
+; Strings are byte address + length, not frontend/VM object tags.
+.function greet 0 2 - ai
+GADDR.A 64
+PUSH.A 6
+RET 0 2
+
+; Native pointers may come from embedding code. Accesses are unchecked.
+.function read 1 1 a i
+CGET.A 0
+LD64.A 1
+RET 1 1
+ .function write 2 0 ai -
+CGET.A 0
+CGET.B 1
+ST64 1
+RET 2 0
+
+; Outputs are atomic, but image writes are not rolled back on failure.
+.function fail 0 0
+PUSH.A 42
+GST64 0
+ABORT 5
+
+ .function frame_limit 0 0
+CALLOC 65535
+CFREE 65535
+RET 0 0
+
+; Address-valued loads need explicit kind metadata, not runtime tags.
+.function head 0 1
+GADDR.A 64
+GST64 8
+.loadkind addr
+GLD64 8
+LD8.A 0
+RET 0 1
+

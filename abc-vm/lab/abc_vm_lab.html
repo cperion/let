@@ -1,0 +1,2315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ABC VM Lab: three stacks and an operand bank</title>
+<style>
+:root{
+  --paper:#f4e9dc; --clay:#dfbea5; --clay-strong:#ca9b7a;
+  --ink:#4a3d36; --muted:#806d62; --faint:#ab9181;
+  --line:rgba(91,66,52,.16); --line-strong:rgba(91,66,52,.28);
+  --cold:#5d9fb0; --cold-deep:#3f7f91; --indigo:#7284ad; --indigo-deep:#596a99;
+  --mint:#79aa9d; --mint-deep:#4e8376; --ice:#c9e3e7; --brick:#a65a4a; --plum:#8a6a9a;
+  --shadow:0 18px 42px rgba(79,52,37,.10), 0 2px 7px rgba(79,52,37,.08);
+  --shadow-soft:0 8px 24px rgba(79,52,37,.08), 0 1px 4px rgba(79,52,37,.08);
+  --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sans:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:14px/1.45 var(--sans);color:var(--ink);overflow:hidden;
+  background:radial-gradient(circle at 9% 2%, rgba(255,255,255,.56), transparent 26rem),
+             radial-gradient(circle at 90% 10%, rgba(93,159,176,.08), transparent 24rem),
+             linear-gradient(135deg,#f7eee4 0%,var(--paper) 46%,#efe0d1 100%)}
+button,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid rgba(93,159,176,.35);outline-offset:2px}
+.app{height:100vh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px;padding:14px;max-width:1800px;margin:0 auto}
+.top{display:flex;align-items:center;gap:14px;padding:10px 12px 10px 14px;border:1px solid var(--line);border-radius:20px;background:rgba(244,233,220,.88);box-shadow:var(--shadow-soft)}
+.brand{display:flex;align-items:center;gap:11px;min-width:max-content}
+.brand .mark{width:42px;height:38px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(145deg,#e7c9b1,#d5ac90);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),0 5px 12px rgba(92,61,43,.12);border:1px solid rgba(106,72,53,.12);color:var(--cold-deep);font:900 13px var(--mono);letter-spacing:.02em}
+.brand h1{margin:0;font-size:15px;font-weight:800;letter-spacing:-.025em}
+.brand span{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.brand>div:last-child{display:flex;flex-direction:column;gap:3px}
+.pick{display:flex;align-items:center;gap:9px;flex:1;min-width:0}
+.pick label{font-size:11px;text-transform:uppercase;letter-spacing:.11em;color:var(--muted);font-weight:750}
+.pick select{width:min(430px,100%);min-width:0;border:1px solid var(--line);border-radius:12px;padding:9px 12px;background:#f8efe6;font-weight:700;outline:none}
+.end{display:flex;gap:7px;margin-left:auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:8px 11px;border:1px solid var(--line);border-radius:11px;background:#f8efe6;font-weight:750;font-size:12px;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,.72);transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease}
+.btn:hover{transform:translateY(-1px);border-color:var(--line-strong);box-shadow:var(--shadow-soft)}
+.btn:disabled{opacity:.42;cursor:default;transform:none;box-shadow:none}
+.btn.primary{background:var(--cold);border-color:transparent;color:#f8ffff;box-shadow:0 7px 16px rgba(63,127,145,.22),inset 0 1px 0 rgba(255,255,255,.24)}
+.btn.icon{width:38px;padding:8px 0}
+.btn svg{width:15px;height:15px}
+.main{min-height:0;display:grid;grid-template-columns:minmax(270px,.82fr) minmax(500px,1.6fr) minmax(290px,.95fr);grid-template-rows:minmax(0,1fr);gap:12px}
+.panel{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:24px;background:rgba(240,225,212,.78);box-shadow:var(--shadow);overflow:hidden}
+.phead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;min-height:58px;padding:12px 14px;border-bottom:1px solid var(--line);background:rgba(247,237,227,.55)}
+.phead h2{margin:0;font-size:13px;font-weight:850;display:flex;align-items:center;gap:9px}
+.phead h2::before{content:"";width:8px;height:8px;border-radius:99px;background:var(--cold);box-shadow:0 0 0 4px rgba(93,159,176,.12)}
+.prog .phead h2::before{background:var(--clay-strong);box-shadow:0 0 0 4px rgba(202,155,122,.12)}
+.acts{display:flex;gap:8px;align-items:center;margin-left:auto}
+.tag{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.11em;font-weight:800}
+.pbody{min-height:0;overflow:auto;flex:1}
+.seg{display:inline-flex;background:#ead8ca;border:1px solid var(--line);padding:3px;border-radius:10px;gap:2px}
+.seg button{border:0;background:transparent;border-radius:7px;padding:5px 9px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;font-weight:850;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:#faf2e9;color:var(--ink);box-shadow:0 2px 6px rgba(82,56,42,.08)}
+.seg button:disabled{opacity:.4;cursor:default}
+.note{margin:12px 12px 0;padding:11px 12px;border:1px solid rgba(93,159,176,.20);background:rgba(201,227,231,.32);border-radius:14px;font-size:12px;line-height:1.45;color:#5d514b}
+.note b{color:var(--cold-deep)}
+.src{margin:12px;font:12px/1.7 var(--mono);background:rgba(249,241,232,.72);border:1px solid var(--line);border-radius:14px;padding:8px 0}
+.src .l{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:1px 12px 1px 8px;border-left:3px solid transparent;white-space:pre-wrap;word-break:break-word}
+.src .l .n{text-align:right;color:var(--faint);user-select:none}
+.src .l.on{background:rgba(201,227,231,.44);border-left-color:var(--cold)}
+.tk-k{color:#785f91;font-weight:700}.tk-c{color:#9b8578}.tk-n{color:var(--cold-deep)}.tk-a{color:var(--cold-deep);font-weight:700}.tk-b{color:var(--indigo-deep);font-weight:700}.tk-l{color:#785f91;font-weight:700}
+.warn{margin:0 12px 12px;font-size:11.5px;color:var(--muted)}
+.warn p{margin:0 0 6px;padding:7px 10px;border-radius:10px;background:rgba(202,155,122,.14)}
+.editor{display:flex;flex-direction:column;gap:10px;padding:12px}
+.editor textarea{min-height:320px;resize:vertical;border:1px solid var(--line);border-radius:14px;background:rgba(249,241,232,.85);padding:10px 12px;font:12px/1.7 var(--mono);tab-size:4;outline:none}
+.editor textarea:focus{border-color:rgba(63,127,145,.55);box-shadow:0 0 0 3px rgba(93,159,176,.12)}
+.editor .err{font-size:12px;color:var(--brick);background:rgba(166,90,74,.10);border:1px solid rgba(166,90,74,.22);padding:8px 10px;border-radius:10px}
+.editor .row{display:flex;gap:7px;flex-wrap:wrap}
+.editor .hint{font-size:11px;color:var(--muted)}
+/* tree */
+.tree{padding:6px 8px 18px;display:flex;flex-direction:column;gap:14px}
+.tree .stmt{overflow-x:auto;padding:14px 4px 4px}
+.tree ul{position:relative;display:flex;justify-content:center;margin:0;padding:18px 0 0}
+.tree li{list-style:none;text-align:center;position:relative;padding:18px 6px 0}
+.tree li::before,.tree li::after{content:"";position:absolute;top:0;right:50%;width:50%;height:18px;border-top:1px solid rgba(95,73,61,.28)}
+.tree li::after{right:auto;left:50%;border-left:1px solid rgba(95,73,61,.28)}
+.tree li:only-child::before,.tree li:only-child::after{display:none}
+.tree li:only-child{padding-top:0}
+.tree li:first-child::before,.tree li:last-child::after{border:0}
+.tree li:last-child::before{border-right:1px solid rgba(95,73,61,.28);border-radius:0 7px 0 0}
+.tree li:first-child::after{border-radius:7px 0 0 0}
+.tree ul ul::before{content:"";position:absolute;top:0;left:50%;border-left:1px solid rgba(95,73,61,.28);height:18px}
+.tree>.stmt>ul{padding-top:0;width:max-content;min-width:100%;margin:0 auto}
+.tn{display:inline-flex;position:relative;min-width:44px;min-height:34px;padding:6px 9px;align-items:center;justify-content:center;border-radius:12px;background:#efdccc;border:1px solid var(--line);box-shadow:var(--shadow-soft);font:850 12px var(--mono);white-space:nowrap}
+.tn.st{background:transparent;box-shadow:none;border-style:dashed;color:var(--muted);font-family:var(--sans)}
+.tn.dA{box-shadow:inset 0 -3px 0 var(--cold),var(--shadow-soft)}
+.tn.dB{box-shadow:inset 0 -3px 0 var(--indigo),var(--shadow-soft)}
+.tn.on{background:var(--ice);border-color:rgba(63,127,145,.32)}
+.tn .er{position:absolute;right:-7px;top:-9px;padding:2px 5px;border-radius:6px;background:var(--clay-strong);color:#fff;font-size:8px}
+.tn .first{position:absolute;left:-6px;top:-9px;padding:2px 4px;border-radius:6px;background:var(--mint-deep);color:#fff;font-size:8px}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:10px 12px 0;font-size:10.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:4px;border-radius:2px;margin-right:4px;vertical-align:middle}
+/* machine */
+.hero{padding:10px 14px 12px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,rgba(247,237,227,.46),rgba(201,227,231,.17))}
+.lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;font-weight:800}
+.eq{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 12px;margin:4px 0;font-size:28px;line-height:1.15;font-weight:850;letter-spacing:-.025em;min-height:36px}
+.eq .r{font:900 .8em var(--mono);padding:1px 8px;border-radius:10px}
+.eq .r.a{color:var(--cold-deep);background:rgba(93,159,176,.16)}
+.eq .r.b{color:var(--indigo-deep);background:rgba(114,132,173,.16)}
+.eq .r.c{color:#6e5a7e;background:rgba(138,106,154,.14)}
+.eq .o{color:var(--muted);font-weight:600}
+.eq .f{font-size:.42em;align-self:center;color:var(--muted);font-weight:750;letter-spacing:0;font-family:var(--mono)}
+.mean{font-size:12.5px;color:#5d514b}
+.lastbox{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.last,.native{padding:8px 10px;border-radius:12px;background:rgba(248,239,230,.6);border:1px solid var(--line);font-size:12px;color:#5d514b;min-height:3.4em}
+.last b{color:var(--cold-deep)}
+.last.bad{color:var(--brick);border-color:rgba(166,90,74,.25)}
+.native ol{margin:2px 0 0;padding-left:18px;font:11.5px/1.6 var(--mono);color:var(--ink)}
+.native .free{color:var(--mint-deep);font-weight:800}
+.native .spill{color:var(--brick);font-weight:800}
+.banks{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px 12px 0}
+.bank{border:1px solid var(--line);border-radius:18px;background:rgba(247,238,229,.52);padding:10px 12px}
+.bank h3{margin:0 0 8px;font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;display:flex;justify-content:space-between;gap:8px}
+.bank h3 span{font:600 10px var(--mono);letter-spacing:0;text-transform:none;color:var(--muted);white-space:nowrap}
+.regs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;position:relative}
+.reg{position:relative;border-radius:12px;padding:8px 6px 7px;text-align:center;border:1px solid rgba(91,66,52,.13);background:#efe2d6;min-height:62px}
+.reg .rn{font:900 10px var(--mono);color:var(--muted)}
+.reg .rv{font:900 13px var(--mono);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reg .ro{font-size:9px;font-weight:900;letter-spacing:.06em;margin-top:3px}
+.reg.A{background:linear-gradient(180deg,#d9ebef,#c8e0e6);border-color:rgba(63,127,145,.32)}
+.reg.A .ro{color:var(--cold-deep)}
+.reg.B{background:linear-gradient(180deg,#dfe2ef,#d0d6ea);border-color:rgba(89,106,153,.32)}
+.reg.B .ro{color:var(--indigo-deep)}
+.reg.C{background:linear-gradient(180deg,#e6dcea,#dccfe2);border-color:rgba(138,106,154,.30)}
+.reg.C .ro{color:#6e5a7e}
+.reg.free{background:transparent;border-style:dashed;opacity:.7}
+.reg.istop{box-shadow:0 0 0 2px rgba(255,255,255,.7),0 0 0 4px currentColor}
+.reg.A.istop{color:var(--cold)}.reg.B.istop{color:var(--indigo)}.reg.C.istop{color:var(--plum)}
+.reg.istop .rv,.reg.istop .rn{color:var(--ink)}
+.reg.touched{animation:touch .6s ease}
+@keyframes touch{0%{transform:scale(.95);background:#cfe7e1}60%{transform:scale(1.03)}100%{transform:none}}
+.ring{margin-top:7px;font-size:10px;color:var(--muted);display:flex;justify-content:space-between}
+.stacks{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px}
+.stk{min-width:0;border:1px solid var(--line);border-radius:18px;background:rgba(247,238,229,.52);padding:10px}
+.stk h3{margin:0;font-size:12px;font-weight:900;letter-spacing:.02em;display:flex;align-items:center;gap:7px;text-transform:uppercase}
+.stk h3 i{display:inline-block;width:14px;height:4px;border-radius:3px;background:var(--cold)}
+.stk.B h3 i{background:var(--indigo)}.stk.C h3 i{background:var(--plum)}
+.stk .role{font-size:10px;color:var(--muted);margin:3px 0 8px}
+.cells{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;min-height:120px}
+.cell{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:6px;min-height:36px;padding:5px 7px;border-radius:11px;border:1px solid rgba(91,66,52,.13);background:linear-gradient(180deg,#edd7c5,#e4c9b5)}
+.cell .dp{font:900 10px var(--mono);color:#8e7567}
+.cell .v{font:900 12.5px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cell .w{font:800 9px var(--mono);padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.4);color:var(--muted)}
+.cell.reg-A .w{background:rgba(93,159,176,.2);color:var(--cold-deep)}
+.cell.reg-B .w{background:rgba(114,132,173,.2);color:var(--indigo-deep)}
+.cell.reg-C .w{background:rgba(138,106,154,.18);color:#6e5a7e}
+.cell.mem{background:linear-gradient(180deg,#dfcfc2,#d8c6b8);opacity:.82}
+.cell.op{outline:2px solid rgba(63,127,145,.55);outline-offset:1px}
+.empty{height:70px;border:1px dashed rgba(91,66,52,.18);border-radius:11px;display:grid;place-items:center;color:#a58d7d;font-size:10px;text-transform:uppercase;letter-spacing:.1em}
+.stats{display:flex;flex-wrap:wrap;gap:7px;padding:10px 12px;border-top:1px solid var(--line);background:rgba(247,237,227,.44)}
+.stat{flex:1 1 72px;min-width:72px;border:1px solid var(--line);border-radius:11px;padding:6px 8px;background:#f7ede4;text-align:center}
+.stat b{display:block;font:900 13px var(--mono)}
+.stat span{display:block;font-size:8px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-top:2px;font-weight:800}
+/* bytecode */
+.box{margin:12px 12px 4px;padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(248,239,230,.6);font-size:11.5px;color:#5d514b}
+.box h4{margin:0 0 6px;font-size:12px;font-weight:850;color:var(--ink)}
+.box .kv{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px dashed var(--line)}
+.box .kv:last-child{border:0}
+.box .kv b{font-family:var(--mono)}
+.bc{list-style:none;margin:0;padding:8px 8px 16px}
+.bc .lab{font:800 11px var(--mono);color:#785f91;padding:6px 8px 0 46px}
+.bc .row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:34px;padding:5px 8px;border:1px solid transparent;border-radius:11px}
+.bc .row:hover{background:rgba(248,239,230,.70);border-color:var(--line)}
+.bc .row.cur{background:rgba(201,227,231,.45);border-color:rgba(63,127,145,.22);box-shadow:inset 3px 0 0 var(--cold)}
+.bc .a{font:9px var(--mono);color:#a38c7d;text-align:right}
+.bc .t{font:850 12px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bc .t small{display:block;font-size:9px;font-weight:400;color:var(--muted)}
+.bc .hits{font:9px var(--mono);color:#a38c7d;min-width:28px;text-align:right}
+/* transport */
+.bottom{display:flex;align-items:center;gap:14px;padding:10px 13px;border:1px solid var(--line);border-radius:20px;background:rgba(244,233,220,.90);box-shadow:var(--shadow-soft)}
+.ctl{display:flex;gap:7px;align-items:center}
+.scrub{flex:1;display:flex;align-items:center;gap:12px;min-width:0}
+.scrub input{flex:1;min-width:60px;accent-color:var(--cold)}
+.scrub output{font:11px var(--mono);color:var(--muted);min-width:max-content}
+dialog{border:1px solid var(--line);border-radius:24px;background:#f3e5d8;color:var(--ink);box-shadow:0 28px 80px rgba(59,39,29,.30);padding:0;width:min(900px,calc(100vw - 28px));max-height:calc(100vh - 28px)}
+dialog::backdrop{background:rgba(64,49,41,.28);backdrop-filter:blur(6px)}
+.dh{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line);background:rgba(248,239,230,.55)}
+.dh h2{margin:0;font-size:16px;font-weight:900}
+.db{padding:8px 18px 20px;overflow:auto;max-height:calc(100vh - 120px)}
+.db h3{font-size:13px;font-weight:850;margin:16px 0 6px}
+.db p{margin:0 0 8px;max-width:76ch;font-size:12.5px;line-height:1.5}
+.db table{border-collapse:collapse;width:100%;font-size:12px}
+.db td,.db th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.db th{font-weight:800;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.1em}
+.db td:first-child{font-family:var(--mono);white-space:nowrap;font-weight:700}
+.db pre{font:12px/1.6 var(--mono);background:rgba(249,241,232,.85);border:1px solid var(--line);border-radius:12px;padding:10px 12px;overflow-x:auto;margin:0 0 8px}
+.db kbd{font:11px var(--mono);border:1px solid var(--line-strong);border-radius:5px;padding:0 5px;background:#f8efe6}
+@media (max-width:1240px){
+  body{overflow:auto}.app{height:auto;min-height:100vh}
+  .main{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto auto}
+  .panel.machine{grid-column:1 / -1;grid-row:1}
+  .pbody{overflow:visible}
+  .bottom{position:sticky;bottom:10px;z-index:5}
+}
+@media (max-width:760px){
+  .app{padding:10px;gap:10px}.main{grid-template-columns:1fr}
+  .top{flex-wrap:wrap}.pick{order:3;flex-basis:100%}.pick select{width:100%}
+  .banks{grid-template-columns:1fr}.stacks{grid-template-columns:1fr 1fr 1fr;gap:6px;padding:8px}
+  .lastbox{grid-template-columns:1fr}.eq{font-size:22px}
+  .bottom{flex-wrap:wrap}.scrub{flex-basis:100%;order:2}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><div class="mark">ABC</div><div><h1>ABC VM Lab</h1><span>three stacks · one operand bank</span></div></div>
+    <div class="pick"><label for="progSel">Program</label><select id="progSel"></select></div>
+    <div class="end"><button class="btn" id="helpBtn">ISA reference</button></div>
+  </header>
+  <main class="main">
+    <section class="panel prog" aria-label="Program">
+      <div class="phead">
+        <h2>Program</h2><span class="tag" id="kindTag"></span>
+        <div class="acts">
+          <div class="seg" id="viewSeg" role="group" aria-label="Program view">
+            <button data-v="src" aria-pressed="true">Source</button>
+            <button data-v="tree" aria-pressed="false">Tree</button>
+            <button data-v="asm" aria-pressed="false">Asm</button>
+          </div>
+          <button class="btn" id="editBtn">Edit</button>
+        </div>
+      </div>
+      <div class="pbody" id="progBody"></div>
+    </section>
+    <section class="panel machine" aria-label="Machine">
+      <div class="hero" aria-live="polite">
+        <div class="lbl" id="nextLbl">Next instruction</div>
+        <div class="eq" id="eq"></div>
+        <div class="mean" id="mean"></div>
+        <div class="lastbox">
+          <div class="last" id="last"></div>
+          <div class="native" id="native"></div>
+        </div>
+      </div>
+      <div class="pbody">
+        <div class="banks">
+          <div class="bank"><h3>Operand bank <span id="abState"></span></h3><div class="regs" id="hregs"></div>
+            <div class="ring"><span>A fills from h0 →</span><span>← B fills from h3</span></div></div>
+          <div class="bank"><h3>C bank <span id="kState"></span></h3><div class="regs" id="cregs"></div>
+            <div class="ring"><span>C fills from c0 →</span><span></span></div></div>
+        </div>
+        <div class="stacks">
+          <div class="stk A"><h3><i></i>A</h3><div class="role">operand stack: left operands</div><ol class="cells" id="cellsA"></ol></div>
+          <div class="stk B"><h3><i></i>B</h3><div class="role">operand stack: right operands</div><ol class="cells" id="cellsB"></ol></div>
+          <div class="stk C"><h3><i></i>C</h3><div class="role">bindings and return addresses</div><ol class="cells" id="cellsC"></ol></div>
+        </div>
+      </div>
+      <div class="stats" id="stats"></div>
+    </section>
+    <section class="panel code" aria-label="Bytecode">
+      <div class="phead">
+        <h2>Bytecode</h2><span class="tag" id="sizeTag"></span>
+        <div class="acts"><div class="seg" id="bcSeg" role="group" aria-label="Bytecode view">
+          <button data-v="asm" aria-pressed="true">Asm</button><button data-v="spec" aria-pressed="false">Opcodes</button></div></div>
+      </div>
+      <div class="pbody"><div id="info"></div><ol class="bc" id="bc"></ol></div>
+    </section>
+  </main>
+  <footer class="bottom">
+    <div class="ctl">
+      <button class="btn icon" id="resetBtn" aria-label="Reset" title="Reset (R)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8a5 5 0 1 0 1.5-3.6"/><path d="M3 2.5V5h2.5"/></svg></button>
+      <button class="btn icon" id="backBtn" aria-label="Step back" title="Step back (←)"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 3.5v9L4 8z"/></svg></button>
+      <button class="btn icon" id="playBtn" aria-label="Play" title="Play (space)"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5z"/></svg></button>
+      <button class="btn primary" id="stepBtn" title="Step (→)">Step</button>
+      <div class="seg" id="speedSeg" role="group" aria-label="Speed"><button data-s="650" aria-pressed="false">Slow</button><button data-s="300" aria-pressed="true">Normal</button><button data-s="80" aria-pressed="false">Fast</button></div>
+    </div>
+    <div class="scrub"><input type="range" id="scrub" min="0" max="0" value="0" aria-label="Execution step"><output id="stepOut">Step 0 of 0</output></div>
+    <div class="seg" id="fmtSeg" role="group" aria-label="Value format"><button data-f="s" aria-pressed="true">Signed</button><button data-f="u" aria-pressed="false">Unsigned</button><button data-f="x" aria-pressed="false">Hex</button></div>
+  </footer>
+</div>
+<dialog id="help">
+  <div class="dh"><h2>ISA reference: ABC VM 2.0</h2><button class="btn" id="helpClose">Close</button></div>
+  <div class="db">
+    <p>Three stacks of 64-bit cells. Binary operations consume <b>A0</b> and <b>B0</b> and compute <span style="font-family:var(--mono)">A0 op B0</span>; the <span style="font-family:var(--mono)">.A</span> or <span style="font-family:var(--mono)">.B</span> suffix picks the stack that receives the result, and the other stack pops. Nothing reaches below a top of A or B. C holds bindings and return addresses and is read by depth.</p>
+    <h3>The operand bank</h3>
+    <p>A and B share four registers. A's cached cells fill them from <b>h0</b> upward and B's from <b>h3</b> downward, so the free registers form one gap between the two tops; closed into a circle, the two bottoms meet. Pushes and pops move no values. <b>MOVE changes ownership</b> (free when the bank is full, because the tops are then adjacent), <b>COPY creates liveness</b> (always a real copy), and only a push onto a full bank touches memory: the pushing stack spills its deepest cached cell. C has its own four-register bank. Values that are not cached are read in place from memory; nothing is refilled.</p>
+    <h3>Instructions</h3>
+    <table>
+      <tr><th>Form</th><th>Effect</th></tr>
+      <tr><td>PUSH.X n</td><td>Push a constant (encoded as PUSH8, PUSH32 or PUSH64 by size).</td></tr>
+      <tr><td>DUP.X, DROP.X</td><td>Duplicate or drop the top of X.</td></tr>
+      <tr><td>COPY.AB, COPY.BA, MOVE.AB, MOVE.BA</td><td>Copy or move a top to the other operand stack.</td></tr>
+      <tr><td>CPUSH.X, CPOP</td><td>Move the top of X onto C; pop C.</td></tr>
+      <tr><td>CGET.X n, CSET.X n</td><td>Copy C<sub>n</sub> to X; write the top of X into C<sub>n</sub> (consuming it).</td></tr>
+      <tr><td>ADD SUB MUL AND OR XOR .X</td><td>Wrapping 64-bit arithmetic.</td></tr>
+      <tr><td>DIVU DIVS REMU REMS .X</td><td>Division; a zero divisor aborts (reason 1). MIN / -1 wraps.</td></tr>
+      <tr><td>SHL SHR SAR .X</td><td>Shifts; an amount of 64 or more gives 0, or the sign fill for SAR.</td></tr>
+      <tr><td>EQ NE LT LE LTU LEU .X</td><td>Compare, result 0 or 1. There are no greater-than forms: route the operands to the other stacks.</td></tr>
+      <tr><td>NEG NOT LNOT ZX32 SX32 .X</td><td>Negate, bitwise not, bool not, zero- or sign-extend from 32 bits.</td></tr>
+      <tr><td>ZX8 ZX16 POW POWS</td><td>A only. POWS aborts on a negative exponent (reason 4).</td></tr>
+      <tr><td>CHKU8 CHKU16 CHKU32 CHKI32 CHKNN</td><td>A only. Abort (reason 3) when A0 does not fit.</td></tr>
+      <tr><td>JMP l, JZ.X l, JNZ.X l</td><td>Jump; test the top of X (consumed).</td></tr>
+      <tr><td>BEQ BNE BLT BLE BLTU BLEU l</td><td>Compare A0 with B0, consume both, jump if true.</td></tr>
+      <tr><td>CALL.X f n</td><td>Push the return address (recording X), move n argument cells from A into the new frame, jump. The results arrive on X.</td></tr>
+      <tr><td>TCALL f k n</td><td>Drop k frame cells, move n cells from A in, jump; the return address and the stack it records are kept.</td></tr>
+      <tr><td>RET k r</td><td>Drop k frame cells, pop the return address, jump; move the r results to B if the call asked for B.</td></tr>
+      <tr><td>ADDI.X k (and SUB MUL AND OR XOR SHL SHR SAR)</td><td>Operand form: X0 op an i8 immediate, in place.</td></tr>
+      <tr><td>ADDC.X n (and SUB MUL XOR)</td><td>Operand form: X0 op C<sub>n</sub>, in place; C is only read.</td></tr>
+      <tr><td>BEQI.A k l (NE LT LE GT GE, LTU LEU GTU GEU)</td><td>Compare A0 with an immediate, consume it, jump if true.</td></tr>
+      <tr><td>ABORT n, HALT</td><td>Stop with a reason; stop normally.</td></tr>
+    </table>
+    <h3>SLet programs</h3>
+<pre>let xorshift(a, b, c, s: u32) : u32 = do
+  let s1 = s ~ (s << a)
+  let s2 = s1 ~ (s1 >> b)
+  return s2 ~ (s2 << c)
+end
+let next32 = xorshift(13, 17, 5)     -- static partial supply
+let main() : u32 = next32(2463534242)</pre>
+    <p>The simulator compiles a subset of SLet: words with typed parameters and result contracts (one result or a list such as <span style="font-family:var(--mono)">(u32, u32)</span>), <span style="font-family:var(--mono)">do ... end</span> blocks with <span style="font-family:var(--mono)">let</span> (several names at once), statement <span style="font-family:var(--mono)">if</span>, <span style="font-family:var(--mono)">return</span>, field stores, compound stores and call statements, expression conditionals, <span style="font-family:var(--mono)">and</span>/<span style="font-family:var(--mono)">or</span>/<span style="font-family:var(--mono)">not</span>, static constants, static partial supply, and record schemas with keyed construction, nested records and methods. Types: <span style="font-family:var(--mono)">u32 i32 u64 i64 bool</span> and schemas. Operators follow the spec: <span style="font-family:var(--mono)">~</span> is xor (and unary not), <span style="font-family:var(--mono)">^</span> is power. A literal is a <span style="font-family:var(--mono)">u32</span> unless it needs 64 bits, and adopts the type of a typed operand. A file defines <span style="font-family:var(--mono)">main</span>, which the program calls; its arguments are treated as run-time values so there is code to watch.</p>
+    <p><b>Records are scalarized</b> (the VM spec's open question 3): a record is its fields' cells in canonical name order, so it needs no memory. Passing and returning copy the cells; <span style="font-family:var(--mono)">let c = b</span> on a record binding is a local alias with no code. <b>Methods compile copy-in/copy-out</b>: the receiver's cells go in as leading arguments and come back as trailing results, and the caller writes them back. A result vector is several cells on A, last result on top.</p>
+    <p>Code generation is the recursive invariant <b>compile(E, dst)</b>: the left operand goes to A, the right to B, and the destination bit folds them; each node evaluates its heavier operand first (its Ershov number). Parameters and lets live on C and are read with <span style="font-family:var(--mono)">CGET</span>. A comparison used as a condition becomes one compare-and-branch. A tail self-call becomes <span style="font-family:var(--mono)">CSET</span> plus a <span style="font-family:var(--mono)">JMP</span>. Known values are folded, and a known zero divisor is a compile error. Not supported yet: sums, references, arrays, slices, strings, lambdas, defer, modules and foreign words.</p>
+    <h3>Keyboard</h3>
+    <p><kbd>→</kbd> step, <kbd>←</kbd> back, <kbd>Space</kbd> play, <kbd>R</kbd> reset, <kbd>Home</kbd>/<kbd>End</kbd> jump to the start or end.</p>
+  </div>
+</dialog>
+<script>
+(function (G) {
+'use strict';
+/* ABC VM 2.0 simulator core.
+   Three stacks of 64-bit cells (BigInt, stored unsigned). A and B share a
+   four-register operand bank h0..h3: A fills it from h0 upward, B from h3
+   downward, so A0 = h[a-1] and B0 = h[4-b]. C has its own bank c0..c3 with
+   C0 = c[k-1]. Pushes and pops move no values; only a push onto a full bank
+   spills. This mirrors gen.lua's builder exactly. */
+
+const M64 = (1n << 64n) - 1n;
+const u = x => BigInt.asUintN(64, x);
+const s = x => BigInt.asIntN(64, x);
+let NBANK = 4, CBANK = 4;
+function setBanks(n, k) { NBANK = n; CBANK = k; }
+
+class Abort extends Error { constructor(code, msg) { super(msg); this.code = code; } }
+const REASONS = { 1: 'division by zero', 2: 'index out of range', 3: 'conversion out of range', 4: 'negative exponent', 5: 'unreachable' };
+
+/* ------------------------------------------------------------------ ISA */
+const BIN = {
+  ADD: { f: (x, y) => u(x + y), sym: '+' },
+  SUB: { f: (x, y) => u(x - y), sym: '-' },
+  MUL: { f: (x, y) => u(x * y), sym: '*' },
+  DIVU: { f: (x, y) => { if (!y) throw new Abort(1); return x / y; }, sym: '/u' },
+  DIVS: { f: (x, y) => { if (!y) throw new Abort(1); return s(y) === -1n ? u(-x) : u(s(x) / s(y)); }, sym: '/' },
+  REMU: { f: (x, y) => { if (!y) throw new Abort(1); return x % y; }, sym: '%u' },
+  REMS: { f: (x, y) => { if (!y) throw new Abort(1); return s(y) === -1n ? 0n : u(s(x) % s(y)); }, sym: '%' },
+  AND: { f: (x, y) => x & y, sym: '&' },
+  OR: { f: (x, y) => x | y, sym: '|' },
+  XOR: { f: (x, y) => x ^ y, sym: '^' },
+  SHL: { f: (x, y) => (y >= 64n ? 0n : u(x << y)), sym: '<<' },
+  SHR: { f: (x, y) => (y >= 64n ? 0n : x >> y), sym: '>>u' },
+  SAR: { f: (x, y) => u(s(x) >> (y >= 64n ? 63n : y)), sym: '>>' },
+  EQ: { f: (x, y) => (x === y ? 1n : 0n), sym: '==' },
+  NE: { f: (x, y) => (x !== y ? 1n : 0n), sym: '!=' },
+  LT: { f: (x, y) => (s(x) < s(y) ? 1n : 0n), sym: '<' },
+  LE: { f: (x, y) => (s(x) <= s(y) ? 1n : 0n), sym: '<=' },
+  LTU: { f: (x, y) => (x < y ? 1n : 0n), sym: '<u' },
+  LEU: { f: (x, y) => (x <= y ? 1n : 0n), sym: '<=u' },
+};
+const UN = {
+  NEG: { f: x => u(-x), sym: '-' },
+  NOT: { f: x => x ^ M64, sym: '~' },
+  LNOT: { f: x => x ^ 1n, sym: 'not ' },
+  ZX32: { f: x => x & 0xffffffffn, sym: 'zx32 ' },
+  SX32: { f: x => u(BigInt.asIntN(32, x)), sym: 'sx32 ' },
+};
+const AONLY_UN = { ZX8: x => x & 0xffn, ZX16: x => x & 0xffffn };
+const CHK = {
+  CHKU8: x => x > 0xffn, CHKU16: x => x > 0xffffn, CHKU32: x => x > 0xffffffffn,
+  CHKI32: x => s(x) < -2147483648n || s(x) > 2147483647n, CHKNN: x => s(x) < 0n,
+};
+const CMPBR = {
+  BEQ: (x, y) => x === y, BNE: (x, y) => x !== y, BLT: (x, y) => s(x) < s(y),
+  BLE: (x, y) => s(x) <= s(y), BLTU: (x, y) => x < y, BLEU: (x, y) => x <= y,
+};
+const FUSE_OPS = new Set(['ADD', 'SUB', 'MUL', 'AND', 'OR', 'XOR', 'SHL', 'SHR', 'SAR']);
+const CBI = { BEQI: (x, y) => x === y, BNEI: (x, y) => x !== y, BLTI: (x, y) => s(x) < s(y), BLEI: (x, y) => s(x) <= s(y),
+  BGTI: (x, y) => s(x) > s(y), BGEI: (x, y) => s(x) >= s(y), BLTUI: (x, y) => x < y, BLEUI: (x, y) => x <= y, BGTUI: (x, y) => x > y, BGEUI: (x, y) => x >= y };
+function vpow(x, e) { let r = 1n; while (e) { if (e & 1n) r = u(r * x); x = u(x * x); e >>= 1n; } return r; }
+
+/* encoded size of an instruction, as in opcodes.h */
+function insLen(ins) {
+  switch (ins.op) {
+    case 'PUSH': return ins.width === 8 ? 2 : ins.width === 32 ? 5 : 9;
+    case 'CGET': case 'CSET': return ins.n <= (ins.op === 'CGET' ? 1 : 0) ? 1 : 2;
+    case 'JMP': case 'JZ': case 'JNZ': case 'CB': return 3;
+    case 'BINI': case 'BINC': return 2;
+    case 'CBI': return 4;
+    case 'CALL': return 6;
+    case 'TCALL': return 7;
+    case 'RET': return 3;
+    case 'ABORT': return 2;
+    default: return 1;
+  }
+}
+function pushWidth(v) {
+  const x = s(v);
+  if (x >= -128n && x <= 127n) return 8;
+  if (x >= -2147483648n && x <= 2147483647n) return 32;
+  return 64;
+}
+function fmt(ins) {
+  const x = ins.x ? '.' + ins.x : '';
+  switch (ins.op) {
+    case 'PUSH': return `PUSH${x} ${s(ins.v)}`;
+    case 'BIN': case 'UN': return ins.fn + x;
+    case 'ONE': return ins.fn;
+    case 'CGET': case 'CSET': return `${ins.op}${x} ${ins.n}`;
+    case 'CB': return `${ins.fn} ${ins.label}`;
+    case 'BINI': return `${ins.fn}I.${ins.x} ${s(ins.v)}`;
+    case 'BINC': return `${ins.fn}C.${ins.x} ${ins.n}`;
+    case 'CBI': return `${ins.fn}.${ins.x} ${s(ins.v)} ${ins.label}`;
+    case 'CALL': return `CALL.${ins.x} ${ins.label} ${ins.n}`;
+    case 'TCALL': return `TCALL ${ins.label} ${ins.k} ${ins.n}`;
+    case 'RET': return `RET ${ins.k} ${ins.r}`;
+    case 'JMP': return `${ins.op} ${ins.label}`;
+    case 'JZ': case 'JNZ': return `${ins.op}${x} ${ins.label}`;
+    case 'ABORT': return `ABORT ${ins.n}`;
+    default: return ins.op + x;
+  }
+}
+/* spec opcode name, for the bytecode view */
+function specName(ins) {
+  const x = ins.x ? '_' + ins.x : '';
+  switch (ins.op) {
+    case 'PUSH': return `PUSH${ins.width}${x}`;
+    case 'CGET': return ins.n === 0 ? `CGET0${x}` : ins.n === 1 ? `CGET1${x}` : `CGETN${x}`;
+    case 'CSET': return ins.n === 0 ? `CSET0${x}` : `CSETN${x}`;
+    case 'BIN': case 'UN': return ins.fn + x;
+    case 'ONE': case 'CB': case 'CBI': return ins.fn;
+    case 'BINI': return `${ins.fn}I${x}`;
+    case 'BINC': return `${ins.fn}C${x}`;
+    default: return ins.op + x;
+  }
+}
+
+/* ------------------------------------------------------------ assembler */
+function assemble(text) {
+  const lines = text.split('\n');
+  const code = [], labels = {}, fix = [];
+  const err = (i, m) => { const e = new Error(`Line ${i + 1}: ${m}`); e.line = i; throw e; };
+  lines.forEach((raw, i) => {
+    let line = raw.replace(/;.*$/, '').trim();
+    let m;
+    while ((m = /^([A-Za-z_]\w*):\s*(.*)$/.exec(line))) {
+      if (labels[m[1]] != null) err(i, `the label "${m[1]}" is defined twice.`);
+      labels[m[1]] = code.length; line = m[2].trim();
+    }
+    if (!line) return;
+    const t = line.split(/[\s,]+/);
+    const mm = /^([A-Za-z0-9]+)(?:\.([AB]{1,2}))?$/i.exec(t[0]);
+    if (!mm) err(i, `"${t[0]}" is not an instruction.`);
+    const name = mm[1].toUpperCase(), X = (mm[2] || '').toUpperCase();
+    const want = n => { if (t.length !== n + 1) err(i, `${name} takes ${n === 0 ? 'no operands' : n === 1 ? 'one operand' : n + ' operands'}.`); };
+    const needX = () => { if (X !== 'A' && X !== 'B') err(i, `${name} needs a stack: write ${name}.A or ${name}.B.`); };
+    const noX = () => { if (X) err(i, `${name} does not take a stack suffix.`); };
+    const num = (tok, what) => { if (!/^-?(0x[0-9a-f]+|\d+)$/i.test(tok || '')) err(i, `${what} must be a number.`); return tok.startsWith('-') ? -BigInt(tok.slice(1)) : BigInt(tok); };
+    let ins;
+    if (name === 'PUSH') { needX(); want(1); const v = u(num(t[1], 'PUSH')); ins = { op: 'PUSH', x: X, v, width: pushWidth(v) }; }
+    else if (BIN[name]) { needX(); want(0); ins = { op: 'BIN', fn: name, x: X }; }
+    else if (name.endsWith('I') && FUSE_OPS.has(name.slice(0, -1))) { needX(); want(1); ins = { op: 'BINI', fn: name.slice(0, -1), x: X, v: u(num(t[1], 'the immediate')) }; }
+    else if (name.endsWith('C') && FUSE_OPS.has(name.slice(0, -1))) { needX(); want(1); ins = { op: 'BINC', fn: name.slice(0, -1), x: X, n: Number(num(t[1], 'the depth')) }; }
+    else if (CBI[name]) { needX(); want(2); ins = { op: 'CBI', fn: name, x: X, v: u(num(t[1], 'the immediate')), label: t[2] }; fix.push([ins, i]); }
+    else if (UN[name]) { needX(); want(0); ins = { op: 'UN', fn: name, x: X }; }
+    else if (AONLY_UN[name] || CHK[name] || name === 'POW' || name === 'POWS') { noX(); want(0); ins = { op: 'ONE', fn: name }; }
+    else if (['DUP', 'DROP', 'CPUSH'].includes(name)) { needX(); want(0); ins = { op: name, x: X }; }
+    else if (name === 'COPY' || name === 'MOVE') {
+      if (X !== 'AB' && X !== 'BA') err(i, `${name} needs a direction: ${name}.AB or ${name}.BA.`);
+      want(0); ins = { op: name, x: X };
+    }
+    else if (name === 'CPOP') { noX(); want(0); ins = { op: 'CPOP' }; }
+    else if (name === 'CTAKE') { needX(); want(0); ins = { op: 'CTAKE', x: X }; }
+    else if (name === 'CGET' || name === 'CSET') {
+      needX(); want(1); const n = Number(num(t[1], 'the depth'));
+      if (n < 0 || n > 255) err(i, 'the depth must be between 0 and 255.');
+      ins = { op: name, x: X, n };
+    }
+    else if (CMPBR[name]) { noX(); want(1); ins = { op: 'CB', fn: name, label: t[1] }; fix.push([ins, i]); }
+    else if (name === 'JZ' || name === 'JNZ') { needX(); want(1); ins = { op: name, x: X, label: t[1] }; fix.push([ins, i]); }
+    else if (name === 'JMP') { noX(); want(1); ins = { op: name, label: t[1] }; fix.push([ins, i]); }
+    else if (name === 'CALL') { if (X && X !== 'A' && X !== 'B') err(i, 'CALL takes .A or .B: the stack that receives the results.'); ins = { op: name, x: X || 'A', label: t[1], n: t[2] ? Number(t[2]) : 0 }; fix.push([ins, i]); }
+    else if (name === 'TCALL') { noX(); ins = { op: name, label: t[1], k: t[2] ? Number(t[2]) : 0, n: t[3] ? Number(t[3]) : 0 }; fix.push([ins, i]); }
+    else if (name === 'RET') { noX(); ins = { op: name, k: t[1] ? Number(t[1]) : 0, r: t[2] ? Number(t[2]) : 0 }; }
+    else if (name === 'HALT') { noX(); want(0); ins = { op: name }; }
+    else if (name === 'ABORT') { noX(); want(1); ins = { op: 'ABORT', n: Number(num(t[1], 'the reason')) & 255 }; }
+    else err(i, `unknown instruction "${t[0]}". See the ISA reference.`);
+    ins.line = i;
+    code.push(ins);
+  });
+  for (const [ins, i] of fix) {
+    if (labels[ins.label] == null) err(i, `there is no label called "${ins.label}".`);
+    ins.target = labels[ins.label];
+  }
+  if (!code.length) err(0, 'the program is empty.');
+  const last = code[code.length - 1].op;
+  const warnings = [];
+  if (!['HALT', 'JMP', 'RET', 'TCALL', 'ABORT'].includes(last)) {
+    code.push({ op: 'HALT', line: lines.length - 1, implicit: true });
+    warnings.push('The program did not end with HALT, so one was added.');
+  }
+  const labelAt = {};
+  for (const [name, idx] of Object.entries(labels)) (labelAt[idx] = labelAt[idx] || []).push(name);
+  return { code, labels, labelAt, warnings };
+}
+function layout(code) {
+  const addr = []; let a = 0;
+  for (const ins of code) { addr.push(a); a += insLen(ins); }
+  return { addr, size: a };
+}
+
+/* -------------------------------------------------------------- machine */
+function newMachine() {
+  return { memA: [], memB: [], memC: [], h: new Array(NBANK).fill(null), c: new Array(CBANK).fill(null),
+    a: 0, b: 0, k: 0, pc: 0, halted: false, reason: 0,
+    stats: { steps: 0, regMoves: 0, freeMoves: 0, spills: 0, memReads: 0, memWrites: 0, maxA: 0, maxB: 0, maxC: 0 } };
+}
+const cnt = (m, X) => (X === 'A' ? m.a : X === 'B' ? m.b : m.k);
+function regName(m, X, i) {
+  if (X === 'A') return 'h' + (m.a - 1 - i);
+  if (X === 'B') return 'h' + (NBANK - m.b + i);
+  return 'c' + (m.k - 1 - i);
+}
+const mem = (m, X) => (X === 'A' ? m.memA : X === 'B' ? m.memB : m.memC);
+function regGet(m, r) { return r[0] === 'h' ? m.h[+r[1]] : m.c[+r[1]]; }
+function regSet(m, r, v) { if (r[0] === 'h') m.h[+r[1]] = v; else m.c[+r[1]] = v; }
+function depth(m, X) { return cnt(m, X) + mem(m, X).length; }
+
+/* where logical depth n of X lives */
+function loc(m, X, n) {
+  if (n < cnt(m, X)) return regName(m, X, n);
+  return 'mem';
+}
+function read(m, X, n, L) {
+  if (n >= depth(m, X)) throw new Error(`${X}${n} does not exist: the ${X === 'C' ? 'context' : X} stack holds ${depth(m, X)} value${depth(m, X) === 1 ? '' : 's'}.`);
+  if (n < cnt(m, X)) return { cell: regGet(m, regName(m, X, n)), where: regName(m, X, n) };
+  m.stats.memReads++;
+  const M = mem(m, X);
+  return { cell: M[M.length - 1 - (n - cnt(m, X))], where: `${X}[${n}] in memory` };
+}
+function writeAt(m, X, n, cell, L, how) {
+  if (n < cnt(m, X)) { const r = regName(m, X, n); regSet(m, r, cell); L.push(`${r} = ${how}`); return r; }
+  const M = mem(m, X); M[M.length - 1 - (n - cnt(m, X))] = cell; m.stats.memWrites++;
+  L.push(`${X}[${n}] in memory = ${how}`);
+  return 'mem';
+}
+function pop(m, X, L) {
+  if (depth(m, X) === 0) throw new Error(`pop from an empty ${X === 'C' ? 'context' : X} stack.`);
+  if (X === 'A' && m.a) { m.a--; return; }
+  if (X === 'B' && m.b) { m.b--; return; }
+  if (X === 'C' && m.k) { m.k--; return; }
+  mem(m, X).pop();
+}
+function spillDeepest(m, X, L) {
+  m.stats.spills++; m.stats.memWrites++;
+  if (X === 'A') {
+    m.memA.push(m.h[0]); L.push('spill h0 → A memory (A\'s deepest cached cell)');
+    for (let i = 0; i < m.a - 1; i++) { m.h[i] = m.h[i + 1]; L.push(`h${i} = h${i + 1}`); m.stats.regMoves++; }
+    m.h[m.a - 1] = null; m.a--;
+  } else if (X === 'B') {
+    m.memB.push(m.h[NBANK - 1]); L.push('spill → B memory');
+    for (let i = NBANK - 1; i > NBANK - m.b; i--) { m.h[i] = m.h[i - 1]; L.push(`h${i} = h${i - 1}`); m.stats.regMoves++; }
+    m.h[NBANK - m.b] = null; m.b--;
+  } else {
+    m.memC.push(m.c[0]); L.push('spill c0 → C memory (C\'s deepest cached cell)');
+    for (let i = 0; i < m.k - 1; i++) { m.c[i] = m.c[i + 1]; L.push(`c${i} = c${i + 1}`); m.stats.regMoves++; }
+    m.c[m.k - 1] = null; m.k--;
+  }
+}
+/* push a cell; src = register name when the value is a copy of a register */
+function push(m, X, cell, L, src, how) {
+  let r, spilled = false;
+  if (X === 'C') {
+    if (m.k === CBANK) { spillDeepest(m, 'C', L); spilled = true; }
+    r = 'c' + m.k; m.k++;
+  } else {
+    if (m.a + m.b === NBANK) { spillDeepest(m, cnt(m, X) > 0 ? X : (X === 'A' ? 'B' : 'A'), L); spilled = true; }
+    if (X === 'A') { r = 'h' + m.a; m.a++; } else { r = 'h' + (NBANK - 1 - m.b); m.b++; }
+  }
+  /* after a spill the registers have shifted, so the value comes from a temporary */
+  if (spilled && src && /^[hc]\d$/.test(src)) { L.push(`${r} = the value read from ${src} before the spill`); m.stats.regMoves++; src = null; how = null; }
+  if (how === null) { /* already logged */ }
+  else if (src && src === r) {
+    L.push(`${r} changes owner: no native move`); m.stats.freeMoves++;
+  } else {
+    if (src && /^[hc]\d$/.test(src)) { L.push(`${r} = ${src}`); m.stats.regMoves++; }
+    else L.push(`${r} = ${how}`);
+  }
+  regSet(m, r, cell);
+  m.stats.maxA = Math.max(m.stats.maxA, depth(m, 'A'));
+  m.stats.maxB = Math.max(m.stats.maxB, depth(m, 'B'));
+  m.stats.maxC = Math.max(m.stats.maxC, depth(m, 'C'));
+  return r;
+}
+const val = v => ({ v });
+const other = X => (X === 'A' ? 'B' : 'A');
+
+/* execute one instruction; returns { L: native log, msg } */
+function step(m, code) {
+  const ins = code[m.pc];
+  const L = [];
+  let next = m.pc + 1, msg = '';
+  m.stats.steps++;
+  const X = ins.x;
+  switch (ins.op) {
+    case 'PUSH': push(m, X, val(ins.v), L, null, `${s(ins.v)}`); msg = `Pushed ${s(ins.v)} onto ${X}.`; break;
+    case 'DUP': { const r = read(m, X, 0, L); push(m, X, val(r.cell.v), L, r.where, r.where); msg = `Duplicated ${X}0.`; break; }
+    case 'DROP': pop(m, X, L); L.push(`${X}0 retired: no native work`); msg = `Dropped ${X}0.`; break;
+    case 'COPY': case 'MOVE': {
+      const [F, T] = X.split('');
+      const r = read(m, F, 0, L);
+      if (ins.op === 'MOVE') pop(m, F, L);
+      push(m, T, ins.op === 'MOVE' ? r.cell : val(r.cell.v), L, r.where, r.where);
+      msg = ins.op === 'MOVE' ? `Moved ${F}0 to ${T}.` : `Copied ${F}0 to ${T}: one value, live on both stacks.`;
+      break;
+    }
+    case 'CPUSH': { const r = read(m, X, 0, L); pop(m, X, L); push(m, 'C', r.cell, L, r.where, r.where); msg = `Moved ${X}0 onto C.`; break; }
+    case 'CPOP': pop(m, 'C', L); L.push('C0 retired: no native work'); msg = 'Popped C.'; break;
+    case 'CTAKE': { const r = read(m, 'C', 0, L); pop(m, 'C', L); push(m, X, r.cell, L, r.where, r.where); msg = `Moved C0 to ${X}.`; break; }
+    case 'CGET': { const r = read(m, 'C', ins.n, L); push(m, X, val(r.cell.v), L, r.where, r.where); msg = `Copied C${ins.n} to ${X}.`; break; }
+    case 'CSET': {
+      const r = read(m, X, 0, L); pop(m, X, L);
+      if (ins.n >= depth(m, 'C')) throw new Error(`C${ins.n} does not exist.`);
+      writeAt(m, 'C', ins.n, r.cell, L, r.where);
+      msg = `Wrote ${X}0 into C${ins.n}.`; break;
+    }
+    case 'BIN': {
+      const xa = read(m, 'A', 0, L), yb = read(m, 'B', 0, L);
+      const r = BIN[ins.fn].f(xa.cell.v, yb.cell.v);
+      writeAt(m, X, 0, val(r), L, `${xa.where} ${BIN[ins.fn].sym} ${yb.where}`);
+      pop(m, other(X), L);
+      msg = `A0 ${BIN[ins.fn].sym} B0 = ${s(r)}; the result stays on ${X} and ${other(X)} pops.`;
+      break;
+    }
+    case 'BINI': case 'BINC': {
+      const xa = read(m, X, 0, L);
+      const y = ins.op === 'BINI' ? ins.v : read(m, 'C', ins.n, L).cell.v;
+      const r = BIN[ins.fn].f(xa.cell.v, y);
+      writeAt(m, X, 0, val(r), L, `${xa.where} ${BIN[ins.fn].sym} ${ins.op === 'BINI' ? s(ins.v) : 'C' + ins.n}`);
+      msg = `${X}0 ${BIN[ins.fn].sym}= ${ins.op === 'BINI' ? s(ins.v) : 'C' + ins.n}`; break;
+    }
+    case 'CBI': {
+      const xa = read(m, X, 0, L); pop(m, X, L);
+      const taken = CBI[ins.fn](xa.cell.v, ins.v);
+      if (taken) next = ins.target;
+      msg = `${ins.fn}: ${taken ? 'jump' : 'fall through'}`; break;
+    }
+    case 'UN': {
+      const r0 = read(m, X, 0, L); const r = UN[ins.fn].f(r0.cell.v);
+      writeAt(m, X, 0, val(r), L, `${UN[ins.fn].sym}${r0.where}`);
+      msg = `${ins.fn} of ${X}0 = ${s(r)}.`; break;
+    }
+    case 'ONE': {
+      const fn = ins.fn;
+      if (AONLY_UN[fn]) { const r0 = read(m, 'A', 0, L); const r = AONLY_UN[fn](r0.cell.v); writeAt(m, 'A', 0, val(r), L, `${fn.toLowerCase()} ${r0.where}`); msg = `${fn} of A0 = ${s(r)}.`; }
+      else if (CHK[fn]) { const r0 = read(m, 'A', 0, L); if (CHK[fn](r0.cell.v)) throw new Abort(3); L.push('check passed: no native work beyond a compare'); msg = `${fn}: A0 fits.`; }
+      else {
+        const xa = read(m, 'A', 0, L), yb = read(m, 'B', 0, L);
+        if (fn === 'POWS' && s(yb.cell.v) < 0n) throw new Abort(4);
+        const r = vpow(xa.cell.v, yb.cell.v);
+        writeAt(m, 'A', 0, val(r), L, `${xa.where} ^ ${yb.where}`); pop(m, 'B', L);
+        msg = `A0 ^ B0 = ${s(r)}.`;
+      }
+      break;
+    }
+    case 'JMP': next = ins.target; L.push('jump'); msg = `Jumped to ${ins.label}.`; break;
+    case 'JZ': case 'JNZ': {
+      const r = read(m, X, 0, L); pop(m, X, L);
+      const z = r.cell.v === 0n, taken = (ins.op === 'JZ') === z;
+      if (taken) next = ins.target;
+      L.push(`test ${r.where}, ${taken ? 'jump' : 'fall through'}`);
+      msg = `${X}0 is ${s(r.cell.v)}, so the branch ${taken ? 'jumps to ' + ins.label : 'falls through'}.`; break;
+    }
+    case 'CB': {
+      const xa = read(m, 'A', 0, L), yb = read(m, 'B', 0, L);
+      pop(m, 'A', L); pop(m, 'B', L);
+      const taken = CMPBR[ins.fn](xa.cell.v, yb.cell.v);
+      if (taken) next = ins.target;
+      L.push(`cmp ${xa.where}, ${yb.where}; ${taken ? 'jump' : 'fall through'}`);
+      msg = `${ins.fn}: A0 = ${s(xa.cell.v)}, B0 = ${s(yb.cell.v)}, so the branch ${taken ? 'jumps to ' + ins.label : 'falls through'}.`; break;
+    }
+    case 'CALL': {
+      push(m, 'C', { v: BigInt(m.pc + 1), ret: m.pc + 1, toB: ins.x === 'B' }, L, null, ins.x === 'B' ? 'return address (results to B)' : 'return address');
+      for (let i = 0; i < ins.n; i++) { const r = read(m, 'A', 0, L); pop(m, 'A', L); push(m, 'C', r.cell, L, r.where, r.where); }
+      next = ins.target; msg = `Called ${ins.label}.`; break;
+    }
+    case 'TCALL': {
+      for (let i = 0; i < ins.k; i++) pop(m, 'C', L);
+      for (let i = 0; i < ins.n; i++) { const r = read(m, 'A', 0, L); pop(m, 'A', L); push(m, 'C', r.cell, L, r.where, r.where); }
+      next = ins.target; msg = `Tail call to ${ins.label}.`; break;
+    }
+    case 'RET': {
+      for (let i = 0; i < ins.k; i++) pop(m, 'C', L);
+      const r = read(m, 'C', 0, L); pop(m, 'C', L);
+      if (r.cell.ret == null) throw new Error('RET found no return address on C0.');
+      if (r.cell.toB && ins.r) {
+        /* the caller asked for its results on B: move them, keeping their order */
+        const cells = [];
+        for (let i = 0; i < ins.r; i++) { cells.push(read(m, 'A', 0, L).cell); pop(m, 'A', L); }
+        for (let i = ins.r - 1; i >= 0; i--) push(m, 'B', cells[i], L, null, 'result');
+      }
+      next = r.cell.ret; L.push(`jump through ${r.where}`); msg = 'Returned to the caller.'; break;
+    }
+    case 'ABORT': throw new Abort(ins.n);
+    case 'HALT': {
+      m.halted = true; next = m.pc; L.push('flush the banks and stop');
+      const top = depth(m, 'A') ? (m.a ? m.h[m.a - 1] : m.memA[m.memA.length - 1]) : null;
+      msg = top ? `Halted. A0 = ${s(top.v)}.` : 'Halted.'; break;
+    }
+  }
+  m.pc = next;
+  return { L, msg };
+}
+
+function snapshot(m, extra) {
+  const logical = X => {
+    const out = [];
+    for (let n = 0; n < depth(m, X); n++) {
+      const inReg = n < cnt(m, X);
+      const M = mem(m, X);
+      const cell = inReg ? regGet(m, regName(m, X, n)) : M[M.length - 1 - (n - cnt(m, X))];
+      out.push({ v: cell.v, ret: cell.ret, where: inReg ? regName(m, X, n) : 'mem' });
+    }
+    return out;
+  };
+  const owners = [...Array(NBANK).keys()].map(i => (i < m.a ? 'A' : i >= NBANK - m.b ? 'B' : 'free'));
+  return Object.assign({
+    A: logical('A'), B: logical('B'), C: logical('C'),
+    h: m.h.map((c, i) => (owners[i] === 'free' ? null : c && { v: c.v, ret: c.ret })), owners,
+    c: m.c.map((c, i) => (i < m.k ? c && { v: c.v, ret: c.ret } : null)),
+    a: m.a, b: m.b, k: m.k, pc: m.pc, halted: m.halted, reason: m.reason, stats: { ...m.stats },
+  }, extra);
+}
+
+function run(code, limit = 5000) {
+  const m = newMachine();
+  const snaps = [snapshot(m, { msg: 'Ready. Step to execute the first instruction.', L: [], last: -1 })];
+  while (!m.halted && !m.reason) {
+    if (snaps.length > limit) { snaps[snaps.length - 1].msg += ` Stopped after ${limit} steps.`; snaps[snaps.length - 1].limited = true; break; }
+    const idx = m.pc;
+    if (idx < 0 || idx >= code.length) { m.reason = 255; snaps.push(snapshot(m, { msg: 'Stopped: execution ran past the end.', L: [], last: -1, error: true })); break; }
+    let res, err = null;
+    try { res = step(m, code); }
+    catch (e) {
+      if (e instanceof Abort) { m.reason = e.code; err = `Abort ${e.code}: ${REASONS[e.code] || 'program abort'}.`; }
+      else { m.reason = 255; err = 'Stopped: ' + e.message; }
+    }
+    snaps.push(snapshot(m, res ? { msg: res.msg, L: res.L, last: idx } : { msg: err, L: [], last: idx, error: true }));
+  }
+  return snaps;
+}
+
+/* ------------------------------------------------- SLet compiler */
+/* A subset of SLet (spec sections 1-8, 10, 13):
+     words with typed parameters and result contracts (one result or a list),
+     do ... end blocks: let (several binders), if, return, field stores,
+       compound stores and call statements,
+     expression conditionals, and/or/not, static constants, static partial supply,
+     record schemas with keyed construction, field reads and methods.
+   Types: u32, i32, u64, i64, bool and record schemas.
+   Code generation is compile(E, dst): left operand to A, right to B, heavier
+   operand first (Ershov). Bindings live on C, one cell per scalar. Records are
+   scalarized: a record value is its fields' cells in canonical (name) order, so
+   no memory is needed. A method is compiled copy-in/copy-out: the receiver's
+   cells go in as leading arguments and come back as trailing results, and the
+   caller writes them back into its own C slots. Tail self-calls become jumps. */
+const KW = new Set(['let', 'extern', 'do', 'defer', 'end', 'if', 'then', 'else', 'return', 'and', 'or', 'not', 'true', 'false']);
+const SCALARS = new Set(['u32', 'i32', 'u64', 'i64', 'bool']);
+const ASSIGN_OPS = ['+=', '-=', '*=', '/=', '%=', '^=', '&=', '|=', '~=', '<<=', '>>='];
+function wlex(text) {
+  const toks = [];
+  const re = /(--\[(=*)\[[\s\S]*?\]\2\]|--[^\n]*)|(\s+)|(0x[0-9a-fA-F_]+|0b[01_]+|\d[\d_]*)|([A-Za-z_]\w*)|(<<=|>>=|<<|>>|<=|>=|==|!=|[-+*/%^~&|]=|[-+*/%^~&|<>()=,:;{}.])/y;
+  let p = 0, line = 0;
+  while (p < text.length) {
+    re.lastIndex = p;
+    const m = re.exec(text);
+    if (!m) { const e = new Error(`Line ${line + 1}: unexpected "${text[p]}".`); e.line = line; throw e; }
+    if (m[4]) {
+      const raw = m[4];
+      if (/__|_$|^_/.test(raw.replace(/^0[xb]/, ''))) { const e = new Error(`Line ${line + 1}: a digit separator must sit between two digits.`); e.line = line; throw e; }
+      const v = BigInt(raw.replace(/_/g, ''));
+      if (v > M64) { const e = new Error(`Line ${line + 1}: the literal does not fit in 64 bits.`); e.line = line; throw e; }
+      toks.push({ t: 'num', v, line });
+    } else if (m[5]) toks.push({ t: KW.has(m[5]) ? m[5] : 'id', v: m[5], line });
+    else if (m[6]) toks.push({ t: m[6], v: m[6], line });
+    line += (m[0].match(/\n/g) || []).length;
+    p = re.lastIndex;
+  }
+  toks.push({ t: 'eof', v: 'end of file', line });
+  return toks;
+}
+
+function wparse(text) {
+  const toks = wlex(text);
+  let p = 0, nid = 0;
+  const peek = (k = 0) => toks[p + k], next = () => toks[p++];
+  const err = (m, tk = peek()) => { const e = new Error(`Line ${tk.line + 1}: ${m}`); e.line = tk.line; throw e; };
+  const expect = (t, what) => { const k = next(); if (k.t !== t) err(`expected ${what || '"' + t + '"'} but found "${k.v}".`, k); return k; };
+  const node = (o, tk) => Object.assign(o, { id: ++nid, line: tk.line });
+  function type() {
+    const k = expect('id', 'a type');
+    return { name: k.v, line: k.line };
+  }
+  function resultSpec() {                     /* -> list of type specs */
+    if (peek().t === '(') {
+      next();
+      const out = [];
+      if (peek().t === ')') { next(); return out; }
+      for (;;) { out.push(type()); if (peek().t === ',') { next(); continue; } expect(')'); return out; }
+    }
+    return [type()];
+  }
+  function params() {
+    expect('(');
+    const out = [];
+    if (peek().t === ')') { next(); return out; }
+    for (;;) {
+      const names = [expect('id', 'a parameter name')];
+      while (peek().t === ',') { next(); names.push(expect('id', 'a parameter name')); }
+      expect(':', '":" and a type');
+      const t = type();
+      names.forEach(n => out.push({ name: n.v, type: t }));
+      if (peek().t === ',') { next(); continue; }
+      expect(')');
+      return out;
+    }
+  }
+  function args() {
+    expect('(');
+    const out = [];
+    if (peek().t !== ')') for (;;) { out.push(expr()); if (peek().t === ',') { next(); if (peek().t === ')') break; continue; } break; }
+    expect(')');
+    return out;
+  }
+  function primary() {
+    const k = next();
+    if (k.t === 'num') return node({ k: 'num', v: k.v }, k);
+    if (k.t === 'true' || k.t === 'false') return node({ k: 'bool', v: k.t === 'true' ? 1n : 0n }, k);
+    if (k.t === 'id') {
+      if (peek().t === '(') return node({ k: 'call', name: k.v, args: args() }, k);
+      if (peek().t === '{') {
+        next();
+        const inits = [];
+        while (peek().t !== '}') {
+          const f = expect('id', 'a field name'); expect('=', '"=" (a keyed supply)');
+          inits.push({ name: f.v, e: expr(), line: f.line });
+          if (peek().t === ',') next(); else break;
+        }
+        expect('}');
+        return node({ k: 'make', schema: k.v, inits }, k);
+      }
+      return node({ k: 'var', name: k.v }, k);
+    }
+    if (k.t === '(') {
+      const e = expr(); expect(')');
+      return e.k === 'call' || e.k === 'mcall' ? node({ k: 'adjust', x: e }, k) : e;
+    }
+    err(`unexpected "${k.v}".`, k);
+  }
+  function postfix() {
+    let e = primary();
+    while (peek().t === '.') {
+      const k = next();
+      const f = expect('id', 'a field or method name');
+      if (peek().t === '(') e = node({ k: 'mcall', recv: e, name: f.v, args: args() }, k);
+      else e = node({ k: 'field', base: e, name: f.v }, k);
+    }
+    return e;
+  }
+  function power() {
+    const b = postfix();
+    if (peek().t === '^') { const k = next(); return node({ k: 'pow', l: b, r: unary() }, k); }
+    return b;
+  }
+  function unary() {
+    const k = peek();
+    if (k.t === '-' || k.t === '~' || k.t === 'not') { next(); return node({ k: 'un', op: k.t, x: unary() }, k); }
+    return power();
+  }
+  const LEVELS = [['|'], ['~'], ['&'], ['<<', '>>'], ['+', '-'], ['*', '/', '%']];
+  function binary(i) {
+    if (i === LEVELS.length) return unary();
+    let l = binary(i + 1);
+    while (LEVELS[i].includes(peek().t)) { const k = next(); l = node({ k: 'bin', o: k.t, l, r: binary(i + 1) }, k); }
+    return l;
+  }
+  const CMPS = ['==', '!=', '<', '<=', '>', '>='];
+  function comparison() {
+    const l = binary(0);
+    if (CMPS.includes(peek().t)) {
+      const k = next();
+      const n = node({ k: 'bin', o: k.t, l, r: binary(0) }, k);
+      if (CMPS.includes(peek().t)) err('comparisons cannot be chained; add parentheses.');
+      return n;
+    }
+    return l;
+  }
+  function andExpr() { let l = comparison(); while (peek().t === 'and') { const k = next(); l = node({ k: 'and', l, r: comparison() }, k); } return l; }
+  function orExpr() { let l = andExpr(); while (peek().t === 'or') { const k = next(); l = node({ k: 'or', l, r: andExpr() }, k); } return l; }
+  function expr() {
+    if (peek().t === 'if') {
+      const k = next(); const c = expr(); expect('then'); const t = expr(); expect('else', '"else" (an expression conditional needs one)'); const e = expr();
+      return node({ k: 'if', c, t, e }, k);
+    }
+    return orExpr();
+  }
+  function exprList() { const out = [expr()]; while (peek().t === ',') { next(); out.push(expr()); } return out; }
+  function stmts(stop) {
+    const out = [];
+    while (!stop.includes(peek().t)) {
+      const k = peek();
+      if (k.t === ';') { next(); continue; }
+      if (k.t === 'let') {
+        next();
+        const binders = [];
+        for (;;) {
+          const name = expect('id', 'a name').v;
+          let ann = null; if (peek().t === ':') { next(); ann = type(); }
+          binders.push({ name, ann });
+          if (peek().t === ',') { next(); continue; }
+          break;
+        }
+        expect('=');
+        out.push({ k: 'let', binders, es: exprList(), line: k.line });
+      } else if (k.t === 'if') {
+        next(); const c = expr(); expect('then');
+        const t = stmts(['else', 'end']); let e = [];
+        if (peek().t === 'else') { next(); e = stmts(['end']); }
+        expect('end');
+        out.push({ k: 'if', c, t, e, line: k.line });
+      } else if (k.t === 'return') {
+        next();
+        const es = stop.includes(peek().t) || peek().t === ';' ? [] : exprList();
+        out.push({ k: 'return', es, line: k.line });
+      } else if (k.t === 'id') {
+        const target = postfix();
+        const op = peek().t;
+        if (op === '=' || ASSIGN_OPS.includes(op)) {
+          next();
+          if (target.k !== 'var' && target.k !== 'field') err('only a field can be assigned; bindings are immutable.', k);
+          out.push({ k: 'store', target, op: op === '=' ? null : op.slice(0, -1), e: expr(), line: k.line });
+        } else if (target.k === 'call' || target.k === 'mcall') {
+          out.push({ k: 'callstmt', e: target, line: k.line });
+        } else err('a statement here must be a call, a field store, let, if or return.', k);
+      } else err(`a block holds let, if, return, field stores and calls; found "${k.v}".`);
+    }
+    return out;
+  }
+  function body() {
+    if (peek().t === 'do') { next(); const b = stmts(['end']); expect('end'); return { block: b }; }
+    return { expr: expr() };
+  }
+  const items = [];
+  while (peek().t !== 'eof') {
+    if (peek().t === ';') { next(); continue; }
+    const k = expect('let', '"let" (a top-level declaration)');
+    const name = expect('id', 'a name');
+    if (SCALARS.has(name.v)) err(`"${name.v}" is reserved: it is one of the language's own words.`, name);
+    const it = { name: name.v, line: k.line };
+    if (peek().t === '(') {
+      it.k = 'word'; it.params = params();
+      it.results = null; if (peek().t === ':') { next(); it.results = resultSpec(); }
+      expect('=');
+      Object.assign(it, body());
+    } else {
+      it.ann = null; if (peek().t === ':') { next(); it.ann = type(); }
+      expect('=');
+      if (peek().t === '{') {
+        next();
+        it.k = 'schema'; it.fields = []; it.methods = [];
+        while (peek().t !== '}') {
+          const mn = expect('id', 'a field or method name');
+          if (peek().t === ':') { next(); it.fields.push({ name: mn.v, type: type(), line: mn.line }); }
+          else if (peek().t === '(') {
+            const m = { k: 'word', name: mn.v, line: mn.line, params: params(), results: null };
+            if (peek().t === ':') { next(); m.results = resultSpec(); }
+            expect('=');
+            Object.assign(m, body());
+            it.methods.push(m);
+          } else err('a schema member is "name: type" or a method "name(params) : result = body".', mn);
+          if (peek().t === ',') next(); else break;
+        }
+        expect('}');
+      } else { it.k = 'value'; it.expr = expr(); }
+    }
+    items.push(it);
+  }
+  return items;
+}
+
+/* ---- types: a scalar name, 'lit' (an untyped literal), or { rec: schemaName } */
+const SIGNED = { i32: true, i64: true };
+const WIDTH = { u32: 32, i32: 32, u64: 64, i64: 64 };
+const isRec = t => t && typeof t === 'object';
+const tname = t => (isRec(t) ? t.rec : t === 'lit' ? 'an untyped literal' : t);
+function norm(v, t) {
+  if (t === 'u32') return v & 0xffffffffn;
+  if (t === 'i32') return u(BigInt.asIntN(32, v));
+  if (t === 'bool') return v ? 1n : 0n;
+  return u(v);
+}
+function litType(v) { return v >= 0n && v <= 0xffffffffn ? 'u32' : 'u64'; }
+function failAt(m, at) { const e = new Error(`Line ${(at && at.line != null ? at.line : 0) + 1}: ${m}`); e.line = at && at.line; throw e; }
+function unify(a, b, at) {
+  if (isRec(a) || isRec(b)) {
+    if (isRec(a) && isRec(b) && a.rec === b.rec) return a;
+    failAt(`cannot combine ${tname(a)} with ${tname(b)}.`, at);
+  }
+  if (a === 'lit') return b; if (b === 'lit') return a;
+  if (a === b) return a;
+  if (a === 'bool' || b === 'bool') failAt(`cannot combine bool with ${a === 'bool' ? b : a}.`, at);
+  if (!!SIGNED[a] !== !!SIGNED[b]) failAt(`mixing ${a} and ${b} rejects: signed and unsigned values need an explicit conversion.`, at);
+  return WIDTH[a] >= WIDTH[b] ? a : b;
+}
+const concrete = (t, v) => (t === 'lit' ? litType(v == null ? 0n : v) : t);
+const WRAPS = new Set(['+', '-', '*', '<<']);
+function opFor(o, t) {
+  const sg = !!SIGNED[t];
+  return { '+': 'ADD', '-': 'SUB', '*': 'MUL', '/': sg ? 'DIVS' : 'DIVU', '%': sg ? 'REMS' : 'REMU', '&': 'AND', '|': 'OR', '~': 'XOR',
+    '<<': 'SHL', '>>': sg ? 'SAR' : 'SHR', '==': 'EQ', '!=': 'NE', '<': sg ? 'LT' : 'LTU', '<=': sg ? 'LE' : 'LEU',
+    '>': sg ? 'LT' : 'LTU', '>=': sg ? 'LE' : 'LEU' }[o];
+}
+const isCmp = o => ['==', '!=', '<', '<=', '>', '>='].includes(o);
+function wOperands(n) { return n.o === '>' || n.o === '>=' ? [n.r, n.l] : [n.l, n.r]; }
+function applyBin(o, t, x, y, at) {
+  const op = opFor(o, t);
+  try { return norm(BIN[op].f(x, y), isCmp(o) ? 'bool' : t); }
+  catch (e) { if (e instanceof Abort) failAt('a known zero divisor rejects at compile time.', at); throw e; }
+}
+
+/* ---- the program model shared by the compiler and the evaluator */
+function wmodel(text) {
+  const items = wparse(text);
+  const words = {}, consts = {}, schemas = {};
+  for (const it of items) {
+    if (words[it.name] || consts[it.name] || schemas[it.name]) failAt(`"${it.name}" is already defined.`, it);
+    if (it.k === 'word') words[it.name] = it;
+    if (it.k === 'schema') schemas[it.name] = it;
+  }
+  const resolve = spec => {
+    if (SCALARS.has(spec.name)) return spec.name;
+    if (schemas[spec.name]) return { rec: spec.name };
+    if (['u8', 'u16', 'f64', 'unit', 'string', 'type'].includes(spec.name)) failAt(`the simulator does not support the type ${spec.name} yet.`, spec);
+    failAt(`"${spec.name}" is not a type.`, spec);
+  };
+  for (const sc of Object.values(schemas)) {
+    const seen = new Set();
+    for (const f of sc.fields) { if (seen.has(f.name)) failAt(`the field "${f.name}" appears twice.`, f); seen.add(f.name); f.t = resolve(f.type); }
+    sc.order = sc.fields.slice().sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));   /* canonical layout */
+  }
+  /* cells of a type: one per scalar, records flattened in canonical field order */
+  const cellsOf = t => (isRec(t) ? schemas[t.rec].order.reduce((n, f) => n + cellsOf(f.t), 0) : 1);
+  const fieldOffset = (t, name, at) => {
+    const sc = schemas[t.rec]; let off = 0;
+    for (const f of sc.order) { if (f.name === name) return { off, t: f.t }; off += cellsOf(f.t); }
+    failAt(`${t.rec} has no field "${name}".`, at);
+  };
+  const cycle = (name, path) => {
+    for (const f of schemas[name].fields) if (isRec(f.t)) {
+      if (path.includes(f.t.rec)) failAt(`a record cannot contain itself by value; this would need a reference.`, f);
+      cycle(f.t.rec, path.concat(f.t.rec));
+    }
+  };
+  Object.keys(schemas).forEach(n => cycle(n, [n]));
+  const wordSig = w => {
+    w.ps = w.params.map(p => ({ name: p.name, t: resolve(p.type) }));
+    w.rs = w.results ? w.results.map(resolve) : null;
+  };
+  Object.values(words).forEach(wordSig);
+  for (const sc of Object.values(schemas)) {
+    sc.mwords = {};
+    for (const m of sc.methods) {
+      if (sc.fields.some(f => f.name === m.name)) failAt(`"${m.name}" is both a field and a method.`, m);
+      const w = Object.assign({}, m, { name: `${sc.name}__${m.name}`, method: m.name, self: { rec: sc.name } });
+      wordSig(w);
+      if (!w.rs) failAt(`the simulator needs a result type on the method "${m.name}" (use () for none).`, m);
+      sc.mwords[m.name] = w;
+    }
+  }
+  return { items, words, consts, schemas, resolve, cellsOf, fieldOffset };
+}
+
+function wcompile(text, opts = {}) {
+  const M = wmodel(text);
+  const { words, consts, schemas, cellsOf, fieldOffset } = M;
+  const fail = failAt;
+  /* ---- static evaluation (constants, folding, partial supply) */
+  function staticVal(n, env) {
+    switch (n.k) {
+      case 'num': return { v: n.v, t: 'lit' };
+      case 'bool': return { v: n.v, t: 'bool' };
+      case 'var': return env(n.name) || null;
+      case 'un': {
+        const x = staticVal(n.x, env); if (!x) return null;
+        if (n.op === 'not') { if (x.t !== 'bool') fail('not needs a bool.', n); return { v: x.v ^ 1n, t: 'bool' }; }
+        if (x.t === 'bool') fail(`${n.op} needs an integer.`, n);
+        if (x.t === 'lit') { const lt = litType(x.v); return { v: norm(n.op === '-' ? u(-x.v) : x.v ^ M64, lt), t: 'lit' }; }
+        return { v: norm(n.op === '-' ? u(-x.v) : x.v ^ M64, x.t), t: x.t };
+      }
+      case 'bin': case 'pow': {
+        const a = staticVal(n.l, env), b = staticVal(n.r, env); if (!a || !b) return null;
+        if (n.k === 'pow') { const t = concrete(a.t, a.v); return { v: norm(vpow(norm(a.v, t), norm(b.v, 'u64')), t), t: a.t === 'lit' ? 'lit' : t }; }
+        if (n.o === '<<' || n.o === '>>') { const t = concrete(a.t, a.v); return { v: applyBin(n.o, t, norm(a.v, t), norm(b.v, 'u64'), n), t: a.t === 'lit' ? 'lit' : t }; }
+        const t = unify(a.t, b.t, n);
+        if (t === 'lit' && !isCmp(n.o)) { const lt = litType(a.v > b.v ? a.v : b.v); return { v: applyBin(n.o, lt, norm(a.v, lt), norm(b.v, lt), n), t: 'lit' }; }
+        const ct = concrete(t, t === 'lit' ? (a.v > b.v ? a.v : b.v) : 0n);
+        const [A, B] = n.o === '>' || n.o === '>=' ? [b, a] : [a, b];
+        return { v: applyBin(n.o, ct, norm(A.v, ct), norm(B.v, ct), n), t: isCmp(n.o) ? 'bool' : t };
+      }
+      case 'if': { const c = staticVal(n.c, env); if (!c) return null; return staticVal(c.v ? n.t : n.e, env); }
+      case 'and': { const a = staticVal(n.l, env); if (!a) return null; return a.v ? staticVal(n.r, env) : { v: 0n, t: 'bool' }; }
+      case 'or': { const a = staticVal(n.l, env); if (!a) return null; return a.v ? { v: 1n, t: 'bool' } : staticVal(n.r, env); }
+      default: return null;
+    }
+  }
+  const cenv = name => consts[name];
+  for (const it of M.items) {
+    if (it.k !== 'value') continue;
+    const e = it.expr;
+    if (e.k === 'call' && words[e.name] && e.args.length < words[e.name].ps.length) {
+      const base = words[e.name], bound = {};
+      e.args.forEach((a, i) => {
+        const sv = staticVal(a, cenv);
+        if (!sv || isRec(base.ps[i].t)) fail('a partial supply needs static scalar arguments.', a);
+        bound[base.ps[i].name] = { v: norm(sv.v, base.ps[i].t), t: base.ps[i].t };
+      });
+      words[it.name] = Object.assign({}, base, { name: it.name, ps: base.ps.slice(e.args.length), bound, from: base.name, supplyLine: it.line });
+      continue;
+    }
+    const sv = staticVal(e, cenv);
+    if (!sv) fail('a top-level value must be static here: a constant, a schema, or a partial supply of a word.', e);
+    const t = it.ann ? M.resolve(it.ann) : concrete(sv.t, sv.v);
+    consts[it.name] = { v: norm(sv.v, t), t };
+  }
+  if (!words.main) fail('the program needs a word called main; the simulator calls it.', M.items[0]);
+  if (words.main.ps.length) fail('main takes no parameters.', words.main);
+  if (!words.main.rs) words.main.rs = null;
+
+  /* ---- code generation */
+  let out = [];
+  let lid = 0;
+  const label = p => `${p}_${++lid}`;
+  const emit = (text, src, node) => out.push({ text, src, node });
+  const place = (name, src) => out.push({ label: name, src });
+  const needed = new Set(['main']), done = new Set();
+  const allWords = Object.assign({}, words);
+  for (const sc of Object.values(schemas)) Object.assign(allWords, Object.fromEntries(Object.values(sc.mwords).map(w => [w.name, w])));
+  let roots = [];
+  const inferring = new Set();
+  /* a word without a result contract: compile it once into a scratch buffer to
+     learn its result types. A word that needs itself to know its own result is
+     recursive, and the spec requires a contract there. */
+  function inferResults(f, at) {
+    if (inferring.has(f)) failAt(`"${f.name}" is recursive, so it needs a result type (spec section 10).`, at);
+    inferring.add(f);
+    const saveOut = out, saveRoots = roots;
+    out = []; roots = [];
+    try { genWord(f); } finally { out = saveOut; roots = saveRoots; inferring.delete(f); }
+  }
+
+  function ershov(n) {
+    switch (n.k) {
+      case 'num': case 'bool': case 'var': case 'field': return (n.need = 1);
+      case 'un': return (n.need = ershov(n.x));
+      case 'adjust': return (n.need = ershov(n.x));
+      case 'call': case 'mcall': { let m = 1; n.args.forEach((a, i) => { m = Math.max(m, i + ershov(a)); }); return (n.need = Math.max(m, n.args.length)); }
+      case 'make': { let m = 1; n.inits.forEach((f, i) => { m = Math.max(m, i + ershov(f.e)); }); return (n.need = m); }
+      case 'if': return (n.need = Math.max(ershov(n.c), ershov(n.t), ershov(n.e)));
+      case 'and': case 'or': return (n.need = Math.max(ershov(n.l), ershov(n.r)));
+      default: {
+        const [a, b] = n.k === 'pow' ? [n.l, n.r] : wOperands(n);
+        const ea = ershov(a), eb = ershov(b);
+        n.aFirst = opts.leftFirst ? true : ea >= eb;
+        return (n.need = ea === eb ? ea + 1 : Math.max(ea, eb));
+      }
+    }
+  }
+
+  function genWord(w) {
+    /* frame: C cells of this activation, bottom first, each {b: binding, i: cell} */
+    const frame = [];
+    let bid = 0;
+    const scopes = [[]];                    /* bindings visible, innermost scope last */
+    const bind = (name, t) => { const b = { id: ++bid, name, t, n: cellsOf(t) }; scopes[scopes.length - 1].push(b); return b; };
+    const findBinding = name => {
+      for (let s = scopes.length - 1; s >= 0; s--) for (let j = scopes[s].length - 1; j >= 0; j--) {
+        const e = scopes[s][j];
+        if (e.name === name) return e.alias || e;
+      }
+      return null;
+    };
+    const depthOf = (b, i) => { for (let k = frame.length - 1; k >= 0; k--) if (frame[k].b === b && frame[k].i === i) return frame.length - 1 - k; fail('internal: cell lost', w); };
+    /* values on A: cells c0..c(n-1) with the last on top; CPUSH them all */
+    const cpushCells = (b, src) => { for (let i = b.n - 1; i >= 0; i--) { emit('CPUSH.A', src, null); frame.push({ b, i }); } };
+    place(w.name, w.supplyLine != null ? w.supplyLine : w.line);
+    const self = w.self ? bind('$self', w.self) : null;
+    /* entry: arguments arrive on A in order: receiver cells first (methods), then each parameter */
+    const pbs = [];
+    if (self) pbs.push(self);
+    w.ps.forEach(p => pbs.push(bind(p.name, p.t)));
+    /* the frame arrives with the call: CALL n moved the argument cells in */
+    for (let k = pbs.length - 1; k >= 0; k--) for (let i = pbs[k].n - 1; i >= 0; i--) frame.push({ b: pbs[k], i });
+    const nParamCells = frame.length;
+    place(`${w.name}_body`, w.line);
+
+    /* a place: binding + cell range, for a variable, a field path, or a bare field in a method */
+    function placeOf(x) {
+      if (x.k === 'var') {
+        const b = findBinding(x.name);
+        if (b && b.name !== '$self') return { b, off: 0, t: b.t };
+        if (self && !b) {
+          const sc = schemas[self.t.rec];
+          if (sc.fields.some(f => f.name === x.name)) { const fo = fieldOffset(self.t, x.name, x); return { b: self, off: fo.off, t: fo.t }; }
+        }
+        return null;
+      }
+      if (x.k === 'field') {
+        const base = placeOf(x.base);
+        if (!base) return null;
+        if (!isRec(base.t)) fail(`${tname(base.t)} has no fields.`, x);
+        const fo = fieldOffset(base.t, x.name, x);
+        return { b: base.b, off: base.off + fo.off, t: fo.t };
+      }
+      return null;
+    }
+    const env = name => {
+      if (findBinding(name)) return null;
+      if (self && schemas[self.t.rec].fields.some(f => f.name === name)) return null;
+      if (w.bound && w.bound[name]) return w.bound[name];
+      return consts[name] || null;
+    };
+    const wordOf = (x) => {
+      if (x.k === 'call') { const f = words[x.name]; if (!f) fail(schemas[x.name] ? `${x.name} is a schema: construct it with ${x.name} { field = value }.` : `there is no word called "${x.name}".`, x); return f; }
+      const rt = typeOf(x.recv);
+      if (!isRec(rt)) fail(`${tname(rt)} has no methods.`, x);
+      const m = schemas[rt.rec].mwords[x.name];
+      if (!m) fail(`${rt.rec} has no method "${x.name}".`, x);
+      return m;
+    };
+    /* results of a call, as a list of types */
+    const resultsOf = x => { const f = wordOf(x); if (!f.rs) inferResults(f, x); return f.rs; };
+    function typeOf(x) {
+      const sv = staticVal(x, env); if (sv) return sv.t;
+      switch (x.k) {
+        case 'var': case 'field': {
+          const pl = placeOf(x);
+          if (pl) return pl.t;
+          if (x.k === 'field') { const bt = typeOf(x.base); if (!isRec(bt)) fail(`${tname(bt)} has no fields.`, x); return fieldOffset(bt, x.name, x).t; }
+          fail(`"${x.name}" is not defined here.`, x);
+        }
+        case 'un': { const t = typeOf(x.x); if (x.op === 'not') { if (t !== 'bool') fail('not needs a bool.', x); return 'bool'; } if (t === 'bool' || isRec(t)) fail(`${x.op} needs an integer.`, x); return t; }
+        case 'pow': return typeOf(x.l);
+        case 'bin': {
+          const a = typeOf(x.l), b = typeOf(x.r);
+          if (isRec(a) || isRec(b)) fail(`${x.o} does not apply to records.`, x);
+          if (x.o === '<<' || x.o === '>>') return a;
+          const t = unify(a, b, x); if (isCmp(x.o)) return 'bool'; if (t === 'bool') fail(`${x.o} needs integers.`, x); return t;
+        }
+        case 'and': case 'or': return 'bool';
+        case 'if': { const k = staticVal(x.c, env); return k ? typeOf(k.v ? x.t : x.e) : unify(typeOf(x.t), typeOf(x.e), x); }
+        case 'call': case 'mcall': { const rs = resultsOf(x); if (!rs.length) fail(`"${x.name}" returns nothing, so it has no value.`, x); return rs[0]; }
+        case 'adjust': return typeOf(x.x);
+        case 'make': { if (!schemas[x.schema]) fail(`"${x.schema}" is not a schema.`, x); return { rec: x.schema }; }
+      }
+      return 'lit';
+    }
+    const normOp = (t, dst, src, node) => {
+      if (t === 'u32') emit(`ZX32.${dst}`, src, node);
+      else if (t === 'i32') emit(`SX32.${dst}`, src, node);
+    };
+    /* compile(E, dst) for one scalar value */
+    function gen(x, dst, want) {
+      genRaw(x, dst, want);
+      if (!staticVal(x, env) && want && SCALARS.has(want) && want !== 'bool' && !['var', 'field', 'call', 'mcall', 'adjust'].includes(x.k)) {
+        const own = typeOf(x);
+        if (own === 'lit' && concrete(own, 0n) === 'u32' && want === 'i32') emit(`SX32.${dst}`, x.line, x.id);
+      }
+    }
+    function genRaw(x, dst, want) {
+      const sv = staticVal(x, env);
+      x.dst = dst;
+      if (sv) { const t = sv.t === 'lit' ? (want && SCALARS.has(want) ? want : litType(sv.v)) : sv.t; return emit(`PUSH.${dst} ${s(norm(sv.v, t))}`, x.line, x.id); }
+      switch (x.k) {
+        case 'var': case 'field': {
+          const pl = placeOf(x);
+          if (pl) { if (isRec(pl.t)) fail(`a whole ${pl.t.rec} is not a single value here.`, x); return emit(`CGET.${dst} ${depthOf(pl.b, pl.off)}`, x.line, x.id); }
+          if (x.k === 'field') {
+            /* a field of a computed record: put the record on C for a moment */
+            const bt = typeOf(x.base);
+            const fo = fieldOffset(bt, x.name, x);
+            if (isRec(fo.t)) fail('a whole record is not a single value here.', x);
+            const tmp = bind('$tmp', bt);
+            genCells(x.base);
+            cpushCells(tmp, x.line);
+            emit(`CGET.${dst} ${depthOf(tmp, fo.off)}`, x.line, x.id);
+            for (let i = 0; i < tmp.n; i++) { emit('CPOP', x.line, null); frame.pop(); }
+            scopes[scopes.length - 1].pop();
+            return;
+          }
+          fail(`"${x.name}" is not defined here.`, x);
+        }
+        case 'un': {
+          const t = concrete(typeOf(x), 0n);
+          gen(x.x, dst, t);
+          if (x.op === 'not') return emit(`LNOT.${dst}`, x.line, x.id);
+          emit(`${x.op === '-' ? 'NEG' : 'NOT'}.${dst}`, x.line, x.id);
+          if (x.op === '-' || t === 'u32') normOp(t, dst, x.line, x.id);
+          return;
+        }
+        case 'pow': {
+          const t = concrete(typeOf(x.l), 0n);
+          if (x.aFirst) { gen(x.l, 'A', t); gen(x.r, 'B', 'u64'); } else { gen(x.r, 'B', 'u64'); gen(x.l, 'A', t); }
+          emit(SIGNED[t] ? 'POWS' : 'POW', x.line, x.id);
+          normOp(t, 'A', x.line, x.id);
+          if (dst === 'B') emit('MOVE.AB', x.line, x.id);
+          return;
+        }
+        case 'bin': {
+          const ta = typeOf(x.l), tb = typeOf(x.r);
+          const shift = x.o === '<<' || x.o === '>>';
+          const t = concrete(shift ? ta : unify(ta, tb, x), 0n);
+          if (t === 'bool' && !['==', '!='].includes(x.o)) fail(`${x.o} needs integers.`, x);
+          let [a, b] = wOperands(x);
+          const wantA = shift ? t : t, wantB = shift ? 'u32' : t;
+          const opn = opFor(x.o, t);
+          if (FUSE_OPS.has(opn)) {
+            const leaf = n => { const sv = staticVal(n, env); if (sv) { const v = s(norm(sv.v, n === b && shift ? 'u32' : t)); if (v >= -128n && v <= 127n) return { imm: v }; return null; }
+              const pl = (n.k === 'var' || n.k === 'field') ? placeOf(n) : null; return pl && !isRec(pl.t) ? { pl } : null; };
+            let lb = leaf(b);
+            if (!lb && ['ADD', 'MUL', 'AND', 'OR', 'XOR'].includes(opn)) { const la = leaf(a); if (la) { [a, b] = [b, a]; lb = la; } }
+            if (lb) {
+              gen(a, dst, wantA);
+              if (lb.imm != null) emit(`${opn}I.${dst} ${lb.imm}`, x.line, x.id);
+              else emit(`${opn}C.${dst} ${depthOf(lb.pl.b, lb.pl.off)}`, x.line, x.id);
+              if (WRAPS.has(x.o)) normOp(t, dst, x.line, x.id);
+              return;
+            }
+          }
+          if (x.aFirst) { gen(a, 'A', wantA); gen(b, 'B', wantB); } else { gen(b, 'B', wantB); gen(a, 'A', wantA); }
+          emit(`${opFor(x.o, t)}.${dst}`, x.line, x.id);
+          if (WRAPS.has(x.o) || (x.o === '/' && t === 'i32')) normOp(t, dst, x.line, x.id);
+          return;
+        }
+        case 'if': {
+          const k = staticVal(x.c, env);
+          if (k) return gen(k.v ? x.t : x.e, dst, want);
+          const le = label('else'), lend = label('endif');
+          genFalse(x.c, le);
+          gen(x.t, dst, want); emit(`JMP ${lend}`, x.line, x.id);
+          place(le, x.line); gen(x.e, dst, want); place(lend, x.line);
+          return;
+        }
+        case 'and': case 'or': {
+          const lalt = label(x.k === 'and' ? 'false' : 'rhs'), lend = label('end');
+          ershov(x.l); gen(x.l, 'A', 'bool'); emit(`JZ.A ${lalt}`, x.line, x.id);
+          if (x.k === 'and') { gen(x.r, dst, 'bool'); emit(`JMP ${lend}`, x.line, x.id); place(lalt, x.line); emit(`PUSH.${dst} 0`, x.line, x.id); }
+          else { emit(`PUSH.${dst} 1`, x.line, x.id); emit(`JMP ${lend}`, x.line, x.id); place(lalt, x.line); gen(x.r, dst, 'bool'); }
+          place(lend, x.line);
+          return;
+        }
+        case 'call': case 'mcall': case 'adjust': {
+          const c = x.k === 'adjust' ? x.x : x;
+          const rs = resultsOf(c);
+          if (!rs.length) fail(`"${c.name}" returns nothing, so it has no value.`, c);
+          if (isRec(rs[0])) fail(`"${c.name}" returns a record, which is not a single value here.`, c);
+          const total = rs.reduce((n, t) => n + cellsOf(t), 0);
+          /* a one-cell call compiled for B names B as its result stack */
+          if (dst === 'B' && total === 1 && c.k === 'call') { genCall(c, 'B'); return; }
+          genCall(c);
+          for (let i = 0; i < total - 1; i++) emit('DROP.A', x.line, x.id);   /* keep the first result */
+          if (dst === 'B') emit('MOVE.AB', x.line, x.id);
+          return;
+        }
+        case 'make': fail(`a whole ${x.schema} is not a single value here.`, x);
+      }
+      fail('this expression is not supported here.', x);
+    }
+    /* one value (a scalar or a whole record) as cells on A; returns its type */
+    function genValue(x, want) {
+      const t = typeOf(x);
+      if (!isRec(t)) { gen(x, 'A', want); return t; }
+      return genCells(x, 1)[0];
+    }
+    /* every value of x as cells on A, first value deepest; returns the list of types */
+    function genCells(x, limit) {
+      const t = typeOf(x);
+      if (x.k === 'call' || x.k === 'mcall') {
+        const rs = resultsOf(x);
+        genCall(x);
+        if (limit != null && rs.length > limit) {
+          const extra = rs.slice(limit).reduce((n, tt) => n + cellsOf(tt), 0);
+          for (let i = 0; i < extra; i++) emit('DROP.A', x.line, x.id);
+          return rs.slice(0, limit);
+        }
+        return rs;
+      }
+      if (!isRec(t)) { gen(x, 'A', null); return [t]; }
+      x.dst = 'A';
+      switch (x.k) {
+        case 'adjust': return genCells(x.x, 1);
+        case 'var': case 'field': {
+          const pl = placeOf(x);
+          if (pl) { for (let i = 0; i < cellsOf(pl.t); i++) emit(`CGET.A ${depthOf(pl.b, pl.off + i)}`, x.line, x.id); return [pl.t]; }
+          const bt = typeOf(x.base), fo = fieldOffset(bt, x.name, x);
+          const tmp = bind('$tmp', bt);
+          genCells(x.base); cpushCells(tmp, x.line);
+          for (let i = 0; i < cellsOf(fo.t); i++) emit(`CGET.A ${depthOf(tmp, fo.off + i)}`, x.line, x.id);
+          for (let i = 0; i < tmp.n; i++) { emit('CPOP', x.line, null); frame.pop(); }
+          scopes[scopes.length - 1].pop();
+          return [fo.t];
+        }
+        case 'make': {
+          const sc = schemas[x.schema];
+          const given = new Set();
+          for (const f of x.inits) {
+            if (!sc.fields.some(g => g.name === f.name)) fail(`${sc.name} has no field "${f.name}".`, f);
+            if (given.has(f.name)) fail(`the field "${f.name}" is supplied twice.`, f);
+            given.add(f.name);
+          }
+          for (const f of sc.fields) if (!given.has(f.name)) fail(`${sc.name} needs every field; "${f.name}" is missing (partial supply needs static values, which the simulator does not support).`, x);
+          const written = x.inits.map(f => f.name).join(','), canon = sc.order.map(f => f.name).join(',');
+          const want = name => sc.fields.find(g => g.name === name).t;
+          if (written === canon) {
+            for (const f of x.inits) { ershov(f.e); const ft = want(f.name); const got = genValue(f.e, isRec(ft) ? null : ft); unify(ft, got, f); }
+          } else {
+            /* initializers run in written order; park each on C, then read them in canonical order */
+            const parked = {};
+            for (const f of x.inits) {
+              ershov(f.e); const ft = want(f.name);
+              const got = genValue(f.e, isRec(ft) ? null : ft); unify(ft, got, f);
+              const b = bind('$init', ft); cpushCells(b, f.line); parked[f.name] = b;
+            }
+            for (const f of sc.order) { const b = parked[f.name]; for (let i = 0; i < b.n; i++) emit(`CGET.A ${depthOf(b, i)}`, x.line, x.id); }
+            for (const f of x.inits) { const b = parked[f.name]; for (let i = 0; i < b.n; i++) { emit('CPOP', x.line, null); frame.pop(); } scopes[scopes.length - 1].pop(); }
+          }
+          return [t];
+        }
+        case 'if': {
+          const k = staticVal(x.c, env);
+          if (k) return genCells(k.v ? x.t : x.e, limit);
+          const le = label('else'), lend = label('endif');
+          genFalse(x.c, le);
+          genCells(x.t, 1); emit(`JMP ${lend}`, x.line, x.id);
+          place(le, x.line); genCells(x.e, 1); place(lend, x.line);
+          return [t];
+        }
+      }
+      fail('this record expression is not supported here.', x);
+    }
+    /* a call: arguments on A, CALL, results on A. A method passes the receiver's
+       cells first and writes the updated cells back into the receiver afterwards. */
+    function genCall(x, dst) {
+      const f = wordOf(x);
+      let recv = null;
+      if (x.k === 'mcall') {
+        recv = placeOf(x.recv);
+        if (!recv) fail('a method needs a receiver that is a binding or a field of one.', x);
+        for (let i = 0; i < cellsOf(recv.t); i++) emit(`CGET.A ${depthOf(recv.b, recv.off + i)}`, x.line, x.id);
+      }
+      const ps = f.ps;
+      /* every argument but the last contributes one value; the last may expand */
+      let k = 0;
+      x.args.forEach((a, i) => {
+        const last = i === x.args.length - 1;
+        if (k >= ps.length) fail(`"${f.name}" takes ${ps.length} argument${ps.length === 1 ? '' : 's'}.`, a);
+        if (last && (a.k === 'call' || a.k === 'mcall') && resultsOf(a).length > 1) {
+          const rs = genCells(a);
+          rs.forEach(rt => { if (k >= ps.length) fail(`too many values for "${f.name}".`, a); unify(ps[k].t, rt, a); k++; });
+        } else {
+          const got = genValue(a, isRec(ps[k].t) ? null : ps[k].t);
+          unify(ps[k].t, got, a); k++;
+        }
+      });
+      if (k !== ps.length) fail(`"${f.name}" takes ${ps.length} argument${ps.length === 1 ? '' : 's'}; partial supply at run time needs a lambda, which the simulator does not support.`, x);
+      const nCells = (recv ? cellsOf(recv.t) : 0) + ps.reduce((a, p) => a + cellsOf(p.t), 0);
+      emit(`CALL.${dst === 'B' ? 'B' : 'A'} ${f.name} ${nCells}`, x.line, x.id);
+      needed.add(f.name);
+      if (recv) {
+        /* the method returned [results..., receiver cells]: write the receiver back */
+        for (let i = cellsOf(recv.t) - 1; i >= 0; i--) emit(`CSET.A ${depthOf(recv.b, recv.off + i)}`, x.line, x.id);
+      }
+    }
+    const popAll = (k, src) => { for (let i = 0; i < k; i++) emit('CPOP', src, null); };
+    function genFalse(c, target) {
+      if (c.k === 'bin' && isCmp(c.o) && !staticVal(c, env)) {
+        const t = concrete(unify(typeOf(c.l), typeOf(c.r), c), 0n);
+        const small = n => { const sv = staticVal(n, env); if (!sv) return null; const v = s(norm(sv.v, t)); return v >= -128n && v <= 127n ? v : null; };
+        let other = null, k = null, o = c.o;
+        if (small(c.r) != null) { other = c.l; k = small(c.r); }
+        else if (small(c.l) != null) { other = c.r; k = small(c.l); o = { '<': '>', '<=': '>=', '>': '<', '>=': '<=', '==': '==', '!=': '!=' }[o]; }
+        if (other && t !== 'bool') {
+          const U = SIGNED[t] ? '' : 'U';
+          const neg = { '==': 'BNE', '!=': 'BEQ', '<': 'BGE', '<=': 'BGT', '>': 'BLE', '>=': 'BLT' }[o];
+          const fn = neg === 'BEQ' || neg === 'BNE' ? neg + 'I' : neg + U + 'I';
+          ershov(other); gen(other, 'A', t); c.dst = 'branch';
+          return emit(`${fn}.A ${k} ${target}`, c.line, c.id);
+        }
+        const U = SIGNED[t] || t === 'bool' ? '' : 'U';
+        const [br, swap] = { '==': ['BNE', false], '!=': ['BEQ', false], '<': ['BLE', true], '<=': ['BLT', true],
+                             '>': ['BLE', false], '>=': ['BLT', false] }[c.o];
+        const aNode = swap ? c.r : c.l, bNode = swap ? c.l : c.r;
+        ershov(aNode); ershov(bNode);
+        if (aNode.need >= bNode.need) { gen(aNode, 'A', t); gen(bNode, 'B', t); } else { gen(bNode, 'B', t); gen(aNode, 'A', t); }
+        c.dst = 'branch';
+        return emit(`${br === 'BEQ' || br === 'BNE' ? br : br + U} ${target}`, c.line, c.id);
+      }
+      ershov(c); gen(c, 'A', 'bool'); emit(`JZ.A ${target}`, c.line, c.id);
+    }
+    const tailOK = x => !w.self && x.k === 'call' && x.name === w.name && x.args.length === w.ps.length && !staticVal(x, env);
+    /* return: results on A (a method adds its receiver cells), clear C, RET */
+    function genReturn(es, src, at) {
+      if (es.length === 1 && tailOK(es[0])) {
+        const x = es[0];
+        x.args.forEach((a, i) => { ershov(a); const got = genValue(a, isRec(w.ps[i].t) ? null : w.ps[i].t); unify(w.ps[i].t, got, a); });
+        emit(`TCALL ${w.name} ${frame.length} ${nParamCells}`, src, x.id);
+        x.dst = 'A'; x.tail = true;
+        return;
+      }
+      if (es.length === 1 && es[0].k === 'if' && !staticVal(es[0].c, env) && !w.self) {
+        const x = es[0], le = label('else');
+        const save = frame.length;
+        genFalse(x.c, le);
+        genReturn([x.t], src, at); frame.length = save;
+        place(le, x.line); genReturn([x.e], src, at); frame.length = save;
+        return;
+      }
+      const got = [];
+      es.forEach((x, i) => {
+        ershov(x);
+        if (i === es.length - 1 && (x.k === 'call' || x.k === 'mcall')) got.push(...genCells(x));
+        else { const want = w.rs && w.rs[got.length] && !isRec(w.rs[got.length]) ? w.rs[got.length] : null; got.push(genValue(x, want)); }
+      });
+      if (w.rs) {
+        if (got.length !== w.rs.length) fail(`"${w.name}" returns ${w.rs.length} value${w.rs.length === 1 ? '' : 's'}, but this return gives ${got.length}.`, at);
+        w.rs.forEach((t, i) => unify(t, got[i], at));
+      } else w.rs = got.map(t => concrete(t, 0n));
+      if (self) for (let i = 0; i < self.n; i++) emit(`CGET.A ${depthOf(self, i)}`, src, null);
+      const rcells = got.reduce((a, t) => a + cellsOf(t), 0) + (self ? self.n : 0);
+      emit(`RET ${frame.length} ${rcells}`, src, null);
+    }
+    function genStore(st) {
+      const pl = placeOf(st.target);
+      if (!pl) fail('only a field can be assigned; bindings are immutable.', st);
+      if (pl.b.name !== '$self' && pl.off === 0 && cellsOf(pl.b.t) === cellsOf(pl.t) && st.target.k === 'var') fail(`"${st.target.name}" is a binding, and bindings cannot be reassigned.`, st);
+      ershov(st.e);
+      if (st.op) {
+        if (isRec(pl.t)) fail('a compound store needs a scalar field.', st);
+        /* read the old value once, then the right-hand side, then store */
+        const t = pl.t, fake = { k: 'bin', o: st.op, line: st.line, id: st.e.id };
+        emit(`CGET.A ${depthOf(pl.b, pl.off)}`, st.line, null);
+        if (st.op === '^') { gen(st.e, 'B', 'u64'); emit(SIGNED[t] ? 'POWS' : 'POW', st.line, null); normOp(t, 'A', st.line, null); }
+        else {
+          const rt = typeOf(st.e);
+          if (!(st.op === '<<' || st.op === '>>')) unify(t, rt, st);
+          gen(st.e, 'B', st.op === '<<' || st.op === '>>' ? 'u32' : t);
+          emit(`${opFor(st.op, t)}.A`, st.line, null);
+          if (WRAPS.has(st.op) || (st.op === '/' && t === 'i32')) normOp(t, 'A', st.line, null);
+        }
+        void fake;
+        emit(`CSET.A ${depthOf(pl.b, pl.off)}`, st.line, null);
+        return;
+      }
+      const got = genValue(st.e, isRec(pl.t) ? null : pl.t);
+      unify(pl.t, got, st);
+      for (let i = cellsOf(pl.t) - 1; i >= 0; i--) emit(`CSET.A ${depthOf(pl.b, pl.off + i)}`, st.line, null);
+    }
+    /* returns true when the statement list always returns */
+    function genStmts(list) {
+      scopes.push([]);
+      const mark = frame.length;
+      const leave = () => { scopes.pop(); };
+      for (const st of list) {
+        if (st.k === 'let') {
+          for (const e of st.es) roots.push({ word: w.name, label: `let ${st.binders.map(b => b.name).join(', ')}`, e });
+          /* every initializer but the last gives one value; the last may give several */
+          const types = [];
+          st.es.forEach((e, i) => {
+            ershov(e);
+            const pe = e.k === 'var' ? placeOf(e) : null;
+            if (st.es.length === 1 && st.binders.length === 1 && pe && pe.b.name !== '$self' && pe.off === 0 && isRec(pe.t) && !st.binders[0].ann) {
+              types.push('alias');                      /* a local alias keeps the same instance */
+            } else if (i === st.es.length - 1 && (e.k === 'call' || e.k === 'mcall')) types.push(...genCells(e));
+            else { const ann = st.binders[types.length] && st.binders[types.length].ann; const want = ann ? M.resolve(ann) : null; types.push(genValue(e, want && !isRec(want) ? want : null)); }
+          });
+          if (types[0] === 'alias') {
+            /* a local alias keeps the same instance: no code, the name points at the same cells */
+            scopes[scopes.length - 1].push({ name: st.binders[0].name, alias: placeOf(st.es[0]).b });
+            continue;
+          }
+          if (types.length !== st.binders.length) fail(`${st.binders.length} name${st.binders.length === 1 ? '' : 's'} but ${types.length} value${types.length === 1 ? '' : 's'}; the simulator does not fill missing values with unit.`, st);
+          const bs = st.binders.map((bd, i) => {
+            let t = types[i];
+            if (bd.ann) { const at = M.resolve(bd.ann); unify(at, t, st); t = at; }
+            else t = isRec(t) ? t : concrete(t, 0n);
+            return { bd, t };
+          });
+          /* cells on A: first value deepest; CPUSH from the top (the last value) down */
+          const made = bs.map(x => ({ b: { id: ++bid, name: x.bd.name, t: x.t, n: cellsOf(x.t) } }));
+          for (let k = made.length - 1; k >= 0; k--) cpushCells(made[k].b, st.line);
+          made.forEach(m => scopes[scopes.length - 1].push(m.b));
+        } else if (st.k === 'return') {
+          st.es.forEach(e => roots.push({ word: w.name, label: 'return', e }));
+          genReturn(st.es, st.line, st);
+          frame.length = mark; leave(); return true;
+        } else if (st.k === 'store') {
+          roots.push({ word: w.name, label: 'store', e: st.e });
+          genStore(st);
+        } else if (st.k === 'callstmt') {
+          roots.push({ word: w.name, label: 'call', e: st.e });
+          ershov(st.e);
+          const rs = resultsOf(st.e);
+          genCall(st.e);
+          const n = rs.reduce((a, t) => a + cellsOf(t), 0);
+          for (let i = 0; i < n; i++) emit('DROP.A', st.line, null);
+        } else {
+          roots.push({ word: w.name, label: 'if', e: st.c });
+          const sv = staticVal(st.c, env);
+          if (sv) { if (genStmts(sv.v ? st.t : st.e)) { frame.length = mark; leave(); return true; } continue; }
+          const le = label('else'), lend = label('endif');
+          genFalse(st.c, le);
+          const rt = genStmts(st.t);
+          if (!rt) emit(`JMP ${lend}`, st.line, null);
+          place(le, st.line);
+          const re = genStmts(st.e);
+          place(lend, st.line);
+          if (rt && re) { frame.length = mark; leave(); return true; }
+        }
+      }
+      popAll(frame.length - mark, list.length ? list[list.length - 1].line : w.line);
+      frame.length = mark;
+      leave();
+      return false;
+    }
+    if (w.block) {
+      if (!genStmts(w.block)) {
+        if (w.rs && w.rs.length === 0) genReturn([], w.line, w);
+        else fail(`every path through "${w.name}" must return.`, w);
+      }
+    } else {
+      roots.push({ word: w.name, label: 'body', e: w.expr });
+      genReturn([w.expr], w.line, w);
+    }
+  }
+  emit('CALL.A main 0', words.main.line, null);
+  emit('HALT', words.main.line, null);
+  /* compile main first so an unannotated main gets its results inferred */
+  while (needed.size > done.size) {
+    for (const name of [...needed]) if (!done.has(name)) {
+      done.add(name);
+      genWord(allWords[name]);
+    }
+  }
+  const asmLines = [], map = [], insAsmLine = [];
+  for (const o of out) {
+    if (o.label) { asmLines.push(o.label + ':'); continue; }
+    insAsmLine.push(asmLines.length);
+    asmLines.push('  ' + o.text);
+    map.push({ src: o.src, node: o.node });
+  }
+  return { asm: asmLines.join('\n'), map, insAsmLine, roots, words, consts, schemas, model: M };
+}
+
+/* reference evaluator: runs the source directly. Records are live objects with
+   value semantics on calls, returns and stores; a local alias shares the
+   object; a method mutates its receiver in place. Returns main's results as a
+   flat list of cells (records in canonical field order), first result first. */
+function weval(text) {
+  const C = wcompile(text);
+  const { words, consts, schemas } = C;
+  const copy = v => (v && v.rec ? { rec: v.rec, f: Object.fromEntries(Object.entries(v.f).map(([k, x]) => [k, copy(x)])) } : v);
+  const conv = (v, t) => (isRec(t) ? copy(v) : { v: norm(v.v, t), t });
+  const flat = v => (v && v.rec ? schemas[v.rec].order.flatMap(f => flat(v.f[f.name])) : [v.v]);
+  function call(w, args, selfObj) {
+    const frames = [{}];
+    w.ps.forEach((p, i) => { frames[0][p.name] = { val: conv(args[i], p.t) }; });
+    const find = name => { for (let i = frames.length - 1; i >= 0; i--) if (name in frames[i]) return frames[i][name]; return null; };
+    const isField = name => selfObj && Object.prototype.hasOwnProperty.call(selfObj.f, name);
+    const get = name => {
+      const b = find(name); if (b) return b.val;
+      if (isField(name)) return selfObj.f[name];
+      if (w.bound && w.bound[name]) return w.bound[name];
+      return consts[name];
+    };
+    const typeOfVal = v => (v.rec ? { rec: v.rec } : v.t);
+    const fieldType = (rec, name) => schemas[rec].fields.find(f => f.name === name).t;
+    const wordFor = x => (x.k === 'call' ? words[x.name] : schemas[stype(x.recv).rec].mwords[x.name]);
+    const stype = x => {
+      switch (x.k) {
+        case 'num': return 'lit';
+        case 'bool': case 'and': case 'or': return 'bool';
+        case 'var': return typeOfVal(get(x.name));
+        case 'field': return fieldType(stype(x.base).rec, x.name);
+        case 'make': return { rec: x.schema };
+        case 'un': return x.op === 'not' ? 'bool' : stype(x.x);
+        case 'pow': return stype(x.l);
+        case 'adjust': return stype(x.x);
+        case 'bin': return isCmp(x.o) ? 'bool' : x.o === '<<' || x.o === '>>' ? stype(x.l) : unify(stype(x.l), stype(x.r), x);
+        case 'if': return known(x.c) ? stype(ev(x.c).v ? x.t : x.e) : unify(stype(x.t), stype(x.e), x);
+        case 'call': case 'mcall': return wordFor(x).rs[0];
+      }
+    };
+    const known = x => {
+      switch (x.k) {
+        case 'num': case 'bool': return true;
+        case 'var': return !find(x.name) && !isField(x.name) && !!(consts[x.name] || (w.bound && w.bound[x.name]));
+        case 'call': case 'mcall': case 'make': case 'field': case 'adjust': return false;
+        case 'un': return known(x.x);
+        case 'if': return known(x.c) && (ev(x.c).v ? known(x.t) : known(x.e));
+        default: return known(x.l) && known(x.r);
+      }
+    };
+    /* a place: { get, set } for a binding's record, a field path, or a bare field */
+    const placeRef = x => {
+      if (x.k === 'var') {
+        const b = find(x.name);
+        if (b) return { get: () => b.val, set: v => { b.val = v; } };
+        if (isField(x.name)) return { get: () => selfObj.f[x.name], set: v => { selfObj.f[x.name] = v; } };
+        return null;
+      }
+      if (x.k === 'field') {
+        const base = placeRef(x.base);
+        if (!base) return null;
+        return { get: () => base.get().f[x.name], set: v => { base.get().f[x.name] = v; } };
+      }
+      return null;
+    };
+    const ev = x => {
+      switch (x.k) {
+        case 'num': return { v: x.v, t: 'lit' };
+        case 'bool': return { v: x.v, t: 'bool' };
+        case 'var': return get(x.name);
+        case 'field': { const r = ev(x.base); return r.f[x.name]; }
+        case 'adjust': return evAll(x.x)[0];
+        case 'make': {
+          const sc = schemas[x.schema], f = {};
+          for (const it of x.inits) f[it.name] = conv(ev(it.e), sc.fields.find(g => g.name === it.name).t);
+          return { rec: x.schema, f };
+        }
+        case 'un': {
+          const a = ev(x.x);
+          if (x.op === 'not') return { v: a.v ^ 1n, t: 'bool' };
+          if (a.t === 'lit') { const lt = litType(a.v); return { v: norm(x.op === '-' ? u(-a.v) : a.v ^ M64, lt), t: 'lit' }; }
+          return { v: norm(x.op === '-' ? u(-a.v) : a.v ^ M64, a.t), t: a.t };
+        }
+        case 'pow': { const a = ev(x.l), b = ev(x.r); const t = concrete(a.t, a.v); if (SIGNED[t] && s(norm(b.v, 'u64')) < 0n) throw new Abort(4); return { v: norm(vpow(norm(a.v, t), norm(b.v, 'u64')), t), t: a.t === 'lit' ? 'lit' : t }; }
+        case 'bin': {
+          const a = ev(x.l), b = ev(x.r);
+          if (x.o === '<<' || x.o === '>>') { const t = concrete(a.t, a.v); return { v: norm(BIN[opFor(x.o, t)].f(norm(a.v, t), norm(b.v, 'u64')), t), t: a.t === 'lit' ? 'lit' : t }; }
+          let t = unify(a.t, b.t, x);
+          const lit = t === 'lit';
+          if (lit) t = litType(a.v > b.v ? a.v : b.v);
+          const [A, B] = x.o === '>' || x.o === '>=' ? [b, a] : [a, b];
+          const r = BIN[opFor(x.o, t)].f(norm(A.v, t), norm(B.v, t));
+          return isCmp(x.o) ? { v: r, t: 'bool' } : { v: norm(r, t), t: lit ? 'lit' : t };
+        }
+        case 'and': return ev(x.l).v ? ev(x.r) : { v: 0n, t: 'bool' };
+        case 'or': return ev(x.l).v ? { v: 1n, t: 'bool' } : ev(x.r);
+        case 'if': {
+          const r = ev(x.c).v ? ev(x.t) : ev(x.e);
+          if (known(x.c) || r.rec) return r;
+          const t = unify(stype(x.t), stype(x.e), x);
+          return t !== 'lit' && r.t === 'lit' ? { v: norm(r.v, t), t } : r;
+        }
+        case 'call': case 'mcall': return evAll(x)[0];
+      }
+    };
+    function evAll(x) {
+      if (x.k !== 'call' && x.k !== 'mcall') return [ev(x)];
+      const f = wordFor(x);
+      const argv = [];
+      x.args.forEach((a, i) => {
+        if (i === x.args.length - 1 && (a.k === 'call' || a.k === 'mcall')) argv.push(...evAll(a));
+        else argv.push(ev(a));
+      });
+      if (x.k === 'mcall') return call(f, argv, placeRef(x.recv).get());
+      return call(f, argv, null);
+    }
+    function exec(list) {
+      frames.push({});
+      try {
+        for (const st of list) {
+          if (st.k === 'let') {
+            const pe = st.es.length === 1 && st.binders.length === 1 && st.es[0].k === 'var' && find(st.es[0].name);
+            if (pe && pe.val.rec && !st.binders[0].ann) { frames[frames.length - 1][st.binders[0].name] = pe; continue; }
+            const vals = [];
+            st.es.forEach((e, i) => { if (i === st.es.length - 1) vals.push(...evAll(e)); else vals.push(ev(e)); });
+            st.binders.forEach((bd, i) => {
+              const v = vals[i];
+              const t = bd.ann ? C.model.resolve(bd.ann) : (v.rec ? { rec: v.rec } : concrete(v.t, v.v));
+              frames[frames.length - 1][bd.name] = { val: conv(v, t) };
+            });
+          } else if (st.k === 'return') {
+            const vals = [];
+            st.es.forEach((e, i) => { if (i === st.es.length - 1) vals.push(...evAll(e)); else vals.push(ev(e)); });
+            return { ret: vals };
+          } else if (st.k === 'store') {
+            const pr = placeRef(st.target);
+            if (!st.op) {
+              const old = pr.get();
+              pr.set(old && old.rec ? copy(ev(st.e)) : { v: norm(ev(st.e).v, old.t), t: old.t });
+            } else {
+              const old = pr.get(), t = old.t;
+              const rhs = ev(st.e);
+              let r;
+              if (st.op === '^') { if (SIGNED[t] && s(norm(rhs.v, 'u64')) < 0n) throw new Abort(4); r = vpow(old.v, norm(rhs.v, 'u64')); }
+              else r = BIN[opFor(st.op, t)].f(old.v, st.op === '<<' || st.op === '>>' ? norm(rhs.v, 'u64') : norm(rhs.v, t));
+              pr.set({ v: norm(r, t), t });
+            }
+          } else if (st.k === 'callstmt') evAll(st.e);
+          else { const r = exec(ev(st.c).v ? st.t : st.e); if (r) return r; }
+        }
+        return null;
+      } finally { frames.pop(); }
+    }
+    let rs = w.block ? exec(w.block) : { ret: evAll(w.expr) };
+    rs = rs ? rs.ret : [];
+    return rs.map((v, i) => (w.rs && w.rs[i] ? conv(v, w.rs[i]) : v.rec ? copy(v) : { v: norm(v.v, concrete(v.t, v.v)), t: concrete(v.t, v.v) }));
+  }
+  return call(words.main, [], null).flatMap(flat);
+}
+
+/* the combined depth a plain left-to-right order would need, for comparison */
+function naiveNeed(n) {
+  switch (n.k) {
+    case 'num': case 'bool': case 'var': case 'field': return 1;
+    case 'un': case 'adjust': return naiveNeed(n.x);
+    case 'call': case 'mcall': { let m = 1; n.args.forEach((a, i) => { m = Math.max(m, i + naiveNeed(a)); }); return Math.max(m, n.args.length); }
+    case 'make': { let m = 1; n.inits.forEach((f, i) => { m = Math.max(m, i + naiveNeed(f.e)); }); return m; }
+    case 'if': return Math.max(naiveNeed(n.c), naiveNeed(n.t), naiveNeed(n.e));
+    case 'and': case 'or': return Math.max(naiveNeed(n.l), naiveNeed(n.r));
+    default: { const [a, b] = n.k === 'pow' ? [n.l, n.r] : wOperands(n); return Math.max(naiveNeed(a), 1 + naiveNeed(b)); }
+  }
+}
+
+G.SimCore = { wparse, norm, unify, concrete, litType, opFor, isCmp, WRAPS, setBanks, u, s, NBANK, CBANK, REASONS, BIN, UN, CHK, CMPBR, assemble, layout, insLen, fmt, specName, run,
+  wcompile, weval, naiveNeed, wOperands, Abort };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+(() => {
+'use strict';
+const S = window.SimCore;
+const $ = id => document.getElementById(id);
+const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* ------------------------------------------------------------ examples */
+const W = 'SLet';
+const EXAMPLES = [
+  { id: 's13', group: W, kind: 'slet', title: 'Section 13: xorshift and skip',
+    note: 'The spec\'s worked example. <b>next32 = xorshift(13, 17, 5)</b> is a static partial supply: the compiler makes a specialized word with the shift amounts folded in. <b>skip</b> calls itself in tail position, so that call becomes <b>CSET</b> plus a <b>JMP</b>: a loop. Every <b>u32</b> left shift and subtraction is followed by <b>ZX32</b>. Switch the values to Unsigned to read the results.',
+    src: 'let xorshift(a, b, c, s: u32) : u32 = do\n  let s1 = s ~ (s << a)\n  let s2 = s1 ~ (s1 >> b)\n  return s2 ~ (s2 << c)\nend\n\nlet next32 = xorshift(13, 17, 5)\nlet seed(s: u32) : u32 = if s == 0 then 2463534242 else s\n\nlet skip(s, n: u32) : u32 = do\n  if n == 0 then return s end\n  return skip(next32(s), n - 1)\nend\n\nlet main() : u32 = skip(seed(0), 3)' },
+  { id: 'area', group: W, kind: 'slet', title: 'Two subtrees meet',
+    note: 'Parameters arrive on A and move to C. In the body, <b>w + m</b> is compiled into A and <b>h - m</b> into B, then one <b>MUL.A</b> folds them. Open the Tree view to see each node\'s destination stack.',
+    src: 'let area(w, h, m: u32) : u32 = (w + m) * (h - m)\n\nlet main() : u32 = area(10, 7, 2)' },
+  { id: 'deep', group: W, kind: 'slet', title: 'Heavier subtree first',
+    note: 'A right-deep tree. Left to right it needs a combined A + B depth of 8 and spills out of the four-register bank. <b>compile(E, dst)</b> evaluates each node\'s heavier operand first (its Ershov number), so the body runs at depth 2 with no spills. The box on the right compares both orders.',
+    src: 'let deep(x: u32) : u32 = 1 + (2 * (3 + (4 * (5 + (6 * (7 + x))))))\n\nlet main() : u32 = deep(8)' },
+  { id: 'clamp', group: W, kind: 'slet', title: 'Routing > and >=',
+    note: 'The ISA has no greater-than forms. Each <b>if</b> condition becomes one compare-and-branch on the negated test: <b>x &lt; lo</b> branches away with <b>BLE</b> on the swapped operands, and <b>x &gt; hi</b> with <b>BLE</b> on the original order. <b>i32</b> picks the signed forms.',
+    src: 'let clamp(x, lo, hi: i32) : i32 =\n  if x < lo then lo else if x > hi then hi else x\n\nlet main() : i32 =\n  clamp(-5, 0, 10) + clamp(42, 0, 10) * 100 + clamp(7, 0, 10) * 10000' },
+  { id: 'signed', group: W, kind: 'slet', title: 'Signed arithmetic',
+    note: 'Types choose instructions. <b>i32</b> division and remainder use <b>DIVS</b> and <b>REMS</b> (truncating toward zero, the remainder takes the dividend\'s sign), and every wrapping <b>i32</b> operation is followed by <b>SX32</b>. The result is -31.',
+    src: 'let half(x: i32) : i32 = x / 2\nlet rem(x: i32) : i32 = x % 2\n\nlet main() : i32 = half(-7) * 10 + rem(-7)' },
+  { id: 'gcd', group: W, kind: 'slet', title: 'Euclid: a tail call is a loop',
+    note: 'The recursive call is in tail position inside an expression conditional, so it compiles to <b>CSET</b> on both parameters and a <b>JMP</b>. The C stack never grows, however many steps Euclid takes.',
+    src: 'let gcd(a, b: u32) : u32 = if b == 0 then a else gcd(b, a % b)\n\nlet main() : u32 = gcd(1071, 462)' },
+  { id: 'collatz', group: W, kind: 'slet', title: 'Collatz: a loop with three exits',
+    note: 'Two tail calls in one block, both turned into jumps to the same loop head. 27 takes 111 steps to reach 1; use Fast, or drag the scrubber to the end.',
+    src: 'let steps(n, count: u32) : u32 = do\n  if n == 1 then return count end\n  if n % 2 == 0 then return steps(n / 2, count + 1) end\n  return steps(3 * n + 1, count + 1)\nend\n\nlet main() : u32 = steps(27, 0)' },
+  { id: 'fib', group: W, kind: 'slet', title: 'Recursive fib(10)',
+    note: 'Not a tail call, so real <b>CALL</b>s. The two calls are the operands of <b>+</b>: the first delivers to A, the second is compiled for B, so it is a <b>CALL.B</b> and its result lands on B with no extra move. <b>n &lt; 2</b> is one compare-and-branch against an immediate.',
+    src: 'let fib(n: u32) : u32 = if n < 2 then n else fib(n - 1) + fib(n - 2)\n\nlet main() : u32 = fib(10)' },
+  { id: 'logic', group: W, kind: 'slet', title: 'and, or, not',
+    note: '<b>and</b> and <b>or</b> short-circuit with jumps; a comparison used as a condition becomes one compare-and-branch. bool values are cells holding 0 or 1, and <b>not</b> is <b>LNOT</b>.',
+    src: 'let between(x, lo, hi: u32) : bool = lo <= x and x <= hi\n\nlet score(a, b, c: u32) : u32 = do\n  let one = if between(a, 1, 9) then 1 else 0\n  let two = if between(b, 1, 9) or b == 100 then 10 else 0\n  return one + two + (if not between(c, 1, 9) then 100 else 0)\nend\n\nlet main() : u32 = score(5, 100, 50)' },
+  { id: 'ipow', group: W, kind: 'slet', title: 'Exponentiation by squaring (u64)',
+    note: '3<sup>40</sup> in <b>u64</b>, with tail calls. 64-bit types wrap natively, so no normalization instructions appear at all.',
+    src: 'let ipow(base, e, acc: u64) : u64 = do\n  if e == 0 then return acc end\n  if e % 2 == 1 then return ipow(base * base, e / 2, acc * base) end\n  return ipow(base * base, e / 2, acc)\nend\n\nlet main() : u64 = ipow(3, 40, 1)' },
+  { id: 'ratio', group: W, kind: 'slet', title: 'Abort: run-time division by zero',
+    note: 'The divisor is a run-time value, so <b>DIVU</b> checks it and aborts with reason 1. Change <b>b</b> to the literal <b>0</b> in the body (<b>a / 0</b>) and the compiler rejects the program instead: a known zero divisor never reaches run time.',
+    src: 'let ratio(a, b: u32) : u32 = a / b\n\nlet main() : u32 = ratio(10, 0)' },
+  { id: "s13roll", group: "SLet: results, records, methods", kind: 'slet', title: "Section 13: roll and d6",
+    note: "The rest of the spec's worked example. <b>roll</b> returns two results, which simply means two cells on A. <b>d6 = roll(6)</b> is a static partial supply, and <b>let next, face = d6(s)</b> binds both results at once: two <b>CPUSH</b>es. <b>main</b> itself returns two values, so A ends with two cells.",
+    src: "let xorshift(a, b, c, s: u32) : u32 = do\n  let s1 = s ~ (s << a)\n  let s2 = s1 ~ (s1 >> b)\n  return s2 ~ (s2 << c)\nend\n\nlet next32 = xorshift(13, 17, 5)\nlet seed(s: u32) : u32 = if s == 0 then 2463534242 else s\n\nlet step(s: u32) : (u32, u32) = do\n  let t = next32(s)\n  return t, t\nend\n\nlet roll(bound, s: u32) : (u32, u32) = do\n  let t = next32(s)\n  return t, t % bound + 1\nend\n\nlet d6 = roll(6)\nlet d20 = roll(20)\n\nlet roll_then_step(s: u32) : (u32, u32) = do\n  let next, face = d6(s)\n  return next32(next), face\nend\n\nlet main() : (u32, u32) = roll_then_step(seed(0))" },
+  { id: "divmod", group: "SLet: results, records, methods", kind: 'slet', title: "divmod: multiple results",
+    note: "Results form an ordered vector, not a tuple. <b>forward</b> passes both results through untouched; <b>(divmod(a, b))</b> and <b>divmod(9, 4) + 1</b> are scalar contexts, so the extra result is dropped with one <b>DROP.A</b>. A result vector maps directly onto A.",
+    src: "let divmod(a, b: u32) : (u32, u32) = do\n  return a / b, a % b\nend\nlet forward(a, b: u32) : (u32, u32) = divmod(a, b)\nlet first(a, b: u32) : u32 = (divmod(a, b))\nlet main() : (u32, u32, u32) = do\n  let q, r = forward(17, 5)\n  return q * 10 + r, first(100, 7), divmod(9, 4) + 1\nend" },
+  { id: "rng", group: "SLet: results, records, methods", kind: 'slet', title: "Section 8: rng.draw",
+    note: "A record with a method. Records are scalarized: <b>r</b> is one cell on C. <b>r.draw()</b> compiles copy-in/copy-out: the receiver's cells go in as leading arguments, come back as trailing results, and the caller writes them back with <b>CSET</b>. Inside the method, bare <b>state</b> is the receiver's field.",
+    src: "let xorshift(a, b, c, s: u32) : u32 = do\n  let s1 = s ~ (s << a)\n  let s2 = s1 ~ (s1 >> b)\n  return s2 ~ (s2 << c)\nend\nlet next32 = xorshift(13, 17, 5)\n\nlet rng = {\n  state: u32,\n  draw() : u32 = do\n    state = next32(state)\n    return state\n  end,\n}\n\nlet draw_twice(s: u32) : (u32, u32) = do\n  let r = rng { state = s }\n  let before = r.state\n  r.draw()\n  return before, r.draw()\nend\n\nlet main() : (u32, u32) = draw_twice(2463534242)" },
+  { id: "points", group: "SLet: results, records, methods", kind: 'slet', title: "Records: points and aliases",
+    note: "Fields are stored in canonical (name) order, so <b>point { y = -7, x = 3 }</b> evaluates y first but lays out x first, parking values on C for a moment. Passing and returning copies the record's cells. <b>let c = b</b> is a local alias: no code at all, and <b>c.x += 100</b> changes <b>b</b>, as the spec requires.",
+    src: "let point = { x: i32, y: i32 }\n\nlet add(p, q: point) : point = point { x = p.x + q.x, y = p.y + q.y }\nlet manhattan(p: point) : i32 = (if p.x < 0 then -p.x else p.x) + (if p.y < 0 then -p.y else p.y)\n\nlet main() : (i32, point) = do\n  let a = point { y = -7, x = 3 }\n  let b = add(a, point { x = -10, y = 2 })\n  let c = b\n  c.x += 100\n  return manhattan(a), b\nend" },
+  { id: "nested", group: "SLet: results, records, methods", kind: 'slet', title: "Nested records",
+    note: "A record inside a record flattens into consecutive cells, so <b>r.max.x</b> is just one <b>CGET</b> at a computed depth and <b>r.max.x = 20</b> one <b>CSET</b>. <b>grow</b> builds a whole nested record and returns its four cells.",
+    src: "let vec2 = { x: u32, y: u32 }\nlet rect = { min: vec2, max: vec2 }\n\nlet area(r: rect) : u32 = (r.max.x - r.min.x) * (r.max.y - r.min.y)\nlet grow(r: rect, by: u32) : rect = rect { min = vec2 { x = r.min.x - by, y = r.min.y - by }, max = vec2 { x = r.max.x + by, y = r.max.y + by } }\n\nlet main() : (u32, u32) = do\n  let r = rect { min = vec2 { x = 10, y = 20 }, max = vec2 { x = 14, y = 23 } }\n  let g = grow(r, 1)\n  r.max.x = 20\n  return area(r), area(g)\nend" },
+  { id: "counter", group: "SLet: results, records, methods", kind: 'slet', title: "Counter: a method in a loop",
+    note: "<b>bump</b> uses compound stores on the receiver's fields. <b>loop</b> passes the counter by value and calls itself in tail position, so the whole thing is a jump loop with the counter's two cells on C.",
+    src: "let counter = {\n  value: u32,\n  steps: u32,\n  bump(by: u32) : u32 = do\n    value += by\n    steps += 1\n    return value\n  end,\n}\n\nlet count_to(limit: u32) : (u32, u32) = do\n  let c = counter { value = 0, steps = 0 }\n  let by = 7\n  return loop(c, limit, by)\nend\n\nlet loop(c: counter, limit, by: u32) : (u32, u32) = do\n  if c.value >= limit then return c.value, c.steps end\n  c.bump(by)\n  return loop(c, limit, by)\nend\n\nlet main() : (u32, u32) = count_to(50)" },
+  { id: "fibpair", group: "SLet: expressions and loops", kind: 'slet', title: "Iterative fib in u64",
+    note: "fib(90) without recursion depth: <b>go</b> carries the pair in its parameters and calls itself in tail position. 64-bit types wrap natively, so there is no normalization.",
+    src: "let fib(n: u32) : u64 = go(n, 0, 1)\nlet go(n: u32, a, b: u64) : u64 = if n == 0 then a else go(n - 1, b, a + b)\nlet main() : u64 = fib(90)" },
+  { id: 'bank', group: 'Hand-written assembly', kind: 'asm', title: 'Operand bank tour',
+    note: 'Watch the registers. A fills the bank from <b>h0</b> up and B from <b>h3</b> down. When the bank is full the two tops are adjacent, so <b>MOVE.AB</b> is free: <b>h1</b> just changes owner. A push onto a full bank spills the pushing stack\'s deepest cell, and <b>COPY</b> always costs a real register copy.',
+    src: '; watch the operand bank\nPUSH.A 10       ; A0 in h0\nPUSH.A 20       ; A0 in h1\nPUSH.B 30       ; B0 in h3\nPUSH.B 40       ; B0 in h2: the bank is full\nMOVE.AB         ; tops adjacent: h1 changes owner\nPUSH.A 50       ; full bank: A spills its deepest cell\nCOPY.BA         ; a real copy: one value, two stacks\nADD.A           ; one native add, B pops\nDROP.B\nHALT' },
+  { id: 'sum', group: 'Hand-written assembly', kind: 'asm', title: 'Sum loop with operand forms',
+    note: 'The counter <b>i</b> and limit <b>n</b> live on C; the running sum stays in <b>h0</b>. <b>ADDC.A 0</b> adds C0 to the sum in place and <b>ADDI.A 1</b> adds an immediate: neither touches B. <b>BLE</b> tests <b>n &lt;= i</b>, which is <b>i &gt;= n</b> with the operands routed.',
+    src: '; sum = 0 + 1 + 2 + 3 + 4, with i and n on C\nPUSH.A 0        ; sum\nPUSH.A 5        ; n\nCPUSH.A\nPUSH.A 0        ; i\nCPUSH.A\nloop:\nCGET.A 1        ; n\nCGET.B 0        ; i\nBLE done        ; n <= i: finished\nADDC.A 0        ; sum += i\nCGET.A 0\nADDI.A 1\nCSET.A 0        ; i = i + 1\nJMP loop\ndone:\nHALT' },
+  { id: 'fibasm', group: 'Hand-written assembly', kind: 'asm', title: 'Recursive fib(6) with frames',
+    note: '<b>CALL.A fib 1</b> moves the argument into the callee\'s frame, so <b>n</b> is <b>C0</b> and there is no prologue. The second call is <b>CALL.B</b>: its result lands on B, ready for <b>ADD.A</b>. <b>RET 1 1</b> drops the one-cell frame and returns one result.',
+    src: 'PUSH.A 6\nCALL.A fib 1\nHALT\nfib:                ; frame: C0 = n\nCGET.A 0\nBGEI.A 2 rec        ; n >= 2: recurse\nCGET.A 0\nRET 1 1             ; return n\nrec:\nCGET.A 0\nSUBI.A 1\nCALL.A fib 1        ; A: fib(n-1)\nCGET.A 0\nSUBI.A 2\nCALL.B fib 1        ; B: fib(n-2)\nADD.A\nRET 1 1' },
+  { id: 'new-w', group: 'Start from scratch', kind: 'slet', title: 'New SLet program', blank: true,
+    note: 'Define words with typed parameters and a <b>main</b>, then choose Run.',
+    src: 'let triangle(n: u32) : u32 = n * (n + 1) / 2\n\nlet main() : u32 = triangle(10)' },
+  { id: 'new-asm', group: 'Start from scratch', kind: 'asm', title: 'New assembly program', blank: true,
+    note: 'Write instructions one per line, with labels and ; comments, then choose Run.', src: 'PUSH.A 6\nPUSH.B 7\nMUL.A\nHALT' },
+];
+
+/* ---------------------------------------------------------------- state */
+let spec = EXAMPLES[0], P = null, idx = 0;
+let view = 'src', bcView = 'asm', fmtMode = 's';
+let editing = false, editText = '', editErr = null;
+let playing = false, timer = null, speed = 300;
+const edits = {};
+
+function build(sp, src) {
+  const out = { spec: sp, src, kind: sp.kind, warnings: [] };
+  if (sp.kind === 'slet') {
+    const c = S.wcompile(src);
+    const a = S.assemble(c.asm);
+    Object.assign(out, { asm: c.asm, map: c.map, insAsmLine: c.insAsmLine, roots: c.roots, code: a.code, labelAt: a.labelAt });
+    out.need = Math.max(1, ...c.roots.map(r => r.e.need || 1));
+    out.naiveNeed = Math.max(1, ...c.roots.map(r => S.naiveNeed(r.e)));
+    try { out.expected = S.weval(src); } catch (e) { out.expectedAbort = e instanceof S.Abort ? e.code : null; }
+    const naive = S.run(S.assemble(S.wcompile(src, { leftFirst: true }).asm).code, 20000);
+    out.naiveStats = naive[naive.length - 1].stats;
+  } else {
+    const a = S.assemble(src);
+    Object.assign(out, { code: a.code, labelAt: a.labelAt, warnings: a.warnings });
+  }
+  out.lay = S.layout(out.code);
+  out.snaps = S.run(out.code, 20000);
+  const hits = new Array(out.code.length).fill(0);
+  out.hitsAt = [hits.slice()];
+  for (let i = 1; i < out.snaps.length; i++) { const l = out.snaps[i].last; if (l >= 0) hits[l]++; out.hitsAt.push(hits.slice()); }
+  out.labelOf = {};
+  for (const [i, names] of Object.entries(out.labelAt || {})) out.labelOf[i] = names[0];
+  return out;
+}
+function load(sp, keepEdit) {
+  stop(); spec = sp;
+  const src = edits[sp.id] != null ? edits[sp.id] : sp.src;
+  try { P = build(sp, src); } catch (e) { delete edits[sp.id]; P = build(sp, sp.src); }
+  idx = 0;
+  if (!keepEdit) editing = !!sp.blank && edits[sp.id] == null;
+  editText = P.src; editErr = null;
+  if (P.kind !== 'slet' && view !== 'src') view = 'src';
+  $('progSel').value = sp.id;
+  render();
+}
+
+/* ------------------------------------------------------------- helpers */
+const snap = () => P.snaps[idx];
+const nextIns = () => { const s = snap(); return s.halted || s.reason ? null : P.code[s.pc]; };
+function fv(v) {
+  if (fmtMode === 'u') return S.u(v).toString();
+  if (fmtMode === 'x') return '0x' + S.u(v).toString(16);
+  return S.s(v).toString();
+}
+function cellText(c) {
+  if (c.ret != null) return '↩ ' + (P.labelOf[c.ret] || '#' + c.ret);
+  return fv(c.v);
+}
+function locOf(stack, n) { const s = snap(); const arr = s[stack]; return arr[n] ? arr[n].where : '?'; }
+function ref(stack, n) {
+  const w = locOf(stack, n);
+  return `<span class="r ${stack.toLowerCase()}">${stack}${n}</span><span class="o" style="font-size:.45em">${w === 'mem' ? 'memory' : w}</span>`;
+}
+
+/* ---------------------------------------------------------------- render */
+function render(anim) {
+  renderProgram(); renderMachine(anim); renderCode(); renderTransport();
+}
+
+function hlExpr(l) {
+  const [code, ...rest] = l.split('--');
+  let h = esc(code).replace(/\b(let|do|end|if|then|else|return|and|or|not|true|false)\b/g, '<span class="tk-k">$1</span>')
+    .replace(/\b(u32|i32|u64|i64|bool)\b/g, '<span class="tk-b">$1</span>')
+    .replace(/\b(\d[\d_]*)\b/g, '<span class="tk-n">$1</span>');
+  if (rest.length) h += `<span class="tk-c">--${esc(rest.join('--'))}</span>`;
+  return h;
+}
+function hlAsm(l) {
+  const ci = l.indexOf(';');
+  const code = ci >= 0 ? l.slice(0, ci) : l, com = ci >= 0 ? l.slice(ci) : '';
+  let h = esc(code)
+    .replace(/^(\s*[A-Za-z_]\w*:)/, '<span class="tk-l">$1</span>')
+    .replace(/\.(AB|BA|A|B)\b/g, (m, x) => `<span class="tk-${x[x.length - 1].toLowerCase()}">.${x}</span>`)
+    .replace(/(\s)(-?\d+)(\s*)$/, '$1<span class="tk-n">$2</span>$3');
+  return h + (com ? `<span class="tk-c">${esc(com)}</span>` : '');
+}
+
+function renderProgram() {
+  $('kindTag').textContent = spec.kind === 'slet' ? 'SLet' : 'assembly';
+  $('editBtn').textContent = editing ? 'Close editor' : 'Edit';
+  [...$('viewSeg').children].forEach(b => {
+    b.setAttribute('aria-pressed', String(b.dataset.v === view && !editing));
+    b.disabled = editing || (b.dataset.v !== 'src' && P.kind !== 'slet');
+  });
+  const body = $('progBody');
+  const note = `<div class="note">${spec.note}</div>`;
+  if (editing) {
+    body.innerHTML = `${note}<div class="editor">
+      <textarea id="ed" spellcheck="false" aria-label="Program source">${esc(editText)}</textarea>
+      ${editErr ? `<div class="err" role="alert">${esc(editErr.message)}</div>` : ''}
+      <div class="row"><button class="btn primary" id="runBtn">Run</button><button class="btn" id="cancelBtn">Cancel</button>
+      ${edits[spec.id] != null || editText !== spec.src ? '<button class="btn" id="revertBtn">Restore original</button>' : ''}</div>
+      <div class="hint">${spec.kind === 'slet' ? 'SLet: words with typed parameters (u32, i32, u64, i64, bool), do ... end blocks, and a main. Comments start with --.' : 'One instruction per line, labels end with a colon, comments start with ;.'} Ctrl+Enter runs.</div></div>`;
+    const ed = $('ed');
+    ed.addEventListener('input', () => { editText = ed.value; });
+    ed.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); applyEdit(); }
+      if (e.key === 'Tab') { e.preventDefault(); ed.setRangeText('    ', ed.selectionStart, ed.selectionEnd, 'end'); editText = ed.value; }
+    });
+    $('runBtn').onclick = applyEdit;
+    $('cancelBtn').onclick = () => { editing = false; editErr = null; editText = P.src; render(); };
+    const rv = $('revertBtn');
+    if (rv) rv.onclick = () => { delete edits[spec.id]; editText = spec.src; editErr = null; load(spec, true); editing = true; render(); };
+    return;
+  }
+  const ins = nextIns(), s = snap();
+  const cur = ins ? P.code.indexOf(ins) : s.last;
+  const warns = P.warnings.length ? `<div class="warn">${P.warnings.map(w => `<p>${esc(w)}</p>`).join('')}</div>` : '';
+  if (view === 'tree' && P.kind === 'slet') { body.innerHTML = note + treeHTML(cur) + warns; return; }
+  if (view === 'asm' && P.kind === 'slet') {
+    const on = cur >= 0 ? P.insAsmLine[cur] : -1;
+    body.innerHTML = note + `<div class="src">${P.asm.split('\n').map((l, i) =>
+      `<div class="l${i === on ? ' on' : ''}"><span class="n">${i + 1}</span><span>${hlAsm(l)}</span></div>`).join('')}</div>`;
+    return;
+  }
+  const activeLine = cur >= 0 && P.code[cur] ? (P.kind === 'slet' ? P.map[cur].src : P.code[cur].line) : -1;
+  const hl = P.kind === 'slet' ? hlExpr : hlAsm;
+  body.innerHTML = note + `<div class="src">${P.src.split('\n').map((l, i) =>
+    `<div class="l${i === activeLine ? ' on' : ''}"><span class="n">${i + 1}</span><span>${hl(l) || ' '}</span></div>`).join('')}</div>` + warns;
+}
+
+function treeHTML(cur) {
+  const active = cur >= 0 && P.map[cur] ? P.map[cur].node : null;
+  const SY = { '-': '−', '*': '×', '~': '~', not: 'not' };
+  const node = (n, first) => {
+    let label, kids = [], firstId = null;
+    switch (n.k) {
+      case 'num': label = String(n.v); break;
+      case 'bool': label = n.v ? 'true' : 'false'; break;
+      case 'var': label = n.name; break;
+      case 'un': label = SY[n.op] || n.op; kids = [n.x]; break;
+      case 'pow': label = '^'; kids = [n.l, n.r]; firstId = n.aFirst ? n.l.id : n.r.id; break;
+      case 'bin': {
+        label = SY[n.o] || n.o; kids = [n.l, n.r];
+        const [a, b] = S.wOperands(n); firstId = n.aFirst ? a.id : b.id; break;
+      }
+      case 'if': label = 'if'; kids = [n.c, n.t, n.e]; break;
+      case 'and': case 'or': label = n.k; kids = [n.l, n.r]; break;
+      case 'call': label = n.name + (n.tail ? ' (jump)' : '()'); kids = n.args; break;
+      case 'mcall': label = '.' + n.name + '()'; kids = [n.recv, ...n.args]; break;
+      case 'field': label = '.' + n.name; kids = [n.base]; break;
+      case 'make': label = n.schema + ' { }'; kids = n.inits.map(f => f.e); break;
+      case 'adjust': label = '( )'; kids = [n.x]; break;
+    }
+    const d = n.dst === 'A' ? ' dA' : n.dst === 'B' ? ' dB' : '';
+    const showNeed = ['bin', 'pow', 'un', 'call', 'mcall'].includes(n.k) && n.need;
+    const title = n.dst === 'branch' ? 'compiled as a compare-and-branch' : n.dst ? `result goes to ${n.dst}` : 'folded at compile time';
+    return `<li><span class="tn${d}${active === n.id ? ' on' : ''}" title="${esc(title)}${n.need ? '; Ershov number ' + n.need : ''}">${esc(label)}${showNeed ? `<span class="er">${n.need}</span>` : ''}${first ? '<span class="first">1st</span>' : ''}</span>${kids.length ? `<ul>${kids.map(k => node(k, k.id === firstId)).join('')}</ul>` : ''}</li>`;
+  };
+  const byWord = {};
+  P.roots.forEach(r => (byWord[r.word] = byWord[r.word] || []).push(r));
+  const seen = new Set();
+  let h = `<div class="legend"><span><i style="background:var(--cold)"></i>result on A</span><span><i style="background:var(--indigo)"></i>result on B</span><span><i style="background:var(--clay-strong)"></i>Ershov number</span><span><i style="background:var(--mint-deep)"></i>evaluated first</span></div><div class="tree">`;
+  for (const [word, roots] of Object.entries(byWord)) {
+    h += `<div class="lbl" style="margin:10px 4px 0">word ${esc(word)}</div>`;
+    for (const r of roots) {
+      if (seen.has(r.e.id + ':' + word)) continue; seen.add(r.e.id + ':' + word);
+      h += `<div class="stmt"><ul><li><span class="tn st">${esc(r.label)}</span><ul>${node(r.e, false)}</ul></li></ul></div>`;
+    }
+  }
+  return h + '</div>';
+}
+
+const SYM = { ADD: '+', SUB: '−', MUL: '×', DIVU: '÷u', DIVS: '÷', REMU: '%u', REMS: '%', AND: '&', OR: '|', XOR: '^', SHL: '<<', SHR: '>>u', SAR: '>>', EQ: '=', NE: '≠', LT: '<', LE: '≤', LTU: '<u', LEU: '≤u' };
+function hero(ins) {
+  const s = snap();
+  const val = (st, n) => (s[st][n] ? cellText(s[st][n]) : '?');
+  const dst = x => `<span class="o">→</span><span class="r ${x.toLowerCase()}">${x}</span>`;
+  switch (ins.op) {
+    case 'BIN': return [`${ref('A', 0)}<span class="o">${SYM[ins.fn]}</span>${ref('B', 0)}${dst(ins.x)}<span class="f">${esc(val('A', 0))} ${SYM[ins.fn]} ${esc(val('B', 0))}</span>`,
+      `A0 ${SYM[ins.fn]} B0, result on ${ins.x}; ${ins.x === 'A' ? 'B' : 'A'} pops. One native operation, no data movement.`];
+    case 'UN': return [`<span class="o">${ins.fn}</span>${ref(ins.x, 0)}`, `${ins.fn} of ${ins.x}0, in place.`];
+    case 'ONE': return [`<span class="o">${ins.fn}</span>${ref('A', 0)}${ins.fn.startsWith('POW') ? ref('B', 0) : ''}`, ins.fn.startsWith('CHK') ? 'Abort (reason 3) if A0 does not fit; otherwise nothing changes.' : 'An A-only operation.'];
+    case 'PUSH': return [`<span class="o">push</span><span class="r ${ins.x.toLowerCase()}">${esc(fv(ins.v))}</span>${dst(ins.x)}`, `Writes the next free register of ${ins.x} (PUSH${ins.width}, ${S.insLen(ins)} bytes).`];
+    case 'DUP': return [`<span class="o">dup</span>${ref(ins.x, 0)}`, `A real copy: the value gains a second live position on ${ins.x}.`];
+    case 'DROP': return [`<span class="o">drop</span>${ref(ins.x, 0)}`, 'No native work: the register just stops belonging to the stack.'];
+    case 'COPY': return [`<span class="o">copy</span>${ref(ins.x[0], 0)}${dst(ins.x[1])}`, 'COPY creates liveness: always one real register copy.'];
+    case 'MOVE': return [`<span class="o">move</span>${ref(ins.x[0], 0)}${dst(ins.x[1])}`, 'MOVE changes ownership: free when the bank is full, one register copy otherwise.'];
+    case 'CPUSH': return [`<span class="o">cpush</span>${ref(ins.x, 0)}${dst('C')}`, `Moves ${ins.x}0 onto C.`];
+    case 'CPOP': return [`<span class="o">cpop</span>${ref('C', 0)}`, 'No native work.'];
+    case 'CGET': return [`<span class="o">cget</span>${ref('C', ins.n)}${dst(ins.x)}`, `Copies C${ins.n} to ${ins.x}${locOf('C', ins.n) === 'mem' ? ', reading it in place from memory' : ''}.`];
+    case 'CSET': return [`${ref(ins.x, 0)}<span class="o">into</span><span class="r c">C${ins.n}</span>`, `Writes ${ins.x}0 into C${ins.n} and consumes it.`];
+    case 'CB': return [`<span class="o">if</span>${ref('A', 0)}<span class="o">${ins.fn.slice(1).toLowerCase()}</span>${ref('B', 0)}<span class="f">jump to ${esc(ins.label)}</span>`, 'Compare-and-branch: consumes both tops.'];
+    case 'JZ': case 'JNZ': return [`<span class="o">${ins.op === 'JZ' ? 'if zero' : 'if not zero'}</span>${ref(ins.x, 0)}<span class="f">${esc(ins.label)}</span>`, `Tests ${ins.x}0 and consumes it.`];
+    case 'JMP': return [`<span class="o">jump</span><span class="f">${esc(ins.label)}</span>`, 'Unconditional jump.'];
+    case 'CALL': return [`<span class="o">call</span><span class="f">${esc(ins.label)}, ${ins.n} argument${ins.n === 1 ? '' : 's'}</span><span class="o">→</span><span class="r ${ins.x.toLowerCase()}">${ins.x}</span>`,
+      `Pushes the return address (recording ${ins.x} as the result stack), moves ${ins.n} argument cell${ins.n === 1 ? '' : 's'} from A into the new frame, and jumps.`];
+    case 'TCALL': return [`<span class="o">tail call</span><span class="f">${esc(ins.label)}, drop ${ins.k}, take ${ins.n}</span>`, 'Replaces the frame and jumps, keeping the return address and the stack it records.'];
+    case 'RET': return [`<span class="o">return</span><span class="f">drop ${ins.k}, ${ins.r} result${ins.r === 1 ? '' : 's'}</span>`, 'Drops the frame, pops the return address and jumps; moves the results to B if the call asked for that.'];
+    case 'BINI': return [`${ref(ins.x, 0)}<span class="o">${SYM[ins.fn]}</span><span class="r ${ins.x.toLowerCase()}">${esc(fv(ins.v))}</span>`, `Operand form: ${ins.x}0 ${SYM[ins.fn]} an immediate, in place. The other stack is untouched.`];
+    case 'BINC': return [`${ref(ins.x, 0)}<span class="o">${SYM[ins.fn]}</span>${ref('C', ins.n)}`, `Operand form: ${ins.x}0 ${SYM[ins.fn]} C${ins.n}, in place. C is only read.`];
+    case 'CBI': return [`<span class="o">if</span>${ref(ins.x, 0)}<span class="o">${ins.fn.slice(1, -1).toLowerCase()}</span><span class="r ${ins.x.toLowerCase()}">${esc(fv(ins.v))}</span><span class="f">jump to ${esc(ins.label)}</span>`, 'Compare-and-branch against an immediate: consumes A0.'];
+    case 'ABORT': return [`<span class="o">abort</span><span class="f">reason ${ins.n}</span>`, 'Stops with a reason code.'];
+    case 'HALT': return [`<span class="o">halt</span>`, 'Flushes the banks to memory and stops.'];
+  }
+  return ['', ''];
+}
+
+function renderMachine(anim) {
+  const s = snap(), ins = nextIns();
+  $('nextLbl').textContent = s.halted ? 'Finished' : s.reason ? 'Stopped' : 'Next instruction';
+  if (ins) { const [e, m] = hero(ins); $('eq').innerHTML = e; $('mean').innerHTML = m; }
+  else if (s.reason) {
+    $('eq').innerHTML = `<span class="o">Abort</span><span class="r a">${s.reason}</span>`;
+    $('mean').innerHTML = esc(S.REASONS[s.reason] || 'stopped');
+  } else {
+    const top = s.A[0];
+    $('eq').innerHTML = `Halted${top ? `<span class="o">with</span><span class="r a">A0 = ${esc(cellText(top))}</span>` : ''}`;
+    let m = 'Step back or reset to replay.';
+    if (P.kind === 'slet') {
+      if (P.expectedAbort) m = `The source program aborts with reason ${P.expectedAbort}.`;
+      else if (P.expected) {
+        const got = s.A.slice().reverse().map(c => c.v);
+        const same = got.length === P.expected.length && got.every((v, i) => v === P.expected[i]);
+        const show = P.expected.map(v => fv(v)).join(', ');
+        m = same ? `main returns ${esc(show)} when the source is run directly, and A matches.` : `Running the source directly gives ${esc(show)}, but A holds ${esc(got.map(fv).join(', '))}.`;
+      }
+    }
+    $('mean').innerHTML = m;
+  }
+  const last = $('last');
+  last.className = 'last' + (s.error ? ' bad' : '');
+  last.innerHTML = idx === 0 ? esc(s.msg) : `<b>Step ${idx}.</b> ${esc(s.msg)}`;
+  const nat = $('native');
+  nat.innerHTML = `<div class="lbl">Native work in that step</div>` + (s.L && s.L.length
+    ? `<ol>${s.L.map(l => `<li class="${/no native move/.test(l) ? 'free' : /^spill/.test(l) ? 'spill' : ''}">${esc(l)}</li>`).join('')}</ol>`
+    : '<div style="font-size:11px;color:var(--muted);margin-top:4px">none yet</div>');
+  const touched = new Set();
+  (anim && s.L ? s.L : []).forEach(l => { const m = /^([hc]\d)\b/.exec(l); if (m) touched.add(m[1]); });
+
+  /* registers */
+  $('abState').textContent = `a = ${s.a}, b = ${s.b}`;
+  $('kState').textContent = `k = ${s.k}`;
+  $('hregs').innerHTML = s.owners.map((o, i) => {
+    let lab = 'free', top = false;
+    if (o === 'A') { const d = s.a - 1 - i; lab = 'A' + d; top = d === 0; }
+    if (o === 'B') { const d = i - (S.NBANK - s.b); lab = 'B' + d; top = d === 0; }
+    const v = s.h[i];
+    return `<div class="reg ${o}${top ? ' istop' : ''}${touched.has('h' + i) ? ' touched' : ''}" title="h${i}${v ? ' = ' + esc(cellText(v)) : ': free'}"><div class="rn">h${i}</div><div class="rv">${v ? esc(cellText(v)) : '·'}</div><div class="ro">${lab}</div></div>`;
+  }).join('');
+  $('cregs').innerHTML = [0, 1, 2, 3].map(i => {
+    const own = i < s.k, d = s.k - 1 - i, v = s.c[i];
+    return `<div class="reg ${own ? 'C' : 'free'}${own && d === 0 ? ' istop' : ''}${touched.has('c' + i) ? ' touched' : ''}" title="c${i}${own && v ? ' = ' + esc(cellText(v)) : ': free'}"><div class="rn">c${i}</div><div class="rv">${own && v ? esc(cellText(v)) : '·'}</div><div class="ro">${own ? 'C' + d : 'free'}</div></div>`;
+  }).join('');
+
+  /* stacks */
+  const ops = operandRefs(ins);
+  for (const X of ['A', 'B', 'C']) {
+    const el = $('cells' + X), arr = s[X];
+    if (!arr.length) { el.innerHTML = '<li class="empty">empty</li>'; continue; }
+    el.innerHTML = arr.map((c, n) => {
+      const reg = c.where !== 'mem';
+      const cls = ['cell', reg ? 'reg-' + X : 'mem', ops.has(X + n) ? 'op' : ''].join(' ');
+      return `<li class="${cls}" title="${X}${n} = ${esc(cellText(c))}, ${reg ? 'in register ' + c.where : 'in memory'}"><span class="dp">${X}${n}</span><span class="v">${esc(cellText(c))}</span><span class="w">${reg ? c.where : 'mem'}</span></li>`;
+    }).join('');
+  }
+  const st = s.stats;
+  const items = [[st.steps, 'Instructions'], [st.regMoves, 'Register copies'], [st.freeMoves, 'Free moves'], [st.spills, 'Spills'],
+    [st.memReads, 'Memory reads'], [st.memWrites, 'Memory writes'], [`${st.maxA}/${st.maxB}/${st.maxC}`, 'Max depth A/B/C']];
+  $('stats').innerHTML = items.map(([n, k]) => `<div class="stat"><b>${n}</b><span>${k}</span></div>`).join('');
+}
+function operandRefs(ins) {
+  const r = new Set();
+  if (!ins) return r;
+  switch (ins.op) {
+    case 'BIN': case 'CB': r.add('A0'); r.add('B0'); break;
+    case 'ONE': r.add('A0'); if (ins.fn.startsWith('POW')) r.add('B0'); break;
+    case 'UN': case 'DUP': case 'DROP': case 'CPUSH': case 'JZ': case 'JNZ': case 'BINI': case 'CBI': r.add(ins.x + '0'); break;
+    case 'BINC': r.add(ins.x + '0'); r.add('C' + ins.n); break;
+    case 'COPY': case 'MOVE': r.add(ins.x[0] + '0'); break;
+    case 'CGET': r.add('C' + ins.n); break;
+    case 'CSET': r.add(ins.x + '0'); r.add('C' + ins.n); break;
+    case 'CPOP': case 'RET': r.add('C0'); break;
+  }
+  return r;
+}
+
+function renderCode() {
+  const s = snap();
+  $('sizeTag').textContent = `${P.code.length} instructions, ${P.lay.size} bytes`;
+  [...$('bcSeg').children].forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === bcView)));
+  const hits = P.hitsAt[idx], cur = s.halted || s.reason ? -1 : s.pc;
+  let h = '';
+  P.code.forEach((ins, i) => {
+    if (P.labelAt && P.labelAt[i]) h += P.labelAt[i].map(l => `<li class="lab" aria-hidden="true">${esc(l)}:</li>`).join('');
+    const txt = bcView === 'asm' ? esc(S.fmt(ins)) : `${esc(S.specName(ins))}<small>${S.insLen(ins)} byte${S.insLen(ins) > 1 ? 's' : ''}</small>`;
+    h += `<li class="row${i === cur ? ' cur' : ''}"><span class="a">${P.lay.addr[i].toString(16).padStart(2, '0')}</span><span class="t">${txt}</span><span class="hits" title="times executed so far">${hits[i] ? '×' + hits[i] : ''}</span></li>`;
+  });
+  $('bc').innerHTML = h;
+  const c = $('bc').querySelector('.row.cur');
+  if (c) { const pb = c.closest('.pbody'); if (pb && pb.scrollHeight > pb.clientHeight + 1) { const er = c.getBoundingClientRect(), cr = pb.getBoundingClientRect(); if (er.top < cr.top) pb.scrollTop -= cr.top - er.top + 8; else if (er.bottom > cr.bottom) pb.scrollTop += er.bottom - cr.bottom + 8; } }
+  const fin = P.snaps[P.snaps.length - 1].stats;
+  if (P.kind === 'slet') {
+    const n = P.naiveStats;
+    $('info').innerHTML = `<div class="box"><h4>compile(E, dst) and evaluation order</h4>
+      <div class="kv"><span>Result of main, from the source</span><b>${P.expectedAbort ? 'abort ' + P.expectedAbort : P.expected ? esc(P.expected.map(fv).join(', ')) : '?'}</b></div>
+      <div class="kv"><span>Combined A + B depth, heavier operand first</span><b>${P.need}</b></div>
+      <div class="kv"><span>Combined depth, plain left to right</span><b>${P.naiveNeed}</b></div>
+      <div class="kv"><span>Spills: chosen order / left to right</span><b>${fin.spills} / ${n.spills}</b></div>
+      <div class="kv"><span>Register copies: chosen / left to right</span><b>${fin.regMoves} / ${n.regMoves}</b></div>
+      <div style="margin-top:6px">The bank holds four values, so a combined depth above 4 spills to memory.</div></div>`;
+  } else {
+    $('info').innerHTML = `<div class="box"><h4>Run summary</h4>
+      <div class="kv"><span>Instructions executed</span><b>${fin.steps}</b></div>
+      <div class="kv"><span>Free moves (ownership only)</span><b>${fin.freeMoves}</b></div>
+      <div class="kv"><span>Register copies</span><b>${fin.regMoves}</b></div>
+      <div class="kv"><span>Spills to memory</span><b>${fin.spills}</b></div></div>`;
+  }
+}
+
+function renderTransport() {
+  const max = P.snaps.length - 1, s = snap();
+  $('scrub').max = max; $('scrub').value = idx;
+  $('stepOut').textContent = `Step ${idx} of ${max}`;
+  $('backBtn').disabled = idx === 0;
+  $('stepBtn').disabled = idx >= max;
+  $('stepBtn').textContent = idx >= max ? (s.reason ? 'Stopped' : 'Done') : 'Step';
+  $('playBtn').innerHTML = playing ? '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 3h3v10H4zM9 3h3v10H9z"/></svg>' : '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5z"/></svg>';
+  $('playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
+}
+
+/* ------------------------------------------------------------- controls */
+function go(i, anim) {
+  const n = Math.max(0, Math.min(P.snaps.length - 1, i));
+  if (n === idx) return;
+  const fwd = n === idx + 1;
+  idx = n; render(anim && fwd);
+}
+function step() { go(idx + 1, true); }
+function back() { stop(); go(idx - 1, false); }
+function play() {
+  if (playing) return stop();
+  if (idx >= P.snaps.length - 1) { idx = 0; render(); }
+  playing = true; renderTransport();
+  const tick = () => { if (!playing) return; if (idx >= P.snaps.length - 1) return stop(); go(idx + 1, speed > 150); timer = setTimeout(tick, speed); };
+  timer = setTimeout(tick, 60);
+}
+function stop() { playing = false; clearTimeout(timer); if (P) renderTransport(); }
+function applyEdit() {
+  try { const b = build(spec, editText); edits[spec.id] = editText; P = b; idx = 0; editing = false; editErr = null; render(); }
+  catch (e) { editErr = { message: e.message, line: e.line }; renderProgram(); }
+}
+
+function populate() {
+  const groups = {};
+  EXAMPLES.forEach(e => (groups[e.group] = groups[e.group] || []).push(e));
+  $('progSel').innerHTML = Object.entries(groups).map(([g, l]) => `<optgroup label="${esc(g)}">${l.map(e => `<option value="${e.id}">${esc(e.title)}</option>`).join('')}</optgroup>`).join('');
+}
+function segWire(id, fn) {
+  $(id).addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || b.disabled) return;
+    [...$(id).children].forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+    fn(b);
+  });
+}
+function wire() {
+  $('progSel').addEventListener('change', e => load(EXAMPLES.find(x => x.id === e.target.value)));
+  segWire('viewSeg', b => { view = b.dataset.v; renderProgram(); });
+  segWire('bcSeg', b => { bcView = b.dataset.v; renderCode(); });
+  segWire('speedSeg', b => { speed = Number(b.dataset.s); });
+  segWire('fmtSeg', b => { fmtMode = b.dataset.f; render(); });
+  $('editBtn').onclick = () => { editing = !editing; editErr = null; editText = P.src; stop(); render(); };
+  $('stepBtn').onclick = () => { stop(); step(); };
+  $('backBtn').onclick = back;
+  $('playBtn').onclick = play;
+  $('resetBtn').onclick = () => { stop(); idx = 0; render(); };
+  $('scrub').addEventListener('input', e => { stop(); go(Number(e.target.value), false); });
+  $('helpBtn').onclick = () => $('help').showModal();
+  $('helpClose').onclick = () => $('help').close();
+  $('help').addEventListener('click', e => { if (e.target === $('help')) $('help').close(); });
+  document.addEventListener('keydown', e => {
+    const t = e.target;
+    if ((t && t.closest && t.closest('textarea, input, select')) || $('help').open || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'ArrowRight') { e.preventDefault(); stop(); step(); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); back(); }
+    else if (e.key === ' ') { e.preventDefault(); play(); }
+    else if (e.key === 'r' || e.key === 'R') { stop(); idx = 0; render(); }
+    else if (e.key === 'Home') { stop(); go(0, false); }
+    else if (e.key === 'End') { stop(); go(P.snaps.length - 1, false); }
+  });
+}
+populate(); wire(); load(EXAMPLES[0]);
+})();
+
+</script>
+</body>
+</html>

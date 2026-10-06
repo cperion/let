@@ -1,0 +1,162 @@
+# Let runtime semantic types and structured IR. Checkable with vendor/asdl.lua.
+module Ty {
+  # The fieldless constructors are the language's own primitive words: they are the spellings a
+  # source file writes, and diagnostics print them verbatim. The parameterised constructors below
+  # them describe representation and are not source syntax.
+  V = u32 | u8 | u16 | i32 | u64 | i64 | f64 | bool | unit | type | any
+    | Record(string meaning, Field* fields) unique
+    | Sig(Input* inputs, V* results) unique
+    | Owned(string entry, Sig visible, V environment) unique
+    | View(Sig visible) unique
+    | Sum(string meaning, Field* cases) unique
+    | Tagged(Sig visible, Field* arms) unique
+    | ref(V target) unique
+    # An address the compiler does not track: no lifetime, no ownership and no null check. It is a
+    # different type from ref on purpose, so a signature says which guarantee it carries.
+    | ptr(V target) unique
+    | array(V element, number length) unique
+    # A slice is a runtime-length view of storage someone else owns: an element pointer and a
+    # length. It is the only array-like type whose length is not part of the type.
+    | slice(V element) unique
+    | Named(string cell) unique
+  Field = (string name, V type) unique
+  Input = InValue(V type) unique | InPlace(V type) unique
+}
+
+# Compile-time source interfaces, separate from structural Ty identity and C layout. The ids
+# refer only to a compilation's schema registry; these interned nodes retain no source programs.
+module Surface {
+  Face = Schema(number id) unique
+       | Element(Face target) unique
+       | Knot(string cell) unique
+}
+
+# Provenance descriptors for checked access. These describe where a value's access comes from, not
+# how it is represented: `Ty` stays lifetime-free, so two refs of one type may retain different
+# sources. The ids here are per-compilation symbols; the lifetimes they name live in per-function
+# metadata, not on an interned node.
+module Borrow {
+  # A route from a storage root to one component: a record field, a sum payload, or an element.
+  # `Element` covers any runtime-selected element; a known constant index may be refined later.
+  Path = Root unique | Field(Path base, string name) unique | Element(Path base) unique
+       | Case(Path base, string name) unique
+
+  # One place whose continued existence keeps a value valid. `Global` is program-lived storage:
+  # a module object or a literal's read-only bytes. `Local` is storage of the frame named here,
+  # including a compiler-created callable adapter. The two inputs differ deliberately: a by-value
+  # argument's own storage is a `Local` of the callee, while a checked view *inside* that copied
+  # value still names caller storage, which is `ValueInput`. A place parameter names caller
+  # storage directly, which is `PlaceInput`. `ValueInput` also describes access in the entry
+  # contents read through a place parameter: its contents and its address are distinct facts.
+  Source = Global(string storage) unique
+         | Local(string frame, number storage) unique
+         | ValueInput(string frame, number parameter, Path path) unique
+         | PlaceInput(string frame, number parameter, Path path) unique
+
+  # A canonical set of sources. Canonicalise (sort, deduplicate) before constructing: ASDL
+  # interns a `unique` list by sequence, and it does not sort.
+  Loans = (Source* sources) unique
+
+  # Retained access in a value, indexed by component path. Nil loans mean an unknown origin
+  # at that component; no component means no retained access. Lists are copied/canonicalized.
+  Component = (Path path, Loans? loans) unique
+  Contents = (Component* components) unique
+
+  # A physical location evidenced by a place route, NOT inferred from a loan set. A PlaceInput
+  # root has Root as its source path; projections live in Location.path. ValueInput is not an
+  # address. Footprints are may-writes: unknown means some effects have no resolved location.
+  Location = (Source root, Path path) unique
+  Footprint = (Location* writes, boolean unknown) unique
+
+  # One ordering requirement between symbolic sources: `longer` must outlive `shorter`.
+  Constraint = Outlives(Source longer, Source shorter) unique
+}
+
+module Ir {
+  # Not marked unique, for the reason Ir.Expr gives: these ids are function-local, so interning by
+  # value in the context-wide cache would make two functions' value 1 the same table.
+  Value = (number id)
+  Storage = (number id)
+  Field = (string name) unique
+
+  Literal = UInt(number value) unique
+          | UInt64(number high, number low) unique
+          | Boolean(boolean value) unique
+          # Byte string; a compile-time constant whose bytes live in read-only static storage.
+          | Str(string bytes) unique
+          # An IEEE-754 double. The value is exact: a Lua number is one, and an encoding of it is
+          # written with enough digits to round-trip. Deliberately not unique: Lua has one table
+          # key for 0.0 and -0.0, so interning by value would give -0.0 the node of whichever
+          # zero was built first and lose the sign of a constant the C backend emits verbatim.
+          | Float(number value)
+  Unary = Neg | Not | BitNot
+  Binary = Add | Sub | Mul | Div | Rem | Pow
+         | BitAnd | BitOr | BitXor | Shl | Shr
+         | Eq | Ne | Lt | Le | Gt | Ge
+
+  # Pure immutable expressions. No read, call, trap or address acquisition.
+  # Deliberately NOT marked unique: Value IDs are function-local, so interning is the
+  # builder's per-function memo table, not ASDL's context-wide cache.
+  Expr = Const(Ty.V type, Literal literal)
+       | Ref(Value value, Ty.V type)
+       | Un(Unary op, Expr operand, Ty.V type)
+       | Bin(Binary op, Expr left, Expr right, Ty.V type)
+       | Get(Expr aggregate, Field field, Ty.V type)
+       | Make(Ty.V type, Expr* fields)
+       | Convert(Expr operand, Ty.V type)
+       | Addr(Place place, Ty.V type)
+       # The length of a slice value. Pure, like a record field projection.
+       | SliceLength(Expr view, Ty.V type)
+       # A dynamic type test. `operand` is any, `tested` is a concrete run-time type and `type` is bool.
+       | Is(Expr operand, Ty.V tested, Ty.V type)
+       # The null pointer of a ptr type. Pure, so it is interned like any other constant.
+       | Null(Ty.V type)
+
+  Place = Local(Storage storage)
+        | Project(Place base, Field field)
+        | Deref(Place base, Ty.V type)
+        | Index(Place base, Expr index, Ty.V type)
+        # `base[index]` through a slice: base names the slice place, and the element is at data[index]
+        # after a runtime bounds check against length.
+        # `view[index]`: the element a slice value views, checked against its length before use. The
+        # slice is a value rather than a place because a view needs no storage of its own; and it is
+        # read-only, because a view does not own the storage it names, so a `SliceIndex` is reached by
+        # `Read` and never by `Store` (`view[i] = v` rejects, syntax.md §8.4).
+        | SliceIndex(Expr view, Expr index, Ty.V type)
+        # `view[index]`: the element an unchecked pointer addresses. No length, so no bounds check,
+        # which is the whole difference between this and a slice.
+        | PtrIndex(Expr view, Expr index, Ty.V type)
+
+  Arg = ValueArg(Expr value) | BorrowArg(Place place)
+
+  # Ordered effects. Loop-carried storage is declared by Var before its Loop.
+  Stmt = Let(Value value, Ty.V type, Expr expr)
+       | Var(Storage storage, Ty.V type, Expr? initial)
+       | Read(Value value, Ty.V type, Place place)
+       | Store(Place place, Expr value)
+       # Nonempty slots allocate a local environment with its own Storage identity. It is
+       # not an ordinary typed Place; empty slots use a null environment and no adapter.
+       | View(Value value, Ty.V type, string entry, Arg* slots, Storage? adapter)
+       | Call(Value* results, string target, Arg* arguments)
+       | Indirect(Value* results, Expr callable, Arg* arguments)
+       | If(Expr test, Stmt* yes, Stmt* no)
+       # A multi-way branch on a sum's tag. The cases are the alternatives in canonical order; the
+       # last one carries `fallback` and is emitted as C's `default`, so the switch is total and a
+       # dense tag range becomes one jump table instead of a chain of compares.
+       | Switch(Value variant, Ty.V sum, Case* cases)
+       | Loop(Stmt* body)
+       | Next
+       | Trap(Expr failure, string reason)
+       | ConstructVariant(Value value, Ty.V type, string tag, Expr? payload)
+       | VariantMatches(Value value, Value variant, Ty.V sum, string tag)
+       | VariantPayload(Value value, Value variant, Ty.V sum, string tag)
+       | Return(Expr* values)
+
+  Case = (string tag, boolean fallback, Stmt* body)
+
+  # Actual ABI inputs, including the hidden owner/capture prefix at input 0..hidden-1.
+  Param = ValueParam(number input, Value binding, Ty.V type)
+        | PlaceParam(number input, Storage binding, Ty.V type)
+  Role = Body | Entry
+  Fn = (string id, Role role, number hidden, Ty.Input* inputs, Ty.V* results, Param* params, Stmt* body)
+}

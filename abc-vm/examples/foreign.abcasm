@@ -1,0 +1,23 @@
+.profile foreign
+.extern host_mix if f
+.extern host_wide ifiafifafi i
+.extern host_note i -
+
+.function mix 2 1 if f
+    CGETR.A 0 2
+    FCALL host_mix
+    RET 2 1
+.export mix
+
+.function wide 10 1 ifiafifafi i
+    CGETR.A 0 10
+    FCALL host_wide
+    RET 10 1
+.export wide
+
+.function note 1 1 i i
+    CGET.A 0
+    FCALL host_note
+    CGET.A 0
+    RET 1 1
+.export note

@@ -1,0 +1,87 @@
+.function main 0 1
+  PUSH.A 40
+  CALL.A f0 1
+  RET 0 1
+
+.function f0 1 1
+  CGET.A 0
+  CALL.A f1 1
+  RET 1 1
+
+.function f1 1 1
+  CGET.A 0
+  CALL.A f2 1
+  RET 1 1
+
+.function f2 1 1
+  CGET.A 0
+  CALL.A f3 1
+  RET 1 1
+
+.function f3 1 1
+  CGET.A 0
+  CALL.A f4 1
+  RET 1 1
+
+.function f4 1 1
+  CGET.A 0
+  CALL.A f5 1
+  RET 1 1
+
+.function f5 1 1
+  CGET.A 0
+  CALL.A f6 1
+  RET 1 1
+
+.function f6 1 1
+  CGET.A 0
+  CALL.A f7 1
+  RET 1 1
+
+.function f7 1 1
+  CGET.A 0
+  CALL.A f8 1
+  RET 1 1
+
+.function f8 1 1
+  CGET.A 0
+  CALL.A large 1
+  RET 1 1
+
+.function large 1 1
+  CGET.A 0
+  ADDI.A 2
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  ADDI.A 0
+  RET 1 1
+
+.export main

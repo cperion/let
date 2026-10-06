@@ -1,0 +1,76 @@
+#!/usr/bin/env luajit
+-- ABC source/bytecode tooling. Runtime and embedding remain independent of Let.
+local directory=arg[0]:match('^(.*)/[^/]*$') or '.'
+package.path=directory..'/?.lua;'..directory..'/../frontend/?.lua;'..directory..'/../frontend/?/init.lua;'..package.path
+local util,assembler=require('tool_util'),require('assembler')
+local function execute(args)
+    local status=os.execute(util.command(args))
+    return status==0 and 0 or math.max(1,math.floor(status/256))
+end
+local function main()
+    local command=arg[1]
+    if not command or command=='--help' or command=='-h' then
+        print('usage: abc asm SOURCE -o MODULE')
+        print('       abc compile SOURCE.let|SOURCE.slet -o MODULE [--export WORD] [--emit-asm]')
+        print('       abc opt MODULE -o OPTIMIZED')
+        print('       abc run MODULE|SOURCE.let|SOURCE.slet [EXPORT] [ARGS...] [--stack=N]')
+        print('       abc check MODULE | abc dis MODULE | abc opcodes')
+        return command and 0 or 1
+    end
+    local runtime=io.open(util.runtime,'rb')
+    if not runtime then error('build the runtime first with make',0) end runtime:close()
+    if command=='run' and arg[2] and (arg[2]:match('%.slet$') or arg[2]:match('%.let$')) then
+        local path=arg[2];local profile=path:match('%.slet$') and 'slet' or 'let';local extra='main'
+        for i=3,#arg do if arg[i]:sub(1,2)~='--' then extra=arg[i]; break end end
+        local artifact=require('let.compiler').compileFile(path,{exports={extra}})
+        local temporary=os.tmpname()
+        local ok,result=pcall(function()
+            local image=assembler.assemble(artifact.assembly)
+            util.publish(require('let.optimize').optimize(image),temporary)
+            local args={util.runtime,'run',temporary}
+            for i=3,#arg do args[#args+1]=arg[i] end
+            return execute(args)
+        end)
+        os.remove(temporary); if not ok then error(result,0) end return result
+    end
+    if command=='opt' then
+        local args={directory..'/abc-opt'}; for i=2,#arg do args[#args+1]=arg[i] end return execute(args)
+    end
+    if command=='run' or command=='check' or command=='dis' or command=='opcodes' then
+        local args={util.runtime}; for i=1,#arg do args[#args+1]=arg[i] end return execute(args)
+    end
+    if command~='asm' and command~='compile' then error('unknown command '..command,0) end
+    local source,output,exports,emit_asm=nil,nil,{},false; local i=2
+    while i<=#arg do
+        local option=arg[i]
+        if option=='-o' or option=='--output' then
+            i=i+1; output=arg[i]; if not output then error(option..' needs a path',0) end
+        elseif option=='--export' and command=='compile' then
+            i=i+1; if not arg[i] then error('--export needs a word',0) end exports[#exports+1]=arg[i]
+        elseif option=='--emit-asm' and command=='compile' then emit_asm=true
+        elseif option:sub(1,1)=='-' or source then error('unexpected argument '..option,0)
+        else source=option end
+        i=i+1
+    end
+    if not source or not output then error('use abc '..command..' SOURCE -o OUTPUT',0) end
+    local text=util.read(source)
+    if command=='compile' then
+        if not source:match('%.slet$') and not source:match('%.let$') then error('Let source must end in .let or .slet',0) end
+        local options={}
+        if #exports>0 then options.exports=exports end
+        text=require('let.compiler').compileFile(source,options).assembly
+    end
+    local image=assembler.assemble(text)
+    if command=='compile' and not emit_asm then image=require('let.optimize').optimize(image) end
+    if emit_asm then
+        local temporary=os.tmpname()
+        local ok,err=pcall(util.publish,image,temporary); os.remove(temporary)
+        if not ok then error(err,0) end
+        util.publish(text,output,false)
+    else util.publish(image,output) end
+    return 0
+end
+local ok,status=pcall(main)
+if not ok then io.stderr:write('abc: '..tostring(status)..'\n'); os.exit(1) end
+os.exit(status)
+

@@ -1,0 +1,62 @@
+.profile callables
+.datazero 32
+.codeaddr 8 add
+.codeaddr 16 sub
+.signature op 2 1 ai i
+.export main
+.export add
+.export sub
+.export invoke
+.export invoke_b
+.export invoke_tail
+.export badshape
+
+; Closure view: code address + captured environment address.
+ .function main 0 1
+CALLOC 8
+PUSH.A 40
+FST64.A 8
+FADDR.A 8
+PUSH.A 2
+.loadkind addr
+GLD64 8
+MOVE.AB
+CALLI.A 2 op
+CFREE 8
+RET 0 1
+
+ .function add 2 1 ai i
+CGET.A 0
+LD64.A 0
+CGET.B 1
+ADD.A
+RET 2 1
+ .function sub 2 1 ai i
+CGET.A 0
+LD64.A 0
+CGET.B 1
+SUB.A
+RET 2 1
+
+; Host supplies a native environment and an opaque same-module code address.
+.function invoke 3 1 aia i
+CGET.A 0
+CGET.A 1
+CGET.B 2
+CALLI.A 2 op
+RET 3 1
+.function invoke_b 3 1 aia i
+CGET.A 0
+CGET.A 1
+CGET.B 2
+CALLI.B 2 op
+MOVE.BA
+RET 3 1
+.function invoke_tail 3 1 aia i
+CGET.A 0
+CGET.A 1
+CGET.B 2
+TCALLI 3 2 op
+.function badshape 2 0 ai -
+RET 2 0
+

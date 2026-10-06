@@ -1,0 +1,14 @@
+-- Known leading arguments specialize a direct word, without a closure or GC.
+let xorshift(a, b, c, state: u32): u32 = do
+    let x = state ~ (state << a)
+    let y = x ~ (x >> b)
+    return y ~ (y << c)
+end
+
+let next32 = xorshift(13, 17, 5)
+
+let main(): (u32, u32) = do
+    let x = next32(1)
+    return x, next32(x)
+end
+

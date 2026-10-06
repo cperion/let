@@ -1,0 +1,53 @@
+; Profile-5 module-root fixture for host-requested Whippet collection.
+.profile dynamic
+.datazero 16
+.rodata 78
+.descriptor primitive U u32
+.descriptor record R 8 1 0 1 0 U
+.descriptor pointer Ref managed R
+.descriptor record Holder 8 1 0 1 0 Ref
+.descriptor pointer HolderRef managed Holder
+.descriptor primitive D any
+.descriptor array Pair 16 2 D
+.descriptor signature Empty 0 0
+.gcroot 0 Pair
+
+.function build 0 0
+  WORD_NEW Empty
+  PUSH.A 7
+  ANY_BOX U
+  PUSH.A 42
+  ANY_BOX U
+  WORD_SET
+  GST64 0
+  MANAGED_NEW Holder
+  DUP.A
+  MANAGED_NEW R
+  DUP.A
+  PUSH.B 77
+  ST64 0
+  MOVE.AB
+  ST64 0
+  ANY_BOX HolderRef
+  GST64 8
+  RET 0 0
+
+.function check 0 1 - i
+  .loadkind any
+  GLD64 0
+  WORD_COUNT
+  RET 0 1
+
+ .function check_managed 0 1 - i
+  .loadkind any
+  GLD64 8
+  ANY_CAST HolderRef
+  .loadkind addr
+  LD64.A 0
+  LD64.A 0
+  RET 0 1
+
+.export build
+.export check
+.export check_managed
+
