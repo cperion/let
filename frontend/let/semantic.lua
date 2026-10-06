@@ -461,7 +461,7 @@ function Function:coerce(expr, expected, node)
         local storage=self.builder:var(self.body,expr.type,expr);return located(self.builder:convert(self.builder:addr(I.Local(storage),S.ref(expr.type)),S.any),node)
     end
     if (expr.type==S.any and expected~=S.type) or (expected==S.any and expr.type~=S.type) then return located(self.builder:convert(expr,expected),node) end
-    if expr.type:isInteger() and expected:isInteger() then return located(self.builder:convert(expr,expected),node) end
+    if (expr.type:isInteger() or expr.type==S.f64) and (expected:isInteger() or expected==S.f64) then return located(self.builder:convert(expr,expected),node) end
     reject("type-mismatch", "Expected "..S.display(expected).." but found "..S.display(expr.type), node)
 end
 

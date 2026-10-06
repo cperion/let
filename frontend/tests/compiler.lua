@@ -934,6 +934,30 @@ for _,mode in ipairs({"interpreted","eager","lazy"}) do
   local result=Compiler.stage(correctness.functions,{profile="slet",entry="main",mode=mode})
   check(tonumber(result.cells[1])==42,"integer widening and selected-arm construction execute in "..mode)
 end
+local numericConversionSource=[=[
+let accept(x: u32): u32 = x
+let apply(callable, value): any = callable(value)
+let static_value(): u32 = u32(f64(i64(41)))
+let main(): u32 = do
+  if static_value() != 41 or i32(any(-1.9)) != i32(-1) then return 0 end
+  return u32(apply(any(accept), any(42.9)))
+end
+return { functions = { main } }
+]=]
+local numericConversions=Compiler.compile{profile="let",name="numeric-conversions.let",source=numericConversionSource}
+local numericConversionModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(numericConversions.functions,{profile="let",entry="main",mode=mode})
+  check(tonumber(result.cells[1])==42,"static and dynamic integer/f64 conversions execute in "..mode)
+  numericConversionModules[#numericConversionModules+1]=result.module
+end
+check(numericConversionModules[1]==numericConversionModules[2] and numericConversionModules[2]==numericConversionModules[3],
+  "numeric conversion modules are policy-independent")
+local numericRange=Compiler.compile{profile="let",name="numeric-range.let",source="let main(): u8 = u8(any(256.0))\nreturn { functions = { main } }\n"}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  ok,err=pcall(Compiler.stage,numericRange.functions,{profile="let",entry="main",mode=mode})
+  check(not ok and D.is(err) and err.code=="static-numeric-range","dynamic numeric range failures agree in "..mode)
+end
 for _,case in ipairs({
   {"let f(x: u32, x: u32): u32 = x", "duplicate-name"},
   {"let f(): u8 = 300", "numeric-range"},

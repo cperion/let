@@ -7,10 +7,10 @@ local M = {}
 
 local MODES = { interpreted = "interpreted", eager = "compiled", compiled = "compiled", lazy = "lazy" }
 local ABORTS = {
-    [1] = "null-access", [2] = "index-range", [3] = "numeric-range",
-    [4] = "arity-mismatch", [5] = "missing-result", [6] = "invalid-callable",
+    [1] = "division-zero", [2] = "index-range", [3] = "numeric-range",
+    [4] = "negative-exponent", [5] = "unreachable", [6] = "type-mismatch",
     [7] = "field-missing", [8] = "key-type", [9] = "no-terminal",
-    [10] = "frozen-store", [11] = "too-many-arguments", [12] = "dynamic-signature",
+    [10] = "frozen-store", [11] = "overapplication", [12] = "dynamic-signature",
     [13] = "readonly-field",
 }
 
