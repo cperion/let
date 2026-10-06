@@ -1,7 +1,7 @@
 ifeq ($(origin CC),default)
 CC = clang
 endif
-TOP = ../..
+TOP = ../../..
 LUA ?= luajit
 CFLAGS ?= -O3 -march=native
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Werror

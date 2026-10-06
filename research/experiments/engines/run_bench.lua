@@ -2,7 +2,7 @@
 local ffi=require('ffi')
 ffi.cdef[[typedef long time_t; struct timespec { time_t tv_sec; long tv_nsec; }; int clock_gettime(int, struct timespec *);]]
 local function now() local t=ffi.new('struct timespec[1]');assert(ffi.C.clock_gettime(4,t)==0);return tonumber(t[0].tv_sec)+tonumber(t[0].tv_nsec)*1e-9 end
-local here=(arg[0]:match('^(.*)/') or '.');local top=here..'/../..'
+local here=(arg[0]:match('^(.*)/') or '.');local top=here..'/../../..'
 local abc=top..'/build/abc';local runlet=here..'/runlet';local native=here..'/native';local luajit=os.getenv('LUAJIT') or 'luajit';local cc=os.getenv('CC') or 'clang'
 local trials=tonumber(os.getenv('TRIALS') or '9');if trials<3 or trials%2==0 then error('TRIALS must be odd and >=3',0) end
 local sf=assert(io.open('/proc/self/status'));local status=sf:read('*a');sf:close();local core=status:match('Cpus_allowed_list:%s*(%d+)')

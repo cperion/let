@@ -1,5 +1,32 @@
+# Local agent/tool state and source archives
 /.pi/
+/.aider*
 /abc-vm.zip
 /abc-vm-updated.zip
 
-.aider*
+# Primary build output
+/build/
+*.o
+__pycache__/
+*.pyc
+
+# Generated research/prototype output
+research/vm-prototypes/opcodes.h
+research/vm-prototypes/vm_*.c
+research/vm-prototypes/stencils_*
+research/vm-prototypes/abc_bank
+research/vm-prototypes/abc_mem
+research/vm-prototypes/abc_jit_*
+research/experiments/lanes/lanes
+research/experiments/lanes/lanes_gen.c
+research/experiments/residual_stencils/rs.c
+research/experiments/residual_stencils/rs.h
+research/experiments/residual_stencils/rs_order.txt
+research/experiments/residual_stencils/rs_names.h
+research/experiments/residual_stencils/run
+research/experiments/engines/runlet_ref
+research/experiments/engines/runlet_interp
+research/experiments/engines/runlet_jit
+research/experiments/engines/*.slet
+research/experiments/engines/*.abc
+research/experiments/engines/.bench.lua

@@ -27,7 +27,7 @@ abc_mem: harness.o vm_mem.o ; $(CC) $(CFLAGS) -o $@ $^
 stencils_bank.c: gen.lua opcodes.h ; $(LUA) gen.lua jit $@
 stencils_mem.c: gen.lua opcodes.h ; $(LUA) gen.lua jit0 $@
 stencils_%.o: stencils_%.c ; $(CC) $(SFLAGS) -c $< -o $@
-stencils_%.h: stencils_%.o extract.lua ; $(LUA) extract.lua $< stencils_$*_order.txt $@
+stencils_%.h: stencils_%.o ../../tools/extract_stencils.lua ; $(LUA) ../../tools/extract_stencils.lua $< stencils_$*_order.txt $@
 jit_%.o: jit.c stencils_%.h opcodes.h
 	$(CC) $(CFLAGS) -DSTENCILS='"stencils_$*.h"' -DMETA='"stencils_$*_meta.h"' -c $< -o $@
 abc_jit_%: harness.o jit_%.o ; $(CC) $(CFLAGS) -o $@ $^

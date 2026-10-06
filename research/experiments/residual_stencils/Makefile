@@ -10,8 +10,8 @@ rs.c rs_order.txt rs_names.h &: gen.lua
 	$(LUA) gen.lua
 rs.o: rs.c
 	$(CC) $(SFLAGS) -c $< -o $@
-rs.h: rs.o rs_order.txt ../../vm/extract.lua
-	$(LUA) ../../vm/extract.lua rs.o rs_order.txt $@
+rs.h: rs.o rs_order.txt ../../../tools/extract_stencils.lua
+	$(LUA) ../../../tools/extract_stencils.lua rs.o rs_order.txt $@
 run: run.c rs.h rs_names.h
 	$(CC) -O2 -std=c2x -w run.c -o $@
 check: run

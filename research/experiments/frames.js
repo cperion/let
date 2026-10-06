@@ -1,4 +1,4 @@
-const src = require('fs').readFileSync(__dirname + '/../lab/ui.js', 'utf8');
+const src = require('fs').readFileSync(__dirname + '/../../lab/ui.js', 'utf8');
 const ex = []; const re = /kind: 'slet', title: ("[^"]*"|'[^']*'),[\s\S]*?src: ("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g; let m;
 while ((m = re.exec(src))) ex.push([eval(m[1]), eval(m[2])]);
 function load(f) { delete require.cache[require.resolve(f)]; delete globalThis.SimCore; require(f); return globalThis.SimCore; }

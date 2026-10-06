@@ -10,8 +10,8 @@
      - at every block exit, one move per cell that does not already hold the
        value the next block expects there (a value computed in the block is
        computed straight into one of its homes, as a register allocator would).
-   Usage: node residual.js            (all Let examples from ../lab/ui.js) */
-require('../lab/core.js');
+   Usage: node residual.js            (all Let examples from ../../lab/ui.js) */
+require('../../lab/core.js');
 const S = globalThis.SimCore;
 const fs = require('fs');
 
@@ -107,7 +107,7 @@ function residualize(code) {
 }
 
 if (require.main === module) {
-  const src = fs.readFileSync(__dirname + '/../lab/ui.js', 'utf8');
+  const src = fs.readFileSync(__dirname + '/../../lab/ui.js', 'utf8');
   const ex = []; const re = /kind: 'slet', title: ("[^"]*"|'[^']*'),[\s\S]*?src: ("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g; let m;
   while ((m = re.exec(src))) ex.push([eval(m[1]), eval(m[2])]);
   let tAbc = 0, tRes = 0; const tk = { compute: 0, normalize: 0, branch: 0, call: 0, exit: 0 }; const rows = [];

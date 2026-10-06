@@ -1,6 +1,6 @@
-# ABC VM
+# Let
 
-A three-stack virtual machine for low-level bytecode. Let (`.let`) is the main progressively typed language; SLet (`.slet`) is its static sublanguage, which disallows `any`, managed allocation and GC roots. The production frontend shares one ASDL parser and typed IR across both profiles and currently covers scalar control, aggregates, sums, references/views, typed callables, managed captures, generic `any`, dynamic calls, and profile-checked imports. Neither language is a dependency of the VM.
+Let is a progressively typed language implemented on the ABC three-stack virtual machine. Let (`.let`) supports dynamic values, managed allocation, and GC roots. SLet (`.slet`) is its static sublanguage. The language frontend and VM share typed ASDL interfaces but remain cleanly separated: the VM does not depend on the language.
 
 - **A** and **B** are pure operand stacks. A binary operation consumes their tops and its destination bit says which stack receives the result. Nothing ever reaches below a top of A or B.
 - **C** holds structured state: return addresses, immutable bindings and frame blocks. It is read by depth, and because it is strictly last-in, first-out, the compiler knows every depth statically.
@@ -18,16 +18,15 @@ https://claude.ai/code/artifact/557072c1-ef9a-4f32-8878-185ee6f6c3c0
 
 | Path | Contents |
 | --- | --- |
-| `include/abc.h`, `src/` | Embedding API, module loader/verifier and checked C VM host |
-| `gen/` | Lua interpreter-handler, cache-state, and register-addressed stencil generators |
-| `docs/architecture.md` | Target code architecture for the spec-derived, Lua-generated C VM |
-| `frontend/` | Reused ASDL schemas, lexer/parser, structured IR helpers, analysis code, fixtures and licenses from the former Wordlet compiler snapshot |
-| `tools/abc`, `tools/*.lua` | LuaJIT assembler, production Let/SLet frontend host and CLI dispatcher |
-| `examples/` | Runnable bytecode and C embedding example |
-| `vm/` | Historical optimized prototypes and measurements; not the product implementation foundation |
-| `lab/` | ABC VM Lab, a single-file browser simulator with a compiler for an SLet subset |
-| `experiments/` | The scripts behind the numbers in the spec |
-| `docs/` | Design history, including the four-lane fork that was evaluated and not adopted |
+| `frontend/` | Let/SLet lexer, parser, semantic construction, typed IR, lowering, staging, and language tests |
+| `src/`, `include/abc.h` | ABC module loader, verifier, interpreter, dynamic runtime, optimizer, residualizers, and embedding API |
+| `schema/`, `gen/` | Durable VM schemas and Lua generators for handlers, symbolic dispatch, foreign bridges, and native stencils |
+| `tools/` | CLI, assembler, code-generation helpers, validators, and the standalone optimizer host |
+| `docs/` | Language syntax, VM specification, architecture, profiles, and implementation status |
+| `examples/` | Runnable Let/SLet, ABC assembly, and C embedding examples |
+| `lab/` | Browser simulator with an SLet subset compiler |
+| `research/` | Historical experiments and VM prototypes; not production dependencies |
+| `vendor/` | Audited third-party source dependencies and license material |
 
 ## Building and running
 
@@ -71,15 +70,13 @@ build/abc asm examples/memory.abcasm -o build/memory.abc
 build/abc run build/memory.abc             # 99 1 72
 ```
 
-### Optimized engines and benchmarks
+### Research prototypes
 
-The old `vm/` programs are measurement prototypes requiring clang with `preserve_none`/`musttail` plus LuaJIT/Lua. They are useful for evidence, not as the architecture foundation:
+Historical benchmark programs live under `research/`. They are retained as design evidence and are not part of the production toolchain:
 
 ```sh
-cd vm
-make            # builds all four optimized engines, including the JITs
-./abc_bank      # 20,000 random differential tests, call tests, then benchmarks
-./abc_bank 30000 notime   # tests only
+make -C research/vm-prototypes
+make -C research/vm-prototypes run
 ```
 
 Every benchmark runs twice, written before and after the frame instructions and operand forms, so each line shows the speedup on the same build.
@@ -91,8 +88,8 @@ The simulator needs nothing: open `lab/abc_vm_lab.html` in a browser. After edit
 - **Core VM and profiles 1–5 are built.** Integer and float operations, memory and frame blocks, direct/indirect/dynamic callables, foreign bridges, managed storage, ordered open-word maps, GC roots, and allocation-free verification run in the checked runtime.
 - **One generated symbolic executor drives peer sinks.** `src/residualize.c` emits register-addressed native stencils directly; `src/optimize.c` emits canonical verified ABC; `src/residual_builder.c` and `src/residual_c.c` emit validated strict C11. Native placement remains the symbolic stack cache and never passes through residual SSA or an all-home allocator.
 - **Portable C is a public build product.** Pure known internal calls use typed scalar parameters, returns, and ordinary C locals. Export wrappers and genuinely generic, trapping, or multi-result boundaries retain the stable pointer-array/status ABI.
-- **The production Let/SLet frontend is integrated.** It covers the source paths listed in `docs/slet-subset.md`; `docs/frontend-gap-analysis.md` tracks the narrower remaining language, ownership, module, and persistent-staging work.
-- **Still open:** recursive/exported source types, methods and keyed requirements, nested words, general block lambdas, raw-pointer syntax, `extern`/`defer`, module initialization/storage, managed/address-bearing sum ABIs, complete provenance/lifetime proofs, source static-boundary proofs, persistent staging images, dynamic quickening caches, and lazy tag/token propagation.
+- **The production Let/SLet frontend is integrated.** It includes typed aggregates and sums, references and raw pointers, closures and retained methods, foreign calls, managed ownership, dynamic values, open words, compile-time staging, and profile-checked imports.
+- **Implementation status is explicit.** `docs/frontend-gap-analysis.md` tracks remaining language, ownership, module-initialization, and persistent-staging work.
 
 ## License
 

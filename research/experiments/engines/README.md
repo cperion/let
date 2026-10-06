@@ -12,7 +12,7 @@ This suite compares four ABC execution paths with LuaJIT and a handwritten nativ
 The inputs deliberately exercise the scalar-integer portion of the production SLet frontend.
 
 ```sh
-make -C ../.. all -j8
+make -C ../../.. all -j8
 make
 make check
 ```

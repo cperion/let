@@ -1,7 +1,7 @@
 # Milestone 2: memory (checked runtime)
 
 The public C runtime implements all 54 integer/address memory instructions
-from `spec.md`. The optimized research engines in `vm/` are separate; their
+from `spec.md`. The optimized engines in `research/vm-prototypes/` are separate; their
 integer-only opcode buffers are not serialized public modules. The production Let/SLet
 frontend lowers local records, arrays, sums, references, slices and strings through
 checked frame or managed storage. Module storage, raw-pointer source forms and complete

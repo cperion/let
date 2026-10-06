@@ -51,7 +51,7 @@ tools/                      assembler, disassembler, Let frontend, CLI dispatche
 examples/                   runnable examples
 build/generated/             generated opcode metadata, interpreter C, stencil object and extracted bytes
 build/                       objects, library, executables (disposable)
-vm/ and experiments/         historical prototypes and measurements only
+research/                    historical prototypes and measurements only
 ```
 
 `gen/banked.lua` emits cache-state-specific concrete interpreter handlers. `gen/symbolic.lua` emits the musttail symbolic handlers used by every optimizing backend, and `gen/stencils.lua` emits register-addressed operation stencils plus the stable lazy-entry stencil. `src/symbolic.c` owns shared abstract A/B/C execution, folding, continuations and structured exits. Three peer sinks consume it: native `src/residualize.c` performs placement in the symbolic stack cache and copies stencils directly; `src/optimize.c` records only the ordered DAG needed for canonical ABC re-projection; and `src/residual_builder.c` records the explicit semantic values and blocks needed by strict structured C. Native code is never lowered through either residual representation. Profile-5 loading/execution, Whippet/Nofl integration, ordered maps/layout tokens, managed storage, dynamic calls and canonical optimization are implemented. Portable C implements integer/control/direct-call residue; float, memory, indirect/foreign, managed and dynamic C lowering remain alongside keyed/method source semantics, dynamic quickening caches, escape-based wide-integer lowering and lazy tag/token propagation.

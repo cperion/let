@@ -1,5 +1,5 @@
 -- Spec-owned opcode manifest for the public ABC runtime/toolchain.
--- Do not import vm/gen.lua here: vm/ is an experimental/optimized implementation track.
+-- Do not import research/vm-prototypes/gen.lua here: it is historical research code.
 local M={}
 M.kind={NORMAL=0,BRANCH=1,CALL=2,RET=3,HALT=4,ABORT=5,OPI=6,OPC=7,BRI=8,TCALL=9,INTERNAL=10,MEMORY=11,ICALL=12,ITCALL=13,EXT=14,FCALL=15,JMP32=16,SWITCH=17}
 M.memory_action={NONE=0,ALLOC=1,FREE=2,FLOAD=3,FSTORE=4,FADDR=5,GLOAD=6,GSTORE=7,GADDR=8,PLOAD=9,PSTORE=10,XLOAD=11,INDEX=12,COPY=13}

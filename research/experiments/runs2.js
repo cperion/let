@@ -1,5 +1,5 @@
 require('./core_frame.js'); const S = globalThis.SimCore;
-const src = require('fs').readFileSync(__dirname + '/../lab/ui.js', 'utf8');
+const src = require('fs').readFileSync(__dirname + '/../../lab/ui.js', 'utf8');
 const ex = []; const re = /kind: 'slet', title: ("[^"]*"|'[^']*'),[\s\S]*?src: ("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/g; let m;
 while ((m = re.exec(src))) ex.push([eval(m[1]), eval(m[2])]);
 let tot = 0, saved = 0; const kinds = { CGET: 0, CSET: 0, CPUSH: 0 }; const per = [];

@@ -37,7 +37,7 @@ kind metadata rather than treating unknown types as integers.
    next entry or code-section end. Counts are 0–255. Hidden result size must
    be zero in this profile.
 2. **Code:** instruction bytes. Opcode values, lengths and kinds come from
-   `vm/gen.lua`'s integer metadata, extended by `tools/gen_opcodes.lua` for the
+   `research/vm-prototypes/gen.lua`'s historical integer metadata, extended by `tools/gen_opcodes.lua` for the
    public runtime. This profile accepts only public integer-core instructions.
    Internal quickened opcodes reject even in unreachable code.
 3. **Exports:** u32 count, then records of u32 function index, u16 name length,
@@ -137,7 +137,7 @@ can be shared among separate VMs; a VM cannot execute concurrently with itself.
 No process-global mutable runtime state is used.
 
 This is a correctness baseline, not a sandbox or the high-performance tier.
-The benchmark generators/JIT remain separately runnable in `vm/`. Native pointer
+The benchmark generators/JIT remain separately runnable in `research/vm-prototypes/`. Native pointer
 instructions are available only in the explicit memory profile and carry the
 safety obligations documented there. Typed memory/callable/foreign profiles enable IEEE-754 binary64 operations, and version 4 enables explicitly bound host calls.
 

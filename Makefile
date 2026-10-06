@@ -52,8 +52,8 @@ build/generated/cold.inc: gen/cold.lua gen/semantics.lua | build/generated
 	$(LUA) gen/cold.lua $@
 build/generated/stencils.o: build/generated/stencils.c
 	$(CC) -O2 -std=c2x -w -fno-builtin -fno-pic -fno-pie -fcf-protection=none -fno-asynchronous-unwind-tables -ffunction-sections -fno-stack-protector -c $< -o $@
-build/generated/stencils.h: build/generated/stencils.o build/generated/stencils.order vm/extract.lua
-	$(LUA) vm/extract.lua build/generated/stencils.o build/generated/stencils.order $@
+build/generated/stencils.h: build/generated/stencils.o build/generated/stencils.order tools/extract_stencils.lua
+	$(LUA) tools/extract_stencils.lua build/generated/stencils.o build/generated/stencils.order $@
 build/residual_ir.o build/residual_validate.o build/residual_dump.o: build/%.o: src/%.c src/residual_ir.h build/generated/residual_ir.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
 build/%.o: src/%.c src/internal.h src/handler_abi.h include/abc.h build/opcodes.h
@@ -62,6 +62,7 @@ build/vm.o: src/vm_internal.h src/dynamic.h build/generated/banked.h build/gener
 build/dynamic.o: src/dynamic.c src/dynamic.h src/whippet_types.h src/vm_internal.h build/opcodes.h
 	$(CC) $(CPPFLAGS) -isystem $(GC_BASE)api $(GC_CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
 build/symbolic.o: src/symbolic.h src/vm_internal.h
+build/residual_analysis.o build/residual_c.o: build/generated/residual_ir.h
 build/residual_analysis.o: src/residual_analysis.h src/symbolic.h src/vm_internal.h
 build/residual_builder.o: src/residual_builder.c src/residual_builder.h src/residual_analysis.h src/residual_ir.h src/symbolic.h src/dynamic.h build/generated/residual_ir.h
 build/optimize.o: src/optimize.c src/symbolic.h src/vm_internal.h
@@ -78,12 +79,13 @@ build/pic/residual_ir.o: src/residual_ir.c src/residual_ir.h build/generated/res
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 build/pic/residual_validate.o: src/residual_validate.c src/residual_ir.h build/generated/residual_ir.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
-build/pic/residual_analysis.o: src/residual_analysis.c src/residual_analysis.h src/symbolic.h src/vm_internal.h | build/pic
+build/pic/residual_analysis.o: src/residual_analysis.c src/residual_analysis.h src/symbolic.h src/vm_internal.h build/generated/residual_ir.h | build/pic
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
+build/pic/residual_c.o: src/residual_c.c src/residual_builder.h src/residual_ir.h build/generated/residual_ir.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 build/pic/residual_builder.o: src/residual_builder.c src/residual_builder.h src/residual_analysis.h src/residual_ir.h src/symbolic.h src/dynamic.h build/generated/residual_ir.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 build/pic/optimize.o: src/optimize.c src/symbolic.h src/vm_internal.h | build/pic
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 build/libabc-opt.so: $(OPTPIC)
 	$(CC) -shared $(CFLAGS) $^ -lm -o $@
