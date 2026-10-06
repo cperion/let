@@ -670,10 +670,11 @@ function Function:tailCall(stmt, selected)
         .." "..arguments,stmt)
 end
 function Function:dynamic(stmt)
-    local operations={WordNew="WORD_NEW",WordGet="WORD_GET",WordSet="WORD_SET",WordHas="WORD_HAS",WordRemove="WORD_REMOVE",WordCount="WORD_COUNT",WordKey="WORD_KEY",WordSupply="WORD_SUPPLY",WordFreeze="WORD_FREEZE"}
+    local operations={WordNew="WORD_NEW",WordGet="WORD_GET",WordSet="WORD_SET",WordHas="WORD_HAS",WordRemove="WORD_REMOVE",WordCount="WORD_COUNT",WordKey="WORD_KEY",WordSupply="WORD_SUPPLY",WordFreeze="WORD_FREEZE",WordBind="WORD_BIND"}
     for _,operand in ipairs(stmt.operands) do self:expr(operand) end
     local instruction=operations[stmt.operation.kind];if not instruction then D.bug("lower-dynamic","Unknown dynamic operation "..tostring(stmt.operation.kind)) end
-    if stmt.operation.kind=="WordNew" then instruction=instruction.." "..self.descriptorOf(S.sig({},{}),true) end
+    if stmt.operation.kind=="WordNew" then instruction=instruction.." "..self.descriptorOf(S.sig({},{}),true)
+    elseif stmt.operation.kind=="WordBind" then instruction=instruction.." "..stmt.operation.argument end
     self:instruction(instruction,stmt)
     local resultType=stmt.operation.kind=="WordHas" and S.bool or stmt.operation.kind=="WordCount" and S.u32 or S.any
     for index=#stmt.results,1,-1 do self:storeValue(stmt.results[index],resultType,stmt) end

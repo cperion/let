@@ -69,6 +69,7 @@ for _,n in ipairs{'WORD_GET','WORD_SET','WORD_HAS','WORD_REMOVE','WORD_COUNT','W
 ext('STRING_CAT',2,'string'); ext('STRING_TEXT',2,'string')
 ext('WORD_DIRECT',10,'callable'); ext('CLOSURE_NEW',10,'closure')
 ext('MANAGED_NEW',6,'descriptor'); ext('MANAGED_COPY',6,'descriptor')
+ext('WORD_BIND',6,'word-bind')
 M.ext_ops=ext_ops
 M.ops=ops
 return M

@@ -2,13 +2,13 @@
 
 This is the short restart checklist for unfinished Let work. The detailed semantic contract remains `syntax.md`; `frontend-gap-analysis.md` contains the longer audit. Do not weaken effect ordering, traps, ownership, GC-root visibility, ABI verification, deterministic output, or optimizer fixpoints to complete these items.
 
-Current baseline: the repository builds from a clean tree and `make validate` passes with 264 compiler, 100 lowering, 127 optimizer, and 23 staging checks. Block-handler result inference, indirect partial application, retained schema methods, recursive named types, foreign calls, raw pointers, defer, checked static/dynamic integer–`f64` conversions, and the first open-word slice are complete.
+Current baseline: the repository builds from a clean tree and `make validate` passes with 271 compiler, 100 lowering, 127 optimizer, and 23 staging checks. Block-handler result inference, indirect partial application, retained schema methods, recursive named types, foreign calls, raw pointers, defer, checked static/dynamic integer–`f64` conversions, runtime keyed supply for closed words, and the first open-word slice are complete.
 
 ## 1. Finish semantic construction
 
 ### Open words
 
-- Add runtime keyed supply for closed words and typed indirect callables.
+- Add runtime keyed supply for typed indirect callables; closed named words are complete.
 - Add open-word methods with receiver binding. Keep these distinct from the completed retained schema-method values.
 - Complete dynamic structural conversions: open-word-to-record and `any`-to-signature conversion.
 - Preserve open-word identity and copy semantics while making supplied fields read-only where required.

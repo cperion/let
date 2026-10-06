@@ -404,8 +404,9 @@ end
 
 function Function:dynamicWord(operation,operands,node)
     local dynamic={} for index,operand in ipairs(operands or {}) do dynamic[index]=self:coerce(operand,S.any,node) end
-    local value=self.builder:valueId();self.builder:emit(self.body,located(I.Dynamic(L({value}),I[operation],L(dynamic)),node))
-    local ty=operation=="WordHas" and S.bool or operation=="WordCount" and S.u32 or S.any
+    local op=type(operation)=="string" and I[operation] or operation
+    local value=self.builder:valueId();self.builder:emit(self.body,located(I.Dynamic(L({value}),op,L(dynamic)),node))
+    local ty=op.kind=="WordHas" and S.bool or op.kind=="WordCount" and S.u32 or S.any
     return self.builder:ref(value,ty)
 end
 
@@ -594,18 +595,34 @@ end
 function Function:keyedSupply(node,target,expected)
     local byName,keyIndex={},{}
     for index,name in ipairs(target.keyed) do keyIndex[name]=index end
-    local suppliedOrder={}
+    local suppliedOrder,runtime={},false
     for _,field in ipairs(node.fields) do
         local name=field.name.text;if byName[name] then reject("duplicate-name","Requirement `"..name.."` is supplied twice",field) end
-        local index=keyIndex[name];if not index then reject("unknown-field","Unknown requirement `"..name.."`",field) end
-        local value=self:coerce(self:expr(field.value,target.inputs[index].type),target.inputs[index].type,field.value)
-        byName[name]=I.ValueArg(value);suppliedOrder[#suppliedOrder+1]={name=name,arg=byName[name],node=field.value}
+        local index=keyIndex[name]
+        if not index and not self.dynamic then reject("unknown-field","Unknown requirement `"..name.."`",field) end
+        local ty=index and target.inputs[index].type or S.any
+        local value=self:coerce(self:expr(field.value,ty),ty,field.value)
+        byName[name]=I.ValueArg(value);suppliedOrder[#suppliedOrder+1]={name=name,index=index,arg=byName[name],node=field.value}
+        if not index or not staticSupply(field.value) then runtime=true end
+    end
+    if runtime then
+        if not self.managed then reject("slet-forbidden","SLet cannot retain a runtime keyed callable",node) end
+        if target.localWord then reject("semantic-todo","Runtime keyed supply of a nested word or method is not implemented",node) end
+        if target.foreign then reject("static-foreign","A foreign word cannot be opened by runtime keyed supply",node) end
+        if #target.inputs==0 then reject("arity","A word with no requirements cannot be opened by keyed supply",node) end
+        local callable=self.builder:valueId();self.builder:emit(self.body,located(I.View(callable,S.any,target.target,L{},nil),node))
+        local opened=self.builder:valueId();self.builder:emit(self.body,located(I.Indirect(L({opened}),self.builder:ref(callable,S.any),L{}),node))
+        local word=self.builder:ref(opened,S.any)
+        for _,supply in ipairs(suppliedOrder) do
+            local key=self.builder:const(S.string,I.Str(supply.name))
+            word=self:dynamicWord(supply.index and I.WordBind(supply.index-1) or "WordSet",{word,key,supply.arg.value},supply.node)
+        end
+        return located(word,node)
     end
     local missing={} for index,name in ipairs(target.keyed) do if not byName[name] then missing[#missing+1]={name=name,index=index,input=target.inputs[index]} end end
     if #missing>0 then
         if target.localWord then reject("semantic-todo","Partial keyed supply of a nested word is not implemented",node) end
         if target.method and not self.managed then reject("slet-forbidden","SLet cannot retain a partially supplied method receiver",node) end
-        for _,supply in ipairs(suppliedOrder) do if not staticSupply(supply.node) then reject("static-required","Partial keyed supply requires static values",supply.node) end end
         self.lambdaState.count=self.lambdaState.count+1;local id=self.id.."_keyed_"..self.lambdaState.count
         local builder=IR.builder();local inputs,params,arguments={},{},{}
         for _,supply in ipairs(suppliedOrder) do arguments[supply.name]=supply.arg end

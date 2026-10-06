@@ -140,6 +140,7 @@ function M.assemble(source)
                 if not dynamic then error('dynamic instruction requires .profile dynamic',0) end
                 local start=pc;emit(string.char(assert(ops.EXT).opcode,ext.selector))
                 if ext.family=='descriptor' or ext.family=='word-new' then if #args~=1 or descriptor_names[args[1]]==nil then error(name..' requires a descriptor name',0) end;emit(int.pack(descriptor_names[args[1]],4))
+                elseif ext.family=='word-bind' then if #args~=1 then error(name..' requires an argument index',0) end;emit(int.pack(integer(args[1],32),4))
                 elseif ext.family=='literal' then if #args~=2 or constant_names[args[1]]==nil then error(name..' requires a constant name and order bit',0) end;emit(int.pack(constant_names[args[1]],4));emit(int.pack(integer(args[2],8),1))
                 elseif ext.family=='call' or ext.family=='tailcall' then if #args~=3 or (args[3]~='adjust' and args[3]~='exact') then error(name..' requires arguments results adjust|exact',0) end;emit(int.pack(integer(args[1],8),1)..int.pack(integer(args[2],8),1)..string.char(args[3]=='adjust' and 1 or 0)..string.rep('\0',4))
                 elseif ext.family=='callable' or ext.family=='closure' then if #args~=2 or descriptor_names[args[2]]==nil then error(name..' requires function and descriptor names',0) end;fixes[#fixes+1]={site=pc,finish=0,width=4,target=args[1],owner=current,kind='absolute-function',line=line_number};emit(string.rep('\0',4)..int.pack(descriptor_names[args[2]],4))

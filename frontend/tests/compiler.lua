@@ -251,7 +251,7 @@ let add { x: u32, y: u32 }: u32 = x + y
 let bad(n: u32): (u32): u32 = add { x = n }
 return { functions = { bad } }
 ]]})
-check(not keyedOk and D.is(keyedError) and keyedError.code=="static-required","partial keyed supply rejects runtime evidence")
+check(not keyedOk and D.is(keyedError) and keyedError.code=="slet-forbidden","SLet rejects runtime keyed callable retention")
 local partialRuntime=Compiler.compile{profile="let",name="partial-runtime.let",source=[[
 let add(a, b: u32): u32 = a + b
 let partial(n: u32): any = add(n)
@@ -517,6 +517,40 @@ for _,mode in ipairs({"interpreted","eager","lazy"}) do
   local result=Compiler.stage(runtimeSupply.functions,{profile="let",entry="main",exports={"main"},mode=mode})
   check(tonumber(result.cells[1])==42,"run-time positional supply opens and invokes a word in "..mode)
 end
+local keyedRuntimeSupply=Compiler.compile{profile="let",name="keyed-runtime-supply.let",source=[=[
+let add { a: u32, b: u32 }: u32 = a + b
+let digits { a: u32, b: u32, c: u32 }: u32 = a * 100 + b * 10 + c
+let main(): u32 = do
+  let supplied: u32 = 20
+  let partial = add { b = supplied, note = 1 }
+  if u32(partial.b) != 20 or u32(partial.note) != 1 then return 0 end
+  partial.b = 22
+  let changed = partial { b = 21 }
+  if u32(partial.b) != 22 or u32(changed.b) != 21 then return 1 end
+  let full = add { a = supplied, b = 22 }
+  full.a = 19
+  return u32(partial(20)) + u32(changed(20)) + u32(full())
+end
+let bookkeeping(): u32 = do
+  let supplied: u32 = 2
+  let partial = digits { b = supplied }
+  let changed = partial { b = 4, note = 9 }
+  if u32(partial(1, 3)) != 123 or u32(changed(1, 3)) != 143 then return 0 end
+  remove(partial, "b")
+  return u32(partial(1, 2, 3))
+end
+return { functions = { main, bookkeeping } }
+]=]}
+local keyedRuntimeModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(keyedRuntimeSupply.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==124,"run-time keyed supply exposes mutable named requirements in "..mode)
+  local bookkeeping=Compiler.stage(keyedRuntimeSupply.functions,{profile="let",entry="bookkeeping",exports={"bookkeeping"},mode=mode})
+  check(tonumber(bookkeeping.cells[1])==123,"keyed requirement slots survive copying, replacement, removal, and positional filling in "..mode)
+  keyedRuntimeModules[#keyedRuntimeModules+1]=result.module
+end
+check(keyedRuntimeModules[1]==keyedRuntimeModules[2] and keyedRuntimeModules[2]==keyedRuntimeModules[3],
+  "run-time keyed supply modules are policy-independent")
 local noTerminal=Compiler.compile{profile="let",name="no-terminal.let",source="let main(): u32 = do open()() return 0 end\nreturn { functions = { main } }\n"}
 ok,err=pcall(Compiler.stage,noTerminal.functions,{profile="let",entry="main",exports={"main"},mode="interpreted"})
 check(not ok and err.code=="static-no-terminal","calling an open word without a terminal uses the specified no-terminal abort")

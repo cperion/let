@@ -85,7 +85,7 @@ build/pic/residual_c.o: src/residual_c.c src/residual_builder.h src/residual_ir.
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 build/pic/residual_builder.o: src/residual_builder.c src/residual_builder.h src/residual_analysis.h src/residual_ir.h src/symbolic.h src/dynamic.h build/generated/residual_ir.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
-build/pic/optimize.o: src/optimize.c src/symbolic.h src/vm_internal.h | build/pic
+build/pic/optimize.o: src/optimize.c src/symbolic.h src/vm_internal.h build/opcodes.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 build/libabc-opt.so: $(OPTPIC)
 	$(CC) -shared $(CFLAGS) $^ -lm -o $@

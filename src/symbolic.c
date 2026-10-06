@@ -452,7 +452,7 @@ static int dynamic_contract(const abc_module *module,const uint8_t *p,abc_symbol
         effect->descriptor=abc_u32(p+(e==EXT_MANAGED_COPY?2:6));
         effect->pops=effect->pushes=1;return 1;
     }
-    if(e>=EXT_WORD_GET&&e<=EXT_WORD_FREEZE){effect->pops=e==EXT_WORD_COUNT||e==EXT_WORD_FREEZE?1:e==EXT_WORD_SET||e==EXT_WORD_METHOD?3:2;effect->pushes=1;return 1;}
+    if((e>=EXT_WORD_GET&&e<=EXT_WORD_FREEZE)||e==EXT_WORD_BIND){effect->pops=e==EXT_WORD_COUNT||e==EXT_WORD_FREEZE?1:e==EXT_WORD_SET||e==EXT_WORD_METHOD||e==EXT_WORD_BIND?3:2;effect->pushes=1;return 1;}
     return 0;
 }
 
