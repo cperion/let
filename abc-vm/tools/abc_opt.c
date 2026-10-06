@@ -22,11 +22,18 @@ static int publish(const char *path,const void *bytes,size_t size) {
     free(temporary);return ok;
 }
 int main(int argc,char **argv) {
-    if(argc!=4||strcmp(argv[2],"-o")){fprintf(stderr,"usage: abc-opt INPUT -o OUTPUT\n");return 2;}
+    int emit_c=argc==5&&!strcmp(argv[1],"--emit-c");
+    int input_index=emit_c?2:1,option_index=emit_c?3:2,output_index=emit_c?4:3;
+    if((!emit_c&&argc!=4)||(emit_c&&argc!=5)||strcmp(argv[option_index],"-o")){
+        fprintf(stderr,"usage: abc-opt INPUT -o OUTPUT\n       abc-opt --emit-c INPUT -o OUTPUT\n");return 2;
+    }
     void *input=NULL,*output=NULL;size_t input_size=0,output_size=0;abc_error error;
-    if(!read_file(argv[1],&input,&input_size)){fprintf(stderr,"abc-opt: cannot read %s: %s\n",argv[1],strerror(errno));return 1;}
-    abc_status status=abc_optimize(input,input_size,&output,&output_size,&error);free(input);
+    if(!read_file(argv[input_index],&input,&input_size)){fprintf(stderr,"abc-opt: cannot read %s: %s\n",argv[input_index],strerror(errno));return 1;}
+    abc_status status;
+    if(emit_c){char *source=NULL;status=abc_emit_c(input,input_size,&source,&output_size,&error);output=source;}
+    else status=abc_optimize(input,input_size,&output,&output_size,&error);
+    free(input);
     if(status!=ABC_OK){fprintf(stderr,"abc-opt: %s at byte 0x%x: %s\n",abc_status_name(status),error.offset,error.message);return 1;}
-    if(!publish(argv[3],output,output_size)){fprintf(stderr,"abc-opt: cannot publish %s: %s\n",argv[3],strerror(errno));abc_optimized_free(output);return 1;}
-    abc_optimized_free(output);return 0;
+    if(!publish(argv[output_index],output,output_size)){fprintf(stderr,"abc-opt: cannot publish %s: %s\n",argv[output_index],strerror(errno));if(emit_c)abc_emitted_c_free(output);else abc_optimized_free(output);return 1;}
+    if(emit_c)abc_emitted_c_free(output);else abc_optimized_free(output);return 0;
 }

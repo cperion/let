@@ -22,7 +22,7 @@ local function identifier(name)
 end
 
 local unsupported
-local memoryWidth
+local memoryWidth, layout
 local function cellKind(ty)
     if ty == S.unit then return nil end
     if ty:isInteger() or ty == S.bool then return "i" end
@@ -38,11 +38,40 @@ local function valueComponents(ty)
     if ty==S.unit then return {} end
     if ty:isSlice() then return {S.ref(ty.element),S.u32} end
     if ty:isView() then return {S.ptr(S.unit),S.ptr(S.unit)} end
+    local result={}
+    if ty:isRecord() then
+        for _,field in ipairs(ty.fields) do local parts=valueComponents(field.type);if parts==false then return false end;for _,part in ipairs(parts) do result[#result+1]=part end end
+        return result
+    end
+    if ty:isArray() then
+        local parts=valueComponents(ty.element);if parts==false then return false end
+        for _=1,ty.length do for _,part in ipairs(parts) do result[#result+1]=part end end
+        return result
+    end
+    return false
+end
+
+local function rawAggregateSafe(ty,seen)
+    if ty==S.unit or ty:isInteger() or ty==S.bool or ty==S.f64 then return true end
+    seen=seen or {};if seen[ty] then return true end;seen[ty]=true
+    if ty:isRecord() then for _,field in ipairs(ty.fields) do if not rawAggregateSafe(field.type,seen) then return false end end;return true end
+    if ty:isArray() then return rawAggregateSafe(ty.element,seen) end
+    if ty:isTaggedType() then for _,field in ipairs(S.alternatives(ty)) do if not rawAggregateSafe(field.type,seen) then return false end end;return true end
+    return false
+end
+
+local function abiComponents(ty)
+    local components=valueComponents(ty)
+    if components~=false then return components end
+    if ty:isTaggedType() then
+        if not rawAggregateSafe(ty) then unsupported("aggregate call ABI with managed or address-bearing sum "..S.display(ty)) end
+        local result={} for _=1,math.floor((layout(ty).size+7)/8) do result[#result+1]=S.u64 end;return result
+    end
     return false
 end
 
 local function cellKinds(ty)
-    local components=valueComponents(ty)
+    local components=abiComponents(ty)
     if components==false then return false end
     local result={}
     for _,component in ipairs(components) do result[#result+1]=cellKind(component) end
@@ -50,7 +79,7 @@ local function cellKinds(ty)
 end
 
 local function align(value, boundary) return math.floor((value + boundary - 1) / boundary) * boundary end
-local function layout(ty, seen)
+layout=function(ty, seen)
     if ty == S.unit then return {size=0,align=1} end
     if ty == S.bool or ty == S.u8 then return {size=1,align=1} end
     if ty == S.u16 then return {size=2,align=2} end
@@ -158,8 +187,13 @@ function Function.new(fn, definitions, profile, constants, metadata)
     for _,param in ipairs(fn.params) do
         local input=self.inputPhysical[param.input];if not input then D.bug("lower-param","Parameter has no physical input") end
         if param.kind=="ValueParam" then
-            local components=valueComponents(param.type);if components==false or #components~=input.count then D.bug("lower-param","Parameter representation disagrees with input") end
-            if #components==1 then self.valueSlots[param.binding.id]={parameter=input.base,type=param.type}
+            local components=valueComponents(param.type)
+            if components==false and param.type:isTaggedType() then
+                local item=layout(param.type);local slot={block=true,type=param.type,layout=item,cells=math.floor((item.size+7)/8),initialParameters={}}
+                for i=1,input.count do slot.initialParameters[i]={parameter=input.base+i-1,type=S.u64} end
+                self.blocks[#self.blocks+1]=slot;self.blockCells=self.blockCells+slot.cells;self.valueSlots[param.binding.id]=slot
+            elseif components==false or #components~=input.count then D.bug("lower-param","Parameter representation disagrees with input")
+            elseif #components==1 then self.valueSlots[param.binding.id]={parameter=input.base,type=param.type}
             elseif #components>1 then local holder={type=param.type,cells={}};for i,component in ipairs(components) do holder.cells[i]={parameter=input.base+i-1,type=component} end;self.valueSlots[param.binding.id]=holder end
         elseif param.kind=="PlaceParam" then
             if input.count~=1 then D.bug("lower-param","Place parameter is not one address cell") end
@@ -168,18 +202,18 @@ function Function.new(fn, definitions, profile, constants, metadata)
     end
 
 
-    local function reserve(map,id,ty,place,forceManaged)
+    local function reserve(map,id,ty,place,forceManaged,forceFrame)
         if map[id] then D.bug("lower-slot","IR slot "..tostring(id).." is defined twice") end
         local components=valueComponents(ty)
-        if not place and components and #components>1 then
+        if not place and components and #components>0 and not cellKind(ty) then
             local holder={type=ty,cells={}};for _,component in ipairs(components) do local slot={index=#self.locals+1,type=component};self.locals[#self.locals+1]=slot;holder.cells[#holder.cells+1]=slot end;map[id]=holder;return
         end
-        if place and self.profile=="dynamic" and (forceManaged or self.addressTaken[id]) then
+        if place and not forceFrame and self.profile=="dynamic" and (forceManaged or self.addressTaken[id]) then
             local slot={index=#self.locals+1,type=ty,cellType=S.ptr(S.unit),address=true,managed=true,descriptor=self.descriptorOf(ty,true)}
             self.locals[#self.locals+1]=slot;map[id]=slot;return
         end
         local kind=cellKind(ty)
-        if kind and not (place and self.addressTaken[id]) then local slot={index=#self.locals+1,type=ty};self.locals[#self.locals+1]=slot;map[id]=slot;return end
+        if kind and not forceFrame and not (place and self.addressTaken[id]) then local slot={index=#self.locals+1,type=ty};self.locals[#self.locals+1]=slot;map[id]=slot;return end
         if not place then requireScalar(ty,"local value");return end
         local item=layout(ty);if item.size<1 then unsupported("storage for zero-sized type "..S.display(ty)) end
         if item.size>65535 then unsupported("frame object larger than 65535 bytes") end
@@ -192,26 +226,26 @@ function Function.new(fn, definitions, profile, constants, metadata)
         for _, stmt in ipairs(list) do
             local kind = stmt.kind
             if kind == "Let" then
-                if stmt.type:isRecord() and stmt.expr.kind=="Make" then self.aggregates[stmt.value.id]=stmt.expr
-                else reserve(self.valueSlots, stmt.value.id, stmt.type) end
+                if stmt.type:isRecord() and stmt.expr.kind=="Make" then self.aggregates[stmt.value.id]=stmt.expr end
+                reserve(self.valueSlots, stmt.value.id, stmt.type, stmt.type:isTaggedType())
             elseif kind == "Read" then
-                reserve(self.valueSlots, stmt.value.id, stmt.type)
+                reserve(self.valueSlots, stmt.value.id, stmt.type, stmt.type:isTaggedType())
             elseif kind == "Var" then
                 reserve(self.storageSlots, stmt.storage.id, stmt.type, true)
             elseif kind == "Call" then
                 local target = definitions[stmt.target]
                 if not target then D.bug("lower-target", "Unknown call target " .. tostring(stmt.target)) end
                 for index, value in ipairs(stmt.results) do
-                    reserve(self.valueSlots, value.id, target.results[index])
+                    local ty=target.results[index];reserve(self.valueSlots,value.id,ty,ty:isTaggedType())
                 end
             elseif kind == "View" then
                 local info=self.viewInfo[stmt]
                 if (info and stmt.type:isView()) or stmt.type==S.any then reserve(self.valueSlots,stmt.value.id,stmt.type) end
-                if info and info.environment then reserve(self.storageSlots,stmt.adapter.id,info.environment,true,true) end
+                if info and info.environment then reserve(self.storageSlots,stmt.adapter.id,info.environment,true,false,true) end
                 self.views[stmt.value.id]={entry=stmt.entry,type=stmt.type,statement=stmt,info=info}
             elseif kind == "Indirect" then
                 local results;if stmt.callable.type~=S.any then results=stmt.callable.type.visible.results end
-                for index,value in ipairs(stmt.results) do reserve(self.valueSlots,value.id,results and results[index] or S.any) end
+                for index,value in ipairs(stmt.results) do local ty=results and results[index] or S.any;reserve(self.valueSlots,value.id,ty,ty:isTaggedType()) end
             elseif kind == "If" then
                 scanList(stmt.yes)
                 scanList(stmt.no)
@@ -222,7 +256,7 @@ function Function.new(fn, definitions, profile, constants, metadata)
             elseif kind=="VariantMatches" then
                 reserve(self.valueSlots,stmt.value.id,S.bool)
             elseif kind=="VariantPayload" then
-                reserve(self.valueSlots,stmt.value.id,S.caseOf(stmt.sum,stmt.tag))
+                local ty=S.caseOf(stmt.sum,stmt.tag);reserve(self.valueSlots,stmt.value.id,ty,ty:isTaggedType())
             elseif kind=="Switch" then
                 for _,case in ipairs(stmt.cases) do scanList(case.body) end
             end
@@ -274,16 +308,24 @@ function Function:valueBlock(value)
 end
 
 function Function:blockLoad(slot,offset,ty,node)
-    local width=memoryWidth and memoryWidth(ty)
-    if not width then unsupported("sum payload "..S.display(ty)) end
+    local item=layout(ty)
+    if ty:isRecord() then for _,field in ipairs(ty.fields) do self:blockLoad(slot,offset+item.fields[field.name].offset,field.type,node) end;return end
+    if ty:isArray() then for index=0,ty.length-1 do self:blockLoad(slot,offset+index*item.stride,ty.element,node) end;return end
+    if ty:isSlice() then self:blockLoad(slot,offset,S.ref(ty.element),node);self:blockLoad(slot,offset+8,S.u32,node);return end
+    if ty:isTaggedType() then for index=0,math.floor((item.size+7)/8)-1 do self:instruction("FADDR.A "..slot.frameOffset,node);self:instruction("LD64.A "..(offset+index*8),node) end;return end
+    local width=memoryWidth and memoryWidth(ty);if not width then unsupported("memory load of "..S.display(ty)) end
     self:instruction("FADDR.A "..slot.frameOffset,node)
     if ty==S.f64 then self:instruction(".loadkind float",node) elseif ty==S.any then self:instruction(".loadkind any",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end
     self:instruction("LD"..width..".A "..offset,node)
 end
 
 function Function:blockStore(slot,offset,ty,node)
-    local width=memoryWidth and memoryWidth(ty)
-    if not width then unsupported("sum payload "..S.display(ty)) end
+    local item=layout(ty)
+    if ty:isRecord() then for index=#ty.fields,1,-1 do local field=ty.fields[index];self:blockStore(slot,offset+item.fields[field.name].offset,field.type,node) end;return end
+    if ty:isArray() then for index=ty.length-1,0,-1 do self:blockStore(slot,offset+index*item.stride,ty.element,node) end;return end
+    if ty:isSlice() then self:blockStore(slot,offset+8,S.u32,node);self:blockStore(slot,offset,S.ref(ty.element),node);return end
+    if ty:isTaggedType() then for index=math.floor((item.size+7)/8)-1,0,-1 do self:instruction("MOVE.AB",node);self:instruction("FADDR.A "..slot.frameOffset,node);self:instruction("ST64 "..(offset+index*8),node) end;return end
+    local width=memoryWidth and memoryWidth(ty);if not width then unsupported("memory store of "..S.display(ty)) end
     self:instruction("MOVE.AB",node);self:instruction("FADDR.A "..slot.frameOffset,node);self:instruction("ST"..width:gsub("S$","").." "..offset,node)
 end
 
@@ -337,12 +379,15 @@ memoryWidth=function(ty)
 end
 
 function Function:loadPlace(place,node)
-    if place.kind=="Local" then local slot=self:storageSlot(place.storage);if not slot.block and not slot.address then self:instruction("CGET.A "..self:depth(slot),node);return end end
-    local ty=self:placeType(place)
-    if ty:isSlice() then
-        local offset=self:placeBase(place,node);self:instruction(".loadkind addr",node);self:instruction("LD64.A "..offset,node)
-        offset=self:placeBase(place,node);self:instruction("LD32.A "..(offset+8),node);return
+    if place.kind=="Local" then
+        local slot=self:storageSlot(place.storage)
+        if slot.block then self:blockLoad(slot,0,slot.type,node);return end
+        if not slot.address then self:instruction("CGET.A "..self:depth(slot),node);return end
     end
+    local ty=self:placeType(place)
+    if ty:isRecord() then for _,field in ipairs(ty.fields) do self:loadPlace(S.Ir.Project(place,S.Ir.Field(field.name)),node) end;return end
+    if ty:isArray() then for index=0,ty.length-1 do self:loadPlace(S.Ir.Index(place,S.Ir.Const(S.u32,S.Ir.UInt(index)),ty.element),node) end;return end
+    if ty:isSlice() then local offset=self:placeBase(place,node);self:instruction(".loadkind addr",node);self:instruction("LD64.A "..offset,node);offset=self:placeBase(place,node);self:instruction("LD32.A "..(offset+8),node);return end
     local width=memoryWidth(ty);if not width then unsupported("read of "..S.display(ty)) end
     local offset=self:placeBase(place,node)
     if ty==S.f64 then self:instruction(".loadkind float",node) elseif ty==S.any then self:instruction(".loadkind any",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end
@@ -350,10 +395,10 @@ function Function:loadPlace(place,node)
 end
 
 function Function:storePlace(place,ty,node)
-    if ty:isSlice() then
-        self:instruction("MOVE.AB",node);local offset=self:placeBase(place,node);self:instruction("ST32 "..(offset+8),node)
-        self:instruction("MOVE.AB",node);offset=self:placeBase(place,node);self:instruction("ST64 "..offset,node);return
-    end
+    if place.kind=="Local" then local slot=self:storageSlot(place.storage);if slot.block then self:blockStore(slot,0,ty,node);return end end
+    if ty:isRecord() then for index=#ty.fields,1,-1 do local field=ty.fields[index];self:storePlace(S.Ir.Project(place,S.Ir.Field(field.name)),field.type,node) end;return end
+    if ty:isArray() then for index=ty.length-1,0,-1 do self:storePlace(S.Ir.Index(place,S.Ir.Const(S.u32,S.Ir.UInt(index)),ty.element),ty.element,node) end;return end
+    if ty:isSlice() then self:instruction("MOVE.AB",node);local offset=self:placeBase(place,node);self:instruction("ST32 "..(offset+8),node);self:instruction("MOVE.AB",node);offset=self:placeBase(place,node);self:instruction("ST64 "..offset,node);return end
     local width=memoryWidth(ty);if not width then unsupported("store of "..S.display(ty)) end
     self:instruction("MOVE.AB",node);local offset=self:placeBase(place,node);self:instruction("ST"..width:gsub("S$","").." "..offset,node)
 end
@@ -385,6 +430,8 @@ function Function:expr(expr)
             if offset == nil then D.bug("lower-constant", "f64 constant is absent from the module pool") end
             self:instruction(".loadkind float", expr)
             self:instruction("GLD64 " .. offset, expr)
+        elseif expr.type==S.unit then
+            -- Unit has no runtime cell.
         elseif expr.type:isSlice() and expr.literal.kind=="Str" then
             local offset=self.constants.strings[expr.literal.bytes];if offset==nil then D.bug("lower-constant","slice constant is absent from the module pool") end
             self:instruction("GADDR.A "..offset,expr);self:instruction("PUSH.A "..#expr.literal.bytes,expr)
@@ -396,13 +443,13 @@ function Function:expr(expr)
     if kind=="Ref" then
         if expr.type~=S.unit then
             local slot=self.valueSlots[expr.value.id];if not slot then D.bug("lower-value","No ABC slot for value "..tostring(expr.value.id)) end
-            if slot.cells then for _,cell in ipairs(slot.cells) do self:instruction("CGET.A "..self:depth(cell),expr) end else self:instruction("CGET.A "..self:depth(slot),expr) end
+            if slot.block then self:blockLoad(slot,0,expr.type,expr) elseif slot.cells then for _,cell in ipairs(slot.cells) do self:instruction("CGET.A "..self:depth(cell),expr) end else self:instruction("CGET.A "..self:depth(slot),expr) end
         end
         return
     end
     if kind=="Addr" then self:address(expr.place,expr);return end
     if kind=="Null" then unsupported("Ir.Null address representation") end
-    if kind=="Make" and expr.type:isSlice() then self:expr(expr.fields[1]);self:expr(expr.fields[2]);return end
+    if kind=="Make" and (expr.type:isSlice() or expr.type:isRecord() or expr.type:isArray()) then for _,field in ipairs(expr.fields) do self:expr(field) end;return end
     if kind=="SliceLength" then
         self:expr(expr.view);self:instruction("MOVE.AB",expr);self:instruction("DROP.A",expr);self:instruction("MOVE.BA",expr);return
     end
@@ -420,15 +467,21 @@ function Function:expr(expr)
     if kind == "Get" then
         local aggregate=expr.aggregate
         if aggregate.kind=="Ref" and self.aggregates[aggregate.value.id] then aggregate=self.aggregates[aggregate.value.id] end
-        if aggregate.kind~="Make" then unsupported("escaping or unknown Ir.Get aggregate") end
-        for index,field in ipairs(aggregate.type.fields) do if field.name==expr.field.name then return self:expr(aggregate.fields[index]) end end
-        D.bug("lower-field","Record projection names no field "..tostring(expr.field.name))
+        if aggregate.kind=="Make" then for index,field in ipairs(aggregate.type.fields) do if field.name==expr.field.name then return self:expr(aggregate.fields[index]) end end end
+        if aggregate.kind=="Ref" then
+            local holder=self.valueSlots[aggregate.value.id]
+            if holder and holder.cells then
+                local first=1
+                for _,field in ipairs(aggregate.type.fields) do local parts=valueComponents(field.type);if field.name==expr.field.name then for index=first,first+#parts-1 do self:instruction("CGET.A "..self:depth(holder.cells[index]),expr) end;return end;first=first+#parts end
+            end
+        end
+        unsupported("escaping or unknown Ir.Get aggregate")
     end
     if kind == "Bin" then return self:binary(expr) end
     if kind == "Convert" then
         if expr.operand.type==S.any then self:expr(expr.operand);self:instruction("ANY_CAST "..self.descriptorOf(expr.type,true),expr);return end
         if expr.type==S.any then
-            if valueComponents(expr.operand.type)==false then unsupported("boxing "..S.display(expr.operand.type).." into any") end
+            if expr.operand.type:isRecord() or expr.operand.type:isArray() or expr.operand.type:isTaggedType() or valueComponents(expr.operand.type)==false then unsupported("boxing "..S.display(expr.operand.type).." into any") end
             self:expr(expr.operand);self:instruction("ANY_BOX "..self.descriptorOf(expr.operand.type,true),expr);return
         end
         self:expr(expr.operand)
@@ -514,8 +567,7 @@ end
 function Function:storeValue(value,ty,node)
     if ty==S.unit then return end
     local slot=self.valueSlots[value.id];if not slot then D.bug("lower-value","No ABC slot for value "..tostring(value.id)) end
-    if slot.cells then for index=#slot.cells,1,-1 do self:instruction("CSET.A "..self:depth(slot.cells[index]),node) end
-    else self:instruction("CSET.A "..self:depth(slot),node) end
+    if slot.block then self:blockStore(slot,0,ty,node) elseif slot.cells then for index=#slot.cells,1,-1 do self:instruction("CSET.A "..self:depth(slot.cells[index]),node) end else self:instruction("CSET.A "..self:depth(slot),node) end
 end
 
 function Function:placeLoad(place,node) return self:loadPlace(place,node) end
@@ -626,24 +678,38 @@ function Function:statements(list)
                 self:storeValue(stmt.value,S.any,stmt)
             elseif stmt.type:isView() and self.viewInfo[stmt] then
                 local info=self.viewInfo[stmt]
+                local managedRoots=0
                 if info.environment then
                     local base=S.Ir.Local(stmt.adapter)
                     for slotIndex,slot in ipairs(stmt.slots) do
                         local field=info.fields[slotIndex]
+                        if self.profile=="dynamic" then
+                            if slot.kind=="ValueArg" then self:expr(slot.value) else self:address(slot.place,slot) end
+                            local kinds=cellKinds(field.type)
+                            if kinds==false then unsupported("captured root representation of "..S.display(field.type)) end
+                            for _=1,#kinds do self:instruction("MOVE.AB",stmt);managedRoots=managedRoots+1 end
+                        end
                         if slot.kind=="ValueArg" then self:expr(slot.value) else self:address(slot.place,slot) end
                         self:placeStore(S.Ir.Project(base,S.Ir.Field(field.name)),field.type,stmt)
                     end
                 end
-                self:instruction(".loadkind addr",stmt);self:instruction("GLD64 "..info.codeOffset,stmt)
-                if info.environment then self:address(S.Ir.Local(stmt.adapter),stmt) else self:instruction("GADDR.A 0",stmt) end
+                if info.environment and self.profile=="dynamic" then
+                    self:address(S.Ir.Local(stmt.adapter),stmt)
+                    self:instruction("MANAGED_COPY "..self.descriptorOf(info.environment,true),stmt)
+                    for _=1,managedRoots do self:instruction("DROP.B",stmt) end
+                    self:instruction("MOVE.AB",stmt)
+                    self:instruction(".loadkind addr",stmt);self:instruction("GLD64 "..info.codeOffset,stmt)
+                    self:instruction("MOVE.BA",stmt)
+                else
+                    self:instruction(".loadkind addr",stmt);self:instruction("GLD64 "..info.codeOffset,stmt)
+                    if info.environment then self:address(S.Ir.Local(stmt.adapter),stmt) else self:instruction("GADDR.A 0",stmt) end
+                end
                 self:storeValue(stmt.value,stmt.type,stmt)
             end
             index = index + 1
         elseif kind == "Let" then
-            if not self.aggregates[stmt.value.id] then
-                self:expr(stmt.expr)
-                self:storeValue(stmt.value, stmt.type, stmt)
-            end
+            self:expr(stmt.expr)
+            self:storeValue(stmt.value, stmt.type, stmt)
             index = index + 1
         elseif kind == "Var" then
             if stmt.initial then
@@ -749,6 +815,7 @@ function Function:lower()
         self:instruction("CPUSH.A",self.fn)
     end
     for _,slot in ipairs(self.blocks) do self:instruction("CALLOC "..slot.layout.size,self.fn) end
+    for _,slot in ipairs(self.blocks) do if slot.initialParameters then for _,parameter in ipairs(slot.initialParameters) do self:instruction("CGET.A "..self:depth(parameter),self.fn) end;self:blockStore(slot,0,slot.type,self.fn) end end
     for _,slot in ipairs(self.locals) do if slot.managed then self:instruction("MANAGED_NEW "..slot.descriptor,self.fn);self:instruction("CSET.A "..self:depth(slot),self.fn) end end
     self:statements(self.fn.body)
     return self.lines, self.lineMap

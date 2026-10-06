@@ -84,7 +84,8 @@ for _,stack in ipairs{'A','B'} do
   symbolic('JNZ_'..stack,{kind='zero_branch',stack=stack,relation=1})
 end
 for relation,name in ipairs(M.branch_order) do symbolic(name,{kind='branch',relation=relation-1}) end
-for relation,name in ipairs(M.float_branch_order) do symbolic(name,{kind='float_branch',relation=relation-1}) end
+local float_branch_relation={FBLT=2,FBLE=3,FBEQ=0}
+for _,name in ipairs(M.float_branch_order) do symbolic(name,{kind='float_branch',relation=float_branch_relation[name]}) end
 local immediate_branches={
   BEQI={0,false},BNEI={1,false},BLTI={2,false},BLEI={3,false},
   BGTI={2,true},BGEI={3,true},BLTUI={4,false},BLEUI={5,false},BGTUI={4,true},BGEUI={5,true},

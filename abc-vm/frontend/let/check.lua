@@ -409,6 +409,8 @@ function M.expr(expr, locals, storages)
             if expr.literal.kind ~= "Float" then D.bug("ir-literal", "f64 constant needs a Float literal") end
         elseif expr.type == S.bool then
             if expr.literal.kind ~= "Boolean" then D.bug("ir-literal", "bool constant needs a Boolean literal") end
+        elseif expr.type == S.unit then
+            if expr.literal.kind~="UInt" or expr.literal.value~=0 then D.bug("ir-literal","unit constant needs zero") end
         elseif expr.type:isSlice() then
             -- A byte slice is the one aggregate with a literal spelling, and its bytes are the
             -- constant. Any other element type has no literal, so a Str there is a compiler bug.

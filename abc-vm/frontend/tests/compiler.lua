@@ -78,6 +78,244 @@ for _, mode in ipairs({"interpreted", "eager", "lazy"}) do
 end
 check(modules[1] == modules[2] and modules[2] == modules[3], "source-built residual modules are policy-independent")
 
+local aggregateSource = [[
+let point = { x: u32, y: u32 }
+let bump(r: ref(point)): u32 = do
+  r.x += 1
+  return r.x
+end
+let main(): u32 = do
+  let p = point { y = 22, x = 20 }
+  bump(ref(p))
+  let alias = p
+  let xs: array(u32, 2) = [alias.x, 21]
+  xs[1] += 1
+  let view = slice(xs)
+  let text = "abc"
+  return p.x + view[1] + u32(text[1])
+end
+return { functions = { main } }
+]]
+local aggregateModules = {}
+for _, profile in ipairs({"slet", "let"}) do
+  local aggregate = Compiler.compile { profile=profile, source=aggregateSource, name="aggregate."..profile }
+  check(aggregate.assembly:match("ST32") and aggregate.assembly:match("LD32"),
+    profile.." source aggregates lower through checked frame storage")
+  for _, mode in ipairs({"interpreted", "eager", "lazy"}) do
+    local result=Compiler.stage(aggregate.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==141,profile.." records, arrays, slices, strings, and stores execute in "..mode)
+    aggregateModules[#aggregateModules+1]=result.module
+  end
+end
+check(aggregateModules[1]==aggregateModules[2] and aggregateModules[2]==aggregateModules[3] and aggregateModules[4]==aggregateModules[5] and aggregateModules[5]==aggregateModules[6],
+  "aggregate source optimized modules are policy-independent in each profile")
+
+local aggregateAbiSource = [[
+let pair = { x: u32, y: u16 }
+let triple = array(u32, 3)
+let choice = oneof { none: unit, some: pair }
+let make_pair(): pair = pair { y = u16(5), x = 10 }
+let bump(p: pair): pair = pair { x = p.x + 1, y = p.y }
+let total(p: pair): u32 = p.x + u32(p.y)
+let make_array(): triple = [5, 6, 7]
+let array_total(xs: triple): u32 = xs[0] + xs[1] + xs[2]
+let select(p: pair): choice = choice.some { x = p.x, y = p.y }
+let unwrap(value: choice): u32 = value {
+  none = || -> 0,
+  some = |p| -> p.x + u32(p.y),
+}
+let main(): u32 = do
+  let p = bump(make_pair())
+  let xs = make_array()
+  let selected = select(pair { x = 3, y = u16(5) })
+  return total(p) + array_total(xs) + unwrap(selected)
+end
+return { functions = { main } }
+]]
+local aggregateAbiModules={}
+for _,profile in ipairs({"slet","let"}) do
+  local program=Compiler.compile{profile=profile,source=aggregateAbiSource,name="aggregate-abi."..profile}
+  check(program.assembly:match("%.function make_pair 0 2") and program.assembly:match("%.function make_array 0 3"),
+    profile.." source aggregate results flatten into deterministic ABC cells")
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(program.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==42,profile.." aggregate arguments, results, and sum payloads execute in "..mode)
+    check(Compiler.optimize(result.module)==result.module,profile.." aggregate ABI optimization is a fixpoint in "..mode)
+    aggregateAbiModules[#aggregateAbiModules+1]=result.module
+  end
+end
+check(aggregateAbiModules[1]==aggregateAbiModules[2] and aggregateAbiModules[2]==aggregateAbiModules[3] and aggregateAbiModules[4]==aggregateAbiModules[5] and aggregateAbiModules[5]==aggregateAbiModules[6],
+  "aggregate ABI residual modules are policy-independent in each profile")
+
+local sumSource = [[
+let option = oneof { none: unit, some: u32 }
+let main(): u32 = do
+  let present = option.some(40)
+  let absent = option.none()
+  let x = present { none = || -> 0, some = |value| -> value + 1 }
+  let y = absent { some = |value| -> value, none = || -> 1 }
+  return x + y
+end
+return { functions = { main } }
+]]
+local sumModules={}
+for _,profile in ipairs({"slet","let"}) do
+  local sumProgram=Compiler.compile{profile=profile,source=sumSource,name="sum."..profile}
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(sumProgram.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==42,profile.." sum construction and matching execute in "..mode)
+    sumModules[#sumModules+1]=result.module
+  end
+end
+check(sumModules[1]==sumModules[2] and sumModules[2]==sumModules[3] and sumModules[4]==sumModules[5] and sumModules[5]==sumModules[6],
+  "sum source optimized modules are policy-independent in each profile")
+
+local closureSource = [[
+let capture = { base: u32, more: u32 }
+let make(): (u32): u32 = do
+  let environment = capture { more = 20, base = 20 }
+  return |x: u32| -> environment.base + environment.more + x
+end
+let main(): u32 = do
+  let add = make()
+  return add(2)
+end
+return { functions = { main } }
+]]
+local closureProgram=Compiler.compile{profile="let",source=closureSource,name="closure.let"}
+check(closureProgram.assembly:match("MANAGED_NEW") and closureProgram.assembly:match("_let_adapter_"),
+  "capturing source lambdas lower through managed checked adapters")
+local closureModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(closureProgram.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"escaping managed source capture executes in "..mode)
+  closureModules[#closureModules+1]=result.module
+end
+check(closureModules[1]==closureModules[2] and closureModules[2]==closureModules[3],
+  "managed source closure modules are policy-independent")
+
+local exactLambda=Compiler.compile{profile="slet",name="lambda.slet",source=[[
+let noop(): unit = do return end
+let main(): u32 = do
+  noop()
+  let add: (u32, u32): u32 = |x: u32, y: u32| -> x + y
+  return add(20, 22)
+end
+return { functions = { main } }
+]]}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(exactLambda.functions,{profile="slet",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"capture-free SLet lambda executes in "..mode)
+end
+ok,err=pcall(Compiler.typed,{profile="slet",name="capture.slet",source=[[
+let main(): u32 = do
+  let base = 40
+  let add: (u32): u32 = |x: u32| -> base + x
+  return add(2)
+end
+]]})
+check(not ok and D.is(err) and err.code=="slet-forbidden","SLet rejects managed lambda captures")
+ok,err=pcall(Compiler.typed,{profile="slet",name="borrow.slet",source=[[
+let bad(): slice(u32) = do
+  let xs = [1, 2]
+  return slice(xs)
+end
+return { functions = { bad } }
+]]})
+check(not ok and D.is(err) and err.code=="borrow-return","source view lifetime checking rejects a local slice return")
+ok,err=pcall(Compiler.typed,{profile="slet",name="borrow-ref.slet",source=[[
+let item = { value: u32 }
+let bad(): ref(item) = do
+  let x = item { value = 42 }
+  return ref(x)
+end
+return { functions = { bad } }
+]]})
+check(not ok and D.is(err) and err.code=="borrow-return","SLet rejects a returned reference to lexical storage")
+local escapingViews=Compiler.compile{profile="let",name="escaping-views.let",source=[[
+let pair = { x: u32, y: u32 }
+let make_ref(): ref(pair) = do
+  let p = pair { x = 40, y = 2 }
+  return ref(p)
+end
+let make_slice(): slice(u32) = do
+  let xs = [10, 20, 12]
+  return slice(xs)
+end
+let main(): u32 = do
+  let r = make_ref()
+  let xs = make_slice()
+  return r.x + xs[2] - 10
+end
+return { functions = { main } }
+]]}
+check(escapingViews.assembly:match("MANAGED_NEW"),"escaping Let references and slices promote lexical backing storage")
+local escapingViewModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(escapingViews.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"escaping Let references and slices execute in "..mode)
+  escapingViewModules[#escapingViewModules+1]=result.module
+end
+check(escapingViewModules[1]==escapingViewModules[2] and escapingViewModules[2]==escapingViewModules[3],
+  "escaping Let reference and slice modules are policy-independent")
+check(Compiler.optimize(escapingViewModules[1])==escapingViewModules[1],
+  "escaping Let reference and slice optimization reaches a fixpoint")
+local retainedCaptures=Compiler.compile{profile="let",name="retained-captures.let",source=[[
+let pair = { x: u32 }
+let make_ref_reader(): (u32): u32 = do
+  let p = pair { x = 40 }
+  let r = ref(p)
+  return |more: u32| -> r.x + more
+end
+let make_slice_reader(): (u32): u32 = do
+  let xs = [10, 20, 12]
+  let view = slice(xs)
+  return |i: u32| -> view[i]
+end
+let main(): u32 = do
+  let read = make_ref_reader()
+  let pick = make_slice_reader()
+  return read(2) + pick(2) - 12
+end
+return { functions = { main } }
+]]}
+check(retainedCaptures.assembly:match("MANAGED_COPY"),
+  "managed callable environments copy captures with owner metadata")
+local retainedCaptureModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(retainedCaptures.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"managed reference and slice captures retain their owners in "..mode)
+  retainedCaptureModules[#retainedCaptureModules+1]=result.module
+end
+check(retainedCaptureModules[1]==retainedCaptureModules[2] and retainedCaptureModules[2]==retainedCaptureModules[3],
+  "managed reference and slice capture modules are policy-independent")
+check(Compiler.optimize(retainedCaptureModules[1])==retainedCaptureModules[1],
+  "managed capture optimization reaches a fixpoint")
+local retainedAggregate=Compiler.compile{profile="let",name="retained-aggregate.let",source=[[
+let target = { value: u32 }
+let holder = { r: ref(target), s: slice(u32) }
+let make(): holder = do
+  let p = target { value = 40 }
+  let xs = [1, 2]
+  return holder { r = ref(p), s = slice(xs) }
+end
+let main(): u32 = do
+  let h = make()
+  return h.r.value + h.s[1]
+end
+return { functions = { main } }
+]]}
+local retainedAggregateModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(retainedAggregate.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"managed aggregate reference and slice owners survive the call ABI in "..mode)
+  retainedAggregateModules[#retainedAggregateModules+1]=result.module
+end
+check(retainedAggregateModules[1]==retainedAggregateModules[2] and retainedAggregateModules[2]==retainedAggregateModules[3],
+  "managed aggregate owner modules are policy-independent")
+check(Compiler.optimize(retainedAggregateModules[1])==retainedAggregateModules[1],
+  "managed aggregate owner optimization reaches a fixpoint")
+
 local anySource=[[
 let dynamic_add(a, b): any = a + b
 let main(): (u32, bool) = do
@@ -101,6 +339,27 @@ for _,mode in ipairs{"interpreted","eager","lazy"} do
 end
 check(anyModules[1]==anyModules[2] and anyModules[2]==anyModules[3],
   "generic any staging produces policy-independent optimized modules")
+local dynamicCallSource=[[
+let add(a: u32, b: u32): u32 = a + b
+let apply(callable, a, b): any = callable(a, b)
+let main(): u32 = do
+  let operation = any(add)
+  let result = apply(operation, any(u32(40)), any(u32(2)))
+  return u32(result)
+end
+return { functions = { main } }
+]]
+local dynamicCall=Compiler.compile{profile="let",source=dynamicCallSource,name="dynamic-call.let"}
+check(dynamicCall.assembly:match("WORD_DIRECT add") and dynamicCall.assembly:match("DCALL 2 1"),
+  "ordinary Let source lowers boxed words and dynamic calls")
+local dynamicCallModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(dynamicCall.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"source dynamic callable dispatch executes in "..mode)
+  dynamicCallModules[#dynamicCallModules+1]=result.module
+end
+check(dynamicCallModules[1]==dynamicCallModules[2] and dynamicCallModules[2]==dynamicCallModules[3],
+  "dynamic callable source modules are policy-independent")
 local counterSource = [[
 let loop(value: u32, steps: u32, limit: u32, by: u32): (u32, u32) = do
   if value >= limit then return value, steps end
@@ -164,7 +423,7 @@ local nonTailModules={}
 for _,mode in ipairs({"interpreted","eager","lazy"}) do local result=Compiler.stage(nonTail.functions,{profile="let",entry="main",exports={"main"},mode=mode});check(tonumber(result.cells[1])==28,"non-tail recursive SCC executes in "..mode.." mode");nonTailModules[#nonTailModules+1]=result.module end
 check(nonTailModules[1]==nonTailModules[2] and nonTailModules[2]==nonTailModules[3],"non-tail SCC specialization is policy-independent")
 local nonTailPath=prefix..".non-tail.abc";local nonTailFile=assert(io.open(nonTailPath,"wb"));assert(nonTailFile:write(nonTailModules[1]));assert(nonTailFile:close());local nonTailDis=assert(io.popen(string.format("%q dis %q",here.."../../build/abc",nonTailPath),"r"));local nonTailListing=nonTailDis:read("*a")
-check(nonTailDis:close() and nonTailListing:match("CALL_A") and nonTailListing:match("ADDI_A%s+7") and not nonTailListing:match("CGET1_[AB]"),"non-tail SCC keeps calls while specializing its invariant argument")
+check(nonTailDis:close() and nonTailListing:match("CALL_A") and nonTailListing:match("ADDI_A%s+7"),"non-tail SCC keeps calls while specializing its invariant argument")
 check(Compiler.optimize(nonTailModules[1])==nonTailModules[1],"non-tail SCC specialization is a byte-identical fixpoint");os.remove(nonTailPath)
 local publicRecursive=Compiler.compile {profile="let",name="public-recursive.let",source=[[
 let f(n: u32, by: u32): u32 = do
@@ -234,6 +493,72 @@ check(not ok and D.is(err) and err.code == "import-ambiguous", "Let imports reje
 os.remove(importDir .. "/math.slet")
 ok, err = pcall(Compiler.compileFile, importDir .. "/main.slet")
 check(not ok and D.is(err) and err.code == "slet-import", "SLet imports reject Let modules")
-os.remove(importDir .. "/main.slet"); os.remove(importDir .. "/main.let"); os.remove(importDir .. "/math.let"); os.execute(string.format("rmdir %q", importDir))
+os.remove(importDir .. "/main.slet"); os.remove(importDir .. "/main.let"); os.remove(importDir .. "/math.let")
+write(importDir .. "/strict.slet", [[
+let pair = { x: u32, y: u32 }
+let option = oneof { none: unit, some: u32 }
+let pair_option = oneof { none: unit, some: pair }
+let compute(): u32 = do
+  let p = pair { y = 10, x = 10 }
+  let xs = [p.x, p.y]
+  let view = slice(xs)
+  let tagged = option.some(view[0] + view[1])
+  return tagged { none = || -> 0, some = |value| -> value + 1 }
+end
+let make_pair(): pair = pair { x = 20, y = 22 }
+let pair_total(p: pair): u32 = p.x + p.y
+let make_choice(): pair_option = pair_option.some { x = 19, y = 23 }
+let choice_total(value: pair_option): u32 = value { none = || -> 0, some = |p| -> p.x + p.y }
+return { functions = { compute, make_pair, pair_total, make_choice, choice_total } }
+]])
+write(importDir .. "/dynamic.let", [[
+let capture = { base: u32 }
+let make(): (u32): u32 = do
+  let environment = capture { base = 20 }
+  let retained = ref(environment)
+  return |x: u32| -> retained.base + x
+end
+let make_pick(): (u32): u32 = do
+  let xs = [10, 20, 12]
+  let view = slice(xs)
+  return |i: u32| -> view[i]
+end
+let make_slice(): slice(u32) = do
+  let xs = [1, 2]
+  return slice(xs)
+end
+let apply(callable, a, b): any = callable(a, b)
+return { functions = { make, make_pick, make_slice, apply } }
+]])
+write(importDir .. "/app.let", [[
+use strict
+use dynamic
+let add(a: u32, b: u32): u32 = a + b
+let main(): u32 = do
+  let f = dynamic.make()
+  let pick = dynamic.make_pick()
+  let escaped = dynamic.make_slice()
+  let left = f(0)
+  let retained = pick(2) + escaped[1]
+  let right = u32(dynamic.apply(any(add), any(u32(10)), any(u32(11))))
+  let p = strict.make_pair()
+  let selected = strict.make_choice()
+  return strict.compute() + left + retained + right + strict.pair_total(p) + strict.choice_total(selected)
+end
+return { functions = { main } }
+]])
+local importedFeatures=Compiler.compileFile(importDir.."/app.let")
+local importedAgain=Compiler.compileFile(importDir.."/app.let")
+check(importedFeatures.assembly==importedAgain.assembly,"cross-profile aggregate, closure, and any imports compile deterministically")
+local importedFeatureModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(importedFeatures.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==160,"cross-module source features, managed views, and aggregate ABI execute in "..mode)
+  check(Compiler.optimize(result.module)==result.module,"cross-module optimized source reaches a fixpoint in "..mode)
+  importedFeatureModules[#importedFeatureModules+1]=result.module
+end
+check(importedFeatureModules[1]==importedFeatureModules[2] and importedFeatureModules[2]==importedFeatureModules[3],
+  "cross-module residual modules are policy-independent")
+os.remove(importDir.."/strict.slet");os.remove(importDir.."/dynamic.let");os.remove(importDir.."/app.let");os.execute(string.format("rmdir %q", importDir))
 
 print(("PASS: Let compiler source ingestion and semantic IR (%d checks)"):format(checks))

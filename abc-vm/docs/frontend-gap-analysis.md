@@ -1,16 +1,24 @@
 # Let frontend gap analysis
 
-Status: implementation audit and roadmap. This document does not claim that missing language or VM features are implemented.
+Status: implementation audit. The checked backend and the ordinary Let/SLet source path are now integrated; the remaining gaps are listed below.
 
 ## 1. Finding
 
-ABC makes final code generation comparatively small. It does not remove the difficult frontend work: parsing the complete language, resolving lexical and module names, evaluating static code, specializing words, proving types, enforcing SLet lifetimes, planning Let GC roots/promotions, preserving result vectors, and lowering mutable places. The current frontend is a useful scalar lowering prototype, not a viable base for the full language.
+The production compiler now follows the required path: profile-neutral ASDL parsing, source semantic
+construction into checked `Ir.Fn`, shared ABC lowering, independent assembly/runtime verification,
+the C `abc-opt` residual optimizer, and `abc_vm` execution. `tools/slet_frontend.lua` is only a
+bootstrap validation oracle. The Lua evaluator and direct source-to-C path are not used.
 
-The current bootstrap implementation is one 710-line module, `tools/slet_frontend.lua`. It combines lexing, parsing, name checks, constant folding, type checks, specialization and textual assembly emission. It successfully compiles the four small programs in `examples/*.slet`. Its dedicated validation is `tools/validate_slet_frontend.lua`; three frontend programs are also run by `tools/validate.lua`.
+Ordinary `.slet` and `.let` source now covers scalar control and calls, local records and arrays,
+addressable places and stores, scalar-payload sums, slices and strings, references, typed lambdas,
+Let managed captures, escaping Let references/slices with promoted backing storage, generic `any`, and
+dynamic callable dispatch. Imports preserve the profile
+asymmetry. End-to-end fixtures compare interpreted, eager, and lazy staging and optimizer fixpoints.
 
-The real LuaJIT compiler begins at `frontend/let/compiler.lua`. Source ingestion requires an explicit Let/SLet profile, parses through the reused ASDL frontend, enforces the initial SLet `any` restriction, and constructs a deterministic module declaration index. Source semantic construction still stops at phase `parsed`. Independently, the compiler exposes a checked backend over verified ASDL `Ir.Fn` nodes: the reused structural/type verifier gates `frontend/let/abc.lua`, which emits verifier-accepted ABC for scalar integer/boolean/`f64` expressions, checked conversions, fixed locals, structured conditionals and loops, traps, direct/tail calls and returns. `Compiler.stage` sends the same artifact through the assembler and runtime verifier, invokes `abc_vm_call` in an explicitly selected interpreted, eager or lazy mode, and returns exact typed scalar cells or source-mapped abort/resource diagnostics. It preserves an assembly-line-to-IR map and reports `abc-lowering` for unsupported typed nodes. Aggregate, ownership, specialization, dynamic and source-AST-to-IR phases remain implementation work; no user code executes in Lua.
-
-By contrast, every one of the 14 SLet examples in `../wordlet.lua/examples` fails in the ABC frontend at its first aggregate, member, array or module token. This is expected from the documented subset, but it measures the distance clearly.
+The difficult remaining work is narrower but still semantic: recursive type cells and type exports,
+methods and keyed requirements, nested words, provenance through mutable/deeply nested owners and sums,
+module initialization, foreign/defer syntax, managed/address-bearing sum ABIs, and the proof-driven
+connection from source static boundaries to VM-backed evaluation.
 
 The SLet core is not a different language that needs a second parser and type system: sections 1–14 of `docs/syntax.md` are textually identical to `../wordlet.lua/syntax.md` except for the title and `.slet`/`.let` framing. The mature compiler is valuable as a source-frontend design and a source of migration fixtures. Its Lua evaluator and direct source-to-C execution path must not be imported or retained: executable compile-time Let code lowers to verified ABC bytecode and runs only through the VM.
 
@@ -32,24 +40,19 @@ These are valuable lowering fixtures. They are not substitutes for a complete se
 
 ## 3. Gap matrix
 
-| Layer | Current frontend | Missing against `syntax.md` |
+| Layer | Implemented now | Remaining work |
 | --- | --- | --- |
-| Source input | Receives only source text; CLI recognizes `.slet` | Source path/module identity, `.let` selection in the host frontend, import resolution and source-profile diagnostics |
-| Lexer | Names, integer literals, basic operators, whitespace, line and long comments | Float, byte, quoted and long-string tokens; braces, brackets, dot/member syntax and the complete delimiter/boundary rules |
-| Parser | Ad-hoc tables for named positional words, scalar expressions, local bindings, returns and statement conditionals | The complete ASDL AST now snapshotted under `frontend/`; keyed definitions/supply, schemas, arrays, indexing, member selection, lambdas, signatures, stores, matches, nested words, `extern`, `defer`, `use` and export configuration |
-| Names and captures | Simple global lookup and lexical scalar locals | Module namespaces, general callable capture analysis, receiver binding, schema methods, recursive type cells and source-interface lookup |
-| Types | Type names are strings for integers, bool and unit | Structural type descriptors, f64, records, arrays, sums, slices, strings, refs, ptrs, signatures, owned/view/tagged callables, recursive types, type values and generic requirements |
-| Static evaluation | Local scalar expression folder | VM-backed execution of saturated known words and ordered module initialization, arbitrary static supply, type-level planning, specialization keys, unrestricted recursive execution and residual fallback |
-| Result analysis | Every word must declare a result | Optional acyclic inference, recursive-SCC contract checking, static result components, callable result requirements and module result-table contracts |
-| Calls | Named calls, prefix partial supply of known words and one restricted local closure form | General callee expressions, keyed application, non-prefix specialization, methods, lambdas, owned closures, borrowed views, tagged callables and complete indirect-call contracts |
-| Storage and effects | Scalar values on A/B/C only | Typed places, reads and snapshots, module image layout, frame blocks, mutable record/array fields, aliases, compound stores, index checks, references, raw pointers, defer and foreign effects |
-| Control IR | Emits labels and assembly while type-checking | Structured conditionals, switches, loops, explicit completion, join storage, definite initialization and target-independent trap nodes |
-| Verification | Relies on local checks plus the bytecode verifier | Independent typed-IR verification for scope, result arity, place types, guards, call ABIs and completion; SLet lifetime/borrow invariants; Let managed-reference provenance, promotion and GC trace completeness |
-| Module ABI | Always requires/exports `main`; extra exports come from CLI flags | Final export configuration, aliases, type exports, result contracts, imports, `let_init`, static public ABI closure and profile selection |
-| VM profiles | Emits integer profile or callable profile for its restricted closure | Memory/profile-2 layout, callable/profile-3 general lowering, foreign/profile-4 lowering and associated section metadata |
-| Dynamic language | None | All section-15 constructs: `any`, generic operations, open words, dynamic calls, strings, descriptors, dynamic constants and GC roots. These also require the proposed VM profile 5 |
-| Diagnostics | Line and column in plain error strings | File/range spans, stable diagnostic codes, reject/bug/resource distinction and context-rich module errors |
-| Tests | One lowering fixture and four small examples | Parser conformance, positive/negative semantic suites, malformed-IR checks, module tests, strict-lifetime adversarial tests, Let escaping-managed-reference/GC tests and cross-mode VM execution |
+| Source input | `.let`/`.slet`, spans, deterministic imports and asymmetric profile checks | Type exports and richer module interfaces |
+| Parser | Shared ASDL parser for schemas, records, arrays, indexing, fields, lambdas, signatures, stores, matches, `use`, `extern`, and `defer` forms | Semantic construction for the still-listed forms |
+| Names and captures | Module words, lexical locals, deterministic lambda capture discovery and lifted functions | Nested words, methods, recursive type cells, full interface lookup |
+| Types | Scalars, `any`, records, arrays, sums, refs, ptr/slice constructors, strings, signatures and callable views | Recursive sealing, tagged/open source types, exported type names |
+| Calls | Direct/tail calls, exact views, escaping managed captures, indirect and dynamic calls, recursively flattened record/array ABIs, and GC-free sum ABIs with aggregate payloads | Keyed/non-prefix supply, methods, and managed/address-bearing sum ABIs |
+| Storage | Frame-backed records/arrays, projections, aliases, typed stores, bounds checks, refs/slices, promoted returned backing storage, and owner-retaining captures/aggregate calls | Module mutable storage, raw-pointer source operations, and provenance through mutation or deeply nested sums |
+| Control IR | Checked conditionals, switches, loops, traps, joins and completion | General block-bodied handler/lambda construction |
+| Dynamic Let | Boxing/casts/tests, generic unary/binary operators, strings, direct word boxing and dynamic calls | Open-word definitions and remaining managed aggregate source forms |
+| Modules | Function exports, deterministic private IDs, Let→Let/SLet and SLet→SLet imports | Type/value exports, initialization and public ABI closure |
+| Static execution | Explicit VM-backed staging/specialization under all three policies | Source static syntax/proofs and persistent staging images |
+| Diagnostics/tests | Stable spans/codes, three-policy source fixtures, import fixtures and optimizer fixpoints | Broader negative lifetime suites and migrated legacy programs |
 
 Two implementation details make incremental growth of the monolith particularly risky: it probes expression types by emitting and deleting assembly, and it has no typed representation between source and bytecode. Aggregate storage, effects, branch joins and borrowing need persistent semantic objects and an independent verifier; they cannot be made reliable by adding more cases to `Function:expression`.
 

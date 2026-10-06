@@ -21,7 +21,7 @@ check: all
 	$(LUA) run_bench.lua
 
 clean:
-	rm -f runlet native *.abc .*.abc .bench-*.slet
+	rm -f runlet native *.abc .*.abc .bench-*.slet .*-aot .*-aot.c
 
 .PHONY: all check clean
 

@@ -1,0 +1,14 @@
+name: vm-toolchain
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y luajit
+      - run: make CC=${{ matrix.compiler }} test
+      - run: make clean && make CC=${{ matrix.compiler }} CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' test
+

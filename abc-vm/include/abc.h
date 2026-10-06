@@ -29,6 +29,26 @@ typedef struct {
     uint8_t reason;              /* language abort reason; zero for host errors */
     char message[192];
 } abc_error;
+
+/* Stable ABI implemented by portable C emitted from residual IR. */
+#ifndef ABC_AOT_ABI_DEFINED
+#define ABC_AOT_ABI_DEFINED
+typedef struct {
+    uint32_t status;
+    uint32_t offset;
+    uint8_t reason;
+} abc_aot_error;
+typedef int (*abc_aot_entry)(
+    const uint64_t *arguments, size_t argument_count,
+    uint64_t *results, size_t result_capacity,
+    abc_aot_error *error);
+typedef struct {
+    const char *name;
+    uint32_t arguments;
+    uint32_t results;
+    abc_aot_entry entry;
+} abc_aot_export;
+#endif
 typedef enum { ABC_EXEC_INTERPRETED, ABC_EXEC_COMPILED, ABC_EXEC_LAZY } abc_execution_mode;
 typedef struct {
     size_t stack_cells;          /* limit per stack; zero selects 65,536 */
@@ -46,6 +66,13 @@ abc_status abc_optimize(const void *bytes, size_t size, void **output, size_t *o
 abc_status abc_optimize_mapped(const void *bytes, size_t size, void **output, size_t *output_size,
                                abc_provenance **provenance, size_t *provenance_count, abc_error *error);
 void abc_optimized_free(void *bytes);
+
+/* Emit a self-contained C11 translation unit from verified integer/static ABC.
+ * The returned text is NUL-terminated; source_size excludes that terminator. */
+abc_status abc_emit_c(const void *bytes, size_t size,
+                      char **source, size_t *source_size,
+                      abc_error *error);
+void abc_emitted_c_free(char *source);
 abc_status abc_module_export(const abc_module *module, const char *name,
                              uint32_t *arguments, uint32_t *results, abc_error *error);
 /* Copied signature; no output changes on failure. Integer modules report integer kinds. */

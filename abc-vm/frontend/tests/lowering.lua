@@ -350,8 +350,8 @@ local record = S.record {x = S.u32}
 local badValue = I.Value(1)
 local unsupportedFn = I.Fn("unsupported", I.Body, 0, L{input(record)}, L{record},
     L{I.ValueParam(0, badValue, record)}, L{I.Return(L{ref(badValue, record)})})
-local ok, err = pcall(Compiler.lower, {unsupportedFn}, {profile = "slet"})
-check(not ok and D.is(err) and err.code == "abc-lowering" and err.kind == "todo",
-    "unimplemented typed nodes produce an explicit lowering diagnostic")
+local aggregateArtifact=Compiler.lower({unsupportedFn},{profile="slet",exports={"unsupported"}})
+check(aggregateArtifact.assembly:match("%.function unsupported 1 1") and aggregateArtifact.assembly:match("RET 1 1"),
+    "record inputs and results use the checked aggregate call ABI")
 
 print(("PASS: checked ASDL Ir -> ABC lowering (%d checks)"):format(checks))

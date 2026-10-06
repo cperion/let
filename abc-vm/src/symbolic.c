@@ -442,8 +442,16 @@ static int dynamic_contract(const abc_module *module,const uint8_t *p,abc_symbol
     if(e>=EXT_DADDL&&e<=EXT_DXORL){effect->pops=effect->pushes=1;return 1;}
     if(e==EXT_DCALL||e==EXT_DTCALL){effect->pops=(unsigned)p[2]+1;effect->pushes=p[3];return 1;}
     if(e==EXT_STRING_CAT){effect->pops=2;effect->pushes=1;return 1;}if(e==EXT_STRING_TEXT){effect->pops=effect->pushes=1;return 1;}
-    if(e==EXT_WORD_NEW||e==EXT_WORD_DIRECT||e==EXT_MANAGED_NEW){effect->pushes=1;return 1;}
-    if(e==EXT_CLOSURE_NEW||e==EXT_MANAGED_COPY){effect->pops=effect->pushes=1;return 1;}
+    if(e==EXT_WORD_NEW||e==EXT_WORD_DIRECT||e==EXT_MANAGED_NEW){
+        if(e==EXT_WORD_NEW||e==EXT_MANAGED_NEW)
+            effect->descriptor=abc_u32(p+2);
+        else effect->descriptor=abc_u32(p+6);
+        effect->pushes=1;return 1;
+    }
+    if(e==EXT_CLOSURE_NEW||e==EXT_MANAGED_COPY){
+        effect->descriptor=abc_u32(p+(e==EXT_MANAGED_COPY?2:6));
+        effect->pops=effect->pushes=1;return 1;
+    }
     if(e>=EXT_WORD_GET&&e<=EXT_WORD_FREEZE){effect->pops=e==EXT_WORD_COUNT||e==EXT_WORD_FREEZE?1:e==EXT_WORD_SET||e==EXT_WORD_METHOD?3:2;effect->pushes=1;return 1;}
     return 0;
 }

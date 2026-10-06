@@ -114,6 +114,7 @@ static int build_call_graph(const abc_module *m,CallGraph *g){
 failed:
     free(cursor);free(reverse_offsets);free(reverse_edges);free(order);free(stack);free(next);free(sizes);free(seen);free_call_graph(g);return 0;
 }
+
 static ArgumentFact argument_fact(abc_symbolic_value value){return value.kind==ABC_SYM_CONST?(ArgumentFact){FACT_CONSTANT,value.constant}:(ArgumentFact){FACT_UNKNOWN,0};}
 static int record_call(DagSink *s,uint32_t target,unsigned count,const abc_symbolic_value *values){
     if(s->call_count==s->call_capacity){uint32_t capacity=s->call_capacity?s->call_capacity*2:4;ResidualCall *calls=realloc(s->calls,(size_t)capacity*sizeof *calls);if(!calls)return 0;s->calls=calls;s->call_capacity=capacity;}
@@ -213,10 +214,6 @@ static int dag_abort(void *opaque,uint32_t origin,unsigned reason) {
     DagSink *s=opaque;uint32_t id=node(s,(Node){N_ABORT,origin,0,0,0,(uint8_t)reason,0,1});if(!id)return 0;s->terminal_abort=1;return 1;
 }
 static int memory_result(unsigned action){return action==M_FLOAD||action==M_FADDR||action==M_GLOAD||action==M_GADDR||action==M_PLOAD||action==M_XLOAD||action==M_INDEX;}
-static int callable_module_safe(const abc_module *m){
-    if(!m->callable_profile||m->foreign_profile||m->dynamic_profile)return 0;for(uint32_t i=0;i<m->function_count;i++)for(uint32_t j=0;j<m->functions[i].results;j++)if(m->functions[i].result_kinds[j]==ABC_KIND_ADDR)return 0;
-    for(uint32_t pc=0;pc<m->code_size;pc+=abc_instruction_length(m->code+pc)){unsigned op=m->code[pc],action=op_memory[op].action;if(action==M_ALLOC||action==M_FREE||action==M_GSTORE||action==M_PSTORE||action==M_COPY||op==OP_FCALL)return 0;}return 1;
-}
 static int dynamic_callable_module_safe(const abc_module *m){
     if(!m->dynamic_profile||m->foreign_profile)return 0;for(uint32_t pc=0;pc<m->code_size;pc+=abc_instruction_length(m->code+pc)){unsigned action=op_memory[m->code[pc]].action;if(action==M_FSTORE||action==M_GSTORE||action==M_PSTORE||action==M_COPY)return 0;}return 1;
 }
@@ -555,7 +552,28 @@ static int emit_root_backedge_operands(Bytes *b,const Schedule *schedule,const a
     for(uint32_t i=0;i<offset;i++)if(!emit8(b,OP_CPOP))return 0;int64_t relative=-(int64_t)(b->size+3);
     return relative>=INT16_MIN&&emit_origin_opcode(b,origin,OP_JMP)&&emit8(b,(uint8_t)(uint16_t)relative)&&emit8(b,(uint8_t)((uint16_t)relative>>8));
 }
-static uint32_t direct_return_call(const DagSink *sink,const DagTree *tree){if(!tree||!tree->leaf||tree->backedge||!tree->result_count)return 0;uint32_t call=0;for(uint32_t i=0;i<tree->result_count;i++){abc_symbolic_value value=tree->results[i];if(value.kind!=ABC_SYM_BACKEND||!value.reg||value.reg>sink->count)return 0;const Node *result=&sink->nodes[value.reg-1];if(result->kind!=N_RESULT||result->input!=i)return 0;if(!call)call=result->left;else if(call!=result->left)return 0;}EffectPayload *p=find_payload(sink,call);return p&&p->results==tree->result_count?call:0;}
+static uint32_t direct_return_call(const DagSink *sink,const DagTree *tree){
+    if(!tree||!tree->leaf||tree->backedge||!tree->result_count)return 0;
+    uint32_t call=0;
+    for(uint32_t i=0;i<tree->result_count;i++){
+        abc_symbolic_value value=tree->results[i];
+        if(value.kind!=ABC_SYM_BACKEND||!value.reg||value.reg>sink->count)return 0;
+        const Node *result=&sink->nodes[value.reg-1];
+        if(result->kind!=N_RESULT||result->input!=i)return 0;
+        if(!call)call=result->left;else if(call!=result->left)return 0;
+    }
+    if(!call||call>sink->count)return 0;
+    const Node *operation=&sink->nodes[call-1];
+    if(operation->kind==N_CALL&&operation->left<sink->graph->count&&
+       sink->graph->recursive[operation->left]){
+        uint32_t matching=0,earlier=0;
+        for(uint32_t id=1;id<=sink->count;id++)if(sink->nodes[id-1].kind==N_CALL&&
+            sink->nodes[id-1].left==operation->left){matching++;if(id<call)earlier++;}
+        if(matching<2||earlier)return 0;
+    }
+    EffectPayload *p=find_payload(sink,call);
+    return p&&p->results==tree->result_count?call:0;
+}
 static int fused_boolean_control(const Schedule *schedule,const abc_symbolic_control *input,abc_symbolic_control *output){
     if(input->kind!=ABC_SYM_CONTROL_ZERO||input->left.kind!=ABC_SYM_BACKEND||!input->left.reg||input->left.reg>schedule->sink->count||schedule->homes[input->left.reg-1]>=0)return 0;
     const Node *n=&schedule->sink->nodes[input->left.reg-1];if(n->kind!=N_BINARY)return 0;unsigned opcode=n->opcode;int truth=input->opcode==OP_JNZ_A||input->opcode==OP_JNZ_B,swap=0;
@@ -655,7 +673,7 @@ static int residualize_function(const abc_module *m,const CallGraph *graph,uint3
     const abc_function *f=&m->functions[fi];if(f->hidden_bytes)return 0;
     for(uint32_t pc=f->entry;pc<f->end;pc+=abc_instruction_length(m->code+pc)){unsigned action=op_memory[m->code[pc]].action;if(action==M_ALLOC||action==M_FREE)return 0;}
     if(m->memory_profile){for(uint32_t i=0;i<f->arguments;i++)if(f->argument_kinds[i]!=ABC_KIND_INT)return 0;for(uint32_t i=0;i<f->results;i++)if(f->result_kinds[i]!=ABC_KIND_INT)return 0;}
-    DagSink sink={.module=m,.graph=graph,.root_function=fi,.root_entry=f->entry,.root_arguments=f->arguments,.callable_safe=callable_module_safe(m),.dynamic_callable_safe=dynamic_callable_module_safe(m)};abc_symbolic_context context={0};
+    DagSink sink={.module=m,.graph=graph,.root_function=fi,.root_entry=f->entry,.root_arguments=f->arguments,.callable_safe=0,.dynamic_callable_safe=dynamic_callable_module_safe(m)};abc_symbolic_context context={0};
     uint32_t *uses=NULL,*path_uses=NULL;int32_t *homes=NULL;uint8_t *expanded=NULL;Bytes code={.function=out};DagTree *tree=NULL;
     for(uint32_t i=0;i<f->arguments;i++) {
         abc_symbolic_value value;if(facts&&facts[i].kind==FACT_CONSTANT)value=abc_symbolic_constant(facts[i].constant,ABC_SYM_C,-1-(int32_t)i);else {uint32_t id=node(&sink,(Node){N_INPUT,f->entry,0,0,0,(uint8_t)i,0,0});if(!id)goto failed;value=backend(id,ABC_SYM_C,-1-(int32_t)i);}
@@ -796,6 +814,7 @@ static abc_status optimize_impl(const void *input,size_t input_size,void **outpu
         for(uint32_t j=0;j<functions[i].call_count;j++)if(!join_call_facts(m,facts,needed,dirty,&functions[i].calls[j])){status=abc_fail(error,ABC_INVALID,UINT32_MAX,"optimizer residual call facts are invalid");optimized=0;break;}if(!optimized)break;
     }
     if(optimized&&!write_module(m,functions,input,input_size,&bytes,&size,provenance?&map:NULL,&map_count)){status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer emission failed");optimized=0;}
+    if(optimized&&size>input_size){free(bytes);free(map);bytes=NULL;map=NULL;size=map_count=0;optimized=0;}
     goto optimize_cleanup;
 optimize_failed:status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer allocation failed");optimized=0;
 optimize_cleanup:for(uint32_t i=0;i<m->function_count;i++){clear_function_code(&functions[i]);free(facts[i]);}free(functions);free(needed);free(dirty);free(facts);free_call_graph(&graph);

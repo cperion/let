@@ -1,59 +1,54 @@
-# Scalar SLet frontend (first subset)
+# Production SLet source subset
 
-`build/abc compile file.slet -o file.abc` produces a verified integer ABC2
-module. `build/abc run file.slet` compiles to a temporary module and executes
-it. `--emit-asm` writes verified diagnostic assembly. `--export word` adds
-an export; `main` is always exported and must have no parameters. Running
-source with an explicit export also makes that word public for that run.
+`build/abc compile file.slet -o file.abc` parses ordinary SLet source, constructs checked
+ASDL `Ir.Fn`, lowers it to verified ABC, and emits a module. `build/abc run file.slet` uses
+the same frontend and optimizer before execution. The filename selects the source profile only;
+interpreted, eager, and lazy VM execution remain host policy.
 
-The frontend, assembler and tests use LuaJIT. Exact integer processing uses
-LuaJIT FFI uint64/int64 arithmetic and its 64-bit bit operations; decimal
-parsing never rounds through a double. The C embedding library needs no Lua.
+The production path is `frontend/let/compiler.lua` and `frontend/let/semantic.lua`.
+`tools/slet_frontend.lua` remains a bootstrap validation oracle and is not a fallback.
+No source computation executes in Lua.
 
-## Supported
+## Supported source paths
 
-- Named words with annotated scalar parameters and **explicit result contracts**.
-  Parameter groups such as `(a, b: u32)` are supported. Mutual/direct recursion
-  uses direct VM calls; compatible tail calls use `TCALL` without native recursion.
-- `u8`, `u16`, `u32`, `u64`, `i32`, `i64`, `bool`, and erased `unit`.
-- Immutable local/module bindings, forward module references, lexical shadowing
-  in child scopes, blocks with explicit returns, expression/statement conditionals.
-- Ordered multi-results. Scalar contexts select the first result; only the last
-  result-list expression expands. Grouping forces scalar adjustment. Binding
-  surplus results are discarded; missing bindings receive unit. Unit has no cell.
-- Wrapping arithmetic, integer comparisons/bitwise operations, power, u32 shift
-  amounts, checked conversions, and strictly boolean short-circuit `and/or/not`.
-  Instruction selection uses the adopted immediate (`OPI`), C-cell (`OPC`), fused
-  immediate-branch (`BxxI`), and direct two-stack branch forms when applicable.
-- Decimal/hex/binary literals with digit separators, line and long-bracket comments.
-- Directly negated literals follow spec Decision 8: signed, adopting a typed
-  operand/slot when appropriate, otherwise i64. Other negation is modular.
-- Same-width 32-bit signedness casts reinterpret bits. Per spec Decision 7,
-  i64/u64 conversions require a clear top bit and reject/abort otherwise.
-- Known scalar operations and immutable constants fold. Known branches evaluate
-  only the selected arm, but both arms are parsed and names are resolved.
-  Known zero divisors/negative exponents reject during compilation.
-- Incomplete **module-level static supply**, e.g. `let next32 = xorshift(13,17,5)`,
-  creates a direct specialized word with bound constants, not a heap closure.
-- **Lexical local runtime supply** of a known word, e.g. `let p = add(seed())`.
-  Captures copy scalar values into a C byte block; calls use a code/environment
-  view and CALLI. Captures cannot escape; adapters can tail-call only after loading
-  them. See [callable-profile.md](callable-profile.md) for the exact subset.
+- Annotated words, explicit scalar or callable result contracts, direct and indirect calls,
+  multiple scalar results, structured conditions, recursion, and continuation-directed tail calls.
+- `u8`, `u16`, `u32`, `u64`, `i32`, `i64`, `f64`, `bool`, `unit`, and checked conversions.
+- Named record schemas, fixed arrays, aggregate-payload sums, references, slices, strings, and
+  signature/view types. Local records and arrays use checked frame storage.
+- Record and array literals, field selection, nested addressable places, indexing with bounds
+  checks, aliases, assignment, and compound assignment.
+- Record and array arguments/results use a deterministic recursively flattened ABC call ABI.
+  GC-free sums use their fixed raw layout across calls, including aggregate payloads. Managed or
+  address-bearing sum ABIs remain conservative rather than hiding roots in raw cells.
+- `ref(place)`, `slice(array)`, slice/string indexing, and `.length`. References and views use
+  the checked address-then-length ABI where applicable.
+- Sum constructors and exhaustive keyed matching with expression-lambda handlers.
+- Capture-free typed lambdas. They lower to exact callable views and can be called indirectly
+  without managed allocation.
+- Deterministic profile-checked imports. SLet can import only `.slet`; Let can import SLet.
+- Interpreted, eager, and lazy staging produce equal results and byte-identical optimized modules
+  for the covered scalar, aggregate, sum, slice, reference, and callable fixtures.
+
+Every accepted SLet program is also accepted as Let with the same observable behavior. SLet
+never permits `any`, a managed capture, managed allocation, or a GC root. A lambda that captures
+a local value therefore rejects with `slet-forbidden`. Returning a reference or slice of current
+invocation storage rejects with `borrow-return`; the corresponding Let source promotes the backing
+record or array into managed storage.
 
 ## Deliberate limits
 
-This is not the full Let compiler or an implicit partial evaluator. Ordinary saturated calls run on the VM even with known arguments; normal source compilation does not execute them. `Compiler.stage` is an explicit host-selected static-execution boundary, and `Compiler.specialize` only constructs residual wrappers from typed values that such VM execution has already produced. Future automatic evaluation requires a sound proof that the invocation is total, effect-free, and cannot language-abort; purity alone is not sufficient because a pure call can diverge. No speculative fuel, timeout, instruction, specialization-count, or logical-allocation budget may be used to guess termination.
-Module initializers cannot invoke saturated words. Optional result inference,
-general higher-order callable values/contracts, dependent/type-valued requirements,
-records, arrays, pointers, strings, floats, matches, mutation, defer and externs
-are not implemented. Source functions needed by exports/calls are compiled; all
-module bodies are parsed and names resolved, including unselected paths.
+This subset is not an implicit partial evaluator. Ordinary saturated calls remain residual.
+`Compiler.stage` is an explicit host-selected static boundary. Automatic evaluation requires a
+sound proof of totality, effect-freedom, and no language abort; purity alone is insufficient.
+There is no fuel, timeout, instruction, specialization-count, or logical-allocation budget.
 
-The VM and module API remain independent of this frontend. `asm` accepts any
-supported VM instruction, even if the frontend does not generate it.
-Host calls to additional typed exports must supply normalized cell bits for
-their declared source types; the integer module API does not encode widths.
-CLI results are displayed as signed 64-bit integers, including raw u64 results.
+The remaining source gaps are recursive type cells, schema methods, nested word declarations,
+keyed word requirements/supply, raw-pointer constructors, `extern`, `defer`, general block-bodied
+lambdas, managed/address-bearing sums across function boundaries, type exports, non-literal module
+initialization, and complete source-level lifetime/provenance analysis.
+Unsupported checked-IR lowering reports `abc-lowering`; unsupported source construction reports
+a stable source diagnostic instead of invoking another backend.
 
-Examples: `examples/fibonacci.slet`, `countdown.slet`, `partial.slet`, and `closures.slet`.
-
+The VM and module API remain frontend-independent. `asm` accepts every instruction supported by
+the selected ABC profile even when this source subset does not generate that instruction.

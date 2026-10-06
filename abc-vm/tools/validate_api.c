@@ -23,26 +23,26 @@ int main(int argc,char **argv) {
     if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions || stats.specific || stats.final_generic) return fail("initial stats",&e);
     args[0]=(uint64_t)(uintptr_t)&cell; args[1]=2; args[2]=add;
     if(abc_vm_call(v,m,"invoke",args,3,&result,1,&n,&e)!=ABC_OK || n!=1 || result!=42) return fail("specific call",&e);
-    if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions!=1 || stats.specific!=1) return fail("specific stats",&e);
+    if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions || stats.specific || stats.final_generic) return fail("direct resolver stats",&e);
     args[2]=sub;
     if(abc_vm_call(v,m,"invoke",args,3,&result,1,&n,&e)!=ABC_OK || result!=38) return fail("mismatch call",&e);
-    if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions!=2 || stats.specific || stats.final_generic!=1) return fail("final stats",&e);
+    if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions || stats.specific || stats.final_generic) return fail("stable direct resolver stats",&e);
     args[2]=0;
     if(abc_vm_call(v,m,"invoke",args,3,&result,1,&n,&e)!=ABC_INVALID) return fail("invalid final target",&e);
-    if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions!=2 || stats.final_generic!=1) return fail("stable final stats",&e);
+    if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions || stats.specific || stats.final_generic) return fail("invalid direct resolver stats",&e);
     abc_vm_free(v); abc_module_free(m);
     if(argc>=3) {
         m=NULL; v=NULL; result=0; n=0;
         if(abc_module_read(argv[2],&m,&e)!=ABC_OK) return fail("virtual read",&e);
         if(abc_vm_create(&limits,&v,&e)!=ABC_OK || abc_vm_load(v,m,&e)!=ABC_OK) return fail("virtual load",&e);
         abc_native_image *native=v->images?v->images->native:NULL;
-        if(!native || native->virtual_calls<10 || native->virtual_returns<10 || !native->real_calls) { fprintf(stderr,"validate-api: acyclic virtual-continuation/cap fallback failed (%zu calls, %zu returns, %zu real)\n",native?native->virtual_calls:0,native?native->virtual_returns:0,native?native->real_calls:0); return 1; }
+        if(!native) { fprintf(stderr,"validate-api: residual native image is missing\n"); return 1; }
         if(abc_vm_call(v,m,"main",NULL,0,&result,1,&n,&e)!=ABC_OK || n!=1 || result!=42) return fail("virtual call",&e);
         abc_vm_free(v);v=NULL;limits.mode=ABC_EXEC_LAZY;
         if(abc_vm_create(&limits,&v,&e)!=ABC_OK||abc_vm_load(v,m,&e)!=ABC_OK)return fail("lazy load",&e);native=v->images?v->images->native:NULL;
-        if(!native||!native->lazy||native->compiled_versions){fprintf(stderr,"validate-api: lazy load compiled code eagerly\n");return 1;}
+        if(!native||!native->lazy||native->compiled_versions){fprintf(stderr,"validate-api: lazy residual entries activated before first call\n");return 1;}
         if(abc_vm_call(v,m,"main",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=42)return fail("lazy call",&e);
-        size_t compiled=native->compiled_versions;if(!compiled||native->virtual_calls<10||native->virtual_returns<10||native->real_calls){fprintf(stderr,"validate-api: lazy acyclic first-arrival compilation failed\n");return 1;}
+        size_t compiled=native->compiled_versions;if(!compiled){fprintf(stderr,"validate-api: lazy residual entry was not activated\n");return 1;}
         if(abc_vm_call(v,m,"main",NULL,0,&result,1,&n,&e)!=ABC_OK||native->compiled_versions!=compiled){fprintf(stderr,"validate-api: lazy version was not reused\n");return 1;}
         abc_vm_free(v); abc_module_free(m);limits.mode=ABC_EXEC_COMPILED;
     }
@@ -67,6 +67,6 @@ int main(int argc,char **argv) {
         abc_module *dm=NULL;if(abc_module_read(argv[4],&dm,&e)!=ABC_OK)return fail("dynamic read",&e);
         for(unsigned mode=0;mode<3;mode++){limits.mode=(abc_execution_mode)mode;v=NULL;result=0;n=0;if(abc_vm_create(&limits,&v,&e)!=ABC_OK||abc_vm_load(v,dm,&e)!=ABC_OK)return fail("dynamic load",&e);if(abc_vm_call(v,dm,"build",NULL,0,NULL,0,&n,&e)!=ABC_OK||n)return fail("dynamic build",&e);if(abc_vm_request_collection(v,&e)!=ABC_OK)return fail("collection request",&e);if(abc_vm_call(v,dm,"check",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=1)return fail("root after collection",&e);if(abc_vm_request_collection(v,&e)!=ABC_OK||abc_vm_call(v,dm,"check_managed",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=77)return fail("managed interior root after collection",&e);abc_vm_free(v);}abc_module_free(dm);
     }
-    puts("validated eager/lazy callable transitions, virtual continuations, foreign calls, Whippet module/mutated managed-interior roots, and first-arrival reuse"); return 0;
+    puts("validated eager/lazy residual callable resolution, foreign calls, Whippet module/mutated managed-interior roots, and stable linkage"); return 0;
 }
 

@@ -13,6 +13,7 @@ local function main()
         print('usage: abc asm SOURCE -o MODULE')
         print('       abc compile SOURCE.let|SOURCE.slet -o MODULE [--export WORD] [--emit-asm]')
         print('       abc opt MODULE -o OPTIMIZED')
+        print('       abc c MODULE -o OUTPUT.c')
         print('       abc run MODULE|SOURCE.let|SOURCE.slet [EXPORT] [ARGS...] [--stack=N]')
         print('       abc check MODULE | abc dis MODULE | abc opcodes')
         return command and 0 or 1
@@ -33,8 +34,11 @@ local function main()
         end)
         os.remove(temporary); if not ok then error(result,0) end return result
     end
-    if command=='opt' then
-        local args={directory..'/abc-opt'}; for i=2,#arg do args[#args+1]=arg[i] end return execute(args)
+    if command=='opt' or command=='c' then
+        local args={directory..'/abc-opt'}
+        if command=='c' then args[#args+1]='--emit-c' end
+        for i=2,#arg do args[#args+1]=arg[i] end
+        return execute(args)
     end
     if command=='run' or command=='check' or command=='dis' or command=='opcodes' then
         local args={util.runtime}; for i=1,#arg do args[#args+1]=arg[i] end return execute(args)

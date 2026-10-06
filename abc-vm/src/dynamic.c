@@ -156,3 +156,61 @@ uint64_t vm_dynamic_native(uint64_t **asp,uint64_t **bsp,uint64_t **csp,const ui
     *asp=v->a+v->na;*bsp=v->b+v->nb;*csp=v->c+v->nc;v->na=v->nb=v->nc=0;if(s==ABC_OK)return 0;unsigned reason=r->e?r->e->reason:0;return (uint64_t)s|((uint64_t)reason<<8)|((uint64_t)pc<<16);
 }
 
+static void residual_put32(uint8_t *p,uint32_t value){
+    p[0]=(uint8_t)value;p[1]=(uint8_t)(value>>8);
+    p[2]=(uint8_t)(value>>16);p[3]=(uint8_t)(value>>24);
+}
+
+uint64_t vm_dynamic_residual_native(uint64_t **asp,uint64_t **bsp,
+        uint64_t **csp,const uint8_t *state,uint32_t unused_pc){
+    const abc_residual_dynamic_site *site=
+        (const abc_residual_dynamic_site *)(const void *)state;
+    abc_run *active=abc_active_run;
+    if(!active)return (uint64_t)ABC_INVALID|(site->origin<<16);
+    uint8_t instruction[10]={OP_EXT,0};
+    instruction[1]=(uint8_t)(site->kind==ABC_RESIDUAL_DYNAMIC_CALL
+        ?EXT_DCALL:site->kind==ABC_RESIDUAL_DYNAMIC_TAIL_CALL
+        ?EXT_DTCALL:site->kind==ABC_RESIDUAL_DYNAMIC_CALLABLE
+        ?(site->has_environment?EXT_CLOSURE_NEW:EXT_WORD_DIRECT):
+        site->kind==ABC_RESIDUAL_DYNAMIC_MATERIALIZE
+        ?(site->materialize_decode?EXT_ANY_CAST:EXT_ANY_BOX):site->selector);
+    abc_run local=*active;
+    abc_module local_module=*active->m;
+    abc_dynamic_constant literal={0};
+    uint8_t payload[16]={0};
+    if(site->kind==ABC_RESIDUAL_DYNAMIC_CALLABLE){
+        residual_put32(instruction+2,(uint32_t)site->target);
+        residual_put32(instruction+6,(uint32_t)site->descriptor);
+    }else if(site->kind==ABC_RESIDUAL_DYNAMIC_CALL||
+       site->kind==ABC_RESIDUAL_DYNAMIC_TAIL_CALL){
+        instruction[2]=(uint8_t)site->arguments;
+        instruction[3]=(uint8_t)site->results;
+        instruction[4]=(uint8_t)site->adjustment;
+    }else if(site->has_literal){
+        residual_put32(instruction+2,0);instruction[6]=site->reverse;
+        unsigned length=site->literal_primitive==ABC_PRIM_UNIT?0:
+            site->literal_primitive==ABC_PRIM_BOOL||
+            site->literal_primitive==ABC_PRIM_U8?1:
+            site->literal_primitive==ABC_PRIM_U16?2:
+            site->literal_primitive==ABC_PRIM_U32||
+            site->literal_primitive==ABC_PRIM_I32?4:8;
+        memcpy(payload,&site->literal_low,8);
+        memcpy(payload+8,&site->literal_high,8);
+        literal=(abc_dynamic_constant){site->literal_primitive,
+            site->literal_flags,(uint16_t)length,payload};
+        local_module.dynamic_constants=&literal;
+        local_module.dynamic_constant_count=1;
+        local.m=&local_module;
+    }else residual_put32(instruction+2,(uint32_t)site->descriptor);
+    abc_vm *v=local.v;
+    v->ca=v->cb=v->cc=0;v->na=(size_t)(*asp-v->a);
+    v->nb=(size_t)(*bsp-v->b);v->nc=(size_t)(*csp-v->c);
+    abc_status status=vm_dynamic(&local,instruction,(uint32_t)site->origin);
+    *asp=v->a+v->na;*bsp=v->b+v->nb;*csp=v->c+v->nc;
+    v->na=v->nb=v->nc=0;
+    if(status==ABC_OK)return 0;
+    unsigned reason=local.e?local.e->reason:0;
+    (void)unused_pc;
+    return (uint64_t)status|((uint64_t)reason<<8)|(site->origin<<16);
+}
+

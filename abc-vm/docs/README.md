@@ -11,7 +11,6 @@
 - **`slet-subset.md`:** the LuaJIT scalar frontend's supported syntax and deliberate limits.
 - **`frontend-gap-analysis.md`:** audit of the scalar frontend, the reused ASDL frontend snapshot under `../frontend/`, and the ABC lowering roadmap.
 - **`compiler-continuations.md`:** continuation-directed production lowering, local `CALL`/`TCALL` selection, defunctionalization, recursion as cyclic control flow, and the restricted tail-call-modulo-accumulation optimization.
-- **`symbolic-vm.md`:** generated musttail abstract ABC execution shared by the native residualizer and ABC optimizer sinks.
-- **`abc-opt.md`:** the standalone C ABC-to-ABC symbolic optimizer, canonical stack re-projection, frontend-fact contract, provenance, fixpoint and differential guarantees.
+- **`symbolic-vm.md`:** generated musttail abstract ABC execution shared by the native, canonical-ABC, and portable-C peer sinks.
 - **`abc-opt.md`:** the standalone C ABC-to-ABC symbolic optimizer, canonical stack re-projection, frontend-fact contract, provenance, fixpoint and differential guarantees.
 - **`four_lane_fork_v3.md`:** the four-lane stack-register design, an alternative that was compiled, measured and not adopted. The specification's section "Status and measurements" records the comparison.

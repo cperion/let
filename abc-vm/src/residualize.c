@@ -171,7 +171,9 @@ static int ic_rewrite(abc_ic_state *s,NativeFn helper) {
     return !mprotect(image->code,image->mapping_size,PROT_READ|PROT_EXEC);
 }
 static NativeFn ic_validate(abc_ic_state *s,uint64_t target,uint64_t *status,const abc_function **callee) {
-    for(uint32_t i=0;i<s->owner->entry_count;i++) if((uint64_t)(uintptr_t)s->owner->entries[i]==target ||
+    for(uint32_t i=0;i<s->owner->entry_count;i++) if(target==i ||
+        target==s->module->functions[i].entry ||
+        (uint64_t)(uintptr_t)s->owner->entries[i]==target ||
         (uint64_t)(uintptr_t)(s->module->code+s->module->functions[i].entry)==target) {
         const abc_function *f=&s->module->functions[i];
         if(f->has_halt) { *status=ABC_INVALID; return NULL; }
@@ -179,6 +181,11 @@ static NativeFn ic_validate(abc_ic_state *s,uint64_t target,uint64_t *status,con
         *callee=f; *status=ABC_OK; return (NativeFn)s->owner->entries[i];
     }
     *status=ABC_INVALID; return NULL;
+}
+static uint64_t resolve_raw_target(uint64_t target,uint64_t state) {
+    uint64_t status=ABC_INVALID;const abc_function *callee=NULL;
+    NativeFn entry=ic_validate((abc_ic_state *)(uintptr_t)state,target,&status,&callee);
+    return (uint64_t)(uintptr_t)entry;
 }
 static NativeFn ic_select(abc_ic_state *s,uint64_t target,unsigned expected_phase,uint64_t *status,const abc_function **callee) {
     if(expected_phase==1 && target!=(uint64_t)(uintptr_t)s->observed) {
@@ -226,6 +233,21 @@ static int place_ic(Compiler *c,unsigned id,uint64_t immediate,int32_t b_bias,ab
             if(!grow((void **)&state->patches,&state->patchcap,state->npatch+1,sizeof *state->patches)) return 0;
             state->patches[state->npatch++]=(ICPatch){site,(uint8_t)r->kind,r->addend};
         } else return 0;
+    }
+    return 1;
+}
+static int place_raw_indirect(Compiler *c,unsigned id,uint64_t immediate,int32_t b_bias,uint64_t error,abc_ic_state *state) {
+    if(id>=sizeof stencils/sizeof stencils[0])return 0;const Stencil *s=&stencils[id];
+    c->placements++;if(!reserve(c,s->len))return 0;uint8_t *at=c->pos;memcpy(at,s->code,s->len);c->pos+=s->len;
+    for(unsigned i=0;i<s->nrel;i++){const Reloc *r=&s->rel[i];uint8_t *site=at+r->off;int64_t value;
+        if(r->hole==HOLE_NEXT)value=(int64_t)(intptr_t)c->pos;
+        else if(r->hole==HOLE_IMM)value=(int64_t)(uint32_t)immediate;
+        else if(r->hole==HOLE_IMM2)value=(int64_t)(uint32_t)(immediate>>32);
+        else if(r->hole==HOLE_BIAS)value=b_bias;
+        else if(r->hole==HOLE_FINAL)value=(int64_t)(intptr_t)resolve_raw_target;
+        else if(r->hole==HOLE_STATE)value=(int64_t)(intptr_t)state;
+        else if(r->hole==HOLE_ERROR)value=(int64_t)error;
+        else return 0;patch(site,r->kind,r->addend,value);
     }
     return 1;
 }
@@ -277,13 +299,13 @@ static int save_value(Compiler *c,Context *x,JValue *v) {
     return place(c,(unsigned)store_id(v->dst_stack,(unsigned)r),(uint64_t)((int64_t)v->dst_home*8),NULL);
 }
 static int flush_context(Compiler *c,Context *x) {
-    for(unsigned s=0;s<3;s++) for(uint32_t i=0;i<x->n[s];i++) { JValue *v=&x->s[s][i];
+    for(int s=2;s>=0;s--) for(uint32_t i=0;i<x->n[s];i++) { JValue *v=&x->s[s][i];
         if(v->kind!=VK_CONST||v->dynamic_repr==ABC_SYM_REPR_RAW) { if(!materialize_dynamic(c,x,v)||!save_value(c,x,v)) return 0; *v=rehome_value(*v,v->dst_stack,v->dst_home); }
     }
     return 1;
 }
 static int conform_generic(Compiler *c,Context *x) {
-    for(unsigned s=0;s<3;s++) for(uint32_t i=0;i<x->n[s];i++) { JValue *v=&x->s[s][i];
+    for(int s=2;s>=0;s--) for(uint32_t i=0;i<x->n[s];i++) { JValue *v=&x->s[s][i];
         int32_t home=s==JS_C?x->c_bias+(int32_t)i-x->c_origin:(int32_t)i;
         v->dst_stack=(uint8_t)s; v->dst_home=home;
         if(!materialize_dynamic(c,x,v)||!save_value(c,x,v)) return 0; abc_symbolic_forget_dynamic(v); *v=rehome_value(*v,s,home);
@@ -498,6 +520,7 @@ static int containing_function(const abc_module *m,uint32_t pc) {
 }
 
 
+
 static int inline_candidate(Compiler *c,const Context *x,uint32_t caller_pc,uint32_t target,const VCont *frame) {
     int fi=abc_find_function(c->module,target), current=containing_function(c->module,caller_pc);
     if(fi<0 || c->recursive[fi]) return 0;
@@ -585,7 +608,13 @@ static int native_emit_control(void *opaque,uint32_t origin,const abc_symbolic_c
     context_free(&taken); if(!tv||!fv)return 0;
     unsigned stencil;
     if(control->kind==ABC_SYM_CONTROL_ZERO)stencil=control->relation==ABC_SYM_EQ?ABC_STENCIL_JZ(rl):ABC_STENCIL_JNZ(rl);
-    else if(control->kind==ABC_SYM_CONTROL_FLOAT)stencil=ABC_STENCIL_FLOAT_BRANCH(control->relation,rl,rr);
+    else if(control->kind==ABC_SYM_CONTROL_FLOAT) {
+        unsigned operation=control->relation==ABC_SYM_LT?0:
+            control->relation==ABC_SYM_LE?1:
+            control->relation==ABC_SYM_EQ?2:UINT_MAX;
+        if(operation==UINT_MAX)return 0;
+        stencil=ABC_STENCIL_FLOAT_BRANCH(operation,rl,rr);
+    }
     else stencil=ABC_STENCIL_BRANCH(control->relation,control->reverse?rr:rl,control->reverse?rl:rr);
     return place(c,stencil,0,tv)&&emit_jump(c,fv);
 }
@@ -635,17 +664,35 @@ static int native_emit_edge(void *opaque,uint32_t origin,uint32_t target) {
     NativeSymbolicSink *sink=opaque;return emit_jump(sink->compiler,edge(sink->compiler,origin,target,sink->machine->context));
 }
 
+static int ensure_raw_indirect_capacity(Compiler *c,Context *x,const abc_function *site,
+                                        uint32_t abase,uint32_t bbase,int32_t cbase,uint64_t error) {
+    uint32_t max_a=0,max_b=0,max_c=0;
+    for(uint32_t i=0;i<c->module->function_count;i++){const abc_function *f=&c->module->functions[i];
+        if(!abc_same_signature(site,f))continue;
+        if(f->max_a>max_a)max_a=f->max_a;if(f->max_b>max_b)max_b=f->max_b;
+        uint32_t extra=f->max_c>=f->arguments?f->max_c-f->arguments:0;if(extra>max_c)max_c=extra;
+    }
+    return ensure_capacity(c,x,JS_A,abase+max_a,error)&&
+           ensure_capacity(c,x,JS_B,bbase+max_b,error)&&
+           ensure_capacity(c,x,JS_C,(uint32_t)cbase+max_c,error);
+}
+
 static int native_emit_indirect(void *opaque,uint32_t pc,abc_symbolic_indirect *effect) {
     NativeSymbolicSink *sink=opaque;Compiler *c=sink->compiler;Context *x=sink->machine->context;const abc_function *site=abc_find_site(c->module,pc);
     unsigned n=effect->arguments;if(!site||x->n[JS_A]<n||!x->n[JS_B]||(effect->tail&&x->n[JS_C]<effect->frame_cells)){c->status=abc_fail(c->error,ABC_INVALID,pc,"native indirect-call sink rejected instruction");return 0;}
-    JValue target=effect->target;target.dst_stack=JS_B;target.dst_home=(int32_t)x->n[JS_B]-1;if(!save_value(c,x,&target))return 0;
     uint32_t abase=x->n[JS_A]-n;
+    int raw=c->module->callable_profile&&!c->module->dynamic_profile;
+    int32_t logical_c=x->c_bias+(int32_t)x->n[JS_C]-x->c_origin+(int32_t)n+(effect->tail?-(int32_t)effect->frame_cells:1);
+    if(raw&&!ensure_raw_indirect_capacity(c,x,site,abase,x->n[JS_B]-1,logical_c,(uint64_t)ABC_STACK|((uint64_t)pc<<16)))return 0;
+    JValue target=effect->target;target.dst_stack=JS_B;target.dst_home=(int32_t)x->n[JS_B]-1;if(!save_value(c,x,&target))return 0;
     if(effect->tail) {
         uint32_t cbase=x->n[JS_C]-effect->frame_cells;int32_t coff=x->c_bias+(int32_t)cbase-x->c_origin;
         if(!place_guard(c,JS_C,coff+(int32_t)n>0?(uint32_t)(coff+(int32_t)n):0,(uint64_t)ABC_STACK|((uint64_t)pc<<16),NULL))return 0;
         for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];arg->dst_stack=JS_A;arg->dst_home=(int32_t)(abase+j);if(!save_value(c,x,arg))return 0;}
         for(unsigned j=0;j<n;j++){JValue arg=home_value(JS_A,(int32_t)(abase+j));int r=materialize(c,x,&arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(coff+(int32_t)n-1-(int32_t)j)*8),NULL))return 0;}
         target=home_value(JS_B,target.dst_home);int rt=materialize(c,x,&target);if(rt<0)return 0;uint64_t packed=(uint32_t)abase|((uint64_t)(uint32_t)(coff+(int32_t)n)<<32);
+        if(c->module->callable_profile&&!c->module->dynamic_profile)
+            return place_raw_indirect(c,ABC_STENCIL_RAW_TCALLI(rt),packed,(int32_t)x->n[JS_B]-1,(uint64_t)ABC_INVALID|((uint64_t)pc<<16),&c->sites[site-c->module->sites]);
         abc_ic_state *ic=&c->sites[site-c->module->sites];ic->tail=1;NativeFn helper=ic->phase==2?ic_final_tail:ic->phase==1?ic_specific_tail:ic_observe_tail;
         return place_ic(c,ABC_STENCIL_TCALLI(rt),packed,(int32_t)x->n[JS_B]-1,ic,helper);
     }
@@ -653,8 +700,14 @@ static int native_emit_indirect(void *opaque,uint32_t pc,abc_symbolic_indirect *
     if(!place_guard(c,JS_C,ctop+(int32_t)n+1>0?(uint32_t)(ctop+(int32_t)n+1):0,(uint64_t)ABC_STACK|((uint64_t)pc<<16),NULL))return 0;
     for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];int r=materialize(c,x,arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;}
     if(!place(c,ABC_STENCIL_RETURN_SENTINEL,(uint64_t)((int64_t)ctop*8),NULL)||!flush_context(c,x))return 0;target=home_value(JS_B,target.dst_home);int rt=materialize(c,x,&target);if(rt<0)return 0;
-    abc_ic_state *ic=&c->sites[site-c->module->sites];ic->tail=0;uint64_t packed=(uint32_t)abase|((uint64_t)(uint32_t)(ctop+(int32_t)n+1)<<32);NativeFn helper=ic->phase==2?ic_final_call:ic->phase==1?ic_specific_call:ic_observe_call;
-    if(!place_ic(c,ABC_STENCIL_CALLI(rt),packed,(int32_t)x->n[JS_B]-1,ic,helper))return 0;for(uint32_t j=0;j<site->results;j++)effect->result[j]=home_value(JS_A,(int32_t)(abase+j));return 1;
+    uint64_t packed=(uint32_t)abase|((uint64_t)(uint32_t)(ctop+(int32_t)n+1)<<32);
+    if(c->module->callable_profile&&!c->module->dynamic_profile){
+        if(!place_raw_indirect(c,ABC_STENCIL_RAW_CALLI(rt),packed,(int32_t)x->n[JS_B]-1,(uint64_t)ABC_INVALID|((uint64_t)pc<<16),&c->sites[site-c->module->sites]))return 0;
+    }else{
+        abc_ic_state *ic=&c->sites[site-c->module->sites];ic->tail=0;NativeFn helper=ic->phase==2?ic_final_call:ic->phase==1?ic_specific_call:ic_observe_call;
+        if(!place_ic(c,ABC_STENCIL_CALLI(rt),packed,(int32_t)x->n[JS_B]-1,ic,helper))return 0;
+    }
+    for(uint32_t j=0;j<site->results;j++)effect->result[j]=home_value(JS_A,(int32_t)(abase+j));return 1;
 }
 
 static int native_emit_call(void *opaque,uint32_t pc,abc_symbolic_call *effect) {
