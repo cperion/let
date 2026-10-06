@@ -1,6 +1,6 @@
 # ABC VM
 
-A three-stack virtual machine for low-level bytecode. Let (`.let`) is the main progressively typed language; SLet (`.slet`) is its static sublanguage, which disallows `any`, managed allocation and GC roots. The current bootstrap frontend implements the scalar SLet subset. Neither language is a dependency of the VM.
+A three-stack virtual machine for low-level bytecode. Let (`.let`) is the main progressively typed language; SLet (`.slet`) is its static sublanguage, which disallows `any`, managed allocation and GC roots. The production frontend shares one ASDL parser and typed IR across both profiles and currently covers scalar control, aggregates, sums, references/views, typed callables, managed captures, generic `any`, dynamic calls, and profile-checked imports. Neither language is a dependency of the VM.
 
 - **A** and **B** are pure operand stacks. A binary operation consumes their tops and its destination bit says which stack receives the result. Nothing ever reaches below a top of A or B.
 - **C** holds structured state: return addresses, immutable bindings and frame blocks. It is read by depth, and because it is strictly last-in, first-out, the compiler knows every depth statically.
@@ -22,7 +22,7 @@ https://claude.ai/code/artifact/557072c1-ef9a-4f32-8878-185ee6f6c3c0
 | `gen/` | Lua interpreter-handler, cache-state, and register-addressed stencil generators |
 | `docs/architecture.md` | Target code architecture for the spec-derived, Lua-generated C VM |
 | `frontend/` | Reused ASDL schemas, lexer/parser, structured IR helpers, analysis code, fixtures and licenses from the former Wordlet compiler snapshot |
-| `tools/abc`, `tools/*.lua` | LuaJIT assembler, scalar bootstrap SLet frontend and CLI dispatcher |
+| `tools/abc`, `tools/*.lua` | LuaJIT assembler, production Let/SLet frontend host and CLI dispatcher |
 | `examples/` | Runnable bytecode and C embedding example |
 | `vm/` | Historical optimized prototypes and measurements; not the product implementation foundation |
 | `lab/` | ABC VM Lab, a single-file browser simulator with a compiler for an SLet subset |
@@ -59,7 +59,7 @@ Embedders call `abc_optimize` from `libabc.a`. LuaJIT compiler code loads `build
 
 Link `build/libabc.a` and include `include/abc.h` to embed the VM; see [examples/embed.c](examples/embed.c). Set `abc_limits.mode`, create a VM, and call `abc_vm_load` before execution; eager mode prepares native code during load, while lazy mode compiles reached contexts on first arrival. Each VM owns its stacks; loaded modules are immutable and shareable. Calls return structured errors, including abort reason and bytecode offset, rather than exiting the host. The VM has no instruction/fuel budget API: execution continues until completion, language abort, actual resource failure or external process interruption. All execution policies default to 65,536 cells per stack; override stack capacity with `abc_limits` or CLI `--stack=N`.
 
-**Current scope:** typed integer/IEEE-754 binary64 bytecode, direct and indirect calls, context range forms, memory, typed foreign calls, a reserved `EXT` decoder, and a scalar SLet frontend. Lua generates cache-state-specialized interpreter handlers, offline native stencils, and finite foreign ABI bridges. Eager and lazy compiled policies use one capped context-versioning residualizer; lazy versions are persistent, first-arrival compiled, and reached through stable copy-and-patch stubs. Repository validation runs identical modules under interpreted, eager, and lazy policies. Dynamic profile 5 remains normative future work.
+**Current scope:** typed integer/IEEE-754 binary64 bytecode, memory, direct/indirect/dynamic calls, typed foreign calls, profile-5 managed values and GC, eager/lazy native execution, canonical ABC optimization, and strict self-contained portable-C emission for the integer/direct-call residual subset. Lua generates cache-state-specialized interpreter handlers, the shared symbolic dispatcher, offline register-addressed native stencils, and finite foreign ABI bridges. Repository validation compares interpreted, eager, lazy, and optimized-ABC behavior across the full implemented VM profiles; portable-C differential validation currently covers integer arithmetic, control flow, loops, checks, direct calls and export adapters. Full float, memory, indirect/foreign, managed and dynamic portable-C lowering remains work.
 
 ```sh
 build/abc run examples/fibonacci.slet       # 55
@@ -88,15 +88,11 @@ The simulator needs nothing: open `lab/abc_vm_lab.html` in a browser. After edit
 
 ## Status
 
-- **Milestone 1 (integer core): built in the checked runtime.** Typed integer arithmetic with normalization, compare-and-branch, checks that abort, context range forms (`CPUSHN`, `CGETR.X`), frame instructions (`CALL.X f, n`, `TCALL f, k, n`, `RET k, r`) with the result bit, and operand forms (`OPI`, `OPC`, `BxxI`).
-- **Public opcode metadata is spec-owned.** `tools/opcodes.lua` is now the source for `build/opcodes.h`; the public runtime no longer imports opcode layout from `vm/gen.lua`.
-- **Compiled-tier target:** eager and lazy capped context versions with independent monotonic site knowledge. Eager mode finishes compilation at load; lazy mode compiles reached contexts on first arrival through stable stubs. Neither uses hotness, tracing, speculative deoptimization, source filenames, or tier switching.
-- **Native-tier target:** emit C from verified bytecode's residual program at build time, the canonical C route (Decision 16), not a separate Let backend. Interpreter, residual stencils and C must eventually share one semantics table.
-- **The simulator** (`lab/`) implements the same instructions, and its SLet compiler emits them, including `CALL.B` for calls compiled for B.
-- **Milestone 2 (memory): built in the public checked runtime.** All 54 frame/image/pointer/indexed/copy instructions; explicit integer/address signatures; live padded frame-block verification; private persistent image snapshots; hidden aggregate-result destinations; native pointer and byte-string embedding tests. The source frontend uses frame blocks for closure captures; general records/arrays/sums remain to be lowered.
-- **Milestone 3 (callables): checked-runtime core built.** CALLI.A/B, TCALLI, environment-inclusive signatures, image code-address relocations, guarded same-module targets and per-instance execution copies. Site knowledge changes at most twice, with no hotness counters. Lexical runtime supply runs in `examples/closures.slet`; full higher-order source typing and C-backend comparison remain open.
-- **Next milestone: 4, host boundary.** Foreign ABI bridges remain unimplemented. Floats, `SWITCH`, `EXT`, full memory/callable optimized-tier support and the canonical native C tier are also not yet built.
-- **Optimized prototype limits:** call and frame counts up to 4 and result counts up to 2; larger counts abort with reason 254 in that interpreter and are rejected by its JIT. The public reference runtime supports counts up to 255.
+- **Core VM and profiles 1–5 are built.** Integer and float operations, memory and frame blocks, direct/indirect/dynamic callables, foreign bridges, managed storage, ordered open-word maps, GC roots, and allocation-free verification run in the checked runtime.
+- **One generated symbolic executor drives peer sinks.** `src/residualize.c` emits register-addressed native stencils directly; `src/optimize.c` emits canonical verified ABC; `src/residual_builder.c` and `src/residual_c.c` emit validated strict C11. Native placement remains the symbolic stack cache and never passes through residual SSA or an all-home allocator.
+- **Portable C is a public build product.** Pure known internal calls use typed scalar parameters, returns, and ordinary C locals. Export wrappers and genuinely generic, trapping, or multi-result boundaries retain the stable pointer-array/status ABI.
+- **The production Let/SLet frontend is integrated.** It covers the source paths listed in `docs/slet-subset.md`; `docs/frontend-gap-analysis.md` tracks the narrower remaining language, ownership, module, and persistent-staging work.
+- **Still open:** recursive/exported source types, methods and keyed requirements, nested words, general block lambdas, raw-pointer syntax, `extern`/`defer`, module initialization/storage, managed/address-bearing sum ABIs, complete provenance/lifetime proofs, source static-boundary proofs, persistent staging images, dynamic quickening caches, and lazy tag/token propagation.
 
 ## License
 

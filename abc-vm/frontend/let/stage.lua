@@ -9,8 +9,9 @@ local MODES = { interpreted = "interpreted", eager = "compiled", compiled = "com
 local ABORTS = {
     [1] = "null-access", [2] = "index-range", [3] = "numeric-range",
     [4] = "arity-mismatch", [5] = "missing-result", [6] = "invalid-callable",
-    [7] = "layout-mismatch", [8] = "missing-key", [9] = "generic-operands",
-    [10] = "variant-mismatch",
+    [7] = "field-missing", [8] = "key-type", [9] = "no-terminal",
+    [10] = "frozen-store", [11] = "too-many-arguments", [12] = "dynamic-signature",
+    [13] = "readonly-field",
 }
 
 local function dependency(name)

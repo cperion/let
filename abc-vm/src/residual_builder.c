@@ -1147,7 +1147,7 @@ static build_version *version_for(builder *b, uint32_t pc,
         }
     }
     versions = family_count(b->function, pc, &key);
-    if (versions >= ABC_SYMBOLIC_VERSION_CAP) {
+    if (versions >= ABC_BLOCK_VERSION_LIMIT - 1) {
         unsigned stack;
         uint32_t i;
         canonicalize(&key, 1);

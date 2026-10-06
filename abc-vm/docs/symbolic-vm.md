@@ -36,9 +36,9 @@ At dynamic and foreign boundaries, the sink materializes required representation
 
 ## Versioning and termination
 
-Each backend owns only the versioning needed by its output form. Shared symbolic contexts and `ABC_SYMBOLIC_VERSION_CAP` bound unknown control and recursive specialization. Known calls can use virtual continuations. Recursive SCC boundaries, unknown calls, and ABI-visible calls remain real. There is no fuel, hotness, or instruction budget.
+Basic-block versioning has one policy knob: `ABC_BLOCK_VERSION_LIMIT`. It limits versions locally for one compatible block-context family, including versions reached through virtual continuations. It is not an optimizer path limit, a continuation-depth limit, or a total-code-size budget. Known calls can use virtual continuations while the destination block has local version room. Recursive SCC boundaries, unknown calls, and ABI-visible calls remain real. There is no fuel, hotness, instruction, or module-wide code budget.
 
-The version cap generalizes to compatible symbolic contexts; it does not force native values through a generic all-home representation. Backedges conform only values that must cross the edge.
+At the local limit, an edge generalizes to a compatible context; it does not force native values through a generic all-home representation. Backedges conform only values that must cross the edge.
 
 ## Peer sinks
 
@@ -46,7 +46,7 @@ The generated dispatcher drives three peer sinks:
 
 1. **Native stencil sink (`src/residualize.c`).** It emits register-addressed stencils directly from the symbolic stack cache. Renaming, copy-on-write, consumption, constants, and known stack operations are resolved before emission. There is no residual SSA graph, all-value home plan, or separate register allocator between symbolic execution and machine code.
 2. **Canonical ABC sink (`src/optimize.c`).** It records an ordered expression/effect DAG inside the sink, virtualizes eligible calls, preserves unsafe functions, and re-projects symbolic residue onto canonical verified A/B/C bytecode. The standalone optimizer, embedding API, and LuaJIT FFI use this sink.
-3. **Portable-C sink (`src/residual_builder.c`, `src/residual_c.c`).** It records target-independent semantic residue because structured self-contained C needs explicit values, blocks, calls, ABI metadata, and provenance. That residue is private to the C backend; native emission is never routed through it.
+3. **Portable-C sink (`src/residual_builder.c`, `src/residual_c.c`).** It records target-independent semantic residue because structured self-contained C needs explicit values, blocks, calls, ABI metadata, and provenance. The writer maps proven scalar values to typed C locals, direct known calls to natural typed C signatures, and eligible single results to scalar returns. Pointer-array/status adapters remain only at exports and genuinely generic, trapping, or multi-result boundaries. This residue is private to the C backend; native emission is never routed through it.
 
 Shared semantics do not imply a shared generic value machine. All three sinks receive the same generated transfer contracts and symbolic stack transitions, while each sink records only the residue required by its target.
 
@@ -62,6 +62,6 @@ Unknown, escaping, identity-observable, ABI-visible, managed-stored, or `any` ca
 
 `compile_version()` in the native sink contains no handwritten opcode switch or source-bytecode recovery path. It establishes a symbolic machine, handles structured exits, and schedules native block versions. Native callbacks maintain register/home representations, roots, stencil placement, and edges.
 
-The optimizer and portable-C builder configure the same dispatcher with their own callbacks. Unsupported optimizer rewrites preserve verified source functions. Portable C validates its semantic residue and emits strict self-contained C11.
+The optimizer and portable-C builder configure the same dispatcher with their own callbacks. Unsupported optimizer rewrites preserve verified source functions. Portable C validates semantic residue and emits strict self-contained C11 for its current integer/control/direct-call subset; float, memory, indirect/foreign, managed and dynamic operations currently reject rather than falling back to another backend.
 
 The acceptance gate is both semantic and architectural: full interpreted/eager/lazy/C parity must pass, and native steady-state performance must remain in the pre-refactor near-LuaJIT/native class. A correct but all-home native lowering is not an acceptable implementation.

@@ -2,8 +2,12 @@
 #define ABC_SYMBOLIC_H
 #include "vm_internal.h"
 
-/* Shared termination rule for symbolic block versions and virtual continuations. */
-enum { ABC_SYMBOLIC_VERSION_CAP = 8 };
+/* Policy knobs for independent sources of local analysis growth. Neither is a
+   continuation-depth, module-code-size, or generated-output limit. */
+enum {
+    ABC_BLOCK_VERSION_LIMIT = 8,
+    ABC_OPTIMIZER_PATH_LIMIT = 4096
+};
 
 enum { ABC_SYM_A, ABC_SYM_B, ABC_SYM_C };
 enum { ABC_SYM_CONST, ABC_SYM_BACKEND, ABC_SYM_HOME };

@@ -42,6 +42,8 @@ local fn = i.Ir.Fn("letfn_1", i.Ir.Body, 1,
     L{place_param, i.Ir.ValueParam(1, i.Ir.Value(1), i.Ty.u32)},
     L{i.Ir.Return(L{i.Ir.Ref(i.Ir.Value(1), i.Ty.u32)})})
 assert(fn.role.kind == "Body" and fn.hidden == 1 and fn.params[1].input == 0)
+local foreign=i.Ir.Foreign("host_add",L{i.Ty.InValue(i.Ty.u32),i.Ty.InValue(i.Ty.u32)},L{i.Ty.u32})
+assert(foreign.target=="host_add" and #foreign.inputs==2 and foreign.results[1]==i.Ty.u32)
 assert(i.Ir.Fn.kind == nil and i.Ir.ValueParam.kind == "ValueParam")
 assert(not pcall(i.Ir.Fn, "bad", i.Ir.Body, 0, L{i.Ty.u32}, L{}, L{}, L{}))
 

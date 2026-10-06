@@ -45,7 +45,8 @@ static int emit_edge(void *sink,uint32_t origin,uint32_t target) {
 
 int main(void) {
     int ok=0;
-    if(ABC_SYMBOLIC_VERSION_CAP!=8) return fail("version cap changed");
+    if(ABC_BLOCK_VERSION_LIMIT!=8) return fail("block version limit changed");
+    if(ABC_OPTIMIZER_PATH_LIMIT!=4096) return fail("optimizer path limit changed");
     uint8_t constant_code[]={OP_PUSH8_A,40,OP_PUSH8_B,2,OP_ADD_A,OP_NEG_A,OP_NOT_A,OP_RET,0,1};
     abc_symbolic_context dispatched={0};
     abc_symbolic_machine machine={.code=constant_code,.pc=0,.end=sizeof constant_code,.context=&dispatched};
@@ -134,7 +135,7 @@ int main(void) {
     if(abc_symbolic_fold_float(OP_FADD_A,one,two)!=vm_float_bits(3.0)) return fail("float addition fold");
     uint64_t nan=vm_float_bits(NAN);
     if(abc_symbolic_fold_float(OP_FEQ_A,nan,nan)!=0) return fail("NaN comparison semantics");
-    puts("validated generated symbolic dispatch, call/return transitions, effects, shared contexts, folding, branches, and version cap");
+    puts("validated generated symbolic dispatch, call/return transitions, effects, shared contexts, folding, branches, and local block-version limit");
     return 0;
 }
 

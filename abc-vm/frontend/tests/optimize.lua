@@ -139,7 +139,7 @@ join:
 .export sari3
 ]])
 local optimized = Compiler.optimize(input)
-check(#optimized <= #input, "symbolic optimization respects the default no-growth policy")
+check(#optimized > 0, "symbolic optimization emits a verified canonical module without a no-growth gate")
 check(Compiler.optimize(optimized) == optimized, "optimization reaches a byte-identical fixpoint")
 local recursive = Assembler.assemble([[
 .function loop 1 1
@@ -213,8 +213,8 @@ local descriptorDceInput=Assembler.assemble([=[
 .codeaddr 0 descriptor_test
 ]=])
 local descriptorDceOptimized=Compiler.optimize(descriptorDceInput)
-check(#descriptorDceOptimized<=#descriptorDceInput and Compiler.optimize(descriptorDceOptimized)==descriptorDceOptimized,
-  "descriptor optimization is non-growing and remains at a fixpoint")
+check(Compiler.optimize(descriptorDceOptimized)==descriptorDceOptimized,
+  "descriptor optimization remains at a fixpoint")
 local descriptorRootInput=Assembler.assemble([=[
 .profile dynamic
 .datazero 8
@@ -228,8 +228,8 @@ local descriptorRootInput=Assembler.assemble([=[
 .export descriptor_root
 ]=])
 local descriptorRootOptimized=Compiler.optimize(descriptorRootInput)
-check(#descriptorRootOptimized<=#descriptorRootInput and Compiler.optimize(descriptorRootOptimized)==descriptorRootOptimized,
-  "GC-root descriptor graphs remain valid at a non-growing fixpoint")
+check(Compiler.optimize(descriptorRootOptimized)==descriptorRootOptimized,
+  "GC-root descriptor graphs remain valid at a fixpoint")
 check(recursiveOptimized ~= recursive and Compiler.optimize(recursiveOptimized) == recursiveOptimized, "stable self-tail frames become deterministic residual backedges")
 local directReturnInput = Assembler.assemble([=[
 .function wrapper 1 1
@@ -363,7 +363,7 @@ local memoryInput = Assembler.assemble([[
 .export frame
 ]])
 local memoryOptimized = Compiler.optimize(memoryInput)
-check(#memoryOptimized <= #memoryInput, "full-profile optimization preserves the source when a larger rewrite is unsafe")
+check(#memoryOptimized > #memoryInput, "full-profile optimization retains a canonical larger rewrite")
 check(Compiler.optimize(memoryOptimized) == memoryOptimized, "full-profile output reaches a byte-identical fixpoint")
 local memPairInput = Assembler.assemble([[
 .profile memory
@@ -437,8 +437,8 @@ local dynamicInput = Assembler.assemble([[
 .export f_w_add_w
 ]])
 local dynamicOptimized = Compiler.optimize(dynamicInput)
-check(#dynamicOptimized <= #dynamicInput and Compiler.optimize(dynamicOptimized) == dynamicOptimized,
-  "dynamic-effect optimization is non-growing and reaches a deterministic fixpoint")
+check(Compiler.optimize(dynamicOptimized) == dynamicOptimized,
+  "dynamic-effect optimization reaches a deterministic fixpoint")
 local wideOverflowInput=Assembler.assemble([[
 .profile dynamic
 .descriptor primitive W u64
@@ -467,8 +467,8 @@ local foreignInput = Assembler.assemble([[
 .export note
 ]])
 local foreignOptimized = Compiler.optimize(foreignInput)
-check(#foreignOptimized <= #foreignInput and Compiler.optimize(foreignOptimized) == foreignOptimized,
-  "ordered foreign-effect optimization is non-growing at a deterministic fixpoint")
+check(Compiler.optimize(foreignOptimized) == foreignOptimized,
+  "ordered foreign-effect optimization reaches a deterministic fixpoint")
 local mixedCallableInput = Assembler.assemble([[
 .profile callables
 .datazero 8
@@ -493,8 +493,8 @@ local mixedCallableInput = Assembler.assemble([[
 .export invoke
 ]])
 local mixedCallableOptimized = Compiler.optimize(mixedCallableInput)
-check(#mixedCallableOptimized <= #mixedCallableInput and Compiler.optimize(mixedCallableOptimized) == mixedCallableOptimized,
-  "callable-profile optimization is conservative and reaches a deterministic fixpoint")
+check(Compiler.optimize(mixedCallableOptimized) == mixedCallableOptimized,
+  "callable-profile optimization reaches a deterministic fixpoint")
 local finiteCallableInput = Assembler.assemble([[
 .profile callables
 .datazero 16
@@ -526,8 +526,8 @@ invoke:
 .export choose
 ]])
 local finiteCallableOptimized = Compiler.optimize(finiteCallableInput)
-check(#finiteCallableOptimized <= #finiteCallableInput and Compiler.optimize(finiteCallableOptimized) == finiteCallableOptimized,
-  "finite callable-set optimization is conservative at a deterministic fixpoint")
+check(Compiler.optimize(finiteCallableOptimized) == finiteCallableOptimized,
+  "finite callable-set optimization reaches a deterministic fixpoint")
 local escapingCallable = Assembler.assemble([[
 .profile callables
 .datazero 8
@@ -662,7 +662,7 @@ local optimizedTrap = tonumber(assert(listing:match("(%x+)%s+DIVU_A")), 16)
 local originalTrap = tonumber(assert(originalListing:match("(%x+)%s+DIVU_A")), 16)
 check(provenance[optimizedTrap] == originalTrap, "optimizer provenance maps a residual trap to its original bytecode offset")
 check(listing:match("MUL") and listing:match("ADD"),
-  "conservative no-growth output retains the verified arithmetic schedule")
+  "canonical output retains the verified arithmetic schedule")
 check(listing:match("ADDI_A%s+7") or listing:match("PUSH8_[AB]%s+7"),
   "residual arithmetic retains its literal seven")
 local scalar = assert(io.popen(string.format("%q run %q addk 35 --interpreted", root .. "../build/abc", residual), "r"))

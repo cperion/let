@@ -9,7 +9,7 @@ This suite compares four ABC execution paths with LuaJIT and a handwritten nativ
 - LuaJIT with its JIT disabled and enabled;
 - equivalent handwritten C compiled by Clang.
 
-The inputs use programs accepted by the current scalar SLet frontend.
+The inputs deliberately exercise the scalar-integer portion of the production SLet frontend.
 
 ```sh
 make -C ../.. all -j8
@@ -48,7 +48,7 @@ Steady-state execution excludes process startup, module reading, verification, V
 
 ## Results on this host
 
-Ryzen 7 PRO 8840HS, Clang 22.1.8, LuaJIT 2.1.1785763465, Linux x86-64. All processes were pinned to CPU 2. Absolute values vary with frequency and system load; ratios are generally more useful.
+Ryzen 7 PRO 8840HS, Clang 22.1.8, LuaJIT 2.1.1785763465, Linux x86-64. All processes were pinned to CPU 0. Absolute values vary with frequency and system load; ratios are generally more useful.
 
 ### Steady state
 
@@ -56,14 +56,14 @@ Median nanoseconds per iteration or recursive call; lower is better.
 
 | benchmark | ABC interpreted | ABC eager | ABC lazy | ABC C AOT | LuaJIT off | LuaJIT | native C |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `loop` | 14.479 | 1.476 | 1.484 | 1.264 | 49.319 | 1.562 | 1.262 |
-| `skip` | 13.072 | 1.271 | 1.270 | 1.263 | 43.088 | 1.294 | 1.261 |
-| `branch` | 15.805 | 1.153 | 1.926 | 0.752 | 36.636 | 3.563 | 0.719 |
-| `sum2` | 24.242 | 1.365 | 1.493 | 1.265 | 79.919 | 1.317 | 1.263 |
-| `mul` | 9.920 | 1.067 | 0.957 | 0.350 | 24.490 | 3.371 | 0.350 |
-| `divide` | 11.443 | 2.983 | 2.861 | 1.059 | 39.215 | 7.410 | 1.060 |
-| `mix` | 11.865 | 1.376 | 1.299 | 0.870 | 35.681 | 3.962 | 0.860 |
-| `fib(30)` | 8.530 | 2.198 | 2.856 | 1.488 | 9.026 | 1.669 | 0.531 |
+| `loop` | 14.130 | 1.485 | 1.496 | 1.272 | 48.679 | 1.573 | 1.271 |
+| `skip` | 13.305 | 1.284 | 1.286 | 1.272 | 43.999 | 1.298 | 1.265 |
+| `branch` | 15.236 | 1.167 | 1.952 | 0.802 | 37.212 | 3.559 | 0.719 |
+| `sum2` | 24.695 | 1.382 | 1.514 | 1.271 | 80.940 | 1.292 | 1.269 |
+| `mul` | 10.123 | 1.069 | 0.971 | 0.373 | 24.834 | 3.372 | 0.351 |
+| `divide` | 11.682 | 2.973 | 2.869 | 1.064 | 40.401 | 7.502 | 1.059 |
+| `mix` | 12.122 | 1.390 | 1.307 | 0.874 | 34.804 | 3.973 | 0.861 |
+| `fib(30)` | 8.445 | 2.236 | 2.912 | 0.534 | 9.109 | 1.640 | 0.536 |
 
 ### Ratios
 
@@ -71,29 +71,29 @@ Each column is the left runtime divided by the right runtime. Values above 1 mea
 
 | benchmark | eager / ABC C | ABC C / native C | eager / native C | lazy / eager | eager / LuaJIT | I/E speedup |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `loop` | 1.17x | 1.00x | 1.17x | 1.01x | 0.94x | 9.81x |
-| `skip` | 1.01x | 1.00x | 1.01x | 1.00x | 0.98x | 10.28x |
-| `branch` | 1.53x | 1.05x | 1.60x | 1.67x | 0.32x | 13.71x |
-| `sum2` | 1.08x | 1.00x | 1.08x | 1.09x | 1.04x | 17.76x |
-| `mul` | 3.05x | 1.00x | 3.05x | 0.90x | 0.32x | 9.30x |
-| `divide` | 2.82x | 1.00x | 2.82x | 0.96x | 0.40x | 3.84x |
-| `mix` | 1.58x | 1.01x | 1.60x | 0.94x | 0.35x | 8.62x |
-| `fib(30)` | 1.48x | 2.80x | 4.14x | 1.30x | 1.32x | 3.88x |
+| `loop` | 1.17x | 1.00x | 1.17x | 1.01x | 0.94x | 9.51x |
+| `skip` | 1.01x | 1.01x | 1.01x | 1.00x | 0.99x | 10.37x |
+| `branch` | 1.46x | 1.12x | 1.62x | 1.67x | 0.33x | 13.06x |
+| `sum2` | 1.09x | 1.00x | 1.09x | 1.10x | 1.07x | 17.87x |
+| `mul` | 2.86x | 1.06x | 3.05x | 0.91x | 0.32x | 9.47x |
+| `divide` | 2.80x | 1.00x | 2.81x | 0.97x | 0.40x | 3.93x |
+| `mix` | 1.59x | 1.02x | 1.61x | 0.94x | 0.35x | 8.72x |
+| `fib(30)` | 4.19x | 1.00x | 4.17x | 1.30x | 1.36x | 3.78x |
 
-Generated C matches handwritten C within about 1% on six loop kernels and within 5% on `branch`. Recursive generated C is 2.80x slower than handwritten C, making call lowering the clearest C-backend gap. Eager native is within 17% of generated C on `loop`, within 8% on `sum2`, and effectively tied on `skip`; multiply and divide remain the clearest native instruction-selection gaps. Lazy activation has the same steady-state performance as eager on the straight-line loops, with additional path/version overhead on `branch` and recursive `fib`.
+Generated C is effectively tied with handwritten C on `loop`, `sum2`, `divide`, and recursive `fib`; `branch` and `mul` remain within about 10%. Internal `static inline` linkage, direct scalar calls, ordinary typed C locals, and whole-program `u32` call/result inference reduced recursive `fib` from 2.80x handwritten C to parity. The inferred `uint32_t` signature lets Clang convert the second recursive call into the same accumulator loop used for handwritten C. Eager native remains close to generated C on `loop`, `sum2`, and `skip`; multiply and divide remain the clearest native instruction-selection gaps.
 
 ### VM fixed costs
 
 | benchmark | frontend | module read | interpreted load | eager load | lazy load | lazy first-arrival premium | native image |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `loop` | 16.819 ms | 4.97 us | 15.10 us | 58.47 us | 35.16 us | 45.02 us | 357 B |
-| `skip` | 16.260 ms | 5.39 us | 17.11 us | 54.84 us | 32.23 us | 85.91 us | 338 B |
-| `branch` | 17.935 ms | 5.43 us | 15.74 us | 75.52 us | 32.73 us | 197.38 us | 1,194 B |
-| `sum2` | 17.625 ms | 5.34 us | 14.58 us | 60.75 us | 34.77 us | 1,590.38 us | 557 B |
-| `mul` | 15.986 ms | 5.00 us | 14.90 us | 51.87 us | 31.81 us | 37.59 us | 255 B |
-| `divide` | 16.736 ms | 4.79 us | 14.70 us | 52.66 us | 41.86 us | 1,600.18 us | 431 B |
-| `mix` | 16.604 ms | 5.01 us | 14.66 us | 53.91 us | 29.35 us | 32.54 us | 290 B |
-| `fib` | 16.405 ms | 4.84 us | 14.83 us | 56.80 us | 33.17 us | 106.32 us | 1,021 B |
+| `loop` | 17.272 ms | 5.02 us | 22.81 us | 54.71 us | 33.19 us | 0.00 us | 357 B |
+| `skip` | 17.206 ms | 4.99 us | 15.46 us | 72.12 us | 46.31 us | 58.56 us | 338 B |
+| `branch` | 18.782 ms | 5.24 us | 21.38 us | 77.34 us | 37.04 us | 127.77 us | 1,194 B |
+| `sum2` | 19.213 ms | 5.32 us | 21.43 us | 64.46 us | 37.70 us | 63.36 us | 557 B |
+| `mul` | 17.216 ms | 5.21 us | 21.98 us | 67.51 us | 44.34 us | 38.37 us | 255 B |
+| `divide` | 17.551 ms | 7.94 us | 21.53 us | 57.07 us | 43.61 us | 366.20 us | 431 B |
+| `mix` | 17.516 ms | 5.07 us | 21.04 us | 55.71 us | 43.25 us | 382.24 us | 290 B |
+| `fib` | 16.562 ms | 4.89 us | 15.07 us | 57.23 us | 42.51 us | 76.98 us | 1,021 B |
 
 Eager load residualizes every load-time-reachable context. Lazy load installs activation stubs. The lazy first-arrival premium is first execution minus median steady execution, clamped to zero, so it is noisy when activation is small.
 
@@ -101,20 +101,20 @@ Eager load residualizes every load-time-reachable context. Lazy load installs ac
 
 | benchmark | `abc c` emission | Clang compilation | executable |
 | --- | ---: | ---: | ---: |
-| `loop` | 13.963 ms | 77.707 ms | 13,200 B |
-| `skip` | 14.112 ms | 78.121 ms | 13,200 B |
-| `branch` | 13.623 ms | 77.285 ms | 13,200 B |
-| `sum2` | 13.644 ms | 77.076 ms | 13,200 B |
-| `mul` | 15.243 ms | 79.146 ms | 13,192 B |
-| `divide` | 13.896 ms | 76.330 ms | 13,200 B |
-| `mix` | 14.144 ms | 77.796 ms | 13,192 B |
-| `fib` | 14.587 ms | 74.984 ms | 13,240 B |
+| `loop` | 15.924 ms | 77.164 ms | 13,152 B |
+| `skip` | 15.123 ms | 74.770 ms | 13,152 B |
+| `branch` | 15.970 ms | 77.832 ms | 13,152 B |
+| `sum2` | 15.568 ms | 76.517 ms | 13,152 B |
+| `mul` | 16.256 ms | 76.964 ms | 13,152 B |
+| `divide` | 15.983 ms | 76.993 ms | 13,152 B |
+| `mix` | 17.263 ms | 79.405 ms | 13,152 B |
+| `fib` | 14.993 ms | 75.471 ms | 13,192 B |
 
 ## Caveats
 
 - These are eight small scalar integer programs, not a general language benchmark suite.
-- The scalar SLet frontend selects immediate arithmetic, C-operand, immediate-branch, and direct two-stack branch forms. It is not the full SLet partial evaluator and does not perform global stack scheduling.
-- LuaJIT receives idiomatic Lua with explicit 32-bit bit operations. The handwritten C baseline uses equivalent loops. ABC C AOT is generated directly from validated residual IR.
+- Frontend lowering for these scalar inputs selects immediate arithmetic, C-operand, immediate-branch, and direct two-stack branch forms. The benchmark does not exercise the full production source surface or perform global stack scheduling.
+- LuaJIT receives idiomatic Lua with explicit 32-bit bit operations. The handwritten C baseline uses equivalent loops. ABC C AOT is generated from validated semantic residue produced by the shared symbolic executor.
 - `fib` deliberately measures real recursion. The loop workloads use direct tail calls that become loops.
 - Timings are medians from one pinned core, not confidence intervals. Repeat the suite before interpreting small differences.
 - Portable C emission and native stencil generation optimize different machine-level concerns. Similar residual semantics do not imply similar code quality.

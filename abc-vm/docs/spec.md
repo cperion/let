@@ -499,29 +499,29 @@ The compiled tier has two host-selected policies over the same verified bytecode
 
 The measurements (Status and measurements) show why this is the right target. Residualization removes only 11% of operations relative to the bytecode, because the frame instructions and operand forms have already made the bytecode nearly a residual program. The glue is in today's state-keyed stencils, which spend about five machine instructions per bytecode instruction; register-addressed stencils spend one per residual operation.
 
-## Native tier: residual to C
+## Portable build target: residual to C
 
-The native tier emits C from the residual program, by string building, and leaves register allocation, inlining and instruction scheduling to a C compiler. It is a build-time product: nothing is generated at run time, which suits microcontrollers running from flash and platforms that forbid writable executable memory.
+The portable-C target emits C from symbolic semantic residue, by string building, and leaves register allocation, inlining and instruction scheduling to a C compiler. It is a build-time product: nothing is generated at run time, which suits microcontrollers running from flash and platforms that forbid writable executable memory. The term **native JIT** elsewhere in this document means the run-time register-addressed stencil sink.
 
 | Residual program | C |
 | --- | --- |
-| a value | a local `V` variable |
+| a value | a typed C local (`uint32_t`, `int32_t`, `uint64_t`, and so on) |
 | a stack position that crosses a block boundary | a home variable; the C compiler removes the copies |
 | a block version | a label, reached by `goto` |
 | a `u32` operation | `uint32_t` arithmetic, so masks vanish |
 | compare-and-branch | `if (...) goto label;` |
-| a Let function | one C function: a single result as its return value, several as a small struct returned in registers |
-| an abort | a call to a `noreturn` function that returns to the host with `longjmp`; aborts are terminal, so the normal path carries no error checks |
+| a Let function | one C function: eligible single results return directly; eligible multiple results use a small struct; generic boundary cases use an adapter |
+| an abort or trapping operation | status/error plumbing only along the functions that can reach it; proven non-trapping calls have natural scalar signatures |
 | a self tail call | the parameters rebound, then `goto` to the entry |
-| a tail call to another function | `return g(...)` marked `musttail` when the signatures match; otherwise the functions that tail-call one another share one C function, with a label per function |
+| a tail call to another function | direct `return g(...)` when signatures agree; otherwise use the required generic boundary |
 | `FCALL` | a direct call to the C function |
 | `CALLI` | a C indirect call; no inline cache, since the branch predictor does that job |
 
-**Why it is simple.** The VM already knows every stack position, every value's lifetime and the order of every value, so the emitter only prints. In production it is the generator's builder run across a function and emitting C, the same semantics table that produces the interpreter's handlers and the compiled tier's stencils, so all three targets can be checked against one another with the same differential tests.
+**Why it is simple.** The symbolic VM already knows every stack position, value lifetime and operation order. The generated dispatcher drives a C-specific semantic-residue builder; the writer then maps values and operations mechanically to typed C declarations, expressions, labels and calls. It does not route native placement through a generic value machine, and all three targets can be checked against one another with the same differential tests.
 
 **One function per word.** Each Let function becomes one C function, so the output is readable, works with ordinary debuggers, and links naturally with foreign C code, and the C compiler inlines small functions and handles recursion on the C stack. One function for a whole module would defeat inlining and make the C compiler's time grow badly with module size. The calling convention decides the speed: on recursive fib(32), returning results through an output array and checking a return code after every call costs 2.10 ns per call, while results in registers with `noreturn` aborts cost 1.03, the same as hand-written C.
 
-**The canonical route to C.** The native tier replaces a separate C backend in the Let compiler: Let compiles to bytecode, and the VM derives the interpreter, the compiled tier and C from it. One semantics stands behind every target.
+**The canonical route to C.** The portable-C target replaces a separate C backend in the Let compiler: Let compiles to bytecode, and the VM derives the interpreter, the compiled tier and C from it. One semantics stands behind every target.
 
 ## Bytecode module format and verification
 
@@ -566,7 +566,7 @@ Each milestone ends with a Let program that agrees across VM execution and resid
 
 ## Status and measurements
 
-**Milestone 1 is built.** `gen.lua` generates the interpreters and the JIT stencils, `jit.c` is the copy-and-patch compiler, and `harness.c` holds a test-only direct instruction model, the random tests and the benchmarks. It implements 100 opcodes: integer arithmetic with normalization, compares, branches, calls with `TCALL`, context access and checks that abort. Floats, memory, `SWITCH` and indirect and foreign calls belong to later milestones. All four builds match the test model on 30,000 random programs, 17% of which end in an abort. This model validates VM instructions; it is not a Let source evaluator or compiler execution path.
+**Current implementation status.** The checked runtime now implements the typed, memory, callable, foreign and dynamic profiles; interpreted/eager/lazy execution; the shared generated symbolic VM; direct register-addressed native stencils; and canonical ABC optimization. Strict portable-C emission currently covers the integer/direct-call residual subset, including typed locals and direct scalar signatures; float, memory, indirect/foreign, managed and dynamic C lowering remain. The production Let/SLet frontend covers scalar and aggregate control, sums, references/views, typed and managed callables, generic `any`, dynamic calls and imports. Remaining implementation work is tracked in `dynamic-profile.md` and `frontend-gap-analysis.md`. The measurements below are retained as dated design evidence from the earlier prototype sequence, not as the current feature-status list.
 
 Time per executed instruction, in ns (best of five runs on a shared x86-64 VM):
 
@@ -624,7 +624,7 @@ So the bytecode is already close to a residual program, and the cost lies in per
 
 **Residual stencils prototyped.** A prototype (experiments, `residual_stencils/`) generates 161 register-addressed stencils with the real toolchain (clang, then the extractor), copy-and-patches the residual program for `skip`'s inlined loop into executable memory with `jit.c`'s rules, and checks the result against native C. Timed back to back on the same machine, in ns per iteration: LuaJIT 1.84, residual stencils 1.90, native C 1.96 (1.99 inlined), today's JIT with `next32` inlined by hand 4.07. Concatenated register-addressed stencils therefore reach native speed on this loop, 2.1 times faster than today's JIT. With registers chosen mechanically by the stack cache (renaming and copy-on-write), the loop runs at the same speed as with a hand-written allocation. Two limits remain. The loop is latency-bound, which hides extra instructions, so a throughput-bound loop and a branchy one still need measuring. And two clang quirks cost instructions (a zero test takes 4 instead of 2, a subtract-immediate goes through a register); both are fixable with per-constant stencils or sentinel bytes.
 
-**Native tier prototyped.** An emitter of about 250 lines (experiments, `emitc.js`) prints the residual program of each block as C, with home variables at block boundaries, labels for blocks and one C function per Let function. All 19 fixed examples produce their specified results, including multiple results, records, methods, the result bit, tail calls and the division-by-zero abort. Section 13's `skip` running 12.5 million iterations, taken from Let source through bytecode and residual C, runs at 2.14 ns per iteration, the same as hand-written C in the same run (2.14 with `next32` inlined or not). Recursive fib(32), where no inlining can hide the calling convention, runs at 1.03 ns per call with results in registers and noreturn aborts, the same as hand-written C, against 2.10 with results through an output array and a return-code check after every call.
+**Portable-C target prototyped.** An emitter of about 250 lines (experiments, `emitc.js`) prints the residual program of each block as C, with home variables at block boundaries, labels for blocks and one C function per Let function. All 19 fixed examples produce their specified results, including multiple results, records, methods, the result bit, tail calls and the division-by-zero abort. Section 13's `skip` running 12.5 million iterations, taken from Let source through bytecode and residual C, runs at 2.14 ns per iteration, the same as hand-written C in the same run (2.14 with `next32` inlined or not). Recursive fib(32), where no inlining can hide the calling convention, runs at 1.03 ns per call with results in registers and noreturn aborts, the same as hand-written C, against 2.10 with results through an output array and a return-code check after every call.
 
 **Compile cost measured.** Compiling and running a 15,000-instruction straight-line program once takes 26.8 ns per instruction on the JIT, against 0.7 ns on the interpreter. Each JIT run also spends about 115 µs mapping its code region and allocating 64K-entry decode tables, a fixed cost to remove from `jit.c`; it dominated the 20,000 tiny programs of the random test suite (2.4 s on the JIT against 0.13 s on the interpreter).
 
@@ -651,7 +651,7 @@ Specialized on opcode, routing byte and cache state, the fork would need about 3
 
 **4. Float branches.** Decided: add `FBEQ` and stop there. `a != b` compiles to `FBEQ` with the two targets swapped, and `not (a < b)` to `FBLT` with swapped targets. Comparisons follow IEEE-754: `==` and every ordered comparison are false when an operand is NaN, and `!=` is the negation of `==`, so `NaN != NaN` is true. That keeps `a != b` and `not (a == b)` the same expression, which the compiler relies on. The Let sentence "a NaN comparison is false" should be read as covering `==`, `<`, `<=`, `>` and `>=`.
 
-**5. Targets.** Decided: x86-64 first, ARM64 next. ARM64's 24 argument registers leave room for larger banks, sized by the same measurements as on x86-64. A 32-bit target is not planned: `u64`, `i64` and `f64` assume 64-bit cells, and the native tier's C output (decision 16) covers small machines.
+**5. Targets.** Decided: x86-64 first, ARM64 next. ARM64's 24 argument registers leave room for larger banks, sized by the same measurements as on x86-64. A 32-bit target is not planned: `u64`, `i64` and `f64` assume 64-bit cells, while the portable-C output (decision 16) covers small machines with a conforming 64-bit-cell C implementation.
 
 **6. Range reads.** Decided: adopt `CGETR.X d, n`, which copies the n cells from depth d of C onto X, shallowest first. It copies a whole record off C in one instruction. Measured after the frame instructions, it removes 1.5% of executed instructions across the 19 examples and 11% to 26% in the record programs. A store form, `CSETR`, would remove only 8 instructions in total, so it is not adopted.
 
@@ -675,7 +675,7 @@ Specialized on opcode, routing byte and cache state, the fork would need about 3
 
 **15. Execution policy is configuration.** Decided: the VM does not inspect source filenames or distinguish `.slet` from `.let`; it executes verified bytecode under a policy selected by its host. The Let compiler may independently select interpreted, eager-JIT or lazy-JIT for staging and residual modules. Interpreted mode emits no native code. Eager JIT compiles every block version reachable from load-time contexts before execution and uses generic checked operations for unavailable facts. Lazy JIT creates capped versions on first context arrival through stable stubs, including checked tags and layout tokens when present. There are no hotness counters, automatic tier promotion or speculative deoptimization.
 
-**16. Native tier: residual to C.** Decided: the VM emits C from the residual program by string building, as a build-time product, and that is the canonical route to C, replacing a separate C backend in the Let compiler, so every target derives from one semantics. The C output preserves generic checked operations required by run-time dynamism; it is independent of the interpreter/eager/lazy policy chosen when bytecode runs in the VM.
+**16. Portable-C target: residual to C.** Decided: the VM emits C from symbolic semantic residue by string building, as a build-time product, and that is the canonical route to C, replacing a separate C backend in the Let compiler, so every target derives from one semantics. The C output preserves generic checked operations required by run-time dynamism; it is independent of the interpreter/eager/lazy policy chosen when bytecode runs in the VM. Internal proven scalar calls use natural typed C parameters/results and ordinary locals; pointer-array/status adapters are reserved for exports and genuinely generic, trapping or multi-result boundaries.
 
 **17. Dynamic-value and managed-ownership profile.** Decided: profile 5 adds scalar kind `any`, descriptor/constant tables, precise module-root metadata, managed reference/view tracing, collected ordered-map open words with non-owning layout tokens, allocation-free verification and public generic operations behind quickenable `EXT`. Generic operations reuse typed semantics and A/B routing; missing dynamic results abort rather than becoming `unit`; `f64` never boxes; and compiled proven wide integers box only on escape. Open-word keys and values are reclaimed with the word; layout tokens contain no key metadata, change on structural mutation, and may guard constant-field caches and capped block versions. A source compiler uses profile 5 for reachability-based ownership in Let. The capability profile neither selects execution policy nor depends on a source extension. `dynamic-profile.md` is normative.
 

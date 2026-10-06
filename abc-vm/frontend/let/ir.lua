@@ -88,6 +88,7 @@ function Ir.Store:each(fn) end
 function Ir.View:each(fn) end
 function Ir.Call:each(fn) end
 function Ir.Indirect:each(fn) end
+function Ir.Dynamic:each(fn) end
 function Ir.If:each(fn)
     eachStatement(self.yes, fn)
     eachStatement(self.no, fn)

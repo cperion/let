@@ -178,6 +178,10 @@ function M.function_(fn, definitions, seeded)
                 local bodyEnd = copy(initialized)
                 checkList(stmt.body, copy(visible), storages, true, bodyEnd)
                 replace(initialized, bodyEnd)
+            elseif kind == "Dynamic" then
+                for _,operand in ipairs(stmt.operands) do if M.expr(operand,visible,storages)~=S.any then D.bug("ir-type","Dynamic word operands must be any values") end end
+                local resultType=stmt.operation.kind=="WordHas" and S.bool or stmt.operation.kind=="WordCount" and S.u32 or S.any
+                for _,result in ipairs(stmt.results) do bind(visible,result.id,resultType) end
             elseif kind == "Call" or kind == "Indirect" then
                 local target = definitions[stmt.target]
                 if kind == "Call" and not target then

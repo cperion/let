@@ -8,8 +8,8 @@
 - **`callable-profile.md`:** Milestone 3 checked-core ABI, indirect site signatures, bounded rewriting and lexical closures.
 - **`foreign-profile.md`:** typed named extern tables, VM-local binding, generated C-ABI bridges, and `FCALL`.
 - **`dynamic-profile.md`:** one-cell `any`, generic operations, collected open-word maps and layout tokens, Let managed references/views, module trace metadata, GC, and eager/lazy obligations.
-- **`slet-subset.md`:** the LuaJIT scalar frontend's supported syntax and deliberate limits.
-- **`frontend-gap-analysis.md`:** audit of the scalar frontend, the reused ASDL frontend snapshot under `../frontend/`, and the ABC lowering roadmap.
+- **`slet-subset.md`:** the production Let/SLet frontend's supported source paths and deliberate limits.
+- **`frontend-gap-analysis.md`:** implementation audit of the reused ASDL frontend, required compilation boundaries, completed foundation, and remaining source roadmap.
 - **`compiler-continuations.md`:** continuation-directed production lowering, local `CALL`/`TCALL` selection, defunctionalization, recursion as cyclic control flow, and the restricted tail-call-modulo-accumulation optimization.
 - **`symbolic-vm.md`:** generated musttail abstract ABC execution shared by the native, canonical-ABC, and portable-C peer sinks.
 - **`abc-opt.md`:** the standalone C ABC-to-ABC symbolic optimizer, canonical stack re-projection, frontend-fact contract, provenance, fixpoint and differential guarantees.

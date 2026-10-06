@@ -263,6 +263,8 @@ function Parser:primary()
     elseif token.kind == "op" and token.text == "(" then
         return self:parenOrSignature()
     elseif token.kind == "op" and token.text == "{" then
+        local name,separator=self.tokens[self.pos+1],self.tokens[self.pos+2]
+        if name and name.kind=="name" and separator and separator.text=="=" then return self:openSupply() end
         return self:schema()
     elseif token.kind == "op" and token.text == "[" then
         return self:arrayLiteral()
@@ -275,6 +277,11 @@ function Parser:primary()
         return A.c.Reference(A.name(token), S(token.span))
     end
     D.reject("parse", string.format("Expected an expression but found %q", token.text), token.span)
+end
+
+function Parser:openSupply()
+    local fields=self:fieldSupplies()
+    return A.c.OpenSupply(fields,fields.span)
 end
 
 -- `(e)` groups; `(a, b)` and `()` are signature input lists and require `:` with a result.

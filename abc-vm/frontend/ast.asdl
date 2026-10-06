@@ -45,6 +45,8 @@ module Ast {
        | Apply(Expr callee, Expr* arguments)
        | FieldSelect(Expr base, Name field)
        | RecordSupply(Expr schema, FieldSupply* fields)
+       # Let-only bare `{ name = value }`, distinct from a schema and from keyed application.
+       | OpenSupply(FieldSupply* fields)
        | ArrayExpr(Expr* items)
        | IndexExpr(Expr base, Expr index)
        | SchemaExpr(SchemaMember* members)

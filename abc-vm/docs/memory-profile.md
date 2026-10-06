@@ -2,9 +2,11 @@
 
 The public C runtime implements all 54 integer/address memory instructions
 from `spec.md`. The optimized research engines in `vm/` are separate; their
-integer-only opcode buffers are not serialized public modules. The scalar SLet
-frontend uses frame blocks for lexical closure captures; general aggregate
-source lowering comes later. See [callable-profile.md](callable-profile.md).
+integer-only opcode buffers are not serialized public modules. The production Let/SLet
+frontend lowers local records, arrays, sums, references, slices and strings through
+checked frame or managed storage. Module storage, raw-pointer source forms and complete
+deep ownership/provenance analysis remain frontend work. See
+[callable-profile.md](callable-profile.md).
 
 ```sh
 make test

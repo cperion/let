@@ -67,10 +67,40 @@ done:
  CALL.A add 2
  RET 0 1
 .export caller
+
+ .function fib 1 1
+  PUSH.A 2
+  CGET.B 0
+  BLEU recurse
+  CGET.A 0
+  RET 1 1
+ recurse:
+  CGET.A 0
+  SUBI.A 1
+  ZX32.A
+  CALL.A fib 1
+  CGET.A 0
+  SUBI.A 2
+  ZX32.A
+  CALL.A fib 1
+  MOVE.AB
+  ADD.A
+  ZX32.A
+  RET 1 1
+ .function fib_main 0 1
+  PUSH.A 10
+  TCALL fib 0 1
+ .export fib_main
 ]]
 write(tmp.."/program.abcasm",assembly)
 run(quote(abc).." asm "..quote(tmp.."/program.abcasm").." -o "..quote(tmp.."/program.abc"))
 run(quote(abc).." c "..quote(tmp.."/program.abc").." -o "..quote(tmp.."/program.c"))
+local generated=assert(io.open(tmp.."/program.c","rb"));local generated_text=generated:read("*a");generated:close()
+assert(not generated_text:find("values%[") and not generated_text:find("call_args",1,true) and
+       not generated_text:find("call_results",1,true),
+       "portable C direct path must use C locals and scalar calls, not generic value/argument/result arrays")
+assert(generated_text:find("static inline uint64_t abc_aot_function_",1,true),
+       "portable C pure scalar functions use direct internal signatures")
 
 local harness=[[
 #include <inttypes.h>
@@ -94,7 +124,8 @@ int main(void) {
            invoke("choose",9,0,1) ||
            invoke("choose",10,0,1) ||
            invoke("loop",5,32,2) ||
-           invoke("caller",0,0,0);
+           invoke("caller",0,0,0) ||
+           invoke("fib_main",0,0,0);
 }
 ]]
 write(tmp.."/harness.c",harness)
@@ -106,10 +137,13 @@ local interpreted=table.concat({
     capture(quote(abc).." run "..quote(tmp.."/program.abc").." choose 10 --interpreted"),
     capture(quote(abc).." run "..quote(tmp.."/program.abc").." loop 5 32 --interpreted"),
     capture(quote(abc).." run "..quote(tmp.."/program.abc").." caller --interpreted"),
+    capture(quote(abc).." run "..quote(tmp.."/program.abc").." fib_main --interpreted"),
 },"\n")
 local aot=capture(quote(tmp.."/aot"))
 assert(aot==interpreted,
     ("portable C mismatch\nAOT:\n%s\ninterpreter:\n%s"):format(aot,interpreted))
+assert(generated_text:find("static inline uint32_t abc_aot_function_",1,true),
+       "portable C preserves proven private recursive u32 signatures")
 
 run("rm -rf "..quote(tmp))
 print("validated portable C residual arithmetic, branches, loops, calls, and export ABI")

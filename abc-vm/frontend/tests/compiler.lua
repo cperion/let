@@ -30,6 +30,19 @@ check(err.span and err.span.file == "test.slet", "profile diagnostics retain sou
 ok,err=pcall(Compiler.typed,{profile="slet",source="let f(x): u32 = 0\nreturn { functions = { f } }",name="missing.slet"})
 check(not ok and D.is(err) and err.code=="parameter-type",
   "SLet rejects the same unannotated parameter that Let defaults to any")
+local foreignSource=[[
+extern let host_add(a: u32, b: u32): u32
+let add(a: u32, b: u32): u32 = host_add(a, b)
+return { functions = { add } }
+]]
+for _,profile in ipairs({"slet","let"}) do
+  local foreign=Compiler.compile{profile=profile,source=foreignSource,name="foreign."..profile}
+  check(#foreign.sourceUnit.foreigns==1 and foreign.assembly:match("%.extern host_add ii i"),
+    profile.." source extern declarations lower to a verified foreign ABI")
+  check(foreign.assembly:match("FCALL host_add"),profile.." source foreign calls lower to FCALL")
+  local stageOk,stageError=pcall(Compiler.stage,foreign.functions,{profile=profile,entry="add",exports={"add"},mode="interpreted",foreigns=foreign.sourceUnit.foreigns})
+  check(not stageOk and D.is(stageError) and stageError.code=="static-foreign",profile.." source foreign effects reject compile-time execution")
+end
 
 ok, err = pcall(compile, "slet",
     "let x = 1\nlet x = 2\nlet main(): u32 = x")
@@ -109,6 +122,200 @@ for _, profile in ipairs({"slet", "let"}) do
 end
 check(aggregateModules[1]==aggregateModules[2] and aggregateModules[2]==aggregateModules[3] and aggregateModules[4]==aggregateModules[5] and aggregateModules[5]==aggregateModules[6],
   "aggregate source optimized modules are policy-independent in each profile")
+local recursiveTypeSource=[[
+let node = { value: u32, next: link }
+let link = oneof { none: unit, some: ref(node) }
+extern let root(): ptr(node)
+let value(): u32 = do
+  let p = root()
+  return p.value
+end
+return { functions = { value }, types = { node, link } }
+]]
+for _,profile in ipairs({"slet","let"}) do
+  local recursive=Compiler.compile{profile=profile,source=recursiveTypeSource,name="recursive-type."..profile}
+  check(recursive.sourceUnit.typeCells["type:node"]~=nil and recursive.assembly:match("FCALL root"),profile.." seals mutually recursive types through an indirection")
+end
+for _,source in ipairs({
+  "let bad = { child: bad }\nreturn { types = { bad } }",
+  "let a = { b: b }\nlet b = { a: a }\nreturn { types = { a, b } }",
+}) do
+  local cycleOk,cycleError=pcall(Compiler.compile,{profile="slet",source=source,name="type-cycle.slet"})
+  check(not cycleOk and D.is(cycleError) and cycleError.code=="type-cycle","recursive types reject by-value layout cycles")
+end
+
+local pointerSource=[[
+let main(): u32 = do
+  let xs = [40, 1]
+  let p = ptr(xs[0])
+  p[1] += 1
+  let empty: ptr(u32) = null(u32)
+  if p == empty then return 0 end
+  if p != ptr(xs[0]) then return 1 end
+  return p[0] + p[1]
+end
+return { functions = { main } }
+]]
+for _,profile in ipairs({"slet","let"}) do
+  local pointerProgram=Compiler.compile{profile=profile,source=pointerSource,name="pointer."..profile}
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(pointerProgram.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==42,profile.." raw pointer construction, indexing, null, and stores execute in "..mode.." mode")
+  end
+end
+
+local aggregateAnySource=[[
+let pair = { x: u32, y: u32 }
+let box(p: pair): any = p
+let unbox(a: any): pair = a
+let main(): u32 = do
+  let a = box(pair { x = 40, y = 2 })
+  if is(a, pair) then let p = unbox(a) return p.x + p.y end
+  return 0
+end
+return { functions = { main } }
+]]
+local aggregateAny=Compiler.compile{profile="let",source=aggregateAnySource,name="aggregate-any.let"}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(aggregateAny.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"Let boxes, tests, and casts managed aggregates through any in "..mode.." mode")
+end
+
+local methodSource=[[
+let counter = {
+  value: u32,
+  bump(by: u32): u32 = do value += by return value end,
+}
+let parent = { child: counter }
+let by_value(c: counter): u32 = c.bump(2)
+let by_ref(c: ref(counter)): u32 = c.bump(3)
+let main(): u32 = do
+  let c = counter { value = 40 }
+  let copied = by_value(c)
+  let borrowed = by_ref(ref(c))
+  let nested = parent { child = counter { value = 41 } }
+  return copied + borrowed + c.value + nested.child.bump(1)
+end
+return { functions = { main } }
+]]
+for _,profile in ipairs({"slet","let"}) do
+  local methods=Compiler.compile{profile=profile,source=methodSource,name="methods."..profile}
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(methods.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==170,profile.." methods retain interfaces on actual value, reference, and nested-field receivers in "..mode.." mode")
+  end
+end
+
+local retainedMethodSource=[=[
+let counter = {
+  value: u32,
+  bump(by: u32): u32 = do value += by return value end,
+}
+let bind(start: u32): (u32): u32 = do
+  let receiver = counter { value = start }
+  return receiver.bump
+end
+let main(): u32 = do
+  let bump = bind(40)
+  return bump(2)
+end
+return { functions = { main } }
+]=]
+local retainedMethod=Compiler.compile{profile="let",source=retainedMethodSource,name="retained-method.let"}
+check(retainedMethod.assembly:match("MANAGED_COPY") and retainedMethod.assembly:match("_let_adapter_"),
+  "retained method values capture their actual managed receiver")
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(retainedMethod.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"retained method values execute in "..mode.." mode")
+end
+ok,err=pcall(Compiler.typed,{profile="slet",source=retainedMethodSource,name="retained-method.slet"})
+check(not ok and err.code=="slet-forbidden","SLet rejects retained method receivers")
+
+local keyedSource=[[
+let distance { x: u32, y: u32 }: u32 = x * x + y * y
+let main(): u32 = do
+  let with_x = distance { x = 3 }
+  return with_x(4) + distance { y = 4, x = 3 }
+end
+return { functions = { main } }
+]]
+for _,profile in ipairs({"slet","let"}) do
+  local keyed=Compiler.compile{profile=profile,source=keyedSource,name="keyed."..profile}
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(keyed.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==50,profile.." keyed requirements canonicalize full and static partial supplies in "..mode.." mode")
+  end
+end
+local keyedOk,keyedError=pcall(Compiler.compile,{profile="slet",name="keyed-runtime.slet",source=[[
+let add { x: u32, y: u32 }: u32 = x + y
+let bad(n: u32): (u32): u32 = add { x = n }
+return { functions = { bad } }
+]]})
+check(not keyedOk and D.is(keyedError) and keyedError.code=="static-required","partial keyed supply rejects runtime evidence")
+local partialRuntime=Compiler.compile{profile="let",name="partial-runtime.let",source=[[
+let add(a, b: u32): u32 = a + b
+let partial(n: u32): any = add(n)
+return { functions = { partial } }
+]]}
+check(partialRuntime.assembly:match("WORD_DIRECT") and partialRuntime.assembly:match("DCALL"),
+  "Let run-time ordered partial supply opens a word instead of claiming static evidence")
+
+local deferSource=[[
+let push(p: ptr(u32), digit: u32): unit = do
+  p[0] = p[0] * 10 + digit
+  return
+end
+let snapshot(p: ptr(u32)): unit = do
+  let digit = [1]
+  defer push(p, digit[0])
+  digit[0] = 9
+  return
+end
+let nested(p: ptr(u32)): unit = do
+  defer push(p, 1)
+  if true then
+    defer push(p, 2)
+    return
+  end
+  return
+end
+let main(): u32 = do
+  let value = [0]
+  let p = ptr(value[0])
+  snapshot(p)
+  nested(p)
+  return value[0]
+end
+return { functions = { main } }
+]]
+for _,profile in ipairs({"slet","let"}) do
+  local deferred=Compiler.compile{profile=profile,source=deferSource,name="defer."..profile}
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(deferred.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==121,profile.." deferred calls snapshot arguments and leave nested blocks in LIFO order in "..mode.." mode")
+  end
+end
+
+local nestedWordSource=[[
+let main(): u32 = do
+  let limit: u32 = 3
+  let state = [0]
+  let loop(n: u32): u32 = do
+    state[0] += 2
+    if n == limit then return state[0] end
+    return loop(n + 1)
+  end
+  return loop(0)
+end
+return { functions = { main } }
+]]
+for _,profile in ipairs({"slet","let"}) do
+  local nested=Compiler.compile{profile=profile,source=nestedWordSource,name="nested-word."..profile}
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(nested.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==8,profile.." nested words retain lexical values and places through self recursion in "..mode.." mode")
+  end
+end
 
 local aggregateAbiSource = [[
 let pair = { x: u32, y: u16 }
@@ -147,6 +354,35 @@ end
 check(aggregateAbiModules[1]==aggregateAbiModules[2] and aggregateAbiModules[2]==aggregateAbiModules[3] and aggregateAbiModules[4]==aggregateAbiModules[5] and aggregateAbiModules[5]==aggregateAbiModules[6],
   "aggregate ABI residual modules are policy-independent in each profile")
 
+local inferredBlockMatchSource=[=[
+let option = oneof { none: unit, some: u32 }
+let main(): u32 = do
+  let value = option.some(40)
+  let inferred = value {
+    none = || -> do return 0 end,
+    some = |payload| -> do return payload + 2 end,
+  }
+  return inferred
+end
+return { functions = { main } }
+]=]
+for _,profile in ipairs({"slet","let"}) do
+  local program=Compiler.compile{profile=profile,source=inferredBlockMatchSource,name="inferred-block-match."..profile}
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(program.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==42,profile.." infers block-bodied sum handler results in "..mode.." mode")
+  end
+end
+ok,err=pcall(Compiler.typed,{profile="slet",name="mismatched-block-match.slet",source=[=[
+let option = oneof { none: unit, some: u32 }
+let main(): u32 = do
+  let value = option.some(40)
+  let inferred = value { none = || -> do return false end, some = |payload| -> do return payload end }
+  return u32(inferred)
+end
+]=]})
+check(not ok and err.code=="type-mismatch","inferred block handlers reject incompatible result paths")
+
 local sumSource = [[
 let option = oneof { none: unit, some: u32 }
 let main(): u32 = do
@@ -169,6 +405,28 @@ for _,profile in ipairs({"slet","let"}) do
 end
 check(sumModules[1]==sumModules[2] and sumModules[2]==sumModules[3] and sumModules[4]==sumModules[5] and sumModules[5]==sumModules[6],
   "sum source optimized modules are policy-independent in each profile")
+local blockMatchSource=[[
+let option = oneof { none: unit, some: u32 }
+let unwrap(value: option): u32 = value {
+  none = || -> do
+    let zero = 0
+    return zero
+  end,
+  some = |payload| -> do
+    let adjusted = payload + 2
+    return adjusted
+  end,
+}
+let main(): u32 = unwrap(option.some(40))
+return { functions = { main } }
+]]
+for _,profile in ipairs({"slet","let"}) do
+  local program=Compiler.compile{profile=profile,source=blockMatchSource,name="block-match."..profile}
+  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+    local result=Compiler.stage(program.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
+    check(tonumber(result.cells[1])==42,profile.." block-bodied sum handlers execute in "..mode.." mode")
+  end
+end
 
 local closureSource = [[
 let capture = { base: u32, more: u32 }
@@ -193,6 +451,85 @@ for _,mode in ipairs({"interpreted","eager","lazy"}) do
 end
 check(closureModules[1]==closureModules[2] and closureModules[2]==closureModules[3],
   "managed source closure modules are policy-independent")
+
+local indirectPartialSource=[=[
+let add(a, b: u32): u32 = a + b
+let bind(f: (u32, u32): u32, n: u32): (u32): u32 = f(n)
+let make(base: u32): (u32, u32): u32 = |a: u32, b: u32| -> base + a + b
+let main(): u32 = bind(add, 2)(40)
+let managed(): u32 = bind(make(1), 2)(39)
+return { functions = { main, managed } }
+]=]
+local indirectPartial=Compiler.compile{profile="let",name="indirect-partial.let",source=indirectPartialSource}
+check(indirectPartial.assembly:match("MANAGED_COPY") and indirectPartial.assembly:match("CALLI"),
+  "indirect partial application retains the callable and supplied arguments")
+local indirectPartialModules={}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(indirectPartial.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"indirect partial application executes in "..mode)
+  local managed=Compiler.stage(indirectPartial.functions,{profile="let",entry="managed",exports={"managed"},mode=mode})
+  check(tonumber(managed.cells[1])==42,"indirect partial application retains a managed callable in "..mode)
+  indirectPartialModules[#indirectPartialModules+1]=result.module
+end
+check(indirectPartialModules[1]==indirectPartialModules[2] and indirectPartialModules[2]==indirectPartialModules[3],
+  "indirect partial application modules are policy-independent")
+ok,err=pcall(Compiler.typed,{profile="slet",name="indirect-partial.slet",source=indirectPartialSource})
+check(not ok and err.code=="slet-forbidden","SLet rejects retained indirect partial application")
+
+local openWordSource=[=[
+let main(): u32 = do
+  let word = { hp = 40, name = "golem" }
+  let alias = word
+  alias.hp += 2
+  word["bonus"] = 1
+  if not has(word, "hp") then return 0 end
+  if count(word) != 3 then return 1 end
+  if key(word, 0) != "hp" then return 2 end
+  let changed = word { hp = 10, extra = 3 }
+  if changed.hp != 10 or word.hp != 42 or count(changed) != 4 then return 6 end
+  remove(word, "name")
+  if has(alias, "name") then return 3 end
+  if word["bonus"] != 1 then return 4 end
+  return u32(word.hp)
+end
+return { functions = { main } }
+]=]
+local openWords=Compiler.compile{profile="let",name="open-words.let",source=openWordSource}
+check(openWords.assembly:match("WORD_NEW") and openWords.assembly:match("WORD_SET") and openWords.assembly:match("WORD_GET"),
+  "Let bare supplies lower to profile-5 open-word operations")
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(openWords.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"open-word fields, aliases, keys, stores, and removal execute in "..mode)
+end
+ok,err=pcall(Compiler.typed,{profile="slet",name="open-words.slet",source=openWordSource})
+check(not ok and err.code=="slet-forbidden","SLet rejects bare open-word supplies")
+local runtimeSupply=Compiler.compile{profile="let",name="runtime-supply.let",source=[=[
+let add(a, b: u32): u32 = a + b
+let main(): u32 = do
+  let supplied: u32 = 2
+  let fields = { supplied = supplied }
+  let partial = add(u32(fields.supplied))
+  return u32(partial(40))
+end
+return { functions = { main } }
+]=]}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(runtimeSupply.functions,{profile="let",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==42,"run-time positional supply opens and invokes a word in "..mode)
+end
+local noTerminal=Compiler.compile{profile="let",name="no-terminal.let",source="let main(): u32 = do open()() return 0 end\nreturn { functions = { main } }\n"}
+ok,err=pcall(Compiler.stage,noTerminal.functions,{profile="let",entry="main",exports={"main"},mode="interpreted"})
+check(not ok and err.code=="static-no-terminal","calling an open word without a terminal uses the specified no-terminal abort")
+local frozenWords=Compiler.compile{profile="let",name="frozen-word.let",source=[=[
+let main(): unit = do
+  let word = freeze { value = 1 }
+  word.value = 2
+  return
+end
+return { functions = { main } }
+]=]}
+ok,err=pcall(Compiler.stage,frozenWords.functions,{profile="let",entry="main",exports={"main"},mode="interpreted"})
+check(not ok and err.code=="static-frozen-store","stores through frozen words use the specified frozen-store abort")
 
 local exactLambda=Compiler.compile{profile="slet",name="lambda.slet",source=[[
 let noop(): unit = do return end
@@ -232,6 +569,31 @@ end
 return { functions = { bad } }
 ]]})
 check(not ok and D.is(err) and err.code=="borrow-return","SLet rejects a returned reference to lexical storage")
+for _,source in ipairs({
+[[let box = { x: u32 }
+let bad(c: bool): ref(u32) = do
+  let x = box { x = 7 }
+  return if c then ref(x.x) else ref(x.x)
+end
+return { functions = { bad } }]],
+[[let box = { x: u32 }
+let holder = { r: ref(u32) }
+let bad(): holder = do
+  let x = box { x = 7 }
+  return holder { r = ref(x.x) }
+end
+return { functions = { bad } }]],
+[[let box = { x: u32 }
+let holders = array(ref(u32), 1)
+let bad(): holders = do
+  let x = box { x = 7 }
+  return [ref(x.x)]
+end
+return { functions = { bad } }]],
+}) do
+  ok,err=pcall(Compiler.typed,{profile="slet",name="nested-borrow.slet",source=source})
+  check(not ok and D.is(err) and err.code=="borrow-return","SLet rejects local borrows hidden by control or aggregates")
+end
 local escapingViews=Compiler.compile{profile="let",name="escaping-views.let",source=[[
 let pair = { x: u32, y: u32 }
 let make_ref(): ref(pair) = do
@@ -560,5 +922,82 @@ end
 check(importedFeatureModules[1]==importedFeatureModules[2] and importedFeatureModules[2]==importedFeatureModules[3],
   "cross-module residual modules are policy-independent")
 os.remove(importDir.."/strict.slet");os.remove(importDir.."/dynamic.let");os.remove(importDir.."/app.let");os.execute(string.format("rmdir %q", importDir))
+
+local correctnessSource=[[
+let wider(a: u8, b: u32): bool = a < b
+let selected(): u32 = if true then 42 else missing
+let main(): u32 = if wider(1, 300) then selected() else 0
+return { functions = { main } }
+]]
+local correctness=Compiler.compile{profile="slet",name="correctness.slet",source=correctnessSource}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(correctness.functions,{profile="slet",entry="main",mode=mode})
+  check(tonumber(result.cells[1])==42,"integer widening and selected-arm construction execute in "..mode)
+end
+for _,case in ipairs({
+  {"let f(x: u32, x: u32): u32 = x", "duplicate-name"},
+  {"let f(): u8 = 300", "numeric-range"},
+  {"let f(a: u32, b: i32): u32 = a + b", "type-mismatch"},
+  {"let f(): f64 = 1.5 % 1.0", "type-mismatch"},
+  {"let f(): f64 = ~1.5", "type-mismatch"},
+}) do
+  ok,err=pcall(Compiler.typed,{profile="slet",name="negative.slet",source=case[1].."\nreturn { functions = { f } }"})
+  check(not ok and D.is(err) and err.code==case[2],"invalid source rejects without an internal IR bug: "..case[2])
+end
+
+local vectorSource=[[
+let pair(): (u32, u32) = do return 20, 22 end
+let add(a: u32, b: u32): u32 = a + b
+let main(): u32 = do
+  let first = add(20)
+  let a, b = pair()
+  let kept = pair()
+  let x, padding = 1
+  let block: (u32): u32 = |n: u32| -> do return n + 1 end
+  return first(a) + b + kept - 20 + x + (add(1))(2) + block(1)
+end
+return { functions = { main } }
+]]
+local vectors=Compiler.compile{profile="slet",name="vectors.slet",source=vectorSource}
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(vectors.functions,{profile="slet",entry="main",mode=mode})
+  check(tonumber(result.cells[1])==68,"partial/direct-indirect calls, block lambdas, and result-vector binding execute in "..mode)
+end
+
+local interfaceDir=prefix.."-interfaces"
+assert(os.execute(string.format("mkdir -p %q",interfaceDir))==0)
+write(interfaceDir.."/types.slet",[[
+let pair = { x: u32, y: u32, total(): u32 = x + y }
+let make() = pair { x = 20, y = 22 }
+return { types = { P = pair }, functions = { build = make }, results = { [make] = pair } }
+]])
+write(interfaceDir.."/main.slet",[[
+use types
+let main(): u32 = do
+  let p: types.P = types.build()
+  return p.total()
+end
+return { functions = { main } }
+]])
+local interfaces=Compiler.compileFile(interfaceDir.."/main.slet")
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(interfaces.functions,{profile="slet",entry="main",mode=mode})
+  check(tonumber(result.cells[1])==42,"export aliases, exported schema methods/types, and results contracts execute in "..mode)
+end
+write(interfaceDir.."/main.let",[[
+use types
+let main(): u32 = do
+  let p: types.P = types.build()
+  let total = p.total
+  return total()
+end
+return { functions = { main } }
+]])
+local retainedInterface=Compiler.compileFile(interfaceDir.."/main.let")
+for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local result=Compiler.stage(retainedInterface.functions,{profile="let",entry="main",mode=mode})
+  check(tonumber(result.cells[1])==42,"imported schema interfaces support retained method values in "..mode)
+end
+os.remove(interfaceDir.."/types.slet");os.remove(interfaceDir.."/main.slet");os.remove(interfaceDir.."/main.let");os.execute(string.format("rmdir %q",interfaceDir))
 
 print(("PASS: Let compiler source ingestion and semantic IR (%d checks)"):format(checks))

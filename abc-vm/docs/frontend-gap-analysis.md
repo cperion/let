@@ -10,15 +10,17 @@ the C `abc-opt` residual optimizer, and `abc_vm` execution. `tools/slet_frontend
 bootstrap validation oracle. The Lua evaluator and direct source-to-C path are not used.
 
 Ordinary `.slet` and `.let` source now covers scalar control and calls, local records and arrays,
-addressable places and stores, scalar-payload sums, slices and strings, references, typed lambdas,
-Let managed captures, escaping Let references/slices with promoted backing storage, generic `any`, and
-dynamic callable dispatch. Imports preserve the profile
-asymmetry. End-to-end fixtures compare interpreted, eager, and lazy staging and optimizer fixpoints.
+addressable places and stores, scalar-payload sums, slices and strings, checked references, raw pointers,
+recursive type sealing, typed and nested words, schema methods with actual receivers, keyed full/static
+partial supply, deferred actions, foreign declarations, Let managed captures, managed aggregate `any`
+boxing/casts/tests, escaping Let references/slices with promoted backing storage, generic `any`, and
+dynamic callable dispatch. Imports preserve the profile asymmetry. End-to-end fixtures compare
+interpreted, eager, and lazy staging and optimizer fixpoints.
 
-The difficult remaining work is narrower but still semantic: recursive type cells and type exports,
-methods and keyed requirements, nested words, provenance through mutable/deeply nested owners and sums,
-module initialization, foreign/defer syntax, managed/address-bearing sum ABIs, and the proof-driven
-connection from source static boundaries to VM-backed evaluation.
+The difficult remaining work is narrower but still semantic: complete source-interface propagation for
+nested/imported schema fields and complete interface-evidence proofs,
+provenance through mutable/deeply nested owners and sums, module initialization, managed/address-bearing
+sum ABIs, open words, and the proof-driven connection from source static boundaries to VM-backed evaluation.
 
 The SLet core is not a different language that needs a second parser and type system: sections 1–14 of `docs/syntax.md` are textually identical to `../wordlet.lua/syntax.md` except for the title and `.slet`/`.let` framing. The mature compiler is valuable as a source-frontend design and a source of migration fixtures. Its Lua evaluator and direct source-to-C execution path must not be imported or retained: executable compile-time Let code lowers to verified ABC bytecode and runs only through the VM.
 
@@ -42,19 +44,17 @@ These are valuable lowering fixtures. They are not substitutes for a complete se
 
 | Layer | Implemented now | Remaining work |
 | --- | --- | --- |
-| Source input | `.let`/`.slet`, spans, deterministic imports and asymmetric profile checks | Type exports and richer module interfaces |
-| Parser | Shared ASDL parser for schemas, records, arrays, indexing, fields, lambdas, signatures, stores, matches, `use`, `extern`, and `defer` forms | Semantic construction for the still-listed forms |
-| Names and captures | Module words, lexical locals, deterministic lambda capture discovery and lifted functions | Nested words, methods, recursive type cells, full interface lookup |
-| Types | Scalars, `any`, records, arrays, sums, refs, ptr/slice constructors, strings, signatures and callable views | Recursive sealing, tagged/open source types, exported type names |
-| Calls | Direct/tail calls, exact views, escaping managed captures, indirect and dynamic calls, recursively flattened record/array ABIs, and GC-free sum ABIs with aggregate payloads | Keyed/non-prefix supply, methods, and managed/address-bearing sum ABIs |
-| Storage | Frame-backed records/arrays, projections, aliases, typed stores, bounds checks, refs/slices, promoted returned backing storage, and owner-retaining captures/aggregate calls | Module mutable storage, raw-pointer source operations, and provenance through mutation or deeply nested sums |
-| Control IR | Checked conditionals, switches, loops, traps, joins and completion | General block-bodied handler/lambda construction |
-| Dynamic Let | Boxing/casts/tests, generic unary/binary operators, strings, direct word boxing and dynamic calls | Open-word definitions and remaining managed aggregate source forms |
-| Modules | Function exports, deterministic private IDs, Let→Let/SLet and SLet→SLet imports | Type/value exports, initialization and public ABI closure |
+| Source input | `.let`/`.slet`, spans, deterministic imports, exported types, foreign declarations, and asymmetric profile checks | Value exports and richer imported schema interfaces |
+| Parser | Shared ASDL parser for schemas, records, arrays, indexing, fields, lambdas, signatures, stores, matches, `use`, `extern`, and `defer` forms | Semantic construction for open-word/static-boundary forms |
+| Names and captures | Module words, lexical locals, nested words with explicit hidden capture inputs, deterministic lambda capture discovery, lifted functions, direct receiver methods, and retained Let method values across imported interfaces | Complete interface-evidence lookup |
+| Types | Scalars, `any`, records, arrays, sums, refs, pointers/slices, strings, signatures, callable views, recursive named-cell sealing, and exported type names | Tagged/open source types and complete interface-supply identity |
+| Calls | Direct/tail calls, exact views, escaping managed captures, indirect calls including retained runtime partial application, dynamic calls, canonical keyed full/static partial supply, methods, recursively flattened record/array ABIs, and GC-free sum ABIs | Managed/address-bearing sum ABIs |
+| Storage | Frame/managed records and arrays, projections, aliases, typed stores, bounds checks, refs/slices/raw pointers including null identity comparisons, aggregate `any` boxing, promoted returned backing storage, and owner-retaining captures | Module mutable storage and provenance through mutation or deeply nested sums |
+| Control IR | Checked conditionals, switches, loops, traps, joins, block-bodied lambdas/handlers with inferred or expected results, deferred cleanup, and completion | Broader static path agreement and provenance proofs |
+| Dynamic Let | Boxing/casts/tests including managed aggregates, generic unary/binary operators, strings, direct word boxing, dynamic calls, retained runtime partial applications, and open-word construction/fields/computed keys/stores/aliasing/removal/freezing | Keyed runtime supply/copy, open-word methods, and complete dynamic boundary conversions |
+| Modules | Function/type/schema exports, imported schema method interfaces, deterministic private IDs, Let→Let/SLet and SLet→SLet imports | Value initialization and public ABI closure |
 | Static execution | Explicit VM-backed staging/specialization under all three policies | Source static syntax/proofs and persistent staging images |
 | Diagnostics/tests | Stable spans/codes, three-policy source fixtures, import fixtures and optimizer fixpoints | Broader negative lifetime suites and migrated legacy programs |
-
-Two implementation details make incremental growth of the monolith particularly risky: it probes expression types by emitting and deleting assembly, and it has no typed representation between source and bytecode. Aggregate storage, effects, branch joins and borrowing need persistent semantic objects and an independent verifier; they cannot be made reliable by adding more cases to `Function:expression`.
 
 ## 4. Reference compiler assessment
 
@@ -124,11 +124,11 @@ A compile-time execution service must enforce these rules:
 - Staging modules and their eager/lazy native images may be cached by deterministic specialization identity so JIT preparation is amortized.
 - Switching the compile-time VM among interpreted, eager and lazy policies must not change known results, diagnostics, accepted residual code or emitted module bytes.
 
-The public API provides verified module loading, execution modes, calls and persistent per-VM images. It intentionally has no instruction-budget field or interruption API. Initial scalar staging now uses temporary exported entry points and exact cell arguments through `Compiler.stage`; each invocation currently starts a runtime process and therefore does not yet amortize eager/lazy preparation. Full module initialization will also need an in-process persistent staging host and a compiler-facing way to snapshot or copy the accepted private image without exposing mutable runtime internals as a language ABI.
+The public API provides verified module loading, execution modes, calls and persistent per-VM images. It intentionally has no instruction-budget field or interruption API. Current staging uses temporary exported entries and exact typed cells through `Compiler.stage`; each invocation starts a runtime process and therefore does not amortize eager/lazy preparation. Full module initialization needs an in-process persistent staging host and a compiler-facing way to snapshot or copy the accepted private image without exposing mutable runtime internals as a language ABI.
 
 ### 5.2 Frontend and backend boundaries
 
-Keep the current scalar frontend as a bootstrap and instruction-selection oracle, but stop adding language families to its direct source-to-assembly path. The complete compiler frontend must reuse the snapshotted ASDL lexer, parser, AST/type schemas, IR vocabulary, traversal, resolution and analysis code under `frontend/`, adapting those modules rather than rewriting them. Reuse applicable SLet verification when its remaining modules are migrated. The borrow checker applies only to SLet; Let requires GC promotion/provenance/root analysis instead. Do not migrate the Lua execution engine or direct source-to-C backend.
+Keep `tools/slet_frontend.lua` only as a bootstrap validation oracle. The production compiler is the reused ASDL pipeline under `frontend/`; extend its parser, typed IR, resolver, analysis and checked lowering rather than adding language families to any direct source-to-assembly path. Reuse applicable SLet verification as it is migrated, but keep strict borrow proofs separate from Let GC promotion/provenance/root analysis. Do not migrate the legacy Lua execution engine or direct source-to-C backend.
 
 The reused ASDL `Ir` representation is the typed structured boundary between source and bytecode. It preserves places, effects, joins and source spans, while executable folding goes through a staging module. Extend that schema when ABC or Let needs additional explicit facts; do not replace it with another ad-hoc IR. The ABC-specific side has these responsibilities:
 
@@ -146,73 +146,21 @@ Tail call modulo accumulation is a separate optional optimization. It may reasso
 
 ABC's stack layout and generated opcode semantics make typed bytecode lowering small. The standalone C `abc-opt` then uses ABC symbolic semantics to inline eligible acyclic calls, eliminate non-escaping known closures, Reynolds-defunctionalize finite callable sets, fold and canonically re-project residual DAGs onto A/B/C once per produced module. Known captures and receivers remain ordinary symbolic values/homes; only genuinely escaping or dynamic callables retain allocation and indirect dispatch. The interpreter benefits from fewer dispatches and allocations. The JIT consumes that compact bytecode and residualizes directly to register-addressed stencils; it never schedules a residual back to ABC. See `abc-opt.md`.
 
-## 6. Staged roadmap
+## 6. Implementation status and remaining sequence
 
-### Stage 0 — Freeze the scalar prototype
+The old stage numbering became misleading once aggregate, callable and profile-5 work landed in parallel. The current dependency order is:
 
-- Treat `tools/slet_frontend.lua` as a bootstrap frontend and instruction-selection oracle.
-- Add positive and negative tests for every feature claimed in `slet-subset.md`.
-- Add all four frontend examples to validation; currently only three are executed there.
-
-### Stage 1 — Establish frontend structure
-
-- Keep the intentional frontend snapshot under `frontend/` self-contained and validated; its parser, ASDL schemas, IR helpers, traversal, resolver, analysis and fixtures are the starting implementation, not merely a reference. **Done.**
-- Migrate the remaining strict type/capture/lifetime logic in reviewable pieces, retaining its tests while separating profile-neutral facts from strict-only borrow proofs.
-- Define an ABC typed-lowering interface over the reused structured representation, with source mapping and an explicit unsupported-node result. **Done for the scalar typed boundary; aggregate/dynamic extensions remain.**
-- Migrate type rejection fixtures and fixed expected program results without importing the legacy evaluator or direct source-to-C path.
-
-### Stage 2 — Build VM-backed scalar static execution
-
-- Lower a fully known scalar word to a temporary verified ABC module. **Done for verified `Ir.Fn` input.**
-- Execute it through `abc_vm_call` in interpreted, eager and lazy compile-time modes. **Done through the runtime host.**
-- Decode integer, bool and multiple results back into exact compiler-known cells. **Done; richer aggregate values remain.**
-- Map language aborts and actual VM resource failures to the correct source-level outcome. **Done for scalar entries, including bytecode-to-IR mapping.** Delayed progress and Ctrl-C static-stack diagnostics remain.
-- Cache staging modules so compiled policies amortize their preparation cost. **Not yet; the temporary process bridge deliberately establishes semantics first.**
-
-### Stage 3 — Reach scalar specialization parity
-
-- Use VM-produced known values for explicit static bindings and module initializers. Automatically evaluated saturated calls additionally require a sound totality, effect-freedom, and no-abort proof; ordinary known calls remain residual without that proof.
-- Emit residual scalar specializations for invocations containing runtime inputs.
-- Match the current frontend's integer, multi-result, direct-call, closure and tail-call behavior.
-- Require byte-identical residual modules under every compile-time execution policy.
-
-### Stage 4 — Implement the strict memory profile
-
-- Add f64 and complete conversion lowering.
-- Close layouts for records, arrays, sums, slices and strings.
-- Lower places, frame blocks, module storage, field/index operations, copies, checks, refs and raw pointers.
-- Execute known aggregate code and module initialization in persistent staging images.
-- Add transactional speculative folds and accepted-image snapshotting.
-- Make completed-program lifetime verification mandatory for SLet before staging or residual bytecode execution.
-
-### Stage 5 — Complete strict calls and modules
-
-- Lower owned callables, non-retaining views, closures, tagged callables and indirect calls to profile 3.
-- Lower `extern` declarations and calls to profile 4, while keeping them disabled in static execution.
-- Implement export configuration, imports, namespaces, aliases, result contracts and specialization across modules.
-- Preserve optional result inference, methods, keyed supply and defer.
-
-At the end of this stage, sections 1–14 should compile without executing user code in Lua or relying on the direct C backend.
-
-### Stage 6 — Add progressive Let and profile 5
-
-Do this only after VM profile 5 is implemented. Staging and residual modules then use the same `any`, generic-operation, open-word, dynamic-call and GC semantics. Implement Let ownership as GC reachability, not SLet borrow rejection: promote escaping storage and trace managed `ref`/slice/callable cells. Give every open word one collected ordered hash map and a non-owning, non-reused 64-bit layout token; structural mutation changes the token, value replacement preserves it, constant-key caches guard it, and capped lazy versions may carry it. Do not build transition-shape trees or a second dictionary mode. Missing dynamic results abort; managed strings retain owners; `f64` never boxes; compiled wide integers materialize only on escape; and the verifier computes transitive allocation-free functions.
-
-### Stage 7 — Cross-mode acceptance
-
-For every accepted source program, compare observable results and aborts across:
-
-- fixed expected results and diagnostics from source fixtures;
-- ABC compile-time execution in interpreted, eager and lazy modes;
-- residual ABC execution in interpreted, eager and lazy modes;
-- residual C emitted from ABC semantics.
-
-The emitted residual module must be identical regardless of the staging execution policy. Tests must also prove that filename changes do not select VM policy and that malformed bytecode is rejected independently of frontend checks.
+1. **Completed foundation.** The reused ASDL frontend, typed `Ir.Fn` boundary, checked ABC lowering, source maps, deterministic imports, scalar and aggregate ABIs, sums, checked references, raw pointer/null construction and pointer indexing/stores, typed and block-bodied lambdas, block-bodied sum handlers with an expected result, managed captures, generic `any`, dynamic calls, source `extern` declarations and `FCALL`, exported types, three-policy staging, specialization wrappers and optimizer fixpoint checks are integrated.
+2. **Close semantic construction.** Complete interface-evidence proofs and the remaining open-word method/supply/conversion forms. Preserve stable unsupported diagnostics until each form has semantic IR and checked lowering.
+3. **Close ownership and ABI proofs.** Complete SLet lifetime/provenance verification through mutation and deeply nested owners; complete managed/address-bearing sum call ABIs and remaining managed aggregate forms without hiding roots in raw cells.
+4. **Close modules and static semantics.** Implement mutable module storage, declaration-ordered initialization, explicit source static boundaries or sound total/effect-free/no-abort proofs, residual specialization for runtime inputs, and deterministic public ABI closure.
+5. **Replace the temporary staging host.** Cache verified modules and eager/lazy preparation in-process, maintain persistent module images, support transactional speculative folds and accepted-image snapshots, and report delayed progress or interrupted static word stacks with source positions.
+6. **Cross-mode acceptance.** For every newly accepted source family, compare fixed outcomes, compile-time execution under interpreted/eager/lazy policies, byte-identical residual modules, residual execution under all VM policies, and portable C emitted from the same symbolic semantics.
 
 ## 7. Immediate next implementation task
 
 The VM-backed scalar execution boundary is now established in `frontend/let/stage.lua`. Validation evaluates known functions under interpreted, eager and lazy policies, requires byte-identical staging modules, preserves exact 64-bit cells, maps a language abort to its typed IR/source hook, and classifies a real VM stack limit as a resource failure. There is no instruction or fuel cutoff.
 
-The explicit source-to-VM boundary is available through `Compiler.stage`, and `Compiler.specialize` consumes typed values already produced by that boundary. Ordinary compilation deliberately leaves saturated calls residual because the current source syntax and analysis do not mark a mandatory static binding or prove totality: purity by itself does not prove termination, and speculative fuel is not language semantics. A future source example such as `add(20, 22)` may become a residual constant `42` only under an explicit static construct or a sound totality, effect-freedom, and no-abort proof; the invocation must then lower to verified `Ir.Fn`, run through `Compiler.stage`, and re-enter residual typed IR. Lua must not compute the addition.
+The next semantic connection is explicit source-level static binding. `Compiler.stage` and `Compiler.specialize` already establish the VM boundary, but ordinary saturated calls correctly remain residual until syntax or analysis requires evaluation and proves the necessary totality, effect-freedom and no-abort conditions. A known invocation must lower to verified `Ir.Fn`, execute through `Compiler.stage`, and re-enter residual typed IR; Lua must never compute the user operation.
 
-After that semantic connection, replace the temporary process bridge with a persistent in-process staging host so eager/lazy preparation is cached, module-image writes can be committed or discarded transactionally, and external interruption can report the static word stack with source positions. `FCALL` must remain unavailable to staging code.
+In parallel, complete recursive/exported type and module-interface construction because it unlocks methods, keyed supply and stable public ABI closure without adding another IR. After those semantics are fixed, replace the temporary process bridge with the persistent staging host described above.

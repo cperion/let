@@ -532,7 +532,7 @@ static int inline_candidate(Compiler *c,const Context *x,uint32_t caller_pc,uint
     }
     unsigned continuations=0;
     for(Version *v=c->versions[target];v;v=v->next) { int first=1; for(Version *u=c->versions[target];u!=v;u=u->next)if(continuation_equal(&u->in,&v->in)){first=0;break;} continuations+=(unsigned)first; }
-    return continuations<ABC_SYMBOLIC_VERSION_CAP;
+    return continuations<ABC_BLOCK_VERSION_LIMIT;
 }
 static Version *version_for(Compiler *c,uint32_t pc,const Context *in) {
     unsigned count=0; for(Version *v=c->versions[pc];v;v=v->next) {
@@ -540,7 +540,7 @@ static Version *version_for(Compiler *c,uint32_t pc,const Context *in) {
         if(context_equal(&v->in,in)) { int accepts=1; for(unsigned s=0;s<3;s++) accepts&=in->limit[s]>=v->in.limit[s]; if(accepts) return v; }
         if(context_family_equal(&v->in,in)) count++;
     }
-    if(count>=ABC_SYMBOLIC_VERSION_CAP) { c->status=abc_fail(c->error,ABC_INVALID,pc,"compiled block version cap reached without compatible generic context"); return NULL; }
+    if(count>=ABC_BLOCK_VERSION_LIMIT) { c->status=abc_fail(c->error,ABC_INVALID,pc,"compiled block version limit reached without compatible generic context"); return NULL; }
     Version *v=calloc(1,sizeof *v); if(!v || !context_copy(&v->in,in)) { free(v); c->status=abc_fail(c->error,ABC_NOMEM,pc,"block version allocation failed"); return NULL; }
     v->pc=pc;v->owner=c;
     if(c->lazy&&!place_lazy_entry(c,v)){context_free(&v->in);free(v);if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_NOMEM,pc,"lazy entry-stub allocation failed");return NULL;}
@@ -552,7 +552,7 @@ static Version *edge(Compiler *c,uint32_t from,uint32_t target,Context *x) {
         JValue *v=&x->s[s][i]; if(v->kind==VK_CONST) { if(materialize(c,x,v)<0 || !save_value(c,x,v)) return NULL; *v=rehome_value(*v,v->dst_stack,v->dst_home); }
     }
     unsigned versions=0; for(Version *v=c->versions[target];v;v=v->next) versions+=context_family_equal(&v->in,x);
-    if(versions>=ABC_SYMBOLIC_VERSION_CAP-1 && !conform_generic(c,x)) return NULL;
+    if(versions>=ABC_BLOCK_VERSION_LIMIT-1 && !conform_generic(c,x)) return NULL;
     return version_for(c,target,x);
 }
 

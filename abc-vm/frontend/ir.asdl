@@ -94,6 +94,7 @@ module Ir {
          | BitAnd | BitOr | BitXor | Shl | Shr
          | Eq | Ne | Lt | Le | Gt | Ge
 
+  DynamicOp = WordNew | WordGet | WordSet | WordHas | WordRemove | WordCount | WordKey | WordSupply | WordFreeze
   # Pure immutable expressions. No read, call, trap or address acquisition.
   # Deliberately NOT marked unique: Value IDs are function-local, so interning is the
   # builder's per-function memo table, not ASDL's context-wide cache.
@@ -139,6 +140,9 @@ module Ir {
        | View(Value value, Ty.V type, string entry, Arg* slots, Storage? adapter)
        | Call(Value* results, string target, Arg* arguments)
        | Indirect(Value* results, Expr callable, Arg* arguments)
+       # Profile-5 open-word operations. Operands and results are typed `any` cells; the enum keeps
+       # operation identity durable and checkable instead of passing lowering-only strings.
+       | Dynamic(Value* results, DynamicOp operation, Expr* operands)
        | If(Expr test, Stmt* yes, Stmt* no)
        # A multi-way branch on a sum's tag. The cases are the alternatives in canonical order; the
        # last one carries `fallback` and is emitted as C's `default`, so the switch is total and a
@@ -158,5 +162,8 @@ module Ir {
   Param = ValueParam(number input, Value binding, Ty.V type)
         | PlaceParam(number input, Storage binding, Ty.V type)
   Role = Body | Entry
+  # A verified host ABI declaration. Keeping this in the schema makes foreign call targets part of
+  # the typed compiler interface instead of an unstructured lowering option.
+  Foreign = (string target, Ty.Input* inputs, Ty.V* results)
   Fn = (string id, Role role, number hidden, Ty.Input* inputs, Ty.V* results, Param* params, Stmt* body)
 }

@@ -23,6 +23,10 @@ typedef struct {
     const abc_residual_program *program;
     const c_export *exports;
     size_t export_count;
+    uint8_t *may_fail;
+    uint8_t **u32_arguments;
+    uint8_t *u32_results;
+    size_t current_function;
     text_buffer output;
     abc_error *error;
 } c_emitter;
@@ -111,12 +115,161 @@ static int function_index(const abc_residual_program *program,
     return 0;
 }
 
+static int scalar_function(const c_emitter *emitter,size_t index) {
+    return index<emitter->program->functions.count&&!emitter->may_fail[index]&&
+           emitter->program->functions.items[index].result_types.count==1;
+}
+
+static int failure_binary(abc_asdl_residual_binary_op operation) {
+    return operation==ABC_ASDL_RESIDUAL_BINARY_OP_DIV_UNSIGNED||
+           operation==ABC_ASDL_RESIDUAL_BINARY_OP_REM_UNSIGNED||
+           operation==ABC_ASDL_RESIDUAL_BINARY_OP_DIV_SIGNED||
+           operation==ABC_ASDL_RESIDUAL_BINARY_OP_REM_SIGNED||
+           operation==ABC_ASDL_RESIDUAL_BINARY_OP_POW_SIGNED;
+}
+
+static int analyze_failures(c_emitter *emitter) {
+    size_t count=emitter->program->functions.count;int changed=1;
+    emitter->may_fail=calloc(count?count:1,1);if(!emitter->may_fail)return 0;
+    while(changed){changed=0;for(size_t fi=0;fi<count;fi++){
+        const abc_residual_function *function=&emitter->program->functions.items[fi];
+        if(emitter->may_fail[fi])continue;
+        for(size_t bi=0;bi<function->blocks.count&&!emitter->may_fail[fi];bi++){
+            const abc_residual_block *block=&function->blocks.items[bi];
+            for(size_t ni=0;ni<block->nodes.count;ni++){const abc_residual_operation *op=&block->nodes.items[ni].operation;
+                if(op->tag==ABC_ASDL_RESIDUAL_OPERATION_CHECK||
+                   (op->tag==ABC_ASDL_RESIDUAL_OPERATION_BINARY&&failure_binary(op->value.binary.operation)))
+                    emitter->may_fail[fi]=1;
+                else if(op->tag==ABC_ASDL_RESIDUAL_OPERATION_CALL){size_t target;
+                    if(!function_index(emitter->program,op->value.call.target,&target)||emitter->may_fail[target])emitter->may_fail[fi]=1;
+                }
+            }
+            const abc_residual_terminator *term=&block->terminator;
+            if(term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_ABORT||term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_UNREACHABLE)emitter->may_fail[fi]=1;
+            else if(term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_TAIL_CALL){size_t target;
+                if(!function_index(emitter->program,term->value.tail_call.target,&target)||emitter->may_fail[target])emitter->may_fail[fi]=1;
+            }
+        }
+        if(emitter->may_fail[fi])changed=1;
+    }}return 1;
+}
+
+static const abc_residual_value *find_value(const c_emitter *emitter,abc_residual_id id){
+    for(size_t i=0;i<emitter->program->values.count;i++)
+        if(emitter->program->values.items[i].id.value==id.value)return &emitter->program->values.items[i];
+    return NULL;
+}
+
+static int value_u32(const c_emitter *,size_t,abc_residual_id,size_t);
+static int edge_value_u32(const c_emitter *emitter,size_t fi,const abc_residual_edge *edge,
+                          uint64_t block,size_t argument,size_t depth){
+    return edge->target.value!=block||argument>=edge->arguments.count||
+           value_u32(emitter,fi,edge->arguments.items[argument],depth+1);
+}
+
+static int block_argument_u32(const c_emitter *emitter,size_t fi,uint64_t block,size_t argument,size_t depth){
+    const abc_residual_function *function=&emitter->program->functions.items[fi];int found=0;
+    for(size_t bi=0;bi<function->blocks.count;bi++){const abc_residual_terminator *term=&function->blocks.items[bi].terminator;
+        switch(term->tag){
+        case ABC_ASDL_RESIDUAL_TERMINATOR_JUMP:
+            if(term->value.jump.edge.target.value==block)found=1;
+            if(!edge_value_u32(emitter,fi,&term->value.jump.edge,block,argument,depth))return 0;
+            break;
+        case ABC_ASDL_RESIDUAL_TERMINATOR_BRANCH:
+            if(term->value.branch.yes.target.value==block||term->value.branch.no.target.value==block)found=1;
+            if(!edge_value_u32(emitter,fi,&term->value.branch.yes,block,argument,depth)||
+               !edge_value_u32(emitter,fi,&term->value.branch.no,block,argument,depth))return 0;
+            break;
+        case ABC_ASDL_RESIDUAL_TERMINATOR_SWITCH:
+            for(size_t ai=0;ai<term->value.switch_value.arms.count;ai++){
+                const abc_residual_edge *edge=&term->value.switch_value.arms.items[ai].edge;
+                if(edge->target.value==block)found=1;
+                if(!edge_value_u32(emitter,fi,edge,block,argument,depth))return 0;
+            }
+            if(term->value.switch_value.fallback.target.value==block)found=1;
+            if(!edge_value_u32(emitter,fi,&term->value.switch_value.fallback,block,argument,depth))return 0;
+            break;
+        default:break;
+        }
+    }
+    return found;
+}
+
+static int value_u32(const c_emitter *emitter,size_t fi,abc_residual_id id,size_t depth){
+    const abc_residual_value *value=find_value(emitter,id);const abc_residual_function *function=&emitter->program->functions.items[fi];
+    if(!value)return 0;if(depth>emitter->program->values.count)return 1;
+    if(value->type==ABC_ASDL_RESIDUAL_TYPE_U32)return 1;
+    if(value->definition.tag==ABC_ASDL_RESIDUAL_DEFINITION_CONSTANT)
+        return value->definition.value.constant.high==0&&value->definition.value.constant.low<=UINT32_MAX;
+    if(value->definition.tag==ABC_ASDL_RESIDUAL_DEFINITION_FUNCTION_ARGUMENT){size_t index=value->definition.value.function_argument.index;
+        return index<function->arguments.count&&emitter->u32_arguments[fi][index];
+    }
+    if(value->definition.tag==ABC_ASDL_RESIDUAL_DEFINITION_BLOCK_ARGUMENT)
+        return block_argument_u32(emitter,fi,value->definition.value.block_argument.block.value,
+                                  value->definition.value.block_argument.index,depth);
+    if(value->definition.tag==ABC_ASDL_RESIDUAL_DEFINITION_INSTRUCTION_RESULT){
+        for(size_t bi=0;bi<function->blocks.count;bi++)for(size_t ni=0;ni<function->blocks.items[bi].nodes.count;ni++){
+            const abc_residual_node *node=&function->blocks.items[bi].nodes.items[ni];
+            for(size_t ri=0;ri<node->results.count;ri++)if(node->results.items[ri].value==id.value&&node->operation.tag==ABC_ASDL_RESIDUAL_OPERATION_CALL){size_t target;
+                return function_index(emitter->program,node->operation.value.call.target,&target)&&emitter->u32_results[target];
+            }
+        }
+    }
+    return 0;
+}
+
+static int function_exported(const c_emitter *emitter,size_t fi){
+    uint64_t id=emitter->program->functions.items[fi].id.value;
+    for(size_t i=0;i<emitter->export_count;i++)if(emitter->exports[i].function.value==id)return 1;return 0;
+}
+
+static void constrain_call_arguments(c_emitter *emitter,size_t caller,uint64_t target_id,
+                                     size_t argument_count,const abc_residual_id *arguments,int *changed){
+    size_t target;if(!function_index(emitter->program,target_id,&target))return;
+    for(size_t i=0;i<argument_count&&i<emitter->program->functions.items[target].arguments.count;i++)
+        if(emitter->u32_arguments[target][i]&&!value_u32(emitter,caller,arguments[i],0)){emitter->u32_arguments[target][i]=0;*changed=1;}
+}
+
+static int analyze_widths(c_emitter *emitter){
+    size_t count=emitter->program->functions.count;int changed=1;
+    emitter->u32_arguments=calloc(count?count:1,sizeof *emitter->u32_arguments);
+    emitter->u32_results=calloc(count?count:1,1);if(!emitter->u32_arguments||!emitter->u32_results)return 0;
+    for(size_t fi=0;fi<count;fi++){const abc_residual_function *function=&emitter->program->functions.items[fi];
+        emitter->u32_arguments[fi]=calloc(function->arguments.count?function->arguments.count:1,1);if(!emitter->u32_arguments[fi])return 0;
+        memset(emitter->u32_arguments[fi],function_exported(emitter,fi)?0:1,function->arguments.count);
+        emitter->u32_results[fi]=(uint8_t)(function->result_types.count==1);
+    }
+    while(changed){changed=0;for(size_t fi=0;fi<count;fi++){const abc_residual_function *function=&emitter->program->functions.items[fi];
+        for(size_t bi=0;bi<function->blocks.count;bi++){const abc_residual_block *block=&function->blocks.items[bi];
+            for(size_t ni=0;ni<block->nodes.count;ni++)if(block->nodes.items[ni].operation.tag==ABC_ASDL_RESIDUAL_OPERATION_CALL)
+                constrain_call_arguments(emitter,fi,block->nodes.items[ni].operation.value.call.target,
+                                         block->nodes.items[ni].operation.value.call.arguments.count,
+                                         block->nodes.items[ni].operation.value.call.arguments.items,&changed);
+            const abc_residual_terminator *term=&block->terminator;
+            if(term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_TAIL_CALL)
+                constrain_call_arguments(emitter,fi,term->value.tail_call.target,term->value.tail_call.arguments.count,
+                                         term->value.tail_call.arguments.items,&changed);
+            if(emitter->u32_results[fi]&&term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_RETURN)
+                for(size_t ri=0;ri<term->value.return_value.values.count;ri++)if(!value_u32(emitter,fi,term->value.return_value.values.items[ri],0)){emitter->u32_results[fi]=0;changed=1;}
+        }
+    }}return 1;
+}
+
 static int integer_type(abc_residual_type type) {
     return type == ABC_ASDL_RESIDUAL_TYPE_CELL ||
            type == ABC_ASDL_RESIDUAL_TYPE_U32 ||
            type == ABC_ASDL_RESIDUAL_TYPE_I32 ||
            type == ABC_ASDL_RESIDUAL_TYPE_U64 ||
            type == ABC_ASDL_RESIDUAL_TYPE_I64;
+}
+
+static const char *c_value_type(abc_residual_type type) {
+    switch(type){
+    case ABC_ASDL_RESIDUAL_TYPE_U32:return "uint32_t";
+    case ABC_ASDL_RESIDUAL_TYPE_I32:return "int32_t";
+    case ABC_ASDL_RESIDUAL_TYPE_I64:return "int64_t";
+    default:return "uint64_t";
+    }
 }
 
 static int validate_subset(c_emitter *emitter) {
@@ -263,7 +416,7 @@ static int emit_runtime(c_emitter *emitter) {
 }
 
 static int emit_value_name(c_emitter *emitter, abc_residual_id id) {
-    return append_format(&emitter->output, "values[%llu]",
+    return append_format(&emitter->output, "v_%llu",
                          (unsigned long long)id.value) ||
            emit_out_of_memory(emitter);
 }
@@ -564,6 +717,16 @@ static int emit_node(c_emitter *emitter,
                 operation->value.call.target, &target))
             return emit_failure(emitter, origin,
                                 "portable C direct target is invalid");
+        if(scalar_function(emitter,target)){
+            if(node->results.count!=1||!append_text(&emitter->output,"  ",2)||
+               !emit_value_name(emitter,node->results.items[0])||
+               !append_format(&emitter->output,"=abc_aot_function_%zu(",target))return emit_out_of_memory(emitter);
+            for(i=0;i<operation->value.call.arguments.count;i++){
+                if(i&&!append_text(&emitter->output,",",1))return emit_out_of_memory(emitter);
+                if(!emit_value_name(emitter,operation->value.call.arguments.items[i]))return 0;
+            }
+            return append_text(&emitter->output,");\n",3)||emit_out_of_memory(emitter);
+        }
         if (!append_format(&emitter->output,
                            "  {\n    uint64_t call_args_%llu[%zu];\n",
                            (unsigned long long)node->id.value,
@@ -713,6 +876,13 @@ static int emit_terminator(
             &terminator->value.switch_value.fallback, origin);
 
     case ABC_ASDL_RESIDUAL_TERMINATOR_RETURN:
+        if(scalar_function(emitter,emitter->current_function)){
+            if(terminator->value.return_value.values.count!=1||
+               !append_text(&emitter->output,"  return ",9)||
+               !emit_value_name(emitter,terminator->value.return_value.values.items[0])||
+               !append_text(&emitter->output,";\n",2))return emit_out_of_memory(emitter);
+            return 1;
+        }
         for (i = 0;
              i < terminator->value.return_value.values.count; i++) {
             if (!append_format(&emitter->output,
@@ -733,6 +903,16 @@ static int emit_terminator(
                 terminator->value.tail_call.target, &target))
             return emit_failure(emitter, origin,
                                 "portable C tail target is invalid");
+        if(scalar_function(emitter,target)){
+            int current_scalar=scalar_function(emitter,emitter->current_function);
+            if(!append_format(&emitter->output,current_scalar?"  return abc_aot_function_%zu(":"  results[0]=abc_aot_function_%zu(",target))return emit_out_of_memory(emitter);
+            for(i=0;i<terminator->value.tail_call.arguments.count;i++){
+                if(i&&!append_text(&emitter->output,",",1))return emit_out_of_memory(emitter);
+                if(!emit_value_name(emitter,terminator->value.tail_call.arguments.items[i]))return 0;
+            }
+            if(!append_text(&emitter->output,");\n",3))return emit_out_of_memory(emitter);
+            return current_scalar?1:(append_text(&emitter->output,"  return ABC_AOT_OK;\n",21)||emit_out_of_memory(emitter));
+        }
         if (!append_format(
                 &emitter->output,
                 "  {\n    uint64_t tail_args[%zu];\n",
@@ -784,23 +964,30 @@ static int emit_function(c_emitter *emitter, size_t index) {
     size_t i;
     size_t bi;
     size_t ni;
-    uint64_t maximum_value_id = 0;
-
-    for (i = 0; i < emitter->program->values.count; i++)
-        if (emitter->program->values.items[i].id.value > maximum_value_id)
-            maximum_value_id = emitter->program->values.items[i].id.value;
-    if (!append_format(
-            &emitter->output,
-            "int abc_aot_function_%zu(const uint64_t *arguments,"
-            "uint64_t *results,abc_aot_error *error) {\n",
-            index))
+    emitter->current_function=index;
+    if(scalar_function(emitter,index)){
+        if(!append_format(&emitter->output,"static inline %s abc_aot_function_%zu(",
+                          emitter->u32_results[index]?"uint32_t":"uint64_t",index))return emit_out_of_memory(emitter);
+        if(!function->argument_types.count&&!append_text(&emitter->output,"void",4))return emit_out_of_memory(emitter);
+        for(i=0;i<function->argument_types.count;i++){
+            if(i&&!append_text(&emitter->output,",",1))return emit_out_of_memory(emitter);
+            if(!append_format(&emitter->output,"%s argument_%zu",
+                              emitter->u32_arguments[index][i]?"uint32_t":"uint64_t",i))return emit_out_of_memory(emitter);
+        }
+        if(!append_text(&emitter->output,") {\n",4))return emit_out_of_memory(emitter);
+    }else if(!append_format(&emitter->output,
+            "static inline int abc_aot_function_%zu(const uint64_t *arguments,"
+            "uint64_t *results,abc_aot_error *error) {\n",index))
         return emit_out_of_memory(emitter);
 
-    if (!append_format(
-            &emitter->output,
-            "  uint64_t values[%zu]={0};\n"
-            "  (void)arguments; (void)error;\n",
-            (size_t)maximum_value_id + 1))
+    for(i=0;i<emitter->program->values.count;i++)
+        if(!append_format(&emitter->output,"  %s v_%llu=0; (void)v_%llu;\n",
+                          c_value_type(emitter->program->values.items[i].type),
+                          (unsigned long long)emitter->program->values.items[i].id.value,
+                          (unsigned long long)emitter->program->values.items[i].id.value))
+            return emit_out_of_memory(emitter);
+    if(!scalar_function(emitter,index)&&
+       !append_format(&emitter->output,"  (void)arguments; (void)error;\n"))
         return emit_out_of_memory(emitter);
     for (i = 0; i < emitter->program->values.count; i++) {
         const abc_residual_value *value =
@@ -810,7 +997,7 @@ static int emit_function(c_emitter *emitter, size_t index) {
             ABC_ASDL_RESIDUAL_DEFINITION_CONSTANT &&
             !append_format(
                 &emitter->output,
-                "  values[%llu]=UINT64_C(0x%016llx);\n",
+                "  v_%llu=UINT64_C(0x%016llx);\n",
                 (unsigned long long)value->id.value,
                 (unsigned long long)value->definition.value.constant.low))
             return emit_out_of_memory(emitter);
@@ -818,8 +1005,8 @@ static int emit_function(c_emitter *emitter, size_t index) {
     for (i = 0; i < function->arguments.count; i++) {
         if (!append_text(&emitter->output, "  ", 2) ||
             !emit_value_name(emitter, function->arguments.items[i]) ||
-            !append_format(&emitter->output,
-                           "=arguments[%zu];\n", i))
+            !append_format(&emitter->output,scalar_function(emitter,index)?
+                           "=argument_%zu;\n":"=arguments[%zu];\n",i))
             return emit_out_of_memory(emitter);
     }
     if (!append_format(
@@ -861,6 +1048,23 @@ static int emit_wrappers(c_emitter *emitter) {
                 emitter, 0,
                 "export '%s' has no residual function",
                 exported->name);
+        if(scalar_function(emitter,target)){
+            if(!append_format(&emitter->output,
+                "int abc_export_%s(const uint64_t *arguments,size_t argument_count,uint64_t *results,size_t result_capacity,abc_aot_error *error) {\n"
+                "  abc_aot_clear(error);\n"
+                "  if(argument_count!=%u)return ABC_AOT_ARGUMENTS;\n"
+                "  if(result_capacity<1)return ABC_AOT_RESULTS;\n"
+                "  if(%u&&!arguments)return ABC_AOT_ARGUMENTS;\n"
+                "  if(!results)return ABC_AOT_RESULTS;\n"
+                "  results[0]=abc_aot_function_%zu(",
+                exported->name,exported->arguments,exported->arguments,target))return emit_out_of_memory(emitter);
+            for(size_t ai=0;ai<exported->arguments;ai++){
+                if(ai&&!append_text(&emitter->output,",",1))return emit_out_of_memory(emitter);
+                if(!append_format(&emitter->output,"arguments[%zu]",ai))return emit_out_of_memory(emitter);
+            }
+            if(!append_format(&emitter->output,"%s",");\n  return ABC_AOT_OK;\n}\n\n"))return emit_out_of_memory(emitter);
+            continue;
+        }
         if (!append_format(
                 &emitter->output,
                 "int abc_export_%s(const uint64_t *arguments,size_t argument_count,"
@@ -908,6 +1112,11 @@ static int emit_wrappers(c_emitter *emitter) {
     return 1;
 }
 
+static void free_widths(c_emitter *emitter){
+    if(emitter->u32_arguments)for(size_t i=0;i<emitter->program->functions.count;i++)free(emitter->u32_arguments[i]);
+    free(emitter->u32_arguments);free(emitter->u32_results);
+}
+
 static abc_status emit_program_c(
     const abc_residual_program *program,
     const c_export *exports, size_t export_count,
@@ -930,14 +1139,24 @@ static abc_status emit_program_c(
             "portable C input residual IR is invalid: %s",
             diagnostic.message);
     if (!validate_subset(&emitter) ||
+        !analyze_failures(&emitter) ||
+        !analyze_widths(&emitter) ||
         !emit_runtime(&emitter))
         goto failed;
 
     for (i = 0; i < program->functions.count; i++) {
-        if (!append_format(
-                &emitter.output,
-                "int abc_aot_function_%zu(const uint64_t *,uint64_t *,abc_aot_error *);\n",
-                i))
+        if(scalar_function(&emitter,i)){
+            const abc_residual_function *function=&program->functions.items[i];
+            if(!append_format(&emitter.output,"static inline %s abc_aot_function_%zu(",
+                              emitter.u32_results[i]?"uint32_t":"uint64_t",i))goto no_memory;
+            if(!function->argument_types.count&&!append_text(&emitter.output,"void",4))goto no_memory;
+            for(size_t ai=0;ai<function->argument_types.count;ai++){
+                if(ai&&!append_text(&emitter.output,",",1))goto no_memory;
+                if(!append_format(&emitter.output,"%s",emitter.u32_arguments[i][ai]?"uint32_t":"uint64_t"))goto no_memory;
+            }
+            if(!append_text(&emitter.output,");\n",3))goto no_memory;
+        }else if(!append_format(&emitter.output,
+                "static inline int abc_aot_function_%zu(const uint64_t *,uint64_t *,abc_aot_error *);\n",i))
             goto no_memory;
     }
     if (!append_text(&emitter.output, "\n", 1))
@@ -951,11 +1170,13 @@ static abc_status emit_program_c(
 
     *source = emitter.output.items;
     *source_size = emitter.output.count;
+    free(emitter.may_fail);free_widths(&emitter);
     return ABC_OK;
 
 no_memory:
     emit_out_of_memory(&emitter);
 failed:
+    free(emitter.may_fail);free_widths(&emitter);
     free(emitter.output.items);
     return error && error->status == ABC_NOMEM
         ? ABC_NOMEM : ABC_INVALID;

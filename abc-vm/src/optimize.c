@@ -3,7 +3,9 @@
 
 /* The ABC optimizer is the second symbolic-VM sink. It builds integer value
  * and ordered trap/check/abort DAGs, then canonically re-projects them to A/B/C
- * bytecode. Unsupported regions remain verified input functions, independently. */
+ * bytecode. Unsupported regions remain verified input functions, independently.
+ * The optimizer path limit bounds speculative analysis memory; reaching it
+ * retains the original function and does not limit generated code. */
 
 typedef enum { N_INPUT, N_LOOP_HOME, N_BINARY, N_UNARY, N_CHECK, N_ABORT, N_EFFECT, N_MEMORY, N_DYNAMIC, N_FOREIGN, N_CALLABLE, N_DYNCALLABLE, N_CALL, N_TAIL, N_RESULT } NodeKind;
 typedef struct {
@@ -30,7 +32,7 @@ typedef struct {
     uint32_t result_count, control_target, root_entry, root_arguments, backedge_target, loop_target;
     int unsupported, follow_control, terminal_abort, unknown_control, callable_safe, dynamic_callable_safe, backedge, nested_backedge, loop_candidate, loop_captured, loop_stable; uint32_t pending_origin;
     abc_symbolic_context loop_initial; abc_symbolic_value loop_header[255]; uint32_t loop_home[255], loop_count;
-    abc_symbolic_control pending_control; unsigned paths;
+    abc_symbolic_control pending_control; size_t paths;
     ResidualCall *calls; uint32_t call_count, call_capacity; uint32_t terminal_tail;
 } DagSink;
 typedef struct DagTree {
@@ -333,11 +335,11 @@ static int simulate_tree(DagSink *sink,abc_symbolic_machine *machine,abc_symboli
         sink->follow_control=0;sink->unknown_control=0;sink->backedge=0;sink->terminal_tail=0;abc_symbolic_exit exit=abc_symbolic_dispatch(machine);
         if(sink->unsupported||exit==ABC_SYM_EXIT_FAILURE||exit==ABC_SYM_EXIT_BOUNDARY||exit==ABC_SYM_EXIT_BLOCK)return 0;
         if(exit==ABC_SYM_EXIT_TERMINATED){
-            if(++sink->paths>ABC_SYMBOLIC_VERSION_CAP)return 0;DagTree *leaf=calloc(1,sizeof *leaf);if(!leaf)return 0;leaf->leaf=1;leaf->tail=sink->terminal_tail!=0;leaf->tail_node=sink->terminal_tail;leaf->origin=sink->pending_origin;leaf->result_count=sink->result_count;
+            if(sink->paths>=ABC_OPTIMIZER_PATH_LIMIT)return 0;sink->paths++;DagTree *leaf=calloc(1,sizeof *leaf);if(!leaf)return 0;leaf->leaf=1;leaf->tail=sink->terminal_tail!=0;leaf->tail_node=sink->terminal_tail;leaf->origin=sink->pending_origin;leaf->result_count=sink->result_count;
             for(uint32_t i=0;i<leaf->result_count;i++)leaf->results[i]=sink->results[i];*out=leaf;return 1;
         }
         if(exit!=ABC_SYM_EXIT_CONTROL)return 0;
-        if(sink->backedge){if(++sink->paths>ABC_SYMBOLIC_VERSION_CAP||context->n[ABC_SYM_C]>255)return 0;DagTree *leaf=calloc(1,sizeof *leaf);if(!leaf)return 0;leaf->leaf=1;leaf->backedge=1;leaf->nested_backedge=(unsigned)sink->nested_backedge;leaf->origin=sink->pending_origin;leaf->result_count=context->n[ABC_SYM_C];for(uint32_t i=0;i<leaf->result_count;i++)leaf->results[i]=*abc_symbolic_top(context,ABC_SYM_C,i);*out=leaf;return 1;}
+        if(sink->backedge){if(context->n[ABC_SYM_C]>255||sink->paths>=ABC_OPTIMIZER_PATH_LIMIT)return 0;sink->paths++;DagTree *leaf=calloc(1,sizeof *leaf);if(!leaf)return 0;leaf->leaf=1;leaf->backedge=1;leaf->nested_backedge=(unsigned)sink->nested_backedge;leaf->origin=sink->pending_origin;leaf->result_count=context->n[ABC_SYM_C];for(uint32_t i=0;i<leaf->result_count;i++)leaf->results[i]=*abc_symbolic_top(context,ABC_SYM_C,i);*out=leaf;return 1;}
         if(sink->unknown_control){
             if(sink->loop_captured&&!sink->loop_stable)return 0;
             abc_symbolic_control control=sink->pending_control;abc_symbolic_context fallthrough={0};DagTree *tree=calloc(1,sizeof *tree);if(!tree)return 0;tree->origin=sink->pending_origin;tree->control=control;
@@ -652,11 +654,15 @@ static int emit_tree(Bytes *b,const Schedule *schedule,const abc_function *f,con
     return emit_tree(b,schedule,f,tree->taken);
 }
 
-typedef struct { size_t at[ABC_SYMBOLIC_VERSION_CAP]; uint32_t count; } PhiPatches;
+typedef struct { size_t *at, count, capacity; } PhiPatches;
+static int append_phi_patch(PhiPatches *patches,size_t at) {
+    if(patches->count==patches->capacity){size_t capacity=patches->capacity?patches->capacity*2:8;if(capacity<patches->capacity)return 0;size_t *items=realloc(patches->at,capacity*sizeof *items);if(!items)return 0;patches->at=items;patches->capacity=capacity;}
+    patches->at[patches->count++]=at;return 1;
+}
 static int emit_phi_tree(Bytes *b,const Schedule *schedule,const DagTree *tree,uint32_t results,PhiPatches *patches) {
     if(tree->leaf){
         if(tree->result_count!=results)return 0;for(uint32_t i=0;i<results;i++)if(!emit_value(b,schedule,tree->results[i],ABC_SYM_A)||!emit_cset(b,ABC_SYM_A,results-1-i))return 0;
-        if(patches->count>=ABC_SYMBOLIC_VERSION_CAP||!emit8(b,OP_JMP32))return 0;patches->at[patches->count++]=b->size;return emit32(b,0);
+        if(!emit8(b,OP_JMP32)||!append_phi_patch(patches,b->size))return 0;return emit32(b,0);
     }
     abc_symbolic_control fused;const abc_symbolic_control *c=fused_boolean_control(schedule,&tree->control,&fused)?&fused:&tree->control;unsigned stack=(c->opcode==OP_JZ_B||c->opcode==OP_JNZ_B)?ABC_SYM_B:ABC_SYM_A;if(!emit_value(b,schedule,c->left,stack))return 0;
     if(c->kind==ABC_SYM_CONTROL_SWITCH){
@@ -714,8 +720,8 @@ static int residualize_function(const abc_module *m,const CallGraph *graph,uint3
     if(!sink.terminal_abort&&sink.paths>1&&f->results>1&&!tree_has_backedge(tree)&&!tree_has_tail(tree)){
         if((uint32_t)f->arguments+schedule.temps+f->results>255)goto emit_failed;
         for(uint32_t i=0;i<f->results;i++)if(!emit_constant(&code,ABC_SYM_A,0)||!emit8(&code,OP_CPUSH_A))goto emit_failed;
-        schedule.suffix=f->results;PhiPatches patches={0};if(!emit_phi_tree(&code,&schedule,tree,f->results,&patches))goto emit_failed;size_t join=code.size;
-        for(uint32_t i=0;i<patches.count;i++){int64_t relative=(int64_t)join-(int64_t)(patches.at[i]+4);if(relative<INT32_MIN||relative>INT32_MAX)goto emit_failed;for(unsigned j=0;j<4;j++)code.data[patches.at[i]+j]=(uint8_t)((uint32_t)(int32_t)relative>>(8*j));}
+        schedule.suffix=f->results;PhiPatches patches={0};if(!emit_phi_tree(&code,&schedule,tree,f->results,&patches)){free(patches.at);goto emit_failed;}size_t join=code.size;
+        for(size_t i=0;i<patches.count;i++){int64_t relative=(int64_t)join-(int64_t)(patches.at[i]+4);if(relative<INT32_MIN||relative>INT32_MAX){free(patches.at);goto emit_failed;}for(unsigned j=0;j<4;j++)code.data[patches.at[i]+j]=(uint8_t)((uint32_t)(int32_t)relative>>(8*j));}free(patches.at);
         for(uint32_t i=0;i<f->results;i++)if(!emit_cget(&code,ABC_SYM_A,f->results-1-i))goto emit_failed;
         if(!emit8(&code,OP_RET)||!emit8(&code,(uint8_t)(f->arguments+schedule.temps+f->results))||!emit8(&code,(uint8_t)f->results))goto emit_failed;
     } else if(!sink.terminal_abort&&!emit_tree(&code,&schedule,f,tree))goto emit_failed;
@@ -814,7 +820,6 @@ static abc_status optimize_impl(const void *input,size_t input_size,void **outpu
         for(uint32_t j=0;j<functions[i].call_count;j++)if(!join_call_facts(m,facts,needed,dirty,&functions[i].calls[j])){status=abc_fail(error,ABC_INVALID,UINT32_MAX,"optimizer residual call facts are invalid");optimized=0;break;}if(!optimized)break;
     }
     if(optimized&&!write_module(m,functions,input,input_size,&bytes,&size,provenance?&map:NULL,&map_count)){status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer emission failed");optimized=0;}
-    if(optimized&&size>input_size){free(bytes);free(map);bytes=NULL;map=NULL;size=map_count=0;optimized=0;}
     goto optimize_cleanup;
 optimize_failed:status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer allocation failed");optimized=0;
 optimize_cleanup:for(uint32_t i=0;i<m->function_count;i++){clear_function_code(&functions[i]);free(facts[i]);}free(functions);free(needed);free(dirty);free(facts);free_call_graph(&graph);
