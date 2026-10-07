@@ -13,5 +13,6 @@
 - **`frontend-gap-analysis.md`:** implementation audit of the reused ASDL frontend, required compilation boundaries, completed foundation, and detailed source roadmap.
 - **`compiler-continuations.md`:** continuation-directed production lowering, local `CALL`/`TCALL` selection, defunctionalization, recursion as cyclic control flow, and the restricted tail-call-modulo-accumulation optimization.
 - **`symbolic-vm.md`:** generated musttail abstract ABC execution shared by the native, canonical-ABC, and portable-C peer sinks.
+- **`symbolic-interpreter-refactor.md`:** archive-and-port rewrite from sink-controlled symbolic execution to a compact handwritten residual IR and one-way native/ABC/C consumers.
 - **`abc-opt.md`:** the standalone C ABC-to-ABC symbolic optimizer, canonical stack re-projection, frontend-fact contract, provenance, fixpoint and differential guarantees.
 - **`four_lane_fork_v3.md`:** the four-lane stack-register design, an alternative that was compiled, measured and not adopted. The specification's section "Status and measurements" records the comparison.
