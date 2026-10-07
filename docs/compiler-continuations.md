@@ -174,4 +174,4 @@ Continuation-directed lowering is the general rule. Accumulator formation is an 
 
 For the production IR, the function-level `tailCalls()` prepass must not drive lowering. Tailness must follow locally from lowering each `Ir.Call` under its actual continuation. Call-graph SCCs belong only to the later `abc-opt` inlining safety decision.
 
-The JIT does not perform ABC re-projection. It consumes `abc-opt` output and sends symbolic residual operations directly to register-addressed stencils, preserving block-version context.
+The JIT does not perform ABC re-projection. It consumes verified ABC directly, whether or not a build-time producer previously ran `abc-opt`, and sends symbolic residual operations to register-addressed stencils while preserving block-version context.

@@ -16,8 +16,9 @@ include vendor/whippet/embed.mk
 GC_LTO_CFLAGS :=
 GC_LTO_LDFLAGS :=
 SHARDS = 0 1 2 3 4 5 6 7
-LIBOBJ = build/module.o build/memory_module.o build/dynamic.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o build/residualize.o $(addprefix build/banked_,$(addsuffix .o,$(SHARDS))) $(GC_OBJS)
-OPTPIC = build/pic/module.o build/pic/memory_module.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o
+RUNTIME_OBJ = build/module.o build/memory_module.o build/dynamic.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/residualize.o $(addprefix build/banked_,$(addsuffix .o,$(SHARDS))) $(GC_OBJS)
+TOOL_OBJ = build/module.o build/memory_module.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
+TOOL_PIC = build/pic/module.o build/pic/memory_module.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o
 ASDLC_SRC = tools/asdlc/main.c tools/asdlc/arena.c tools/asdlc/parser.c tools/asdlc/validate.c tools/asdlc/emit_c.c
 .PHONY: all clean validate
 all: build/abc build/abc-opt build/libabc-opt.so build/libabc.a build/generated/stencils.h
@@ -65,7 +66,8 @@ build/symbolic.o: src/symbolic.h src/vm_internal.h
 build/residual_analysis.o build/residual_c.o: build/generated/residual_ir.h
 build/residual_analysis.o: src/residual_analysis.h src/symbolic.h src/vm_internal.h
 build/residual_builder.o: src/residual_builder.c src/residual_builder.h src/residual_analysis.h src/residual_ir.h src/symbolic.h src/dynamic.h build/generated/residual_ir.h
-build/optimize.o: src/optimize.c src/symbolic.h src/vm_internal.h
+build/optimize.o: src/optimize.c include/abc_tool.h src/symbolic.h src/vm_internal.h
+build/residual_c.o: include/abc_tool.h
 build/residualize.o: src/residualize.c src/residualize.h src/symbolic.h src/vm_internal.h build/generated/stencils.h build/generated/stencil_layout.h
 build/pic:
 	mkdir -p $@
@@ -85,16 +87,21 @@ build/pic/residual_c.o: src/residual_c.c src/residual_builder.h src/residual_ir.
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 build/pic/residual_builder.o: src/residual_builder.c src/residual_builder.h src/residual_analysis.h src/residual_ir.h src/symbolic.h src/dynamic.h build/generated/residual_ir.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
-build/pic/optimize.o: src/optimize.c src/symbolic.h src/vm_internal.h build/opcodes.h | build/pic
+build/pic/optimize.o: src/optimize.c include/abc_tool.h src/symbolic.h src/vm_internal.h build/opcodes.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
-build/libabc-opt.so: $(OPTPIC)
+build/pic/residual_c.o: include/abc_tool.h
+build/libabc-opt.so: $(TOOL_PIC)
 	$(CC) -shared $(CFLAGS) $^ -lm -o $@
-build/libabc.a: $(LIBOBJ)
-	$(AR) rcs $@ $^
+build/libabc.a: $(RUNTIME_OBJ) Makefile
+	rm -f $@
+	$(AR) rcs $@ $(RUNTIME_OBJ)
+build/libabc-tool.a: $(TOOL_OBJ) Makefile
+	rm -f $@
+	$(AR) rcs $@ $(TOOL_OBJ)
 build/abc-runtime: build/cli.o build/libabc.a
 	$(CC) $(CFLAGS) $^ $(GC_LIBS) -o $@
-build/abc-opt: tools/abc_opt.c build/libabc.a include/abc.h
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a $(GC_LIBS) -o $@
+build/abc-opt: tools/abc_opt.c build/libabc-tool.a include/abc_tool.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc-tool.a -lm -o $@
 LUA_MODULES = int64 tool_util assembler slet_frontend opcodes
 build/%.lua: tools/%.lua | build
 	cp $< $@
@@ -111,8 +118,8 @@ build/validate-symbolic: tools/validate_symbolic.c build/libabc.a src/symbolic.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a $(GC_LIBS) -o $@
 build/validate-asdlc: tools/validate_asdlc.c $(filter-out tools/asdlc/main.c,$(ASDLC_SRC)) tools/asdlc/asdlc.h | build
 	$(CC) $(CFLAGS) $(WARN) -Itools tools/validate_asdlc.c $(filter-out tools/asdlc/main.c,$(ASDLC_SRC)) -o $@
-build/validate-residual-ir: tools/validate_residual_ir.c build/libabc.a src/residual_ir.h
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a $(GC_LIBS) -o $@
+build/validate-residual-ir: tools/validate_residual_ir.c build/libabc-tool.a src/residual_ir.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc-tool.a -lm -o $@
 validate: all build/validate-api build/validate-cache build/validate-symbolic build/validate-asdlc build/validate-residual-ir
 	build/abc-asdlc --check schema/residual.asdl
 	build/validate-asdlc

@@ -27,7 +27,7 @@ local function main()
         local temporary=os.tmpname()
         local ok,result=pcall(function()
             local image=assembler.assemble(artifact.assembly)
-            util.publish(require('let.optimize').optimize(image),temporary)
+            util.write(temporary,image) -- the runtime verifies once while loading
             local args={util.runtime,'run',temporary}
             for i=3,#arg do args[#args+1]=arg[i] end
             return execute(args)

@@ -19,7 +19,7 @@ https://claude.ai/code/artifact/557072c1-ef9a-4f32-8878-185ee6f6c3c0
 | Path | Contents |
 | --- | --- |
 | `frontend/` | Let/SLet lexer, parser, semantic construction, typed IR, lowering, staging, and language tests |
-| `src/`, `include/abc.h` | ABC module loader, verifier, interpreter, dynamic runtime, optimizer, residualizers, and embedding API |
+| `src/`, `include/` | ABC runtime and peer symbolic sinks; `abc.h` is the runtime API and `abc_tool.h` is the build-time optimizer/C-emitter API |
 | `schema/`, `gen/` | Durable VM schemas and Lua generators for handlers, symbolic dispatch, foreign bridges, and native stencils |
 | `tools/` | CLI, assembler, code-generation helpers, validators, and the standalone optimizer host |
 | `docs/` | Language syntax, VM specification, architecture, profiles, and implementation status |
@@ -54,9 +54,9 @@ build/abc opt build/divmod.abc -o build/divmod.opt.abc
 # equivalent direct entry point: build/abc-opt INPUT -o OUTPUT
 ```
 
-Embedders call `abc_optimize` from `libabc.a`. LuaJIT compiler code loads `build/libabc-opt.so` through `frontend/let/optimize.lua`; both entry points compile the same `src/optimize.c` implementation and publish only reverified output.
+The optimizer is build-time tooling, not part of the runtime library. `abc compile` runs it when producing a module, while `abc run SOURCE.let` lowers and executes directly without an ABC-to-ABC optimization pass. LuaJIT compiler code loads `build/libabc-opt.so` through `frontend/let/optimize.lua`; C tooling may include `include/abc_tool.h` and link `build/libabc-tool.a`. Both use the same `src/optimize.c` implementation and publish only reverified output.
 
-Link `build/libabc.a` and include `include/abc.h` to embed the VM; see [examples/embed.c](examples/embed.c). Set `abc_limits.mode`, create a VM, and call `abc_vm_load` before execution; eager mode prepares native code during load, while lazy mode compiles reached contexts on first arrival. Each VM owns its stacks; loaded modules are immutable and shareable. Calls return structured errors, including abort reason and bytecode offset, rather than exiting the host. The VM has no instruction/fuel budget API: execution continues until completion, language abort, actual resource failure or external process interruption. All execution policies default to 65,536 cells per stack; override stack capacity with `abc_limits` or CLI `--stack=N`.
+Link `build/libabc.a` and include `include/abc.h` to embed the VM; see [examples/embed.c](examples/embed.c). The runtime verifies and executes the ABC it receives and never invokes `abc-opt`. Set `abc_limits.mode`, create a VM, and call `abc_vm_load` before execution; eager mode prepares native code during load, while lazy mode compiles reached contexts on first arrival. Each VM owns its stacks; loaded modules are immutable and shareable. Calls return structured errors, including abort reason and bytecode offset, rather than exiting the host. The VM has no instruction/fuel budget API: execution continues until completion, language abort, actual resource failure or external process interruption. All execution policies default to 65,536 cells per stack; override stack capacity with `abc_limits` or CLI `--stack=N`.
 
 **Current scope:** typed integer/IEEE-754 binary64 bytecode, memory, direct/indirect/dynamic calls, typed foreign calls, profile-5 managed values and GC, eager/lazy native execution, canonical ABC optimization, and strict self-contained portable-C emission for the integer/direct-call residual subset. Lua generates cache-state-specialized interpreter handlers, the shared symbolic dispatcher, offline register-addressed native stencils, and finite foreign ABI bridges. Repository validation compares interpreted, eager, lazy, and optimized-ABC behavior across the full implemented VM profiles; portable-C differential validation currently covers integer arithmetic, control flow, loops, checks, direct calls and export adapters. Full float, memory, indirect/foreign, managed and dynamic portable-C lowering remains work.
 

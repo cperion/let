@@ -58,21 +58,6 @@ typedef struct {
 abc_status abc_module_load(const void *bytes, size_t size, abc_module **out, abc_error *error);
 abc_status abc_module_read(const char *path, abc_module **out, abc_error *error);
 void abc_module_free(abc_module *module);
-/* Residualize verified ABC through the shared symbolic VM and canonical ABC sink.
- * The returned allocation is owned by the caller and released with abc_optimized_free.
- * Unsupported regions are preserved conservatively; successful output is always reverified. */
-typedef struct { uint32_t output_offset, input_offset; } abc_provenance;
-abc_status abc_optimize(const void *bytes, size_t size, void **output, size_t *output_size, abc_error *error);
-abc_status abc_optimize_mapped(const void *bytes, size_t size, void **output, size_t *output_size,
-                               abc_provenance **provenance, size_t *provenance_count, abc_error *error);
-void abc_optimized_free(void *bytes);
-
-/* Emit a self-contained C11 translation unit from verified integer/static ABC.
- * The returned text is NUL-terminated; source_size excludes that terminator. */
-abc_status abc_emit_c(const void *bytes, size_t size,
-                      char **source, size_t *source_size,
-                      abc_error *error);
-void abc_emitted_c_free(char *source);
 abc_status abc_module_export(const abc_module *module, const char *name,
                              uint32_t *arguments, uint32_t *results, abc_error *error);
 /* Copied signature; no output changes on failure. Integer modules report integer kinds. */

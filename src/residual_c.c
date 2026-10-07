@@ -1,3 +1,4 @@
+#include "abc_tool.h"
 #include "residual_builder.h"
 #include "internal.h"
 
