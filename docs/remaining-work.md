@@ -6,7 +6,7 @@ The language contract remains `syntax.md`; `spec.md` is authoritative for the VM
 
 ## Current baseline
 
-Restored fast implementation: `restore/fast-jit` at `2356e7e`. Full validation
+Primary branch: `master`, retaining the restored fast implementation from `2356e7e`. Full validation
 passes with 232 parser, 276 compiler, 100 lowering, 127 optimizer and 23 staging
 checks, plus runtime suites. Test counts establish the supported subset, not
 complete conformance.
