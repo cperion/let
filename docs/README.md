@@ -9,7 +9,8 @@
 - **`foreign-profile.md`:** typed named extern tables, VM-local binding, generated C-ABI bridges, and `FCALL`.
 - **`dynamic-profile.md`:** one-cell `any`, generic operations, collected open-word maps and layout tokens, Let managed references/views, module trace metadata, GC, and eager/lazy obligations.
 - **`slet-subset.md`:** the production Let/SLet frontend's supported source paths and deliberate limits.
-- **`remaining-work.md`:** concise restart checklist and dependency order for unfinished language, module, ownership, staging, and validation work.
+- **`frontend-completion-plan.md`:** active specification-driven frontend backlog, audit probes, dependencies, detailed acceptance tests and performance gates.
+- **`remaining-work.md`:** concise restart index into the active frontend completion plan.
 - **`frontend-gap-analysis.md`:** implementation audit of the reused ASDL frontend, required compilation boundaries, completed foundation, and detailed source roadmap.
 - **`compiler-continuations.md`:** continuation-directed production lowering, local `CALL`/`TCALL` selection, defunctionalization, recursion as cyclic control flow, and the restricted tail-call-modulo-accumulation optimization.
 - **`symbolic-vm.md`:** generated musttail abstract ABC execution shared by the native, canonical-ABC, and portable-C peer sinks.

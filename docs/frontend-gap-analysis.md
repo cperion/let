@@ -1,6 +1,6 @@
 # Let frontend gap analysis
 
-Status: implementation audit. The checked backend and the ordinary Let/SLet source path are now integrated; the remaining gaps are listed below.
+Status: historical implementation audit. For the current audited gaps and execution order, use [frontend-completion-plan.md](frontend-completion-plan.md). The matrix below predates the restored-tree conformance audit: it understates completed open-word methods/named runtime keyed supply and omits some core inference, generic, result-adjustment and capture gaps. Its architectural discussion remains useful, but it is not the current completeness checklist.
 
 ## 1. Finding
 
