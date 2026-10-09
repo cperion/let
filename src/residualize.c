@@ -118,30 +118,15 @@ static int place_fcall(Compiler *c,unsigned id,uint32_t abase,const abc_extern *
         else if(r->hole==HOLE_BIAS)value=(int64_t)(intptr_t)target;else if(r->hole==HOLE_ERROR)value=(int64_t)error;else return 0;patch(site,r->kind,r->addend,value);
     }return 1;
 }
-static int place_biased(Compiler *c,unsigned id,uint64_t immediate,int32_t b_bias,Version *taken) {
-    if(id>=sizeof stencils/sizeof stencils[0]) return 0; const Stencil *s=&stencils[id]; c->placements++; if(!reserve(c,s->len)) return 0;
-    uint8_t *at=c->pos; memcpy(at,s->code,s->len); c->pos+=s->len;
-    for(unsigned i=0;i<s->nrel;i++) { const Reloc *r=&s->rel[i]; uint8_t *site=at+r->off;
-        if(r->hole==HOLE_NEXT) patch(site,r->kind,r->addend,(int64_t)(intptr_t)c->pos);
-        else if(r->hole==HOLE_TAKEN) { if(!taken||!add_fixup(c,site,r->kind,r->addend,taken)) return 0; }
-        else if(r->hole==HOLE_IMM) patch(site,r->kind,r->addend,(int64_t)immediate);
-        else if(r->hole==HOLE_IMM2) patch(site,r->kind,r->addend,(int64_t)(immediate>>32));
-        else if(r->hole==HOLE_BIAS) patch(site,r->kind,r->addend,b_bias);
-        else return 0;
-    }
-    return 1;
-}
-static int place_call_jump(Compiler *c,uint64_t immediate,int32_t b_bias,int32_t return_offset,Version *taken) {
-    const Stencil *s=&stencils[ABC_STENCIL_CALL_JUMP]; c->placements++; if(!reserve(c,s->len)) return 0;
-    uint8_t *at=c->pos; memcpy(at,s->code,s->len); c->pos+=s->len;
-    for(unsigned i=0;i<s->nrel;i++) { const Reloc *r=&s->rel[i]; uint8_t *site=at+r->off;
-        if(r->hole==HOLE_NEXT) patch(site,r->kind,r->addend,(int64_t)(intptr_t)c->pos);
-        else if(r->hole==HOLE_TAKEN) { if(!taken||!add_fixup(c,site,r->kind,r->addend,taken)) return 0; }
-        else if(r->hole==HOLE_IMM) patch(site,r->kind,r->addend,(int64_t)immediate);
-        else if(r->hole==HOLE_IMM2) patch(site,r->kind,r->addend,(int64_t)(immediate>>32));
-        else if(r->hole==HOLE_BIAS) patch(site,r->kind,r->addend,b_bias);
-        else if(r->hole==HOLE_ERROR) patch(site,r->kind,r->addend,return_offset);
-        else return 0;
+/* Rebase is frame transport, independent of the following transfer. Zero
+   movement emits nothing; each nonzero movement carries one displacement in bytes. */
+static int rebase_frame(Compiler *c,int64_t a,int64_t b,int64_t frame) {
+    const int64_t bytes[3]={a,b,frame};
+    for(unsigned s=0;s<3;s++)if(bytes[s]) {
+        if(bytes[s]<INT32_MIN||bytes[s]>INT32_MAX) {
+            c->status=abc_fail(c->error,ABC_INVALID,c->current_pc,"native frame displacement out of range");return 0;
+        }
+        if(!place(c,ABC_STENCIL_REBASE(s),(uint64_t)bytes[s],NULL))return 0;
     }
     return 1;
 }
@@ -686,13 +671,16 @@ static void refine_aliases(Context *x,const TypeAliases *aliases,unsigned which,
         if(v->dynamic_repr==ABC_SYM_REPR_NONE)v->dynamic_repr=ABC_SYM_REPR_UNKNOWN;
     }
 }
-/* Local branches select an arm BEFORE its edge normalization emits moves.
-   These relocations are resolved immediately, never retained as fake versions. */
-static int local_branch(Compiler *c,unsigned stencil,Fixup *fix) {
+/* Local references address an arm or resume point inside this version. Bind
+   them before publication; never retain the temporary target as a version. */
+static int local_reference(Compiler *c,unsigned stencil,uint64_t immediate,Fixup *fix) {
     Version local={0};size_t first=c->nfix;
-    if(!place(c,stencil,0,&local))return 0;
-    if(c->nfix!=first+1){c->nfix=first;c->status=abc_fail(c->error,ABC_INVALID,c->current_pc,"invalid local branch stencil");return 0;}
+    if(!place(c,stencil,immediate,&local)){c->nfix=first;return 0;}
+    if(c->nfix!=first+1){c->nfix=first;c->status=abc_fail(c->error,ABC_INVALID,c->current_pc,"invalid local reference stencil");return 0;}
     *fix=c->fixups[--c->nfix];fix->target=NULL;return 1;
+}
+static int local_branch(Compiler *c,unsigned stencil,Fixup *fix) {
+    return local_reference(c,stencil,0,fix);
 }
 static void bind_local(Compiler *c,const Fixup *fix) { patch(fix->site,fix->kind,fix->addend,(int64_t)(intptr_t)c->pos); }
 static int native_type_branch(NativeSymbolicSink *sink,uint32_t pc,uint16_t want) {
@@ -930,10 +918,12 @@ static int native_emit_call(void *opaque,uint32_t pc,abc_symbolic_call *effect) 
         for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];if(!materialize_dynamic(c,x,arg))return 0;int r=materialize(c,x,arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;}
         if(!flush_context(c,x))return 0;callee=c->function_entries[fi];if(!callee){c->status=abc_fail(c->error,ABC_INVALID,pc,"native direct-call sink missing entry");return 0;}
     }
-    int32_t a_bytes=(int32_t)abase*8,b_bytes=(int32_t)x->n[JS_B]*8,c_bytes=(ctop+(int32_t)n+1)*8;
-    uint64_t forward=(uint32_t)a_bytes|((uint64_t)(uint32_t)c_bytes<<32);
-    uint64_t backward=(uint32_t)-a_bytes|((uint64_t)(uint32_t)-c_bytes<<32);
-    if(!place_call_jump(c,forward,b_bytes,ctop*8,callee)||!place_biased(c,ABC_STENCIL_CALL_RESUME,backward,-b_bytes,NULL))return 0;
+    int64_t a_bytes=(int64_t)abase*8,b_bytes=(int64_t)x->n[JS_B]*8,c_bytes=((int64_t)ctop+n+1)*8;
+    Fixup resume;
+    if(!local_reference(c,ABC_STENCIL_STORE_LABEL,(uint64_t)((int64_t)ctop*8),&resume)||
+       !rebase_frame(c,a_bytes,b_bytes,c_bytes)||!emit_jump(c,callee))return 0;
+    bind_local(c,&resume);
+    if(!rebase_frame(c,-a_bytes,-b_bytes,-c_bytes))return 0;
     c->real_calls++;for(uint32_t j=0;j<callee_function->results;j++)effect->result[j]=c->recursive[fi]&&callee_function->results==1?reg_value(0,JS_A,(int32_t)(abase+j)):home_value(JS_A,(int32_t)(abase+j));
     return 1;
 }
@@ -952,7 +942,13 @@ static int native_emit_return(void *opaque,uint32_t pc,const abc_symbolic_return
     if(!effect->terminal){c->virtual_returns++;return 1;}
     if(x->reg_return){if(x->n[JS_A]!=1)return 0;JValue *q=&x->s[JS_A][0];if(!materialize_dynamic(c,x,q))return 0;int reg=materialize(c,x,q);if(reg<0||(reg&&!place(c,ABC_STENCIL_MOV(0,reg),0,NULL)))return 0;}
     else for(uint32_t i=0;i<x->n[JS_A];i++){JValue *q=&x->s[JS_A][i];q->dst_stack=JS_A;q->dst_home=(int32_t)i;if(!materialize_dynamic(c,x,q)||!save_value(c,x,q))return 0;}
-    int32_t return_offset=(x->c_bias-x->c_origin-1)*8;return place(c,ABC_STENCIL_RETURN_CONT,(uint64_t)(int64_t)return_offset,NULL);
+    /* All frame values are dead after result publication. r0 alone may carry
+       a result; use r1 for the ordinary C-home load and continuation transfer.
+       The caller's resume edge restores frontiers, including removal of this
+       frame and its return cell. Host/indirect entries use the sentinel. */
+    int64_t return_offset=((int64_t)x->c_bias-x->c_origin-1)*8;
+    return place(c,ABC_STENCIL_LOAD(JS_C,1),(uint64_t)return_offset,NULL)&&
+           place(c,ABC_STENCIL_CONTINUE(1),0,NULL);
 }
 
 static int native_emit_effect(void *opaque,uint32_t pc,unsigned opcode) {

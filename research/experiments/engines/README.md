@@ -23,6 +23,9 @@ Related experiment: [selective unused-handler-register clearing](unused-register
 reduced instruction count but regressed important interpreter workloads; the
 production clearing policy was retained.
 
+[Unfused continuation lowering](continuation-primitives.md) records the frame
+transport/transfer split, differential coverage, and paired Fibonacci results.
+
 ## Workloads
 
 | workload | iterations/calls | purpose |

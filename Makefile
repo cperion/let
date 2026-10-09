@@ -140,6 +140,7 @@ validate: all build/validate-api build/validate-cache build/validate-symbolic bu
 	cd frontend && $(LUA) tests/staging.lua
 	$(LUA) tools/validate_dynamic.lua
 	$(LUA) tools/validate_type_versions.lua
+	$(LUA) tools/validate_continuations.lua
 	$(LUA) tools/validate_cache.lua build/validate-cache.abcasm build/validate-cache.oracle
 	build/abc asm build/validate-cache.abcasm -o build/validate-cache.abc
 	build/validate-cache build/validate-cache.abc build/validate-cache.oracle

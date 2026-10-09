@@ -95,6 +95,24 @@ Shared semantics do not imply a shared generic value machine. All three sinks re
 
 Direct nonrecursive calls can be virtualized when their contexts are compatible. Recursive and ABI-visible boundaries retain explicit calls and returns when required. Callable-profile raw indirect calls use signature-checked direct resolution without adaptive-site transitions; dynamic callable sites retain adaptive inline caches and represented closure semantics.
 
+Native direct calls decompose frame transport from transfer, following the
+specification's frame-operation-plus-jump rule. After publishing surviving caller
+values and conforming arguments to the callee context, the sink stores a local
+resume label in C, rebases the necessary stack frontiers, and emits an ordinary
+direct edge. The resume label restores those frontiers with the same rebase
+primitives. Zero rebases emit nothing. A terminal return publishes its results,
+loads the continuation with an ordinary C-home load, and transfers through the
+loaded register (or finishes at the host sentinel). Loading that target uses a
+dead register distinct from the canonical single-result register.
+
+There are no fused `CALL_JUMP`, `CALL_RESUME`, or `RETURN_CONT` stencils and no
+packed call-frame immediate. Adjacent transport stencils fall through; extraction
+removes their trailing `NEXT` jumps, not their semantic boundaries. Local resume
+references use the same fixup mechanism as local branches and are bound before
+the version is published, including during lazy activation. Register-entry
+contexts, virtual continuations, and indirect/foreign/dynamic helper conventions
+are unchanged; this is not a new residual IR or a host-stack calling convention.
+
 Unknown, escaping, identity-observable, ABI-visible, managed-stored, or `any` callables retain their represented closure or word. Eliminating a callable cannot remove capture effects, change ownership or roots, change signatures/results, or move a trap.
 
 ## Current implementation boundary
