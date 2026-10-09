@@ -151,7 +151,7 @@ static int place_guard(Compiler *c,unsigned stack,uint32_t cells,uint64_t error,
     uint8_t *at=c->pos; memcpy(at,s->code,s->len); c->pos+=s->len;
     for(unsigned i=0;i<s->nrel;i++) { const Reloc *r=&s->rel[i]; uint8_t *site=at+r->off; int64_t value;
         if(r->hole==HOLE_NEXT) value=(int64_t)(intptr_t)c->pos;
-        else if(r->hole==HOLE_IMM) { value=cells; if(fix) { fix->site=site; fix->kind=(uint8_t)r->kind; fix->addend=r->addend; } }
+        else if(r->hole==HOLE_IMM) { value=(int64_t)cells*8; if(fix) { fix->site=site; fix->kind=(uint8_t)r->kind; fix->addend=r->addend; } }
         else if(r->hole==HOLE_FINAL) value=(int64_t)(intptr_t)c->stack_end[stack];
         else if(r->hole==HOLE_ERROR) { value=(int64_t)error; if(fix) { fix->error_site=site; fix->error_kind=(uint8_t)r->kind; fix->error_addend=r->addend; } }
         else return 0;
@@ -902,10 +902,27 @@ static int native_emit_call(void *opaque,uint32_t pc,abc_symbolic_call *effect) 
     if(!ensure_capacity(c,x,JS_A,abase+callee_function->max_a,error)||!ensure_capacity(c,x,JS_B,x->n[JS_B]+callee_function->max_b,error)||!ensure_capacity(c,x,JS_C,(uint32_t)(ctop+1+(int32_t)callee_function->max_c),error))return 0;
     Version *callee=NULL;
     if(c->recursive[fi]) {
-        for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];arg->dst_stack=JS_A;arg->dst_home=(int32_t)(abase+j);if(!materialize_dynamic(c,x,arg)||!save_value(c,x,arg))return 0;*arg=rehome_value(*arg,JS_A,(int32_t)(abase+j));}
-        if(!flush_context(c,x))return 0;
-        for(unsigned j=8;j<n;j++)if(!place(c,ABC_STENCIL_LOAD(JS_A,0),(uint64_t)((int64_t)(abase+j)*8),NULL)||!place(c,ABC_STENCIL_STORE(JS_C,0),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;
-        for(unsigned j=0;j<n&&j<8;j++)if(!place(c,ABC_STENCIL_LOAD(JS_A,j),(uint64_t)((int64_t)(abase+j)*8),NULL))return 0;
+        /* A unary recursive edge has a stable register ABI.  Flush only the
+           surviving caller state, then hand the consumed argument to the
+           callee in r0 instead of round-tripping it through its A-stack home. */
+        int pass_register=n==1&&x->s[JS_A][abase].dynamic_repr!=ABC_SYM_REPR_RAW;
+        int argument_reg=-1;
+        if(pass_register){argument_reg=materialize(c,x,&x->s[JS_A][abase]);if(argument_reg<0)return 0;}
+        if(pass_register)for(unsigned s=0;s<3;s++)for(uint32_t i=0;i<x->n[s];i++){
+            if(s==JS_A&&i==abase)continue;JValue *v=&x->s[s][i];
+            if(v->dynamic_repr==ABC_SYM_REPR_RAW||
+               (v->kind==VK_HOME&&(v->stack!=v->dst_stack||v->home!=v->dst_home)))pass_register=0;
+        }
+        if(pass_register){
+            uint32_t an=x->n[JS_A];x->n[JS_A]=abase;
+            if(!flush_context(c,x)){x->n[JS_A]=an;return 0;}x->n[JS_A]=an;
+            if(argument_reg&&!place(c,ABC_STENCIL_MOV(0,(unsigned)argument_reg),0,NULL))return 0;
+        }else{
+            for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];arg->dst_stack=JS_A;arg->dst_home=(int32_t)(abase+j);if(!materialize_dynamic(c,x,arg)||!save_value(c,x,arg))return 0;*arg=rehome_value(*arg,JS_A,(int32_t)(abase+j));}
+            if(!flush_context(c,x))return 0;
+            for(unsigned j=8;j<n;j++)if(!place(c,ABC_STENCIL_LOAD(JS_A,0),(uint64_t)((int64_t)(abase+j)*8),NULL)||!place(c,ABC_STENCIL_STORE(JS_C,0),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;
+            for(unsigned j=0;j<n&&j<8;j++)if(!place(c,ABC_STENCIL_LOAD(JS_A,j),(uint64_t)((int64_t)(abase+j)*8),NULL))return 0;
+        }
         Context in={0};in.c_origin=(int32_t)n;in.reg_return=callee_function->results==1;in.limit[JS_A]=callee_function->max_a;in.limit[JS_B]=callee_function->max_b;in.limit[JS_C]=callee_function->max_c-callee_function->arguments;
         if(n){in.s[JS_C]=malloc((size_t)n*sizeof *in.s[JS_C]);if(!in.s[JS_C]){c->status=abc_fail(c->error,ABC_NOMEM,pc,"native direct-call sink allocation failed");return 0;}in.n[JS_C]=in.cap[JS_C]=n;for(unsigned j=0;j<n;j++){int32_t home=-1-(int32_t)j;JValue q=j<8?reg_value(j,JS_C,home):home_value(JS_C,home);q.dst_stack=JS_C;q.dst_home=home;in.s[JS_C][n-1-j]=q;}}
         callee=version_for(c,effect->target,&in);context_free(&in);if(!callee)return 0;
@@ -913,8 +930,10 @@ static int native_emit_call(void *opaque,uint32_t pc,abc_symbolic_call *effect) 
         for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];if(!materialize_dynamic(c,x,arg))return 0;int r=materialize(c,x,arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;}
         if(!flush_context(c,x))return 0;callee=c->function_entries[fi];if(!callee){c->status=abc_fail(c->error,ABC_INVALID,pc,"native direct-call sink missing entry");return 0;}
     }
-    uint64_t packed=(uint32_t)abase|((uint64_t)(uint32_t)(ctop+(int32_t)n+1)<<32);
-    if(!place_call_jump(c,packed,(int32_t)x->n[JS_B],ctop*8,callee)||!place_biased(c,ABC_STENCIL_CALL_RESUME,packed,(int32_t)x->n[JS_B],NULL))return 0;
+    int32_t a_bytes=(int32_t)abase*8,b_bytes=(int32_t)x->n[JS_B]*8,c_bytes=(ctop+(int32_t)n+1)*8;
+    uint64_t forward=(uint32_t)a_bytes|((uint64_t)(uint32_t)c_bytes<<32);
+    uint64_t backward=(uint32_t)-a_bytes|((uint64_t)(uint32_t)-c_bytes<<32);
+    if(!place_call_jump(c,forward,b_bytes,ctop*8,callee)||!place_biased(c,ABC_STENCIL_CALL_RESUME,backward,-b_bytes,NULL))return 0;
     c->real_calls++;for(uint32_t j=0;j<callee_function->results;j++)effect->result[j]=c->recursive[fi]&&callee_function->results==1?reg_value(0,JS_A,(int32_t)(abase+j)):home_value(JS_A,(int32_t)(abase+j));
     return 1;
 }
