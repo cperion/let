@@ -46,7 +46,11 @@ The seven loops report nanoseconds per iteration. Fibonacci reports nanoseconds 
 4. Warm every execution engine once, then report the median of nine internally timed runs.
 5. Run equivalent Lua under LuaJIT with its JIT enabled and disabled.
 6. Run equivalent handwritten C built with `clang -O3 -march=native`.
-7. Check every result modulo its declared integer width.
+7. For `fib`, additionally compile the generated and handwritten C with
+   `-fno-optimize-sibling-calls`. This keeps Clang from folding one recursive
+   arm into an accumulator loop and provides a like-for-like recursive-control
+   comparison with ABC's explicit C-stack continuations.
+8. Check every result modulo its declared integer width.
 
 Steady-state execution excludes process startup, module reading, verification, VM creation, eager compilation, portable-C emission, and C compilation. Fixed costs are reported separately. Frontend and C pipeline timings include process launch.
 
@@ -84,7 +88,7 @@ Each column is the left runtime divided by the right runtime. Values above 1 mea
 | `mix` | 1.59x | 1.02x | 1.61x | 0.94x | 0.35x | 8.72x |
 | `fib(30)` | 4.19x | 1.00x | 4.17x | 1.30x | 1.36x | 3.78x |
 
-Generated C is effectively tied with handwritten C on `loop`, `sum2`, `divide`, and recursive `fib`; `branch` and `mul` remain within about 10%. Internal `static inline` linkage, direct scalar calls, ordinary typed C locals, and whole-program `u32` call/result inference reduced recursive `fib` from 2.80x handwritten C to parity. The inferred `uint32_t` signature lets Clang convert the second recursive call into the same accumulator loop used for handwritten C. Eager native remains close to generated C on `loop`, `sum2`, and `skip`; multiply and divide remain the clearest native instruction-selection gaps.
+Generated C is effectively tied with handwritten C on `loop`, `sum2`, `divide`, and recursive `fib`; `branch` and `mul` remain within about 10%. Internal `static inline` linkage, direct scalar calls, ordinary typed C locals, and whole-program `u32` call/result inference reduced recursive `fib` from 2.80x handwritten C to parity. The inferred `uint32_t` signature lets Clang convert the second recursive call into the same accumulator loop used for handwritten C. That optimized `fib` comparison therefore measures source-level work, not equal realized recursive calls; the separately reported no-TCO row is the recursive-control comparison. Eager native remains close to generated C on `loop`, `sum2`, and `skip`; multiply and divide remain the clearest native instruction-selection gaps.
 
 ### VM fixed costs
 
@@ -119,6 +123,6 @@ Eager load residualizes every load-time-reachable context. Lazy load installs ac
 - These are eight small scalar integer programs, not a general language benchmark suite.
 - Frontend lowering for these scalar inputs selects immediate arithmetic, C-operand, immediate-branch, and direct two-stack branch forms. The benchmark does not exercise the full production source surface or perform global stack scheduling.
 - LuaJIT receives idiomatic Lua with explicit 32-bit bit operations. The handwritten C baseline uses equivalent loops. ABC C AOT is generated from validated semantic residue produced by the shared symbolic executor.
-- `fib` deliberately measures real recursion. The loop workloads use direct tail calls that become loops.
+- `fib` reports source-level recursive invocations. ABC executes the verified calls through explicit C-stack continuations. Ordinary optimized C folds one recursive arm into an accumulator loop, so the no-TCO row must be used when comparing recursive-control overhead. The loop workloads use direct tail calls that become loops.
 - Timings are medians from one pinned core, not confidence intervals. Repeat the suite before interpreting small differences.
 - Portable C emission and native stencil generation optimize different machine-level concerns. Similar residual semantics do not imply similar code quality.

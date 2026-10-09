@@ -3,7 +3,7 @@ local ffi=require('ffi')
 ffi.cdef[[typedef long time_t; struct timespec { time_t tv_sec; long tv_nsec; }; int clock_gettime(int, struct timespec *);]]
 local function now() local t=ffi.new('struct timespec[1]');assert(ffi.C.clock_gettime(4,t)==0);return tonumber(t[0].tv_sec)+tonumber(t[0].tv_nsec)*1e-9 end
 local here=(arg[0]:match('^(.*)/') or '.');local top=here..'/../../..'
-local abc=top..'/build/abc';local runlet=here..'/runlet';local native=here..'/native';local luajit=os.getenv('LUAJIT') or 'luajit';local cc=os.getenv('CC') or 'clang'
+local abc=top..'/build/abc';local runlet=here..'/runlet';local native=here..'/native';local native_recursive=here..'/native-recursive';local luajit=os.getenv('LUAJIT') or 'luajit';local cc=os.getenv('CC') or 'clang'
 local trials=tonumber(os.getenv('TRIALS') or '9');if trials<3 or trials%2==0 then error('TRIALS must be odd and >=3',0) end
 local sf=assert(io.open('/proc/self/status'));local status=sf:read('*a');sf:close();local core=status:match('Cpus_allowed_list:%s*(%d+)')
 local function quote(s)s=tostring(s);return "'"..s:gsub("'","'\\''").."'" end
@@ -85,9 +85,14 @@ local function compile_aot(b,module)
   started=now();run({cc,'-O3','-march=native','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror','-Wno-unused-function',source,here..'/aot_runner.c','-o',binary});local compile=now()-started
   return binary,emit,compile,file_size(binary)
 end
+local function compile_recursive_aot(b)
+  local source=here..'/.'..b.name..'-aot.c';local binary=here..'/.'..b.name..'-recursive-aot'
+  run({cc,'-O3','-march=native','-fno-optimize-sibling-calls','-std=c11','-Wall','-Wextra','-Wpedantic','-Werror','-Wno-unused-function',source,here..'/aot_runner.c','-o',binary})
+  return binary
+end
 print(('host core=%s trials=%d'):format(core or 'unbound',trials));print((run({cc,'--version'},true,false):match('[^\n]+')));print((run({luajit,'-v'},true,false):gsub('%s+$','')))
 local rows={}
-for _,b in ipairs(benches)do local module=compile_slet(b,b.n);local front=frontend_cost(b);local units=b.units(b.n);local ai=abc_result('interpreted',module);local ac=abc_result('compiled',module);local al=abc_result('lazy',module);local aot,aot_emit,aot_compile,aot_bytes=compile_aot(b,module);local cr,crt=simple({aot,trials});local cj,ct=simple({native,b.name,b.n,trials});local lo,lot=simple({luajit,'-joff',here..'/bench.lua',b.name,b.n,trials});local lj,ljt=simple({luajit,here..'/bench.lua',b.name,b.n,trials});local modulus=2^b.width;local expected=cj%modulus;for _,x in ipairs{{'ABC-I',ai.result},{'ABC-E',ac.result},{'ABC-L',al.result},{'ABC-C',cr},{'LuaJIT-off',lo},{'LuaJIT',lj}}do if x[2]%modulus~=expected then error(('%s %s result %.0f != %.0f'):format(b.name,x[1],x[2]%modulus,expected),0)end end;local ns={AI=ai.seconds/units*1e9,AC=ac.seconds/units*1e9,AL=al.seconds/units*1e9,CA=crt/units*1e9,LO=lot/units*1e9,LJ=ljt/units*1e9,C=ct/units*1e9};rows[#rows+1]={b=b,front=front,ai=ai,ac=ac,al=al,ns=ns,aot_emit=aot_emit,aot_compile=aot_compile,aot_bytes=aot_bytes}end
+for _,b in ipairs(benches)do local module=compile_slet(b,b.n);local front=frontend_cost(b);local units=b.units(b.n);local ai=abc_result('interpreted',module);local ac=abc_result('compiled',module);local al=abc_result('lazy',module);local aot,aot_emit,aot_compile,aot_bytes=compile_aot(b,module);local cr,crt=simple({aot,trials});local cj,ct=simple({native,b.name,b.n,trials});local lo,lot=simple({luajit,'-joff',here..'/bench.lua',b.name,b.n,trials});local lj,ljt=simple({luajit,here..'/bench.lua',b.name,b.n,trials});local modulus=2^b.width;local expected=cj%modulus;for _,x in ipairs{{'ABC-I',ai.result},{'ABC-E',ac.result},{'ABC-L',al.result},{'ABC-C',cr},{'LuaJIT-off',lo},{'LuaJIT',lj}}do if x[2]%modulus~=expected then error(('%s %s result %.0f != %.0f'):format(b.name,x[1],x[2]%modulus,expected),0)end end;local ns={AI=ai.seconds/units*1e9,AC=ac.seconds/units*1e9,AL=al.seconds/units*1e9,CA=crt/units*1e9,LO=lot/units*1e9,LJ=ljt/units*1e9,C=ct/units*1e9};local recursive;if b.name=='fib' then local rr,rt=simple({compile_recursive_aot(b),trials});local nr,nt=simple({native_recursive,b.name,b.n,trials});if rr%modulus~=expected or nr%modulus~=expected then error('recursive fib baseline result mismatch',0)end;recursive={CA=rt/units*1e9,C=nt/units*1e9}end;rows[#rows+1]={b=b,front=front,ai=ai,ac=ac,al=al,ns=ns,recursive=recursive,aot_emit=aot_emit,aot_compile=aot_compile,aot_bytes=aot_bytes}end
 print('\nsteady state: median ns per iteration/call (lower is better)');print(('%-8s%10s%10s%10s%10s%10s%10s%10s'):format('bench','ABC-I','ABC-E','ABC-L','ABC-C','LJ-off','LuaJIT','native C'))
 for _,r in ipairs(rows)do local n=r.ns;print(('%-8s%10.3f%10.3f%10.3f%10.3f%10.3f%10.3f%10.3f'):format(r.b.name,n.AI,n.AC,n.AL,n.CA,n.LO,n.LJ,n.C))end
 print('\nratios: runtime / baseline (lower is better), except I/E speedup');print(('%-8s%10s%10s%10s%10s%10s%10s'):format('bench','E/ABC-C','ABC-C/C','E/C','L/E','E/LJ','I/E'))
@@ -96,4 +101,9 @@ print('\nVM fixed costs: median frontend/read/load; lazy first-arrival premium a
 for _,r in ipairs(rows)do local premium=math.max(0,r.al.first-r.al.seconds);print(('%-8s%12.3f%10.2f%10.2f%10.2f%10.2f%13.2f%11d'):format(r.b.name,r.front*1e3,r.ac.read*1e6,r.ai.prepare*1e6,r.ac.prepare*1e6,r.al.prepare*1e6,premium*1e6,r.al.code))end
 print('\nportable C pipeline costs: abc c emission, Clang compilation, executable size');print(('%-8s%12s%13s%13s'):format('bench','emit ms','compile ms','binary bytes'))
 for _,r in ipairs(rows)do print(('%-8s%12.3f%13.3f%13d'):format(r.b.name,r.aot_emit*1e3,r.aot_compile*1e3,r.aot_bytes))end
-print('\nNotes: ABC-C is portable C emitted from semantic residue produced by the shared symbolic executor and compiled separately with Clang -O3 -march=native. Native C is a handwritten baseline. Eager preparation residualizes all load-time-reachable contexts; lazy load publishes activation stubs. Frontend and C-pipeline costs include process launch. Recursive fib units are function calls; other units are loop iterations.')
+for _,r in ipairs(rows)do if r.recursive then
+  print('\nrecursive fib control-flow accounting: ns per source invocation')
+  print(('%-16s%10s%10s%14s%14s'):format('bench','ABC-E','ABC-L','ABC-C no-TCO','native no-TCO'))
+  print(('%-16s%10.3f%10.3f%14.3f%14.3f'):format('fib',r.ns.AC,r.ns.AL,r.recursive.CA,r.recursive.C))
+end end
+print('\nNotes: ABC-C is portable C emitted from semantic residue produced by the shared symbolic executor and compiled separately with Clang -O3 -march=native. Native C is a handwritten baseline. Eager preparation residualizes all load-time-reachable contexts; lazy load publishes activation stubs. Frontend and C-pipeline costs include process launch. Recursive fib units are source-level function invocations; other units are loop iterations. The ordinary Clang columns fold one recursive fib arm into an accumulator loop. The no-TCO row disables sibling-call optimization so recursive control transfer is compared without that call-count mismatch.')
