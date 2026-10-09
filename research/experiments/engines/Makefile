@@ -6,7 +6,7 @@ LUA ?= luajit
 CFLAGS ?= -O3 -march=native
 WARN = -std=c11 -Wall -Wextra -Wpedantic -Werror
 
-all: runlet native native-recursive
+all: runlet native native-recursive dynamic-native
 
 $(TOP)/build/libabc.a:
 	$(MAKE) -C $(TOP) -j8 all
@@ -20,12 +20,17 @@ native: native.c
 native-recursive: native.c
 	$(CC) $(CFLAGS) -fno-optimize-sibling-calls $(WARN) $< -o $@
 
+dynamic-native: dynamic_native.c
+	$(CC) $(CFLAGS) $(WARN) $< -o $@
+
 check: all
 	$(LUA) run_bench.lua
+	$(LUA) run_dynamic.lua
+
+check-dynamic: runlet dynamic-native
+	$(LUA) run_dynamic.lua
 
 clean:
-	rm -f runlet native native-recursive *.abc .*.abc .bench-*.slet .*-aot .*-aot.c
+	rm -f runlet native native-recursive dynamic-native *.abc .*.abc .bench-*.slet .*-aot .*-aot.c
 
-.PHONY: all check clean
-
-.PHONY: all check clean
+.PHONY: all check check-dynamic clean

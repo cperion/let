@@ -9,7 +9,14 @@ This suite compares four ABC execution paths with LuaJIT and a handwritten nativ
 - LuaJIT with its JIT disabled and enabled;
 - equivalent handwritten C compiled by Clang.
 
-The inputs deliberately exercise the scalar-integer portion of the production SLet frontend.
+The original inputs deliberately exercise the scalar-integer portion of the production SLet frontend.
+
+`make check` also runs the [dynamic numeric suite](dynamic-types.md): seven
+paired typed/dynamic ABC workloads, including retained type facts, explicit
+checks, opaque reloads, alternating integer widths, and floating-point arithmetic.
+Run it alone with `make check-dynamic`. It uses verified assembly without
+`abc-opt`; LuaJIT and native C provide algorithm baselines, not tagged-width
+emulations. The results below remain the original scalar suite's measurements.
 
 ```sh
 make -C ../../.. all -j8
