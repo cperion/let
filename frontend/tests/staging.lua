@@ -13,6 +13,8 @@ require("let.ir")
 local I, L = S.Ir, S.ASDL.List
 local checks = 0
 local function check(ok, message) assert(ok, message); checks = checks + 1 end
+check(Int.pack(-80, 4) == string.char(0xb0, 0xff, 0xff, 0xff),
+    "negative relative offsets retain their two's-complement encoding")
 local function input(ty) return S.inValue(ty) end
 local function uint(n, ty) return I.Const(ty or S.u32, I.UInt(n)) end
 local function ref(value, ty) return I.Ref(value, ty) end

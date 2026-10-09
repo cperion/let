@@ -8,7 +8,13 @@ M.max = bit.bnot(U(0))
 M.sign = bit.lshift(U(1), 63)
 M.types = {u8={8,false}, u16={16,false}, u32={32,false}, u64={64,false},
            i32={32,true}, i64={64,true}}
-function M.u(value) return ffi.cast(U, value) end
+function M.u(value)
+    -- LuaJIT converts a negative Lua number directly to uint64_t through a
+    -- double and clamps it at INT64_MIN.  Preserve modulo-2^64 conversion by
+    -- making the signed integral conversion explicit first.
+    if type(value) == 'number' and value < 0 then value = ffi.cast(I, value) end
+    return ffi.cast(U, value)
+end
 function M.i(value) return ffi.cast(I, value) end
 function M.negative(value) return M.i(value) < I(0) end
 function M.mask(width) return width == 64 and M.max or bit.lshift(U(1), width) - U(1) end
