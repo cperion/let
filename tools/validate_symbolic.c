@@ -43,6 +43,16 @@ static int emit_edge(void *sink,uint32_t origin,uint32_t target) {
     call_state *state=sink;if(state->edges>=2||(origin!=0&&origin!=10))return 0;state->edge[state->edges++]=target;return 1;
 }
 
+static int emit_fused(void *sink,uint32_t origin,unsigned opcode,unsigned destination,int folded,
+        abc_symbolic_value left,abc_symbolic_value right,abc_symbolic_value *result) {
+    abc_symbolic_machine *m=sink;m->extra_advance=1;*result=abc_symbolic_backend(70002,destination,0);
+    (void)origin;(void)opcode;(void)folded;(void)left;(void)right;return 1;
+}
+static int emit_fused_immediate(void *sink,uint32_t origin,unsigned opcode,unsigned stack,uint64_t immediate,
+        int folded,abc_symbolic_value input,abc_symbolic_value *result) {
+    return emit_fused(sink,origin,opcode,stack,folded,input,abc_symbolic_constant(immediate,stack,0),result);
+}
+
 int main(void) {
     int ok=0;
     if(ABC_BLOCK_VERSION_LIMIT!=8) return fail("block version limit changed");
@@ -107,6 +117,39 @@ int main(void) {
             residual.s[ABC_SYM_A][0].kind!=ABC_SYM_BACKEND||residual.s[ABC_SYM_A][0].reg!=70001)
         return fail("generated residual-node tail dispatch");
     abc_symbolic_context_free(&residual);
+    uint8_t fused_code[3][6]={{OP_ADD_A,OP_ZX32_A,OP_RET,0,1,0},
+        {OP_ADDI_A,1,OP_ZX32_A,OP_RET,0,1},{OP_ADDC_A,0,OP_ZX32_A,OP_RET,1,1}};
+    for(unsigned i=0;i<3;i++) {
+        abc_symbolic_context fused={0};
+        for(unsigned s=0;s<3;s++)if(!abc_symbolic_push(&fused,s,abc_symbolic_home(s,0)))return fail("fused context allocation");
+        machine=(abc_symbolic_machine){.code=fused_code[i],.end=i?6:5,.context=&fused,.transfer_mask=ABC_SYM_TRANSFER_VALUE,
+            .emit_binary=emit_fused,.emit_immediate=emit_fused_immediate,.emit_c_operand=emit_fused};
+        machine.sink=&machine;
+        if(abc_symbolic_dispatch(&machine)!=ABC_SYM_EXIT_BOUNDARY||machine.pc!=(i?3u:2u)||
+           fused.s[ABC_SYM_A][0].dynamic_width!=32||!fused.s[ABC_SYM_A][0].zero_extended||fused.s[ABC_SYM_A][0].dynamic_tags||
+           fused.s[ABC_SYM_A][0].dynamic_repr!=ABC_SYM_REPR_NONE)return fail("fused normalization lost width postcondition");
+        abc_symbolic_context_free(&fused);
+    }
+    abc_symbolic_value unknown=abc_symbolic_home(ABC_SYM_A,0),wide=unknown,narrow=unknown;int certain=0,matches=0;
+    abc_symbolic_numeric_fact(&wide,(uint16_t)(1u<<ABC_ANY_U64));
+    abc_symbolic_numeric_fact(&narrow,(uint16_t)(1u<<ABC_ANY_U32));
+    if(abc_symbolic_numeric_results(EXT_DADD,unknown,wide,&certain)!=(1u<<ABC_ANY_U64)||certain)
+        return fail("numeric successful postcondition is not an entry proof");
+    if(abc_symbolic_numeric_results(EXT_DADD,narrow,narrow,&certain)!=(1u<<ABC_ANY_U32)||!certain)
+        return fail("numeric entry proof");
+    if(!abc_symbolic_dynamic_test(&effect_module,0,narrow,&matches)||!matches||
+       !abc_symbolic_dynamic_test(&effect_module,0,wide,&matches)||matches||
+       abc_symbolic_dynamic_test(&effect_module,0,unknown,&matches))return fail("primitive type test folding");
+    unknown.dynamic_tags=(uint16_t)~(1u<<ABC_ANY_U32);
+    if(!abc_symbolic_dynamic_test(&effect_module,0,unknown,&matches)||matches)return fail("negative type test fact");
+    abc_symbolic_value normalized=abc_symbolic_home(ABC_SYM_A,0);normalized.dynamic_width=32;
+    if(abc_symbolic_dynamic_box_specialization(&effect_module,0,normalized))return fail("signed normalization is not unsigned range proof");
+    normalized.zero_extended=1;
+    if(!abc_symbolic_dynamic_box_specialization(&effect_module,0,normalized))return fail("zero extension proves immediate boxing range");
+    narrow.dynamic_repr=ABC_SYM_REPR_RAW;
+    if(!abc_symbolic_dynamic_cast_matches(&effect_module,0,narrow))return fail("exact raw cast");
+    narrow.dynamic_repr=ABC_SYM_REPR_ENCODED;
+    if(abc_symbolic_dynamic_cast_matches(&effect_module,0,narrow))return fail("a tag alone does not prove raw representation");
     abc_symbolic_context context={0},copy={0};
     abc_symbolic_value input=abc_symbolic_home(ABC_SYM_C,-1);
     abc_symbolic_value node=abc_symbolic_backend(70000,ABC_SYM_A,0);

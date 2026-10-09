@@ -16,9 +16,10 @@ typedef enum {
 } abc_symbolic_representation;
 enum { ABC_SYM_DYNAMIC_TAGS_UNKNOWN = 0xffffu };
 
-/* `reg` is sink-owned: currently a native register, later a residual DAG node ID. */
+/* `reg` is sink-owned: a native register or a sink-private DAG node ID. */
 typedef struct {
-    uint8_t kind, stack, dst_stack, dynamic_width, dynamic_repr; uint16_t dynamic_tags; uint32_t reg;
+    /* Width alone is not an unsigned range proof: SX32 and ZX32 differ. */
+    uint8_t kind, stack, dst_stack, dynamic_width, dynamic_repr, zero_extended; uint16_t dynamic_tags; uint32_t reg;
     int32_t home, dst_home; uint64_t constant;
 } abc_symbolic_value;
 
@@ -53,6 +54,10 @@ void abc_symbolic_dynamic_descriptor_fact(const abc_module *module, unsigned des
 int abc_symbolic_dynamic_box_specialization(const abc_module *module, unsigned descriptor, abc_symbolic_value input);
 int abc_symbolic_dynamic_binary_specialization(unsigned selector, abc_symbolic_value left, abc_symbolic_value right, unsigned *opcode);
 int abc_symbolic_dynamic_cast_matches(const abc_module *module, unsigned descriptor, abc_symbolic_value input);
+uint16_t abc_symbolic_test_tags(const abc_module *module, unsigned descriptor);
+int abc_symbolic_dynamic_test(const abc_module *module, unsigned descriptor, abc_symbolic_value input, int *matches);
+uint16_t abc_symbolic_numeric_results(unsigned selector, abc_symbolic_value left, abc_symbolic_value right, int *certain);
+void abc_symbolic_numeric_fact(abc_symbolic_value *value, uint16_t tags);
 
 typedef enum {
     ABC_SYM_EXIT_BLOCK, ABC_SYM_EXIT_BOUNDARY, ABC_SYM_EXIT_CONTROL, ABC_SYM_EXIT_TERMINATED, ABC_SYM_EXIT_FAILURE

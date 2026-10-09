@@ -19,6 +19,10 @@ make check
 
 The driver pins every child process to one allowed CPU. Set `TRIALS` to an odd number of at least three to override the default of nine.
 
+Related experiment: [selective unused-handler-register clearing](unused-registers.md)
+reduced instruction count but regressed important interpreter workloads; the
+production clearing policy was retained.
+
 ## Workloads
 
 | workload | iterations/calls | purpose |

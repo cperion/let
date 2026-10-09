@@ -104,10 +104,22 @@ static int convert_numeric(unsigned from,uint64_t bits,unsigned to,uint64_t *out
 }
 static int pop_any(abc_vm *v,uint64_t *out){if(!v->na)return 0;*out=v->a[--v->na];return 1;}
 static int push_any(abc_vm *v,uint64_t x){if(v->na>=v->capacity)return 0;v->a[v->na++]=x;return 1;}
+/* Nonallocating projections used only around checked native numeric CFGs.
+   The classifier establishes the decoder's scalar precondition. */
+uint64_t abc_dynamic_numeric_classify(uint64_t state,uint64_t left,uint64_t right,uint64_t selector) {
+    const abc_vm *vm=(const abc_vm *)(uintptr_t)state;unsigned a,b;uint64_t bits;
+    if(!scalar(vm,left,&a,&bits)||!scalar(vm,right,&b,&bits))return 0;
+    unsigned result=abc_numeric_result((unsigned)selector,a,b);return result==UINT_MAX?0:(uint64_t)result+1;
+}
+uint64_t abc_dynamic_numeric_bits(uint64_t value,uint64_t state) {
+    unsigned tag;uint64_t bits=0;(void)scalar((const abc_vm *)(uintptr_t)state,value,&tag,&bits);return bits;
+}
+
 static abc_status dynamic_binary(abc_run *r,unsigned ext,uint64_t x,uint64_t y,uint32_t pc,uint64_t *out){
     unsigned tx,ty;uint64_t bx,by;if(!scalar(r->v,x,&tx,&bx)||!scalar(r->v,y,&ty,&by))return abort_dynamic(r,pc,6);
-    if(tx==ABC_ANY_F64&&ty==ABC_ANY_F64){double a=vm_float(bx),b=vm_float(by),z;if(ext==EXT_DADD)z=a+b;else if(ext==EXT_DSUB)z=a-b;else if(ext==EXT_DMUL)z=a*b;else if(ext==EXT_DDIV)z=a/b;else return abort_dynamic(r,pc,6);int ok=1;*out=box_scalar(r,ABC_ANY_F64,vm_float_bits(z),&ok);return ok?ABC_OK:abc_fail(r->e,ABC_NOMEM,pc,"dynamic allocation failed");}
-    if(!integer_tag(tx)||!integer_tag(ty)||signed_tag(tx)!=signed_tag(ty))return abort_dynamic(r,pc,6);unsigned tag=width_tag(tx)>=width_tag(ty)?tx:ty;uint64_t z=0;if(ext==EXT_DADD)z=bx+by;else if(ext==EXT_DSUB)z=bx-by;else if(ext==EXT_DMUL)z=bx*by;else if(ext==EXT_DAND)z=bx&by;else if(ext==EXT_DOR)z=bx|by;else if(ext==EXT_DXOR)z=bx^by;else if(ext==EXT_DSHL)z=by>=64?0:bx<<by;else if(ext==EXT_DSHR)z=by>=64?0:bx>>by;else if(ext==EXT_DSAR)z=vm_sar(bx,by);else if(ext==EXT_DDIV||ext==EXT_DREM){if(!by)return abort_dynamic(r,pc,1);if(signed_tag(tag)){int64_t a=abc_signed(bx),b=abc_signed(by);z=ext==EXT_DDIV?(b==-1&&a==INT64_MIN?bx:(uint64_t)(a/b)):(b==-1&&a==INT64_MIN?0:(uint64_t)(a%b));}else z=ext==EXT_DDIV?bx/by:bx%by;}else if(ext==EXT_DPOW){z=vm_pow(bx,by);}else return abort_dynamic(r,pc,6);
+    unsigned tag=abc_numeric_result(ext,tx,ty);if(tag==UINT_MAX)return abort_dynamic(r,pc,6);
+    if(tag==ABC_ANY_F64){double a=vm_float(bx),b=vm_float(by),z;if(ext==EXT_DADD)z=a+b;else if(ext==EXT_DSUB)z=a-b;else if(ext==EXT_DMUL)z=a*b;else z=a/b;int ok=1;*out=box_scalar(r,ABC_ANY_F64,vm_float_bits(z),&ok);return ok?ABC_OK:abc_fail(r->e,ABC_NOMEM,pc,"dynamic allocation failed");}
+    uint64_t z=0;if(ext==EXT_DADD)z=bx+by;else if(ext==EXT_DSUB)z=bx-by;else if(ext==EXT_DMUL)z=bx*by;else if(ext==EXT_DAND)z=bx&by;else if(ext==EXT_DOR)z=bx|by;else if(ext==EXT_DXOR)z=bx^by;else if(ext==EXT_DSHL)z=by>=64?0:bx<<by;else if(ext==EXT_DSHR)z=by>=64?0:bx>>by;else if(ext==EXT_DSAR)z=vm_sar(bx,by);else if(ext==EXT_DDIV||ext==EXT_DREM){if(!by)return abort_dynamic(r,pc,1);if(signed_tag(tag)){int64_t a=abc_signed(bx),b=abc_signed(by);z=ext==EXT_DDIV?(b==-1&&a==INT64_MIN?bx:(uint64_t)(a/b)):(b==-1&&a==INT64_MIN?0:(uint64_t)(a%b));}else z=ext==EXT_DDIV?bx/by:bx%by;}else if(ext==EXT_DPOW){z=vm_pow(bx,by);}else return abort_dynamic(r,pc,6);
     int ok=1;*out=box_scalar(r,tag,normalize(tag,z),&ok);return ok?ABC_OK:abc_fail(r->e,ABC_NOMEM,pc,"dynamic allocation failed");
 }
 static int key_from_any(abc_vm *v,uint64_t value,word_key *key){

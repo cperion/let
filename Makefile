@@ -16,7 +16,9 @@ include vendor/whippet/embed.mk
 GC_LTO_CFLAGS :=
 GC_LTO_LDFLAGS :=
 SHARDS = 0 1 2 3 4 5 6 7
-RUNTIME_OBJ = build/module.o build/memory_module.o build/dynamic.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/residualize.o $(addprefix build/banked_,$(addsuffix .o,$(SHARDS))) $(GC_OBJS)
+# Keep banked handlers ahead of the native compiler: emitter growth must not
+# select a new interpreter text alignment in ordinary static-library links.
+RUNTIME_OBJ = build/module.o build/memory_module.o build/dynamic.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o $(addprefix build/banked_,$(addsuffix .o,$(SHARDS))) $(GC_OBJS) build/residualize.o
 TOOL_OBJ = build/module.o build/memory_module.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
 TOOL_PIC = build/pic/module.o build/pic/memory_module.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o
 ASDLC_SRC = tools/asdlc/main.c tools/asdlc/arena.c tools/asdlc/parser.c tools/asdlc/validate.c tools/asdlc/emit_c.c
@@ -62,16 +64,16 @@ build/%.o: src/%.c src/internal.h src/handler_abi.h include/abc.h build/opcodes.
 build/vm.o: src/vm_internal.h src/dynamic.h build/generated/banked.h build/generated/cold.inc
 build/dynamic.o: src/dynamic.c src/dynamic.h src/whippet_types.h src/vm_internal.h build/opcodes.h
 	$(CC) $(CPPFLAGS) -isystem $(GC_BASE)api $(GC_CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
-build/symbolic.o: src/symbolic.h src/vm_internal.h
+build/symbolic.o: src/symbolic.h src/dynamic.h src/vm_internal.h
 build/residual_analysis.o build/residual_c.o: build/generated/residual_ir.h
 build/residual_analysis.o: src/residual_analysis.h src/symbolic.h src/vm_internal.h
 build/residual_builder.o: src/residual_builder.c src/residual_builder.h src/residual_analysis.h src/residual_ir.h src/symbolic.h src/dynamic.h build/generated/residual_ir.h
-build/optimize.o: src/optimize.c include/abc_tool.h src/symbolic.h src/vm_internal.h
+build/optimize.o: src/optimize.c include/abc_tool.h src/symbolic.h src/dynamic.h src/vm_internal.h
 build/residual_c.o: include/abc_tool.h
-build/residualize.o: src/residualize.c src/residualize.h src/symbolic.h src/vm_internal.h build/generated/stencils.h build/generated/stencil_layout.h
+build/residualize.o: src/residualize.c src/residualize.h src/symbolic.h src/dynamic.h src/vm_internal.h build/generated/stencils.h build/generated/stencil_layout.h
 build/pic:
 	mkdir -p $@
-build/pic/%.o: src/%.c src/internal.h src/vm_internal.h src/symbolic.h include/abc.h build/opcodes.h | build/pic
+build/pic/%.o: src/%.c src/internal.h src/vm_internal.h src/symbolic.h src/dynamic.h include/abc.h build/opcodes.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 build/pic/symbolic_dispatch.o: build/generated/symbolic_dispatch.c src/symbolic.h build/opcodes.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
@@ -112,7 +114,7 @@ build/embed: examples/embed.c build/libabc.a include/abc.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a $(GC_LIBS) -o $@
 build/validate-api: tools/validate_api.c build/libabc.a include/abc.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -Wno-cast-function-type-strict $< build/libabc.a $(GC_LIBS) -o $@
-build/validate-cache: tools/validate_cache.c build/libabc.a include/abc.h
+build/validate-cache: tools/validate_cache.c build/libabc.a include/abc.h src/vm_internal.h src/handler_abi.h build/generated/banked.h build/opcodes.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a $(GC_LIBS) -o $@
 build/validate-symbolic: tools/validate_symbolic.c build/libabc.a src/symbolic.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a $(GC_LIBS) -o $@
@@ -137,6 +139,7 @@ validate: all build/validate-api build/validate-cache build/validate-symbolic bu
 	cd frontend && $(LUA) tests/optimize.lua
 	cd frontend && $(LUA) tests/staging.lua
 	$(LUA) tools/validate_dynamic.lua
+	$(LUA) tools/validate_type_versions.lua
 	$(LUA) tools/validate_cache.lua build/validate-cache.abcasm build/validate-cache.oracle
 	build/abc asm build/validate-cache.abcasm -o build/validate-cache.abc
 	build/validate-cache build/validate-cache.abc build/validate-cache.oracle

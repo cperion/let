@@ -133,6 +133,8 @@ static int grow_nodes(DagSink *s) {
 static uint32_t dag_value(DagSink *s,abc_symbolic_value value,uint32_t origin);
 static EffectPayload *find_payload(const DagSink *s,uint32_t node_id){for(uint32_t i=0;i<s->payload_count;i++)if(s->payloads[i].node==node_id)return &s->payloads[i];return NULL;}
 static int add_payload(DagSink *s,uint32_t node_id,unsigned count,const abc_symbolic_value *values,uint32_t origin,unsigned results){
+    /* Raw symbolic any values cannot cross represented bytecode effects. */
+    for(unsigned i=0;i<count;i++)if(values[i].dynamic_repr==ABC_SYM_REPR_RAW){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}
     if(s->payload_count==s->payload_capacity){uint32_t capacity=s->payload_capacity?s->payload_capacity*2:8;EffectPayload *p=realloc(s->payloads,(size_t)capacity*sizeof *p);if(!p)return 0;s->payloads=p;s->payload_capacity=capacity;}
     EffectPayload *p=&s->payloads[s->payload_count++];*p=(EffectPayload){.node=node_id,.count=count,.results=(uint8_t)results};p->operands=calloc(count?count:1,sizeof *p->operands);if(!p->operands)return 0;
     for(unsigned i=0;i<count;i++){p->operands[i]=dag_value(s,values[i],origin);if(!p->operands[i])return 0;}return 1;
@@ -222,6 +224,7 @@ static int dynamic_callable_module_safe(const abc_module *m){
 }
 static int dag_memory(void *opaque,uint32_t origin,abc_symbolic_memory *memory) {
     DagSink *s=opaque;if(s->callable_safe&&memory->action==M_GLOAD&&memory->opcode==OP_GLD64){uint32_t offset=abc_u32(s->module->code+origin+1);for(uint32_t i=0;i<s->module->reloc_count;i++)if(s->module->relocs[i].offset==offset){uint32_t id=node(s,(Node){N_CALLABLE,origin,s->module->relocs[i].function,0,0,0,0,0});if(!id)return 0;memory->result=backend(id,memory->stack,0);return 1;}}
+    if(memory->first.dynamic_repr==ABC_SYM_REPR_RAW||memory->second.dynamic_repr==ABC_SYM_REPR_RAW){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}
     if(memory->action==M_ALLOC||memory->action==M_FREE)return node(s,(Node){N_EFFECT,origin,0,0,(uint16_t)memory->opcode,0,0,1})!=0;
     uint32_t first=0,second=0;
     if(memory->action==M_FSTORE||memory->action==M_GSTORE||memory->action==M_PLOAD||memory->action==M_PSTORE||memory->action==M_XLOAD||memory->action==M_INDEX||memory->action==M_COPY){first=dag_value(s,memory->first,origin);if(!first)return 0;}
@@ -232,7 +235,7 @@ static int dag_memory(void *opaque,uint32_t origin,abc_symbolic_memory *memory) 
 static int dag_dynamic(void *opaque,uint32_t origin,abc_symbolic_dynamic *effect){
     DagSink *s=opaque;if(effect->tail||effect->pushes>1){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}abc_symbolic_context *x=s->machine->context;uint32_t base=x->n[ABC_SYM_A]-effect->pops;
     if(effect->selector==EXT_ANY_BOX&&effect->pops==1&&effect->pushes==1&&abc_symbolic_dynamic_box_specialization(s->module,effect->descriptor,x->s[ABC_SYM_A][base])){
-        abc_symbolic_value fact=effect->result[0];effect->result[0]=x->s[ABC_SYM_A][base];effect->result[0].dynamic_tags=fact.dynamic_tags;effect->result[0].dynamic_width=fact.dynamic_width;effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;return 1;
+        abc_symbolic_value fact=effect->result[0];effect->result[0]=x->s[ABC_SYM_A][base];effect->result[0].dynamic_tags=fact.dynamic_tags;effect->result[0].dynamic_width=fact.dynamic_width;effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;effect->result[0].zero_extended=0;return 1;
     }
     if(effect->selector==EXT_ANY_CAST&&effect->pops==1&&effect->pushes==1&&abc_symbolic_dynamic_cast_matches(s->module,effect->descriptor,x->s[ABC_SYM_A][base])){
         effect->result[0]=x->s[ABC_SYM_A][base];abc_symbolic_forget_dynamic(&effect->result[0]);return 1;
@@ -250,11 +253,12 @@ static int dag_foreign(void *opaque,uint32_t origin,abc_symbolic_foreign *effect
     if(!id||!add_payload(s,id,effect->arguments,x->s[ABC_SYM_A]+base,origin,effect->results))return 0;if(effect->results)effect->result[0]=backend(id,ABC_SYM_A,0);return 1;
 }
 static void unsupported(DagSink *s) { s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY; }
-static int same_dynamic_fact(abc_symbolic_value a,abc_symbolic_value b){return a.dynamic_tags==b.dynamic_tags&&a.dynamic_width==b.dynamic_width&&a.dynamic_repr==b.dynamic_repr;}
+static int same_dynamic_fact(abc_symbolic_value a,abc_symbolic_value b){return a.dynamic_tags==b.dynamic_tags&&a.dynamic_width==b.dynamic_width&&a.dynamic_repr==b.dynamic_repr&&a.zero_extended==b.zero_extended;}
 static void join_dynamic_fact(abc_symbolic_value *out,abc_symbolic_value a,abc_symbolic_value b){
     if(!a.dynamic_tags||!b.dynamic_tags){abc_symbolic_forget_dynamic(out);return;}
     out->dynamic_tags=(uint16_t)(a.dynamic_tags|b.dynamic_tags);out->dynamic_width=a.dynamic_width==b.dynamic_width?a.dynamic_width:0;
     out->dynamic_repr=a.dynamic_repr==b.dynamic_repr?a.dynamic_repr:ABC_SYM_REPR_UNKNOWN;
+    out->zero_extended=a.zero_extended&&b.zero_extended;
 }
 static int same_value(abc_symbolic_value a,abc_symbolic_value b){
     if(!same_dynamic_fact(a,b)||a.kind!=b.kind)return 0;if(a.kind==ABC_SYM_CONST)return a.constant==b.constant;

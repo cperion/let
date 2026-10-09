@@ -34,11 +34,52 @@ A symbolic copy can retain its source register or home until one alias is overwr
 
 At dynamic and foreign boundaries, the sink materializes required representations and roots. Managed interior pointers remain visible through stack homes before allocation or collection. Unknown dynamic operations continue through `vm_dynamic_native()`.
 
+## Check-driven scalar specialization
+
+The native sink exposes `DADD` through `DXOR` as local numeric dispatch CFGs.
+The concrete runtime and symbolic executor share operand validity, signedness
+and width-promotion rules in `src/dynamic.h`. Unknown operands pass through a
+nonallocating classifier. Checked successors refine currently live aliases and
+carry result facts into the existing block versions. Proven narrow-integer arms
+decode their operands and emit ordinary register-addressed arithmetic stencils.
+Known checks disappear; no new DCE pass, allocator or target-independent IR is
+involved. The original dynamic helper handles wide integers, floats and errors.
+A successful helper return supplies a result postcondition, not an entry proof.
+The classifier's invalid-type arm is terminal.
+
+Primitive `ANY_IS` folds from existing facts. An adjacent `ANY_IS; JZ.A/JNZ.A`
+also refines positive and negative successor contexts. Alias occurrences are
+captured before stack publication. Stored, combined or delayed predicates do
+not carry persistent identities and therefore do not refine successors.
+Aggregate descriptor and layout-token predicates remain opaque.
+
+Scalar helpers preserve facts about unchanged live values while publishing
+all required representations and roots. Opaque dynamic calls and object effects
+keep the conservative boundary. Unit boxing becomes an encoded constant.
+Real call arguments, returns, stores and incompatible edges encode raw `any`
+values before crossing their represented ABI.
+
+Tag, width, range and encoding are distinct proofs. `SX32` is not an unsigned
+range proof for immediate boxing. Exact-tag casts preserve even oversized
+payloads: the sink can elide an already-raw identity cast, but a tag alone
+does not prove that its value is decoded. Different-tag numeric conversions
+remain checked. Native fusion of `ZX32` retains the zero-extension proof.
+The ABC optimizer
+retains source functions when a raw value cannot cross a represented effect
+without boxing; it must not emit invalid ABC.
+
+Edge-specific representation changes occur after the branch decision. Plain
+register spills to distinct canonical homes can precede it: they neither
+clobber the predicate nor overwrite a live home source. This keeps ordinary
+typed branches on their original direct stencil path.
+
+See [production measurements and reproduction](../research/experiments/type-versions/README.md).
+
 ## Versioning and termination
 
 Basic-block versioning has one policy knob: `ABC_BLOCK_VERSION_LIMIT`. It limits versions locally for one compatible block-context family, including versions reached through virtual continuations. It is not an optimizer path limit, a continuation-depth limit, or a total-code-size budget. Known calls can use virtual continuations while the destination block has local version room. Recursive SCC boundaries, unknown calls, and ABI-visible calls remain real. There is no fuel, hotness, instruction, or module-wide code budget.
 
-At the local limit, an edge generalizes to a compatible context; it does not force native values through a generic all-home representation. Backedges conform only values that must cross the edge.
+At the local limit, an edge materializes a compatible canonical generic context. Ordinary compatible edges retain the native stack-cache representation; this fallback is not a general all-home lowering. Eager admission can exhaust a family before every type has a stable specialized cycle. Lazy compilation admits only reached contexts, but uses the same proofs and local bound. Neither policy learns tags merely by reading saved activation registers.
 
 ## Peer sinks
 

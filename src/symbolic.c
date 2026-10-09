@@ -27,7 +27,7 @@ int abc_symbolic_context_copy(abc_symbolic_context *to,const abc_symbolic_contex
 
 static int value_equal(const abc_symbolic_value *a,const abc_symbolic_value *b) {
     return a->kind==b->kind&&a->stack==b->stack&&a->dst_stack==b->dst_stack&&
-        a->dynamic_width==b->dynamic_width&&a->dynamic_repr==b->dynamic_repr&&a->dynamic_tags==b->dynamic_tags&&
+        a->dynamic_width==b->dynamic_width&&a->dynamic_repr==b->dynamic_repr&&a->dynamic_tags==b->dynamic_tags&&a->zero_extended==b->zero_extended&&
         a->reg==b->reg&&a->home==b->home&&a->dst_home==b->dst_home&&
         a->constant==b->constant;
 }
@@ -112,7 +112,7 @@ abc_symbolic_value abc_symbolic_rehome(abc_symbolic_value value,unsigned stack,i
     value.kind=ABC_SYM_HOME;value.stack=(uint8_t)stack;value.dst_stack=(uint8_t)stack;value.reg=0;value.home=home;value.dst_home=home;value.constant=0;return value;
 }
 void abc_symbolic_forget_dynamic(abc_symbolic_value *value) {
-    value->dynamic_width=0;value->dynamic_repr=ABC_SYM_REPR_NONE;value->dynamic_tags=0;
+    value->dynamic_width=0;value->dynamic_repr=ABC_SYM_REPR_NONE;value->dynamic_tags=0;value->zero_extended=0;
 }
 
 static int machine_fail(abc_symbolic_machine *m,const char *message) {
@@ -163,6 +163,15 @@ int abc_symbolic_machine_cset(abc_symbolic_machine *m,unsigned from,unsigned dep
     v.dst_stack=to->dst_stack; v.dst_home=to->dst_home; *to=v; return 1;
 }
 
+/* Native fusion consumes the normalization's semantics, not only its bytes. */
+static void scalar_result_fact(abc_symbolic_machine *m,abc_symbolic_value *result) {
+    abc_symbolic_forget_dynamic(result);
+    if(m->extra_advance==1) {
+        uint32_t next=m->pc+abc_instruction_length(m->code+m->pc);
+        if(next<m->end&&(m->code[next]==OP_ZX32_A||m->code[next]==OP_ZX32_B)){result->dynamic_width=32;result->zero_extended=1;}
+    }
+}
+
 int abc_symbolic_machine_binary(abc_symbolic_machine *m,unsigned opcode,unsigned destination) {
     abc_symbolic_context *x=m->context;
     abc_symbolic_value left=*abc_symbolic_top(x,ABC_SYM_A,0),right=*abc_symbolic_top(x,ABC_SYM_B,0),result;
@@ -178,7 +187,7 @@ int abc_symbolic_machine_binary(abc_symbolic_machine *m,unsigned opcode,unsigned
         }
     } else if(!folded) { m->exit=ABC_SYM_EXIT_BOUNDARY; return 0; }
     abc_symbolic_value *home=abc_symbolic_top(x,destination,0);
-    abc_symbolic_forget_dynamic(&result);result.dst_stack=home->dst_stack; result.dst_home=home->dst_home;
+    scalar_result_fact(m,&result);result.dst_stack=home->dst_stack; result.dst_home=home->dst_home;
     (void)abc_symbolic_pop(x,destination==ABC_SYM_A?ABC_SYM_B:ABC_SYM_A);
     *abc_symbolic_top(x,destination,0)=result; return 1;
 }
@@ -235,6 +244,7 @@ int abc_symbolic_machine_unary(abc_symbolic_machine *m,unsigned opcode,unsigned 
     } else if(!folded) { m->exit=ABC_SYM_EXIT_BOUNDARY; return 0; }
     abc_symbolic_value *home=abc_symbolic_top(m->context,stack,0);
     abc_symbolic_forget_dynamic(&result);if(opcode==OP_SX32_A||opcode==OP_SX32_B||opcode==OP_ZX32_A||opcode==OP_ZX32_B)result.dynamic_width=32;
+    if(opcode==OP_ZX32_A||opcode==OP_ZX32_B)result.zero_extended=1;
     result.dst_stack=home->dst_stack; result.dst_home=home->dst_home; *home=result; return 1;
 }
 
@@ -257,7 +267,7 @@ int abc_symbolic_machine_immediate(abc_symbolic_machine *m,unsigned opcode,unsig
         }
     } else if(!folded) { m->exit=ABC_SYM_EXIT_BOUNDARY; return 0; }
     abc_symbolic_value *home=abc_symbolic_top(m->context,stack,0);
-    abc_symbolic_forget_dynamic(&result);result.dst_stack=home->dst_stack; result.dst_home=home->dst_home; *home=result; return 1;
+    scalar_result_fact(m,&result);result.dst_stack=home->dst_stack; result.dst_home=home->dst_home; *home=result; return 1;
 }
 
 static unsigned c_operand_binary(unsigned op) {
@@ -276,7 +286,7 @@ int abc_symbolic_machine_c_operand(abc_symbolic_machine *m,unsigned opcode,unsig
         }
     } else if(!folded) { m->exit=ABC_SYM_EXIT_BOUNDARY; return 0; }
     abc_symbolic_value *home=abc_symbolic_top(m->context,stack,0);
-    abc_symbolic_forget_dynamic(&result);result.dst_stack=home->dst_stack; result.dst_home=home->dst_home; *home=result; return 1;
+    scalar_result_fact(m,&result);result.dst_stack=home->dst_stack; result.dst_home=home->dst_home; *home=result; return 1;
 }
 
 int abc_symbolic_machine_pow(abc_symbolic_machine *m,unsigned opcode) {
@@ -517,6 +527,7 @@ int abc_symbolic_machine_return(abc_symbolic_machine *m,unsigned frame_cells,uns
 }
 
 void abc_symbolic_dynamic_descriptor_fact(const abc_module *module,unsigned descriptor,abc_symbolic_value *value) {
+    value->zero_extended=0;
     const abc_descriptor *d=&module->descriptors[descriptor];unsigned tag=ABC_ANY_AGGREGATE,width=0,repr=ABC_SYM_REPR_BOXED;
     if(d->tag==ABC_DESC_PRIMITIVE) {
         static const uint8_t tags[]={ABC_ANY_UNIT,ABC_ANY_BOOL,ABC_ANY_U8,ABC_ANY_U16,ABC_ANY_U32,ABC_ANY_U64,ABC_ANY_I32,ABC_ANY_I64,ABC_ANY_F64,ABC_ANY_STRING,0,ABC_ANY_WORD};
@@ -529,22 +540,51 @@ void abc_symbolic_dynamic_descriptor_fact(const abc_module *module,unsigned desc
     value->dynamic_tags=(uint16_t)(1u<<tag);value->dynamic_width=(uint8_t)width;value->dynamic_repr=(uint8_t)repr;
 }
 
+uint16_t abc_symbolic_test_tags(const abc_module *module,unsigned descriptor) {
+    if(module->descriptors[descriptor].tag!=ABC_DESC_PRIMITIVE||module->descriptors[descriptor].payload[0]==ABC_PRIM_ANY)return 0;
+    abc_symbolic_value expected={0};abc_symbolic_dynamic_descriptor_fact(module,descriptor,&expected);return expected.dynamic_tags;
+}
+int abc_symbolic_dynamic_test(const abc_module *module,unsigned descriptor,abc_symbolic_value input,int *matches) {
+    const abc_descriptor *d=&module->descriptors[descriptor];
+    if(d->tag==ABC_DESC_PRIMITIVE&&d->payload[0]==ABC_PRIM_ANY){*matches=1;return 1;}
+    uint16_t want=abc_symbolic_test_tags(module,descriptor),have=input.dynamic_tags;
+    if(!want||!have||((have&want)&&have!=want))return 0;*matches=have==want;return 1;
+}
+uint16_t abc_symbolic_numeric_results(unsigned selector,abc_symbolic_value left,abc_symbolic_value right,int *certain) {
+    uint16_t a=left.dynamic_tags?left.dynamic_tags:ABC_SYM_DYNAMIC_TAGS_UNKNOWN;
+    uint16_t b=right.dynamic_tags?right.dynamic_tags:ABC_SYM_DYNAMIC_TAGS_UNKNOWN,results=0;int valid=1;
+    for(unsigned i=0;i<16;i++)if(a&(1u<<i))for(unsigned j=0;j<16;j++)if(b&(1u<<j)) {
+        unsigned tag=abc_numeric_result(selector,i,j);if(tag==UINT_MAX)valid=0;else results|=(uint16_t)(1u<<tag);
+    }
+    *certain=valid&&results&&!(results&(uint16_t)(results-1));return results;
+}
+void abc_symbolic_numeric_fact(abc_symbolic_value *value,uint16_t tags) {
+    abc_symbolic_forget_dynamic(value);value->dynamic_tags=tags;
+    if(!tags)return;value->dynamic_repr=ABC_SYM_REPR_UNKNOWN;
+    if(!(tags&(uint16_t)(tags-1))) {
+        unsigned tag=(unsigned)__builtin_ctz((unsigned)tags);value->dynamic_width=(uint8_t)abc_numeric_width(tag);
+        if(tag==ABC_ANY_F64||value->dynamic_width<64)value->dynamic_repr=ABC_SYM_REPR_ENCODED;
+    }
+}
+
 static int dynamic_immediate(unsigned tag,uint64_t value) {
-    if(tag==ABC_ANY_U32||tag==ABC_ANY_U64)return value<=(UINT64_C(1)<<40)-1;
+    if(tag==ABC_ANY_U8||tag==ABC_ANY_U16||tag==ABC_ANY_U32||tag==ABC_ANY_U64)return value<=(UINT64_C(1)<<40)-1;
     if(tag==ABC_ANY_I32||tag==ABC_ANY_I64){int64_t signed_value=(int64_t)value;return signed_value>=-(INT64_C(1)<<39)&&signed_value<(INT64_C(1)<<39);}
     return 0;
 }
 
 int abc_symbolic_dynamic_box_specialization(const abc_module *module,unsigned descriptor,abc_symbolic_value input) {
     const abc_descriptor *d=&module->descriptors[descriptor];if(d->tag!=ABC_DESC_PRIMITIVE)return 0;unsigned primitive=d->payload[0];
-    if((primitive==ABC_PRIM_U32||primitive==ABC_PRIM_I32)&&!input.dynamic_tags&&input.dynamic_repr==ABC_SYM_REPR_NONE&&input.dynamic_width==32)return 1;
-    if(input.kind!=ABC_SYM_CONST)return 0;unsigned tag=primitive==ABC_PRIM_U32?ABC_ANY_U32:primitive==ABC_PRIM_I32?ABC_ANY_I32:primitive==ABC_PRIM_U64?ABC_ANY_U64:primitive==ABC_PRIM_I64?ABC_ANY_I64:UINT_MAX;
+    unsigned tag=primitive==ABC_PRIM_U8?ABC_ANY_U8:primitive==ABC_PRIM_U16?ABC_ANY_U16:primitive==ABC_PRIM_U32?ABC_ANY_U32:primitive==ABC_PRIM_I32?ABC_ANY_I32:primitive==ABC_PRIM_U64?ABC_ANY_U64:primitive==ABC_PRIM_I64?ABC_ANY_I64:UINT_MAX;
+    if(tag!=UINT_MAX&&!input.dynamic_tags&&input.dynamic_repr==ABC_SYM_REPR_NONE&&input.dynamic_width==32&&
+       (abc_numeric_signed(tag)||input.zero_extended))return 1;
+    if(input.kind!=ABC_SYM_CONST)return 0;
     return tag!=UINT_MAX&&dynamic_immediate(tag,input.constant);
 }
 
 int abc_symbolic_dynamic_cast_matches(const abc_module *module,unsigned descriptor,abc_symbolic_value input) {
     abc_symbolic_value expected={0};abc_symbolic_dynamic_descriptor_fact(module,descriptor,&expected);
-    return module->descriptors[descriptor].tag==ABC_DESC_PRIMITIVE&&(expected.dynamic_width==32||expected.dynamic_width==64)&&input.dynamic_repr==ABC_SYM_REPR_RAW&&
+    return module->descriptors[descriptor].tag==ABC_DESC_PRIMITIVE&&(expected.dynamic_width==8||expected.dynamic_width==16||expected.dynamic_width==32||expected.dynamic_width==64)&&input.dynamic_repr==ABC_SYM_REPR_RAW&&
         expected.dynamic_tags&&expected.dynamic_tags!=ABC_SYM_DYNAMIC_TAGS_UNKNOWN&&input.dynamic_tags==expected.dynamic_tags&&input.dynamic_width==expected.dynamic_width;
 }
 
@@ -566,7 +606,10 @@ int abc_symbolic_machine_dynamic(abc_symbolic_machine *m) {
     if(!dynamic_contract(m->module,m->code+m->pc,&effect)||x->n[ABC_SYM_A]<effect.pops)return machine_fail(m,"invalid symbolic dynamic contract");
     for(unsigned i=0;i<effect.pushes;i++)effect.result[i]=abc_symbolic_home(ABC_SYM_A,(int32_t)(x->n[ABC_SYM_A]-effect.pops+i));
     if(effect.selector==EXT_ANY_BOX&&effect.pushes){abc_symbolic_dynamic_descriptor_fact(m->module,effect.descriptor,&effect.result[0]);uint32_t base=x->n[ABC_SYM_A]-effect.pops;if(effect.pops==1&&abc_symbolic_dynamic_box_specialization(m->module,effect.descriptor,x->s[ABC_SYM_A][base]))effect.result[0].dynamic_repr=ABC_SYM_REPR_ENCODED;}
-    if(!m->emit_dynamic(m->sink,m->pc,&effect)){if(m->exit==ABC_SYM_EXIT_BOUNDARY||m->exit==ABC_SYM_EXIT_CONTROL||m->exit==ABC_SYM_EXIT_TERMINATED)return 0;m->exit=ABC_SYM_EXIT_FAILURE;return 0;}
+    int matches;
+    if(effect.selector==EXT_ANY_IS&&abc_symbolic_dynamic_test(m->module,effect.descriptor,*abc_symbolic_top(x,ABC_SYM_A,0),&matches))
+        effect.result[0]=abc_symbolic_constant((uint64_t)matches,ABC_SYM_A,(int32_t)x->n[ABC_SYM_A]-1);
+    else if(!m->emit_dynamic(m->sink,m->pc,&effect)){if(m->exit==ABC_SYM_EXIT_BOUNDARY||m->exit==ABC_SYM_EXIT_CONTROL||m->exit==ABC_SYM_EXIT_TERMINATED)return 0;m->exit=ABC_SYM_EXIT_FAILURE;return 0;}
     if(effect.direct){uint32_t base=x->n[ABC_SYM_A]-effect.pops;abc_symbolic_value args[255];unsigned supplied=effect.pops-1;for(unsigned i=0;i<supplied;i++)args[i]=x->s[ABC_SYM_A][base+1+i];x->n[ABC_SYM_A]=base;if(effect.direct_environment){abc_symbolic_value q=effect.environment;q.dst_stack=ABC_SYM_A;q.dst_home=(int32_t)x->n[ABC_SYM_A];if(!abc_symbolic_push(x,ABC_SYM_A,q))return machine_fail(m,"symbolic dynamic environment allocation failed");}for(unsigned i=0;i<supplied;i++){abc_symbolic_value q=args[i];q.dst_stack=ABC_SYM_A;q.dst_home=(int32_t)x->n[ABC_SYM_A];if(!abc_symbolic_push(x,ABC_SYM_A,q))return machine_fail(m,"symbolic dynamic argument allocation failed");}return abc_symbolic_machine_call(m,effect.direct_target,effect.direct_arguments,ABC_SYM_A,m->pc+abc_instruction_length(m->code+m->pc));}
     x->n[ABC_SYM_A]-=effect.pops;for(unsigned i=0;i<effect.pushes;i++)if(!abc_symbolic_push(x,ABC_SYM_A,effect.result[i]))return machine_fail(m,"symbolic dynamic result allocation failed");
     if(!effect.tail)return 1;

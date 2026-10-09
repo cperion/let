@@ -283,7 +283,8 @@ static int materialize(Compiler *c,Context *x,JValue *v) { return materialize_ma
 static int writable(Compiler *c,Context *x,JValue *v);
 static int materialize_dynamic(Compiler *c,Context *x,JValue *v) {
     if(v->dynamic_repr!=ABC_SYM_REPR_RAW)return 1;uint16_t tags=v->dynamic_tags;
-    unsigned tag=tags&&!(tags&(uint16_t)(tags-1))?(unsigned)__builtin_ctz((unsigned)tags):UINT_MAX;int supported=(v->dynamic_width==32&&(tag==ABC_ANY_U32||tag==ABC_ANY_I32))||(v->dynamic_width==64&&(tag==ABC_ANY_U64||tag==ABC_ANY_I64));
+    unsigned tag=tags&&!(tags&(uint16_t)(tags-1))?(unsigned)__builtin_ctz((unsigned)tags):UINT_MAX;
+    int supported=abc_numeric_integer(tag)&&v->dynamic_width==abc_numeric_width(tag);
     if(!supported){if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_INVALID,c->current_pc,"cannot materialize specialized dynamic representation");return 0;}
     int reg=writable(c,x,v);if(reg<0||!place(c,ABC_STENCIL_DYNAMIC_ENCODE(reg),(uint64_t)__builtin_ctz((unsigned)tags),NULL))return 0;
     v->kind=VK_REG;v->reg=(uint32_t)reg;v->dynamic_repr=ABC_SYM_REPR_ENCODED;return 1;
@@ -304,14 +305,17 @@ static int flush_context(Compiler *c,Context *x) {
     }
     return 1;
 }
-static int conform_generic(Compiler *c,Context *x) {
+static int conform_context(Compiler *c,Context *x,int forget) {
     for(int s=2;s>=0;s--) for(uint32_t i=0;i<x->n[s];i++) { JValue *v=&x->s[s][i];
         int32_t home=s==JS_C?x->c_bias+(int32_t)i-x->c_origin:(int32_t)i;
         v->dst_stack=(uint8_t)s; v->dst_home=home;
-        if(!materialize_dynamic(c,x,v)||!save_value(c,x,v)) return 0; abc_symbolic_forget_dynamic(v); *v=rehome_value(*v,s,home);
+        if(!materialize_dynamic(c,x,v)||!save_value(c,x,v)) return 0;
+        if(forget)abc_symbolic_forget_dynamic(v); *v=rehome_value(*v,s,home);
     }
-    memset(x->limit,0,sizeof x->limit); x->generic=1; return 1;
+    memset(x->limit,0,sizeof x->limit); x->generic=(uint8_t)forget; return 1;
 }
+
+static int conform_generic(Compiler *c,Context *x) { return conform_context(c,x,1); }
 
 static int binary_index(unsigned op) {
     static const int map[]={ABC_JOP_ADD,ABC_JOP_SUB,ABC_JOP_MUL,ABC_JOP_DIVU,ABC_JOP_DIVS,ABC_JOP_REMU,ABC_JOP_REMS,ABC_JOP_AND,ABC_JOP_OR,ABC_JOP_XOR,ABC_JOP_SHL,ABC_JOP_SHR,ABC_JOP_SAR,ABC_JOP_EQ,ABC_JOP_NE,ABC_JOP_LT,ABC_JOP_LE,ABC_JOP_LTU,ABC_JOP_LEU};
@@ -580,6 +584,24 @@ static __attribute__((noinline)) uint64_t lazy_prepare(Version *v){
 static uint64_t lazy_dispatch(uint64_t state){Version *v=(Version *)(uintptr_t)state;v->saved[11]=0;return v->compiled?(uint64_t)(uintptr_t)v->body:lazy_prepare(v);}
 static int emit_jump(Compiler *c,Version *target) { return target && place(c,ABC_STENCIL_JUMP,0,target); }
 
+static int local_branch(Compiler *c,unsigned stencil,Fixup *fix);
+static void bind_local(Compiler *c,const Fixup *fix);
+static int edge_emits_code(const Compiler *c,uint32_t from,uint32_t target,const Context *x) {
+    if(target<=from)for(unsigned s=0;s<3;s++)for(uint32_t i=0;i<x->n[s];i++)if(x->s[s][i].kind==VK_CONST)return 1;
+    unsigned versions=0;for(Version *v=c->versions[target];v;v=v->next)versions+=context_family_equal(&v->in,x);
+    return versions>=ABC_BLOCK_VERSION_LIMIT-1;
+}
+/* Publishing registers to distinct canonical homes is safe on either edge:
+   it changes neither register bits nor a live home source. Representation
+   changes, constants and parallel home copies must wait for the decision. */
+static int edge_spills_only(const Context *x) {
+    for(unsigned s=0;s<3;s++)for(uint32_t i=0;i<x->n[s];i++){
+        const JValue *v=&x->s[s][i];int32_t home=s==JS_C?x->c_bias+(int32_t)i-x->c_origin:(int32_t)i;
+        if(v->kind==VK_CONST||v->dynamic_repr==ABC_SYM_REPR_RAW)return 0;
+        if(v->kind==VK_HOME&&(v->stack!=s||v->home!=home))return 0;
+    }
+    return 1;
+}
 static int native_emit_control(void *opaque,uint32_t origin,const abc_symbolic_control *control) {
     NativeSymbolicSink *sink=opaque; Compiler *c=sink->compiler; Context *x=sink->machine->context;
     c->current_pc=origin;
@@ -588,11 +610,16 @@ static int native_emit_control(void *opaque,uint32_t origin,const abc_symbolic_c
         JValue index=control->left; int reg=materialize(c,x,&index); if(reg<0)return 0;
         const uint8_t *p=c->module->code+origin;
         for(unsigned j=0;j<control->count;j++) {
-            JValue imm=const_value(j,JS_A,0); int ri=materialize_mask(c,x,&imm,1u<<(unsigned)reg);
-            Context taken; if(ri<0||!context_copy(&taken,x))return 0;
-            uint32_t target=(uint32_t)((int64_t)control->fallthrough+abc_i32(p+3+4*j));
-            Version *tv=edge(c,origin,target,&taken); context_free(&taken);
-            if(!tv||!place(c,ABC_STENCIL_BRANCH(ABC_JBR_EQ,reg,ri),0,tv))return 0;
+            JValue imm=const_value(j,JS_A,0);int ri=materialize_mask(c,x,&imm,1u<<(unsigned)reg);
+            Context taken;if(ri<0||!context_copy(&taken,x))return 0;
+            uint32_t target=(uint32_t)((int64_t)control->fallthrough+abc_i32(p+3+4*j));int ok;
+            if(edge_emits_code(c,origin,target,x)&&!edge_spills_only(x)){
+                Fixup skip;ok=local_branch(c,ABC_STENCIL_BRANCH(ABC_JBR_NE,reg,ri),&skip)&&emit_jump(c,edge(c,origin,target,&taken));
+                if(ok)bind_local(c,&skip);
+            }else{
+                Version *tv=edge(c,origin,target,&taken);ok=tv&&place(c,ABC_STENCIL_BRANCH(ABC_JBR_EQ,reg,ri),0,tv);
+            }
+            context_free(&taken);if(!ok)return 0;
         }
         return emit_jump(c,edge(c,origin,control->fallthrough,x));
     }
@@ -600,12 +627,10 @@ static int native_emit_control(void *opaque,uint32_t origin,const abc_symbolic_c
         uint32_t chosen=control->kind==ABC_SYM_CONTROL_JUMP||control->taken?control->target:control->fallthrough;
         return emit_jump(c,edge(c,origin,chosen,x));
     }
+    if(control->target==control->fallthrough)return emit_jump(c,edge(c,origin,control->target,x));
     JValue left=control->left,right=control->right; int rl=materialize(c,x,&left),rr=-1;
     if(rl<0)return 0;
     if(control->kind!=ABC_SYM_CONTROL_ZERO) { rr=materialize_mask(c,x,&right,1u<<(unsigned)rl); if(rr<0)return 0; }
-    Context taken; if(!context_copy(&taken,x))return 0;
-    Version *tv=edge(c,origin,control->target,&taken),*fv=edge(c,origin,control->fallthrough,x);
-    context_free(&taken); if(!tv||!fv)return 0;
     unsigned stencil;
     if(control->kind==ABC_SYM_CONTROL_ZERO)stencil=control->relation==ABC_SYM_EQ?ABC_STENCIL_JZ(rl):ABC_STENCIL_JNZ(rl);
     else if(control->kind==ABC_SYM_CONTROL_FLOAT) {
@@ -616,7 +641,14 @@ static int native_emit_control(void *opaque,uint32_t origin,const abc_symbolic_c
         stencil=ABC_STENCIL_FLOAT_BRANCH(operation,rl,rr);
     }
     else stencil=ABC_STENCIL_BRANCH(control->relation,control->reverse?rr:rl,control->reverse?rl:rr);
-    return place(c,stencil,0,tv)&&emit_jump(c,fv);
+    Context taken;if(!context_copy(&taken,x))return 0;
+    if((edge_emits_code(c,origin,control->target,x)||edge_emits_code(c,origin,control->fallthrough,x))&&!edge_spills_only(x)){
+        Fixup branch;int ok=local_branch(c,stencil,&branch)&&emit_jump(c,edge(c,origin,control->fallthrough,x));
+        if(ok){bind_local(c,&branch);ok=emit_jump(c,edge(c,origin,control->target,&taken));}
+        context_free(&taken);return ok;
+    }
+    Version *tv=edge(c,origin,control->target,&taken),*fv=edge(c,origin,control->fallthrough,x);
+    context_free(&taken);return tv&&fv&&place(c,stencil,0,tv)&&emit_jump(c,fv);
 }
 static int native_emit_abort(void *opaque,uint32_t origin,unsigned reason) {
     NativeSymbolicSink *sink=opaque; Compiler *c=sink->compiler; c->current_pc=origin;
@@ -631,24 +663,172 @@ static int native_emit_halt(void *opaque,uint32_t origin,unsigned unused) {
     (void)unused; return place(c,ABC_STENCIL_RETURN_OK,0,NULL);
 }
 
+/* Proofs refer to current live occurrences, not register identities retained
+   across instructions. Capture aliases before canonicalization changes homes. */
+typedef struct { uint8_t *bits; size_t offset[3]; } TypeAliases;
+static int same_native_value(JValue a,JValue b) {
+    if(a.kind!=b.kind||a.dynamic_repr!=b.dynamic_repr||a.dynamic_tags!=b.dynamic_tags||a.dynamic_width!=b.dynamic_width||a.zero_extended!=b.zero_extended)return 0;
+    return a.kind==VK_REG?a.reg==b.reg:a.kind==VK_HOME?(a.stack==b.stack&&a.home==b.home):a.constant==b.constant;
+}
+static int capture_aliases(const Context *x,JValue first,const JValue *second,TypeAliases *aliases) {
+    aliases->offset[0]=0;aliases->offset[1]=x->n[JS_A];aliases->offset[2]=(size_t)x->n[JS_A]+x->n[JS_B];
+    size_t count=aliases->offset[2]+x->n[JS_C];aliases->bits=calloc(count?count:1,1);if(!aliases->bits)return 0;
+    for(unsigned s=0;s<3;s++)for(uint32_t i=0;i<x->n[s];i++)
+        aliases->bits[aliases->offset[s]+i]=(uint8_t)(same_native_value(first,x->s[s][i])|(second&&same_native_value(*second,x->s[s][i])?2:0));
+    return 1;
+}
+static void refine_aliases(Context *x,const TypeAliases *aliases,unsigned which,uint16_t allowed) {
+    x->generic=0;
+    for(unsigned s=0;s<3;s++)for(uint32_t i=0;i<x->n[s];i++)if(aliases->bits[aliases->offset[s]+i]&which) {
+        JValue *v=&x->s[s][i];uint16_t tags=v->dynamic_tags?v->dynamic_tags:ABC_SYM_DYNAMIC_TAGS_UNKNOWN;
+        v->dynamic_tags=tags&allowed;
+        /* Type proof does not imply normalization or immediate representation. */
+        if(v->dynamic_repr==ABC_SYM_REPR_NONE)v->dynamic_repr=ABC_SYM_REPR_UNKNOWN;
+    }
+}
+/* Local branches select an arm BEFORE its edge normalization emits moves.
+   These relocations are resolved immediately, never retained as fake versions. */
+static int local_branch(Compiler *c,unsigned stencil,Fixup *fix) {
+    Version local={0};size_t first=c->nfix;
+    if(!place(c,stencil,0,&local))return 0;
+    if(c->nfix!=first+1){c->nfix=first;c->status=abc_fail(c->error,ABC_INVALID,c->current_pc,"invalid local branch stencil");return 0;}
+    *fix=c->fixups[--c->nfix];fix->target=NULL;return 1;
+}
+static void bind_local(Compiler *c,const Fixup *fix) { patch(fix->site,fix->kind,fix->addend,(int64_t)(intptr_t)c->pos); }
+static int native_type_branch(NativeSymbolicSink *sink,uint32_t pc,uint16_t want) {
+    Compiler *c=sink->compiler;Context *x=sink->machine->context;const uint8_t *p=c->module->code+pc;
+    uint32_t bp=pc+abc_instruction_length(p);unsigned op=c->module->code[bp];TypeAliases aliases;
+    if(!capture_aliases(x,*top(x,JS_A,0),NULL,&aliases))return 0;
+    if(!conform_context(c,x,0)||!place_dynamic(c,p,pc,x->n[JS_A],x->n[JS_B],x->c_bias+(int32_t)x->n[JS_C]-x->c_origin,0,0)){free(aliases.bits);return 0;}
+    int reg=free_reg(c,x);int32_t home=(int32_t)x->n[JS_A]-1;
+    if(reg<0||!place(c,ABC_STENCIL_LOAD(JS_A,reg),(uint64_t)((int64_t)home*8),NULL)){free(aliases.bits);return 0;}
+    (void)pop(x,JS_A);Context taken;if(!context_copy(&taken,x)){free(aliases.bits);return 0;}
+    int taken_true=op==OP_JNZ_A;
+    refine_aliases(&taken,&aliases,1,taken_true?want:(uint16_t)~want);
+    refine_aliases(x,&aliases,1,taken_true?(uint16_t)~want:want);free(aliases.bits);
+    uint32_t next=bp+op_len[op],target=(uint32_t)((int64_t)next+abc_i16(c->module->code+bp+1));Fixup branch;
+    if(!local_branch(c,taken_true?ABC_STENCIL_JNZ(reg):ABC_STENCIL_JZ(reg),&branch)||!emit_jump(c,edge(c,bp,next,x))){context_free(&taken);return 0;}
+    bind_local(c,&branch);int ok=emit_jump(c,edge(c,bp,target,&taken));context_free(&taken);
+    if(ok)sink->machine->exit=ABC_SYM_EXIT_CONTROL;return 0;
+}
+static int place_numeric(Compiler *c,unsigned id,uint32_t base,unsigned selector,uint64_t helper) {
+    const Stencil *s=&stencils[id];c->placements++;if(!reserve(c,s->len))return 0;uint8_t *at=c->pos;memcpy(at,s->code,s->len);c->pos+=s->len;
+    for(unsigned i=0;i<s->nrel;i++){const Reloc *r=&s->rel[i];int64_t value;
+        if(r->hole==HOLE_NEXT)value=(int64_t)(intptr_t)c->pos;else if(r->hole==HOLE_FINAL)value=(int64_t)helper;
+        else if(r->hole==HOLE_STATE)value=(int64_t)(intptr_t)c->vm;else if(r->hole==HOLE_IMM)value=base;
+        else if(r->hole==HOLE_IMM2)value=selector;else return 0;patch(at+r->off,r->kind,r->addend,value);
+    }return 1;
+}
+static int decode_numeric(Compiler *c,Context *x,JValue *value) {
+    if(value->dynamic_repr==ABC_SYM_REPR_RAW)return 1;
+    int reg=writable(c,x,value);if(reg<0||!place_numeric(c,ABC_STENCIL_NUMERIC_DECODE(reg),0,0,(uint64_t)(uintptr_t)abc_dynamic_numeric_bits))return 0;
+    value->dynamic_repr=ABC_SYM_REPR_RAW;return 1;
+}
+static int native_numeric_body(Compiler *c,Context *x,uint32_t pc,unsigned selector,unsigned tag,JValue *result) {
+    uint32_t base=x->n[JS_A]-2;JValue *left=&x->s[JS_A][base],*right=&x->s[JS_A][base+1];
+    if(!decode_numeric(c,x,left)||!decode_numeric(c,x,right))return 0;
+    int rd=writable(c,x,left);if(rd<0)return 0;int rs=materialize_mask(c,x,right,1u<<(unsigned)rd);if(rs<0)return 0;
+    int signed_value=abc_numeric_signed(tag),op=-1;
+    switch(selector){
+    case EXT_DADD:op=ABC_JOP_ADD;break;case EXT_DSUB:op=ABC_JOP_SUB;break;case EXT_DMUL:op=ABC_JOP_MUL;break;
+    case EXT_DDIV:op=signed_value?ABC_JOP_DIVS:ABC_JOP_DIVU;break;case EXT_DREM:op=signed_value?ABC_JOP_REMS:ABC_JOP_REMU;break;
+    case EXT_DSHL:op=ABC_JOP_SHL;break;case EXT_DSHR:op=ABC_JOP_SHR;break;case EXT_DSAR:op=ABC_JOP_SAR;break;
+    case EXT_DAND:op=ABC_JOP_AND;break;case EXT_DOR:op=ABC_JOP_OR;break;case EXT_DXOR:op=ABC_JOP_XOR;break;
+    case EXT_DPOW:break;default:return 0;
+    }
+    uint64_t error=(uint64_t)ABC_ABORT|(UINT64_C(1)<<8)|((uint64_t)pc<<16);int narrow=binary32_index(op);
+    unsigned stencil=selector==EXT_DPOW?ABC_STENCIL_POW(rd,rs):narrow>=0?ABC_STENCIL_BINARY32(narrow,rd,rs):ABC_STENCIL_BINARY(op,rd,rs);
+    if(!place(c,stencil,error,NULL))return 0;
+    unsigned width=abc_numeric_width(tag);
+    if(width<32){if(!place(c,ABC_STENCIL_IMMEDIATE(ABC_JIMM_AND,rd),(UINT64_C(1)<<width)-1,NULL))return 0;}
+    else if(!place(c,ABC_STENCIL_UNARY(signed_value?ABC_JUN_SX32:ABC_JUN_ZX32,rd),0,NULL))return 0;
+    *result=*left;result->kind=VK_REG;result->reg=(uint32_t)rd;result->dynamic_tags=(uint16_t)(1u<<tag);
+    result->dynamic_width=(uint8_t)width;result->dynamic_repr=ABC_SYM_REPR_RAW;result->zero_extended=0;return 1;
+}
+static int native_dynamic_helper(Compiler *c,Context *x,uint32_t pc,abc_symbolic_dynamic *effect,uint16_t numeric_tags) {
+    uint32_t base=x->n[JS_A]-effect->pops;unsigned runtime_tail=effect->tail&&!x->ncont;
+    int32_t return_offset=(x->c_bias-x->c_origin-1)*8;
+    /* Scalar helpers cannot mutate live stack values. Calls and object effects
+       retain the conservative boundary; all roots still get materialized. */
+    int preserve=effect->selector<=EXT_DREQUIRE_BOOL;
+    if(!conform_context(c,x,!preserve)||!place_dynamic(c,c->module->code+pc,pc,x->n[JS_A],x->n[JS_B],x->c_bias+(int32_t)x->n[JS_C]-x->c_origin,runtime_tail,return_offset))return 0;
+    if(!runtime_tail)for(unsigned i=0;i<effect->pushes;i++){int r=free_reg(c,x);int32_t home=(int32_t)(base+i);
+        if(r<0||!place(c,ABC_STENCIL_LOAD(JS_A,(unsigned)r),(uint64_t)((int64_t)home*8),NULL))return 0;
+        effect->result[i]=reg_value((unsigned)r,JS_A,home);
+    }
+    if(effect->pushes==1){
+        if(effect->selector==EXT_ANY_BOX)abc_symbolic_dynamic_descriptor_fact(c->module,effect->descriptor,&effect->result[0]);
+        else if(effect->selector>=EXT_DADD&&effect->selector<=EXT_DXOR)abc_symbolic_numeric_fact(&effect->result[0],numeric_tags);
+    }return 1;
+}
+static int numeric_is_narrow(unsigned tag) { return tag==ABC_ANY_U8||tag==ABC_ANY_U16||tag==ABC_ANY_U32||tag==ABC_ANY_I32; }
+static int native_numeric_cfg(NativeSymbolicSink *sink,uint32_t pc,abc_symbolic_dynamic *effect,uint16_t tags) {
+    Compiler *c=sink->compiler;Context *x=sink->machine->context;uint32_t base=x->n[JS_A]-2,next=pc+abc_instruction_length(c->module->code+pc);
+    TypeAliases aliases;if(!capture_aliases(x,x->s[JS_A][base],&x->s[JS_A][base+1],&aliases))return 0;
+    if(!conform_context(c,x,0)){free(aliases.bits);return 0;}
+    int reg=free_reg(c,x);
+    if(reg<0||!place_numeric(c,ABC_STENCIL_NUMERIC_CLASSIFY(reg),base,effect->selector,(uint64_t)(uintptr_t)abc_dynamic_numeric_classify)){free(aliases.bits);return 0;}
+    Fixup branches[16],fallback;
+    for(unsigned tag=0;tag<16;tag++)if(tags&(1u<<tag)){
+        JValue constant=const_value(tag+1,JS_A,0);int rr=materialize_mask(c,x,&constant,1u<<(unsigned)reg);
+        if(rr<0||!local_branch(c,ABC_STENCIL_BRANCH(ABC_JBR_EQ,reg,rr),&branches[tag])){free(aliases.bits);return 0;}
+    }
+    if(!local_branch(c,ABC_STENCIL_JUMP,&fallback)){free(aliases.bits);return 0;}
+    for(unsigned tag=0;tag<16;tag++)if(tags&(1u<<tag)){
+        bind_local(c,&branches[tag]);Context arm;if(!context_copy(&arm,x)){free(aliases.bits);return 0;}
+        refine_aliases(&arm,&aliases,3,abc_numeric_arguments(tag));abc_symbolic_dynamic leaf=*effect;
+        int ok=numeric_is_narrow(tag)?native_numeric_body(c,&arm,pc,effect->selector,tag,&leaf.result[0]):native_dynamic_helper(c,&arm,pc,&leaf,(uint16_t)(1u<<tag));
+        if(ok){arm.n[JS_A]=base;ok=push(&arm,JS_A,leaf.result[0])&&emit_jump(c,edge(c,pc,next,&arm));}
+        context_free(&arm);if(!ok){free(aliases.bits);return 0;}
+    }
+    free(aliases.bits);bind_local(c,&fallback);
+    /* Classification zero means type mismatch, not an unknown successful
+       result. Keep the original helper's safepoint/error behavior, but do not
+       invent a successful edge that would consume the version budget. */
+    if(!native_dynamic_helper(c,x,pc,effect,0)||
+       !place(c,ABC_STENCIL_ABORT,(uint64_t)ABC_ABORT|(UINT64_C(6)<<8)|((uint64_t)pc<<16),NULL))return 0;
+    sink->machine->exit=ABC_SYM_EXIT_CONTROL;return 0;
+}
 static int native_emit_dynamic(void *opaque,uint32_t pc,abc_symbolic_dynamic *effect) {
-    NativeSymbolicSink *sink=opaque;Compiler *c=sink->compiler;Context *x=sink->machine->context;const uint8_t *p=c->module->code+pc;uint32_t base=x->n[JS_A]-effect->pops;
+    NativeSymbolicSink *sink=opaque;Compiler *c=sink->compiler;Context *x=sink->machine->context;const uint8_t *p=c->module->code+pc;uint32_t base=x->n[JS_A]-effect->pops;c->current_pc=pc;
+    if(effect->selector==EXT_ANY_BOX&&c->module->descriptors[effect->descriptor].tag==ABC_DESC_PRIMITIVE&&
+       c->module->descriptors[effect->descriptor].payload[0]==ABC_PRIM_UNIT){
+        effect->result[0]=const_value(abc_any_unit(),JS_A,(int32_t)base);
+        abc_symbolic_dynamic_descriptor_fact(c->module,effect->descriptor,&effect->result[0]);return 1;
+    }
+    if(effect->selector==EXT_ANY_IS){
+        uint16_t want=abc_symbolic_test_tags(c->module,effect->descriptor);uint32_t next=pc+abc_instruction_length(p);
+        if(want&&next<c->module->code_size&&!c->block[next]&&(c->module->code[next]==OP_JZ_A||c->module->code[next]==OP_JNZ_A)){
+            int ok=native_type_branch(sink,pc,want);if(!ok&&sink->machine->exit!=ABC_SYM_EXIT_CONTROL)goto failed;return ok;
+        }
+    }
     if(effect->selector==EXT_ANY_BOX&&effect->pops==1&&effect->pushes==1&&abc_symbolic_dynamic_box_specialization(c->module,effect->descriptor,x->s[JS_A][base])){
         effect->result[0]=x->s[JS_A][base];abc_symbolic_dynamic_descriptor_fact(c->module,effect->descriptor,&effect->result[0]);effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;return 1;
     }
     if(effect->selector==EXT_ANY_CAST&&effect->pops==1&&effect->pushes==1&&abc_symbolic_dynamic_cast_matches(c->module,effect->descriptor,x->s[JS_A][base])){
         effect->result[0]=x->s[JS_A][base];abc_symbolic_forget_dynamic(&effect->result[0]);return 1;
     }
-    unsigned opcode;if(effect->pops==2&&effect->pushes==1&&abc_symbolic_dynamic_binary_specialization(effect->selector,x->s[JS_A][base],x->s[JS_A][base+1],&opcode)){
-        JValue *left=&x->s[JS_A][base],*right=&x->s[JS_A][base+1];if(left->dynamic_width==64){int ok=0;effect->result[0]=*left;effect->result[0].constant=abc_symbolic_fold_binary(opcode,left->constant,right->constant,&ok);if(!ok)goto failed;effect->result[0].kind=VK_CONST;effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;return 1;}
-        int rd=writable(c,x,left);if(rd<0)goto failed;int rs=materialize_mask(c,x,right,1u<<(unsigned)rd);int bi=binary_index(opcode),b32=binary32_index(bi);unsigned unary=left->dynamic_tags==(uint16_t)(1u<<ABC_ANY_I32)?ABC_JUN_SX32:ABC_JUN_ZX32;
-        if(rs<0||b32<0||!place(c,ABC_STENCIL_BINARY32(b32,rd,rs),0,NULL)||!place(c,ABC_STENCIL_UNARY(unary,rd),0,NULL))goto failed;effect->result[0]=*left;effect->result[0].kind=VK_REG;effect->result[0].reg=(uint32_t)rd;effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;return 1;
+    uint16_t tags=0;
+    if(effect->selector>=EXT_DADD&&effect->selector<=EXT_DXOR){
+        int certain;tags=abc_symbolic_numeric_results(effect->selector,x->s[JS_A][base],x->s[JS_A][base+1],&certain);
+        if(certain&&numeric_is_narrow((unsigned)__builtin_ctz((unsigned)tags))){
+            if(!native_numeric_body(c,x,pc,effect->selector,(unsigned)__builtin_ctz((unsigned)tags),&effect->result[0]))goto failed;return 1;
+        }
+        unsigned opcode;if(abc_symbolic_dynamic_binary_specialization(effect->selector,x->s[JS_A][base],x->s[JS_A][base+1],&opcode)){
+            int ok=0;effect->result[0]=x->s[JS_A][base];effect->result[0].constant=abc_symbolic_fold_binary(opcode,x->s[JS_A][base].constant,x->s[JS_A][base+1].constant,&ok);
+            if(!ok)goto failed;effect->result[0].kind=VK_CONST;effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;return 1;
+        }
+        uint16_t narrow=(uint16_t)((1u<<ABC_ANY_U8)|(1u<<ABC_ANY_U16)|(1u<<ABC_ANY_U32)|(1u<<ABC_ANY_I32));
+        if(!certain&&(tags&narrow)){
+            uint32_t next=pc+abc_instruction_length(p);Context family=*x;family.n[JS_A]=base+1;unsigned versions=0;
+            for(Version *v=c->versions[next];v;v=v->next)versions+=context_family_equal(&v->in,&family);
+            /* Reserve the existing generic slot; never split a saturated family. */
+            if(versions+(unsigned)__builtin_popcount((unsigned)tags)<ABC_BLOCK_VERSION_LIMIT){
+                int ok=native_numeric_cfg(sink,pc,effect,tags);if(!ok&&sink->machine->exit!=ABC_SYM_EXIT_CONTROL)goto failed;return ok;
+            }
+        }
     }
-    {unsigned runtime_tail=effect->tail&&!x->ncont;int32_t return_offset=(x->c_bias-x->c_origin-1)*8;
-    if(!conform_generic(c,x)||!place_dynamic(c,p,pc,x->n[JS_A],x->n[JS_B],x->c_bias+(int32_t)x->n[JS_C]-x->c_origin,runtime_tail,return_offset))return 0;
-    if(!runtime_tail)for(unsigned i=0;i<effect->pushes;i++){int r=free_reg(c,x);int32_t home=(int32_t)(base+i);if(r<0||!place(c,ABC_STENCIL_LOAD(JS_A,(unsigned)r),(uint64_t)((int64_t)home*8),NULL))return 0;effect->result[i]=reg_value((unsigned)r,JS_A,home);abc_symbolic_forget_dynamic(&effect->result[i]);}
-    }
-    return 1;
+    if(!native_dynamic_helper(c,x,pc,effect,tags))goto failed;return 1;
 failed:
     if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_NOMEM,pc,"native dynamic specialization emission failed");return 0;
 }
@@ -688,7 +868,7 @@ static int native_emit_indirect(void *opaque,uint32_t pc,abc_symbolic_indirect *
     if(effect->tail) {
         uint32_t cbase=x->n[JS_C]-effect->frame_cells;int32_t coff=x->c_bias+(int32_t)cbase-x->c_origin;
         if(!place_guard(c,JS_C,coff+(int32_t)n>0?(uint32_t)(coff+(int32_t)n):0,(uint64_t)ABC_STACK|((uint64_t)pc<<16),NULL))return 0;
-        for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];arg->dst_stack=JS_A;arg->dst_home=(int32_t)(abase+j);if(!save_value(c,x,arg))return 0;}
+        for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];arg->dst_stack=JS_A;arg->dst_home=(int32_t)(abase+j);if(!materialize_dynamic(c,x,arg)||!save_value(c,x,arg))return 0;}
         for(unsigned j=0;j<n;j++){JValue arg=home_value(JS_A,(int32_t)(abase+j));int r=materialize(c,x,&arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(coff+(int32_t)n-1-(int32_t)j)*8),NULL))return 0;}
         target=home_value(JS_B,target.dst_home);int rt=materialize(c,x,&target);if(rt<0)return 0;uint64_t packed=(uint32_t)abase|((uint64_t)(uint32_t)(coff+(int32_t)n)<<32);
         if(c->module->callable_profile&&!c->module->dynamic_profile)
@@ -698,7 +878,7 @@ static int native_emit_indirect(void *opaque,uint32_t pc,abc_symbolic_indirect *
     }
     int32_t ctop=x->c_bias+(int32_t)x->n[JS_C]-x->c_origin;
     if(!place_guard(c,JS_C,ctop+(int32_t)n+1>0?(uint32_t)(ctop+(int32_t)n+1):0,(uint64_t)ABC_STACK|((uint64_t)pc<<16),NULL))return 0;
-    for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];int r=materialize(c,x,arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;}
+    for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];if(!materialize_dynamic(c,x,arg))return 0;int r=materialize(c,x,arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;}
     if(!place(c,ABC_STENCIL_RETURN_SENTINEL,(uint64_t)((int64_t)ctop*8),NULL)||!flush_context(c,x))return 0;target=home_value(JS_B,target.dst_home);int rt=materialize(c,x,&target);if(rt<0)return 0;
     uint64_t packed=(uint32_t)abase|((uint64_t)(uint32_t)(ctop+(int32_t)n+1)<<32);
     if(c->module->callable_profile&&!c->module->dynamic_profile){
@@ -722,7 +902,7 @@ static int native_emit_call(void *opaque,uint32_t pc,abc_symbolic_call *effect) 
     if(!ensure_capacity(c,x,JS_A,abase+callee_function->max_a,error)||!ensure_capacity(c,x,JS_B,x->n[JS_B]+callee_function->max_b,error)||!ensure_capacity(c,x,JS_C,(uint32_t)(ctop+1+(int32_t)callee_function->max_c),error))return 0;
     Version *callee=NULL;
     if(c->recursive[fi]) {
-        for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];arg->dst_stack=JS_A;arg->dst_home=(int32_t)(abase+j);if(!save_value(c,x,arg))return 0;*arg=rehome_value(*arg,JS_A,(int32_t)(abase+j));}
+        for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];arg->dst_stack=JS_A;arg->dst_home=(int32_t)(abase+j);if(!materialize_dynamic(c,x,arg)||!save_value(c,x,arg))return 0;*arg=rehome_value(*arg,JS_A,(int32_t)(abase+j));}
         if(!flush_context(c,x))return 0;
         for(unsigned j=8;j<n;j++)if(!place(c,ABC_STENCIL_LOAD(JS_A,0),(uint64_t)((int64_t)(abase+j)*8),NULL)||!place(c,ABC_STENCIL_STORE(JS_C,0),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;
         for(unsigned j=0;j<n&&j<8;j++)if(!place(c,ABC_STENCIL_LOAD(JS_A,j),(uint64_t)((int64_t)(abase+j)*8),NULL))return 0;
@@ -730,7 +910,7 @@ static int native_emit_call(void *opaque,uint32_t pc,abc_symbolic_call *effect) 
         if(n){in.s[JS_C]=malloc((size_t)n*sizeof *in.s[JS_C]);if(!in.s[JS_C]){c->status=abc_fail(c->error,ABC_NOMEM,pc,"native direct-call sink allocation failed");return 0;}in.n[JS_C]=in.cap[JS_C]=n;for(unsigned j=0;j<n;j++){int32_t home=-1-(int32_t)j;JValue q=j<8?reg_value(j,JS_C,home):home_value(JS_C,home);q.dst_stack=JS_C;q.dst_home=home;in.s[JS_C][n-1-j]=q;}}
         callee=version_for(c,effect->target,&in);context_free(&in);if(!callee)return 0;
     } else {
-        for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];int r=materialize(c,x,arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;}
+        for(unsigned j=0;j<n;j++){JValue *arg=&x->s[JS_A][abase+j];if(!materialize_dynamic(c,x,arg))return 0;int r=materialize(c,x,arg);if(r<0||!place(c,ABC_STENCIL_STORE(JS_C,r),(uint64_t)((int64_t)(ctop+(int32_t)n-(int32_t)j)*8),NULL))return 0;}
         if(!flush_context(c,x))return 0;callee=c->function_entries[fi];if(!callee){c->status=abc_fail(c->error,ABC_INVALID,pc,"native direct-call sink missing entry");return 0;}
     }
     uint64_t packed=(uint32_t)abase|((uint64_t)(uint32_t)(ctop+(int32_t)n+1)<<32);

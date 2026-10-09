@@ -956,6 +956,7 @@ static void join_symbolic_facts(abc_symbolic_value *value,
         value->dynamic_width = 0;
     if (value->dynamic_repr != incoming.dynamic_repr)
         value->dynamic_repr = ABC_SYM_REPR_UNKNOWN;
+    value->zero_extended = value->zero_extended && incoming.zero_extended;
 }
 
 static void widen_recursive_key(build_function *function, uint32_t pc,
