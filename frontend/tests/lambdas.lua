@@ -28,11 +28,11 @@ for _,case in ipairs(cases) do
     equivalent[case.name]=artifact.assembly
     local typedLet=Compiler.typed{profile='let',name=case.name..'.let',source=text}
     local letLambda
-    for _,fn in ipairs(typedLet.functions) do if fn.id:find('_lambda_',1,true) then letLambda=fn end end
+    for _,fn in ipairs(typedLet.functions) do if fn.role==S.Ir.Body then letLambda=fn end end
     check(typedLet.phase=='typed-ir' and letLambda and #letLambda.results==#case.results,'Let shares lambda inference without requiring executable lowering')
     for index,ty in ipairs(case.results) do check(letLambda.results[index]==ty,'Let retains exact inferred result types') end
     local lambda
-    for _,fn in ipairs(artifact.functions) do if fn.id:find('_lambda_',1,true) then lambda=fn end end
+    for _,fn in ipairs(artifact.functions) do if fn.role==S.Ir.Body then lambda=fn end end
     check(lambda and #lambda.results==#case.results,case.name..' emits a complete lambda result contract')
     for index,ty in ipairs(case.results) do check(lambda.results[index]==ty,case.name..' infers the exact result type') end
     local images={}
@@ -49,8 +49,8 @@ end
 check(equivalent.context==equivalent.parameters and equivalent.context==equivalent.redundant,
     'annotation placement does not change emitted representation or code')
 local invalid={
-    {'untyped','type-required','let f = do(a, b) = a + b\nreturn 0'},
-    {'missing-one','type-required','let f = do(a: u32, b) = a + b\nreturn 0'},
+    {'untyped','parameter-type','let f = do(a, b) = a + b\nreturn 0'},
+    {'missing-one','parameter-type','let f = do(a: u32, b) = a + b\nreturn 0'},
     {'annotation-conflict','type-mismatch','let f: (u32): u32 = do(a: bool) = 0\nreturn 0'},
     {'result-conflict','type-mismatch','let f: (u32): bool = do(a) = a\nreturn 0'},
     {'inferred-result-conflict','type-mismatch','let f = do(a: u32) if a == 0 then return 1 end return true end\nreturn 0'},

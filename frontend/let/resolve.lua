@@ -36,7 +36,7 @@ local function freeNames(node, bound, out)
         local inner = copy(bound)
         for _, param in ipairs(node.params) do inner[param.name.text] = true end
         return freeNames(node.body, inner, out)
-    elseif kind == "SchemaExpr" then
+    elseif kind == "SchemaExpr" or kind == 'SumSchema' then
         -- A method body belongs to the schema it is written in, not to the enclosing lambda.
         return
     elseif kind == "Block" then
@@ -48,7 +48,15 @@ local function freeNames(node, bound, out)
         for _, binder in ipairs(node.def.binders) do
             if binder.annotation then freeNames(binder.annotation, bound, out) end
         end
-        for _, value in ipairs(node.def.values) do freeNames(value, bound, out) end
+        for index, value in ipairs(node.def.values) do
+            local literal=value
+            while literal.kind=='Group' do literal=literal.value end
+            local inner=bound
+            if literal.kind=='Lambda' and node.def.binders[index] then
+                inner=copy(bound);inner[node.def.binders[index].name.text]=true
+            end
+            freeNames(value,inner,out)
+        end
         for _, binder in ipairs(node.def.binders) do bound[binder.name.text] = true end
         return
     elseif kind == "OpenMethodStmt" then
@@ -57,8 +65,12 @@ local function freeNames(node, bound, out)
         local receiver=node.receiver.text;if not bound[receiver] then out[receiver]=true end
         return
     elseif kind == "WordStmt" then
-        -- A local named word is called inside its own activation, so it sees that scope directly
-        -- and needs no capture; only its name binds, from here on.
+        -- A nested definition needs the same enclosing holdings as a literal do
+        -- binding. Its recursive name and parameters belong to its own scope.
+        local inner=copy(bound);inner[node.def.name.text]=true
+        for _,param in ipairs(node.def.params) do inner[param.name.text]=true end
+        for _,param in ipairs(node.def.keyed) do inner[param.name.text]=true end
+        freeNames(node.def.body,inner,out)
         bound[node.def.name.text] = true
         return
     elseif kind == "IfStmt" then
@@ -87,6 +99,7 @@ end
 function M.captures(node)
     local bound, out = {}, {}
     for _, param in ipairs(node.params) do bound[param.name.text] = true end
+    for _, param in ipairs(node.keyed or {}) do bound[param.name.text] = true end
     freeNames(node.body, bound, out)
     local order = {}
     for name in pairs(out) do order[#order + 1] = name end

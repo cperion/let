@@ -36,16 +36,22 @@ let add = do(a, b: u32) = a + b
 ```
 
 A typed callable parameter also supplies context for an unannotated lambda.
-Nullary lambdas need no parameter annotations. Missing parameter types without
-context still reject; the compiler does not guess numeric types from operators.
+Nullary lambdas need no parameter annotations. In SLet, missing parameter types without
+context reject; in Let, both named and literal words use the ordinary `any` default.
+Neither spelling guesses numeric types or implicit generics from operators.
 Result inference uses the existing return-contract rules, including supported
 block and multiple-result bodies. Explicit conflicting annotations still reject.
 
 The same inference constructs Let semantic IR, but executable validation is SLet
-only. This change does not enable SLet captures, introduce source evaluation in
-Lua, or change callable representation; source knowledge/ownership work remains
-separate. Tests also require equivalent annotation spellings to emit identical
-assembly.
+only. Materialized captures remain conservatively rejected in SLet for both spellings;
+direct known calls use ordinary frame transport. No Lua source evaluator or new callable
+representation is introduced. Tests require equivalent annotations to emit identical assembly.
+
+Named declarations and literal-do bindings now share one word contract/body elaborator,
+including recursion, result inference and exports. `oneof { ... }` is reserved syntax;
+other headed braces supply values, with `name(params) = body` as lambda-entry sugar.
+See [word-bindings.md](../docs/word-bindings.md) for the precise contract, keyed-literal
+grammar gap, capture limits and sum-handler code-size implications.
 
 ## Owned VM staging sessions
 

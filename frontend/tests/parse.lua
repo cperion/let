@@ -115,12 +115,12 @@ check(parses("let r = Counter { value = 3 }\nreturn { functions = {} }").declara
 check(parses("let r = Counter { }\nreturn { functions = {} }").declarations[1].def.values[1].kind == "RecordSupply",
     "empty keyed supply")
 check(parses("let E = {}\nreturn { types = { E } }").declarations[1].def.values[1].kind == "SchemaExpr", "empty schema")
--- A keyed definition may attach to a word: `oneof { a: u32 }` is the keyed spelling
--- of `oneof({ a: u32 })`.
+-- Reserved `oneof { ... }` constructs a sum directly; it is not a call with
+-- schema-argument shorthand. Other headed braces supply values.
 local keyed = parses("let S = oneof { a: u32, b: u32 }\nreturn { types = { S } }")
 local apply = keyed.declarations[1].def.values[1]
-check(apply.kind == "Apply" and apply.arguments[1].kind == "SchemaExpr",
-    "a keyed definition after a word is an application to a schema")
+check(apply.kind == 'SumSchema' and #apply.members==2,
+    'oneof has a dedicated sum-schema AST')
 check(parses("let P = { x: u32 }\nlet p = P { x = 3 }\nreturn { types = { P } }")
     .declarations[2].def.values[1].kind == "RecordSupply", "a keyed supply stays a supply")
 -- A word's requirements may be keyed: `let f { k: T } = body`, supplied by name.

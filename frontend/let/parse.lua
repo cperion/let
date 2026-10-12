@@ -154,21 +154,10 @@ function Parser:postfix(literalOnly)
             lastSuffix='arguments'
         elseif not literalOnly and self:at("{") then
             lastSuffix='keyed'
-            -- A keyed definition -- `name: type`, or a method -- is a schema, and attaching it to a
-            -- word supplies that word's keyed requirement: `oneof { circle: circle_shape }` is the
-            -- keyed spelling of `oneof({ circle: circle_shape })`. `name = value` is a keyed supply,
-            -- which constructs or specializes. The entry separator decides which, so the two forms
-            -- never mix.
-            local first, after = self:peek(1), self:peek(2)
-            if first.kind == "name" and (after.text == ":" or after.text == "(") then
-                local schema = self:schema()
-                local list = asList({ schema })
-                list.span = schema.span
-                expr = A.c.Apply(expr, list, mergeSpan(expr.span, schema.span))
-            else
-                local fields = self:fieldSupplies()
-                expr = A.c.RecordSupply(expr, fields, mergeSpan(expr.span, spanOf(fields)))
-            end
+            -- Headed braces always supply values. Only the reserved primary
+            -- `oneof { ... }` constructs a sum schema; no content-based guessing.
+            local fields = self:fieldSupplies()
+            expr = A.c.RecordSupply(expr, fields, mergeSpan(expr.span, spanOf(fields)))
         elseif self:at("[") then
             lastSuffix='index'
             self:next()
@@ -227,8 +216,12 @@ function Parser:fieldSupplies()
                 fields[#fields+1]=A.c.FieldSpread(value,mergeSpan(spread.span,value.span))
             else
                 local key = self:expectName("a field name")
-                self:expect("=")
-                local value = self:expression()
+                local value
+                if self:take('(') then
+                    local params=self:parameters(')',false,true);self:expect(')')
+                    local def=self:definitionBody(A.name(key),params)
+                    value=A.c.Lambda(params,def.result,def.body,mergeSpan(key.span,spanOf(def.body) or self.tokens[self.pos-1].span))
+                else self:expect('=');value=self:expression() end
                 fields[#fields + 1] = A.c.FieldSupply(A.name(key), value, mergeSpan(key.span, value.span))
             end
         until not self:more("}")
@@ -254,6 +247,10 @@ end
 function Parser:primary()
     local token = self:peek()
     if self:at('do') then return self:lambda() end
+    if self:take('oneof') then
+        local schema=self:schema()
+        return A.c.SumSchema(schema.members,mergeSpan(token.span,schema.span))
+    end
     if self:at('...') then D.reject('spread-context','Spread requires a supply list or name-binding declaration',token.span) end
     if token.kind == "number" then
         self:next()
@@ -340,7 +337,7 @@ function Parser:lambda()
     local open=self:expect('do')
     local params=asList{}
     local explicit=self:take('(')
-    if explicit then params=self:parameters(')',false);self:expect(')') end
+    if explicit then params=self:parameters(')',false,true);self:expect(')') end
     local result
     if self:take(':') then result=self:resultSpec() end
     if self:take('=') then

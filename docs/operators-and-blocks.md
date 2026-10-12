@@ -322,10 +322,9 @@ returns a block lambda without grouping. A named definition's `= do` is instead
 its executed body; `= do(...)` rejects there. Return a lambda with explicit grouping:
 `let make(x: u32) = (do() = x)`.
 
-Callable-value exports and main discovery must recognize valid block-lambda bindings.
-This is not just token sugar over the current direct-word export path. Main's existing
-standalone u32 result contract remains; implicit unit completion does not invent exit
-code zero. Illustrative `print` is not an added standard API.
+Literal-word bindings participate in the same export checking and main discovery as named
+sugar. Existing compiler entry signatures remain supported, including i64 and unit; no new
+u32-only rule or unit-to-exit-code coercion is introduced. Illustrative `print` is not an added standard API.
 
 An ungrouped block-lambda atom takes no postfix or self-delimited-call suffix after
 `end`; immediate invocation is `(do return 3 end)()`. Group likewise for indexing or
@@ -333,9 +332,10 @@ member access. Infix continuation is unchanged. This prevents an expression on t
 next line attaching as a call to a block-lambda initializer without making newlines
 significant.
 
-Prefer named definitions for reusable/self-recursive words, and block-lambda bindings
-for callable values, callbacks, handlers and entry bindings. The two forms retain
-different local recursion/export rules.
+Named definitions and literal-do bindings have the same recursion, inference, capture and
+export rules. Choose either spelling for reusable/self-recursive words or entry bindings.
+Only a literal-do initializer establishes the recursive binder; ordinary initializers do not.
+See [word-bindings.md](word-bindings.md) for the shared elaborator and remaining limits.
 
 Block lambdas are ordinary keyed handler values too:
 

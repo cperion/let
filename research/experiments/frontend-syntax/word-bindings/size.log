@@ -1,0 +1,7 @@
+Baseline 2e82c27fa6d69bfc3ed5f17b41aa5cde6f671553
+functions=2 call_sites=1 views=0 module_bytes=222 assembly_bytes=579
+four-mode result=42; no timing measurement
+
+Current word unification
+functions=4 call_sites=3 views=0 module_bytes=290 assembly_bytes=814
+four-mode result=42; no timing measurement

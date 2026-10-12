@@ -73,8 +73,8 @@ No foreign variadic ABI is introduced.
 
 ## 3. Packs and rest requirements
 
-A named word may have one unannotated rest requirement, last in its ordered
-parameter list:
+A word may have one unannotated rest requirement, last in its ordered parameter list.
+Named-definition sugar and an equivalent literal-do binding have the same privilege:
 
 ```let
 let logged(t: type, f: t, ...args) = do
@@ -118,8 +118,9 @@ components and the call is saturated. If preceding requirements remain missing,
 existing static partial-supply rules still apply. A rest requirement is not an
 unfilled slot that delays invocation indefinitely. There is no keyed rest, rest
 destructuring, C varargs or rest parameter annotation in this first scope.
-Lambda rest parameters and first-class erased variadic callable signatures are
-not specified by the named-word form; they require an explicit follow-up contract.
+Literal-do binding syntax shares this rest form, so naming sugar grants no extra pack capability.
+Pack elaboration still rejects as unimplemented in the current compiler. This does not specify
+first-class erased variadic callable signatures or foreign varargs.
 
 Packs can support library formatting through specialization. They do not alone
 make every format static: compile-time format checking additionally requires a
@@ -179,7 +180,8 @@ adjustment applies. Inspecting arbitrary returned components requires a separate
 specified capability; argument packs do not imply result-pack bindings. Retrying
 needs repeatability/failure policy; memoization needs keys, state and cacheability.
 No generic purity, automatic replay or cache semantics are introduced by these examples.
-Lambda rest and erased runtime variadic callable interfaces remain outside this scope.
+Erased runtime variadic callable interfaces remain outside this scope; literal-do bindings share
+the named form's source-level rest syntax and its current explicit elaboration rejection.
 
 ## 4. Keyed spread and record update
 

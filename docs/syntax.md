@@ -43,9 +43,9 @@ lambda. Let spells its own vocabulary in lowercase for exactly that reason, and 
 second, capitalized spelling of any of it.
 
 Reserved keywords are `let`, `extern`, `do`, `defer`, `end`, `if`, `then`, `else`, `return`, `and`,
-`or`, `not`, `true`, and `false`. Predefined bindings are the primitive types `u8`, `u16`, `u32`,
+`or`, `not`, `true`, `false`, and `oneof`. Predefined bindings are the primitive types `u8`, `u16`, `u32`,
 `u64`, `i32`, `i64`, `f64`, `bool`, `unit` and `type`, the byte-value type `string`,
-and `any`. Type constructors include `oneof`, `ref`, `array`, `slice`, `ptr`, `store`,
+and `any`. `oneof { ... }` is reserved sum-schema syntax. Type-constructor bindings include `ref`, `array`, `slice`, `ptr`, `store`,
 `id`, `list` and `frozen`; `null` constructs a null pointer. Section 15.11 and the
 [standard-library reference](stdlib.md) distinguish predefined operations from imported
 module exports. `string` is not an alias for `slice(u8)`.
@@ -57,7 +57,7 @@ unary-expression operator or alter numeric literal semantics.
 
 Those predefined words are reserved at module level: a module-level `let`, `extern` or word
 declaration may not bind one (`reserved`), because the name is already the language's own word and
-rebinding it would silently change what `u32` or `oneof` means. A local binding inside a body may
+rebinding it would silently change what `u32` or `ref` means. The keyword `oneof` cannot be bound or shadowed at any scope. A local binding inside a body may
 shadow one, like any outer name. Everything else a program names is the program's own vocabulary;
 Spread-introduced names are the exception to ordinary local shadowing: `let ...e`
 and `use ...module` reject collisions even with visible predefined names.
@@ -133,8 +133,9 @@ instance, however: binding immutability does not freeze that instance's fields.
 
 A named definition is sugar for binding a word. Parameters are ordered and have immutable bindings.
 Adjacent names share the following annotation: `(a, b, x: u32)` declares three u32 parameters. An omitted named-definition parameter annotation defaults to `any` under section 15;
-foreign declarations still require explicit ABI types. The result annotation is optional except where
-section 10 requires it. Duplicate parameter names reject.
+foreign declarations still require explicit ABI types. Acyclic results may be inferred, including
+for exported literal-do and named bindings. Recursive demands for an unfinished result contract
+currently require an explicit annotation. Duplicate parameter names reject.
 
 A named definition may take **keyed** requirements instead, written like a schema's members:
 
@@ -173,9 +174,10 @@ module initialization in declaration order. A forward reference demands a later 
 and a cycle demanding a value before its initializer completes rejects. Creating a word does not
 execute its body, so mutually recursive word definitions need no forward declaration.
 
-Local bindings are visible after their initializer, not throughout the block. A local named word
-also sees its own name in its BODY, permitting self recursion; this does not make an arbitrary local
-initializer self-referential. Mutually recursive local declarations are not introduced by this syntax.
+Local bindings are visible after their initializer, not throughout the block. A binding initialized
+by a literal `do` (including transparent grouping) also sees its own name in that word's body,
+permitting self recursion. Named-definition sugar has exactly this same privilege; an arbitrary local
+initializer is not self-referential. Mutually recursive local declarations are not introduced by this syntax.
 Shadowing an outer binding is allowed; duplicate declarations in one lexical scope reject. Parameters
 and body declarations follow that same rule.
 
@@ -301,8 +303,9 @@ a parameterized block lambda, with ordinary contextual typing and captures.
 A named definition's direct `= do` still introduces its executed block body.
 `let make(x) = do(...) ...` rejects; group a returned lambda:
 `let make(x: u32) = (do() = x)`. A lambda's own `=` unambiguously introduces an
-expression, so its nested lambdas need no grouping. Lambda value bindings retain
-ordinary capture rules, not the self-recursion privileges of local named words.
+expression, so its nested lambdas need no grouping. Literal-`do` bindings share named definitions'
+recursive visibility, result inference, export eligibility and conservative capture checks. See
+[word-bindings.md](word-bindings.md) for the shared computation/binding contract and implementation limits.
 
 Signature forms are:
 
@@ -657,9 +660,8 @@ pointers. Missing required owner bindings reject.
 
 ### 8.1 Sums
 
-A sum type is a finite set of named alternatives, each with its own payload type. It is a keyed
-schema read as a tag plus a payload, so it needs no new syntax of its own: the schema's field names
-are the alternatives and the field types are their payloads.
+A sum type is a finite set of named alternatives, each with its own payload type. Reserved
+`oneof { ... }` syntax constructs its schema; alternative names select tags and their types describe payloads.
 
 ```
 let circle = { radius: u32 }
@@ -667,13 +669,12 @@ let rect = { width: u32, height: u32 }
 let shape = oneof { circle: circle, rect: rect }
 ```
 
-`oneof` takes one keyed schema and produces a type value. Its single requirement is a keyed one, so
-the schema attaches with braces exactly as `point { x = 3 }` attaches a keyed supply, and the entry
-separator decides whether an entry defines or supplies: `name: type` defines, `name = value`
-supplies. There is no call parenthesis to write, because `oneof` is an ordinary word applied to a
-keyed requirement. Passing the schema as an ordinary argument instead --
-`oneof({ circle: circle, rect: rect })` -- is the same thing, and is what a schema held in a binding
-needs.
+`oneof` is a reserved constructor, not an ordinary callable or shadowable binding.
+`oneof({...})` is not a compatibility spelling. Bare schema braces and this dedicated sum form
+define requirements; all other headed braces supply values. Passing a schema to an ordinary word
+requires parentheses: `f({ field: u32 })`. A `name(parameters): result = body` entry in a headed
+supply constructs an ordinary lambda value, not a schema method or lexical self-binding; see
+[word-bindings.md](word-bindings.md).
 
 Alternative order is canonical, not written order, so two spellings of the same alternatives are the
 same type. `oneof` requires a schema with at least one named alternative; an empty schema, or a
@@ -1257,12 +1258,10 @@ A file that defines a top-level word `main` may instead omit the export configur
 then the only export. That lets a Let source file be written as a program rather than a
 module, and a host runs it by calling `main`.
 
-The target also recognizes `let main = do ... end` as a callable-value binding,
-subject to the same export ABI and capture rules—not just named-definition syntax.
-General callable-binding export and automatic entry discovery must be implemented
-coherently; the current literal-only top-level initializer/direct-word export paths
-are not sufficient. This spelling does not change the standalone program contract
-`main(): u32`; a unit-returning main is not silently coerced into an exit code.
+`let main = do ... end` participates in the same entry discovery and export checking as
+named-definition syntax. The current compiler preserves its existing entry signatures, including
+i64 and unit; this spelling introduces neither a new u32-only entry rule nor unit-to-exit-code coercion.
+General persistent initialization and ownership of exported captures remain separate unfinished work.
 
 ```let
 let main = do
@@ -1274,10 +1273,10 @@ end
 Here `print` is an illustrative library word, not a newly predefined API. A local
 binding to such a block still constructs a callable, not a Rust-style block value.
 
-Style: use named definitions for reusable/self-recursive words; use block-lambda
+Style: named definitions and literal-do bindings are equivalent choices for reusable/self-recursive words; use block-lambda
 bindings for callable values, callbacks, handlers and convenient entry bindings.
-These spellings are not interchangeable: local recursion privilege and callable-value
-export handling remain distinct. This is guidance, not a new restriction.
+For ordered definitions these spellings have the same recursion, inference and export privileges.
+This is guidance, not a second kind of word.
 
 ```
 return {
@@ -1454,7 +1453,7 @@ supply-item     := expression | '...' expression
 lambda          := expression-lambda | block-lambda
 expression-lambda := 'do' '(' lambda-parameters? ')' (':' result-spec)? '=' expression
 block-lambda    := 'do' ('(' lambda-parameters? ')')? (':' result-spec)? statement* 'end'  (an atom)
-lambda-parameters := parameter groups, with annotations optionally supplied by context
+lambda-parameters := parameter groups with contextual annotations, optionally followed by one final rest requirement
 postfix         := atom postfix-suffix* self-delimited-call?
 postfix-suffix  := arguments | initializer | '.' Name | '[' expression ']'
 self-delimited-call := literal-argument | trailing-block
@@ -1473,20 +1472,20 @@ long-bracket    := '[' '='+ '[' .* ']' '='+ ']'   (same number of '=' on each si
 long-comment    := '--' '[' '='* '[' .* ']' '='* ']'
 arguments       := '(' expression-list? ','? ')'
 initializer     := '{' (keyed-item (',' keyed-item)* ','?)? '}'
-keyed-item      := Name '=' expression | '...' expression
+keyed-item      := Name '=' expression | Name named-parameters result-annotation? '=' body | '...' expression
 schema          := '{' schema-members? '}'
+sum-schema      := 'oneof' '{' (Name ':' type-expression) (',' Name ':' type-expression)* ','? '}'
 schema-member   := Name (':' type-expression)? | Name named-parameters result-annotation? '=' body
 concat          := additive ('..' concat)?
 if-expression   := 'if' expression 'then' expression 'else' expression
 signature       := '(' type-list? ')' ':' result-spec
 ```
 
-Expression-lambda's immediate expression cannot begin with an ungrouped `do`;
-parentheses explicitly permit returning a block-lambda value. Named-block-body does
-not have its own parameter list: parameters belong to the named definition. Thus
+Expression-lambda's immediate expression may itself be a lambda without grouping.
+Named-block-body does not have its own parameter list: parameters belong to the named definition. Thus
 `let f(x) = do(y) ... end` is not shorthand for returning a lambda; use grouping.
-Value bindings (`let f = do ... end`) are distinct from named definitions with
-parameter lists and construct callable values.
+Literal-word bindings (`let f = do ... end`) construct the same computations and establish the
+same recursive binding privileges as named-definition sugar.
 
 An ungrouped block-lambda atom is terminal for postfix parsing: no direct call,
 index, member selection or self-delimited-call suffix follows its `end`. Write
@@ -1511,8 +1510,9 @@ for string plus block arguments, or `(f "a") do ... end` to call a result. Furth
 postfix use after a terminal sugar call requires grouping. Newlines remain whitespace;
 semicolons separate statements where a following literal/block would otherwise attach.
 
-Rest is permitted only as one final named-word/method ordered requirement; foreign
-and lambda rest are outside the initial scope. Name binding spread is not destructuring.
+Rest is one final ordered requirement, with the same syntax for named words/methods and
+literal-`do` bindings. Pack elaboration remains explicitly unimplemented; foreign and erased runtime
+variadic interfaces are not introduced. Name binding spread is not destructuring.
 Keyed spread still needs a constructor/callee head; bare `{ ...p }` is not a value
 literal. Semantic array length/type checks apply after expansion. The `?` plus
 trailing-comma notation does not permit a lone comma in an otherwise empty list.

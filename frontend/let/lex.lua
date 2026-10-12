@@ -4,7 +4,7 @@ local U64 = require("letkit.u64")
 local M = {}
 
 local KEYWORDS = {}
-for word in ("let extern do defer end if then else return and or not true false"):gmatch("%S+") do
+for word in ("let extern do defer end if then else return and or not true false oneof"):gmatch("%S+") do
     KEYWORDS[word] = true
 end
 

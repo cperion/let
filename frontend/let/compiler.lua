@@ -120,7 +120,7 @@ local function freshUnit(unit)
         if seen[value] then return seen[value] end
         local result={};seen[value]=result
         for key,item in pairs(value) do
-            if key~='_semanticParams' and key~='_resultTypes' and key~='_typeDeclaration' then result[key]=clone(item) end
+            if key~='_typeDeclaration' then result[key]=clone(item) end
         end
         return setmetatable(result,getmetatable(value))
     end

@@ -38,6 +38,13 @@ function Context:place(storage, ty)
     return place
 end
 
+-- Computation has an identity and source contract, but no lexical name. Binding
+-- contexts decide visibility/recursion/receiver placement before elaborating it.
+function M.word(syntax, identity)
+    return {id=identity,params=syntax.params,keyed=syntax.keyed or {},
+        result=syntax.result,body=syntax.body,origin=syntax}
+end
+
 -- Requirement identities are original signature positions, never supply order.
 function M.callable(target, name)
     if target.sourceCallable then return target end
@@ -45,10 +52,10 @@ function M.callable(target, name)
     for index,input in ipairs(target.inputs) do
         requirements[index]={identity=index,input=input,name=target.keyed and target.keyed[index]}
     end
-    return {sourceCallable=true,target=target.target or name,requirements=requirements,
+    return {sourceCallable=true,definition=target.definition,target=target.target or name,requirements=requirements,
         original=requirements,supplied={},captures=target.prefixArgs or {},
         inputs=target.inputs,keyed=target.keyed,results=target.results,
-        resultSchemas=target.resultSchemas,foreign=target.foreign,method=target.method}
+        resultSchemas=target.resultSchemas,foreign=target.foreign}
 end
 
 function M.supply(callable, supplies)
@@ -65,10 +72,10 @@ function M.supply(callable, supplies)
             if keys then keys[#keys+1]=requirement.name end
         end
     end
-    return {sourceCallable=true,target=callable.target,original=callable.original,
+    return {sourceCallable=true,definition=callable.definition,target=callable.target,original=callable.original,
         requirements=remaining,supplied=supplied,captures=callable.captures,
         inputs=inputs,keyed=keys,results=callable.results,resultSchemas=callable.resultSchemas,
-        foreign=callable.foreign,method=callable.method,lambda=callable.lambda}
+        foreign=callable.foreign}
 end
 
 function M.arguments(callable)

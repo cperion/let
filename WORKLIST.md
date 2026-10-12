@@ -221,18 +221,45 @@ Sources: `docs/source-partial-evaluation.md`, `source-virtual-contract.md`,
 
 ## F — Finish actual frontend gaps, not already tested foundations
 
-**Word/binding unification — Owner: primary coding agent. State: design; model approved.**
-One executable word owns requirements/results/body/captures/code identity. Binding
-context owns names, visibility, recursion and exports; aliases do not create code
-identity or environments. Named keyed-entry sugar remains a separate grammar gate.
-Inspection confirms separate parameter/capture/body builders in `semantic.lua` for
-module/local named words, lambdas and methods, plus a lambda-specific materialization
-restriction. The next coherent cutover must replace these responsibilities, not add
-an API above them. Proposed files: authoritative `frontend/ast.asdl`, generated AST,
-parser/scoping consumers, `source_state.lua`, `semantic.lua`, compiler registration
-and affected tests. Preserve receiver binding and explicit ABC transport; no new VM
-callable kind. Concrete implementation interfaces/removal and inference boundaries
-must be reviewed before that new implementation chunk.
+**Word/binding unification — Owner: primary coding agent. State: scoped implementation; integrated validation passed, remaining gates open.**
+Approved reserved `oneof { ... }` and named callable entries in other headed supplies.
+`Source.word`, `wordContract` and `elaborateWord` now own requirements, captures, parameter
+storage, body checking and ordinary Fn emission for module/local words, lambdas and
+methods. Removed separate named/lambda builders, obsolete AST result annotations,
+name-shape alias reconstruction and lambda-only materialization permissions. Literal-do
+bindings (including grouped literals) share recursive visibility, inference and exports
+with ordered named sugar; ordinary initializers remain nonrecursive. Aliases preserve
+source identity; captures materialize under the same conservative restrictions.
+Sum handlers now use ordinary word elaboration and direct/indirect calls, rather than
+an expression-body inline path. Supplies are constructed in written order before
+selection; annotations are checked, and ordinary callable handler values are accepted.
+Measured on the two-handler fixture: functions 2→4, call sites 1→3, views 0→0,
+assembled bytes 222→290 (+68, about 31%). Both versions return 42 in all four modes.
+This is a code-size regression; timing/preparation costs are unmeasured. Evidence:
+`research/experiments/frontend-syntax/word-bindings/{README.md,size.lua,size.log}`.
+Canonical AST/parser changes add SumSchema and desugar callable entries to Lambda;
+rest syntax is shared, but pack/spread elaboration still rejects explicitly. ABC,
+continuations and allocation machinery are unchanged. Documentation: `docs/word-bindings.md`.
+Focused checks after the cutover: word bindings 106 checks/84 four-mode executions;
+compiler 280; lambdas 269/80 executions; source demands 52. Integrated `validate-slet`
+passed, including 112 production executions, 2 static-demand diagnostics, 12 portable-C
+cases, 43 symmetric executions and 48 lifetime cases. Log:
+`research/experiments/frontend-syntax/word-bindings/validation.log`.
+No clean/sanitizer/performance qualification is claimed.
+**Remaining grammar gate:** named keyed-requirement declarations share the elaborator,
+but no keyed `do` constructor spelling has been approved/added. Do not claim every
+named declaration is literal syntax sugar until that gap is resolved. Legacy dynamic
+open-word/runtime-keyed-supply paths remain D03, not new COW container support.
+
+**Vocabulary parameters — approved, deliberately deferred until binding-spread work.** `do(ctx...)` and named block
+parameters use one ordinary parameter followed by implicit `let ...ctx`; prefix
+`...args` remains rest. Block bodies only, at most one marked parameter, existing
+spread-shadow/snapshot/definition-alias/capture rules, no dynamic discovery or
+receiver detachment. See `docs/word-bindings.md`. Current `SpreadStmt` elaboration
+still rejects; the user chose to continue the existing work and return to this feature
+when its foundation is reached. Implement shared binding-spread rather than a
+callback-specific expansion path. Module-valued parameter transport must not be
+invented implicitly.
 
 Dependency: audit baseline; S/O as needed for individual paths.
 
@@ -616,7 +643,7 @@ scope/design decision, then assign concrete tasks/dependencies above.
 - Hybrid eager C-top cache and experimental physical return layout: parked/unadopted.
 - Blanket dead-slot zeroing: measured and rejected, not an unfinished optimization.
 - New pressure-driven source reordering: separate approval; existing Ershov remains.
-- Runtime list/table call spread, spread into `..`, lambda rest/erased variadic ABIs:
+- Runtime list/table call spread, spread into `..`, erased variadic ABIs (literal-do rest syntax is accepted, elaboration still pending):
   outside initial X scope. No destructuring or first-class packs.
 - Pipeline `.par()` semantics/integration: separate design, not implied by task workers.
 - Direct JS-worker backend/general host scheduler abstraction: out of scope; pthreads
