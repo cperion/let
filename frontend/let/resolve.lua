@@ -59,6 +59,19 @@ local function freeNames(node, bound, out)
         end
         for _, binder in ipairs(node.def.binders) do bound[binder.name.text] = true end
         return
+    elseif kind == 'SpreadStmt' then
+        local name=node.name.text
+        if node.initial then
+            local literal=node.initial
+            while literal.kind=='Group' do literal=literal.value end
+            local inner=bound
+            if literal.kind=='Lambda' then inner=copy(bound);inner[name]=true end
+            freeNames(node.initial,inner,out)
+            bound[name]=true
+        elseif not bound[name] then out[name]=true end
+        -- Expanded names still require semantic discovery; this pass only knows
+        -- the explicit context binding, never the names its value might supply.
+        return
     elseif kind == "OpenMethodStmt" then
         -- Installing a method reads the receiver now; its body executes as a separate function and
         -- resolves otherwise-unbound names against that receiver's open fields.

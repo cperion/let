@@ -55,13 +55,44 @@ local rest=Parse.source('let f(a: u32, ...args): u32 = a\nreturn { functions = {
 check(rest.declarations[1].def.params[2].kind=='RestParam','named final rest AST')
 rejected('rest-position',function() Parse.source('let f(...args, x: u32): u32 = x') end)
 check(expression('do(...args) return 0 end').params[1].kind=='RestParam','literal do shares rest requirement syntax')
-local names=Parse.source('use ...std.text; let ...text; return { functions = {} }')
-check(names.declarations[1].spread and names.declarations[2].kind=='SpreadDecl','import and binding spread AST')
+local names=Parse.source('use std.text...; let text...; let context... = make(); return { functions = {} }')
+check(names.declarations[1].spread and names.declarations[1].path=='std.text','suffix import spread AST')
+check(names.declarations[2].kind=='SpreadDecl' and names.declarations[2].name.text=='text' and not names.declarations[2].initial,'expand existing binding AST')
+check(names.declarations[3].initial.kind=='Apply' and names.declarations[3].name.text=='context','initialized vocabulary binding AST')
+local vocabulary=expression('do(ctx...: Context) return ctx end')
+check(vocabulary.params[1].kind=='VocabularyParam' and vocabulary.params[1].annotation.name.text=='Context','annotated vocabulary parameter AST')
+check(expression('do(x, ctx...: Context, ...args) return x end').params[3].kind=='RestParam','vocabulary and rest remain distinct')
+local named=Parse.source('let configure(ctx...) = do let inner... = make(ctx); return end; return { functions = {} }')
+check(named.declarations[1].def.params[1].kind=='VocabularyParam','named block vocabulary parameter')
+local statement=named.declarations[1].def.body.statements[1]
+check(statement.kind=='SpreadStmt' and statement.name.text=='inner' and statement.initial.kind=='Apply','local initialized vocabulary AST')
+for _,text in ipairs{'use ...std.text','let ...context'} do
+    rejected('spread-context',function() Parse.source(text) end)
+end
+for _,text in ipairs{
+    'let f(ctx...) = 1',
+    'let f = do(ctx...) = 1',
+    'let f(a..., b...) = do return end',
+    'let f(a...: Context, b...: Context) = do return end',
+    'extern let f(ctx...: Context): unit',
+} do rejected('vocabulary-position',function() Parse.source(text) end) end
+for _,text in ipairs{'let make()...', 'let ctx... = make(), other()', 'use std.text...more'} do
+    rejected('parse',function() Parse.source(text) end)
+end
+local indexed=Compiler.source{profile='slet',source='let context... = make(); let context...; return { functions = {} }'}
+check(indexed.bindings.context~=nil,'only initialized context adds an explicit module binding')
+rejected('duplicate-name',function() Compiler.source{profile='slet',source='let context... = make(); let context = 1; return { functions = {} }'} end)
+local captures=require('let.resolve').captures(expression('do() let ctx... = factory(seed); return ctx end'))
+check(table.concat(captures,',')=='factory,seed','initialized context capture discovery binds its explicit name')
+captures=require('let.resolve').captures(expression('do() let ctx...; return 0 end'))
+check(table.concat(captures,',')=='ctx','existing-context expansion reads its context')
 check(expression('a .. b .. c').right.operator=='..','right-associative concatenation syntax')
 for _,case in ipairs{
     {'spread-unimplemented','let main(): u32 = f(...xs)'},
-    {'spread-unimplemented','let ...unknown; let main(): u32 = 0'},
-    {'spread-unimplemented','use ...missing; let main(): u32 = 0'},
+    {'spread-unimplemented','let unknown...; let main(): u32 = 0'},
+    {'spread-unimplemented','let ctx... = make(); let main(): u32 = 0'},
+    {'spread-unimplemented','use missing...; let main(): u32 = 0'},
+    {'spread-unimplemented','let main(ctx...) = do return 0 end'},
     {'rest-unimplemented','let f(...args): u32 = 0; return { functions = { f } }'},
     {'concatenation-unimplemented','let main(): u32 = "a" .. "b"'},
 } do rejected(case[1],function() Compiler.typed{profile='slet',source=case[2]} end) end

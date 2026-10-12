@@ -288,15 +288,22 @@ The passing chain trap test isolates ordering with explicit IR traps; it does no
 validate away that failure. Packed-value changes remain in progress and unqualified.
 Lexical discarded-receiver-write checking awaits Q11; the returned-word hint remains open.
 
-**Vocabulary parameters — approved, deliberately deferred until binding-spread work.** `do(ctx...)` and named block
-parameters use one ordinary parameter followed by implicit `let ...ctx`; prefix
-`...args` remains rest. Block bodies only, at most one marked parameter, existing
-spread-shadow/snapshot/definition-alias/capture rules, no dynamic discovery or
-receiver detachment. See `docs/word-bindings.md`. Current `SpreadStmt` elaboration
-still rejects; the user chose to continue the existing work and return to this feature
-when its foundation is reached. Implement shared binding-spread rather than a
-callback-specific expansion path. Module-valued parameter transport must not be
-invented implicitly.
+**Vocabulary syntax — suffix migration implemented; semantic expansion unfinished.**
+Approved forms now parse: `use module...`, `let ctx...`, `let ctx... = expression`,
+and `do(ctx...)` / named block parameters. The initialized form evaluates once and
+retains its explicit context under the approved semantics; the uninitialized form
+expands an existing binding. Prefix binding/import spellings reject. `...args` stays
+rest, and prefix supply expansion is unchanged. Canonical AST has VocabularyParam
+and name/optional-initializer spread declarations/statements; module indexing and
+syntactic capture discovery account for the explicit context binding.
+Block-only/one-marker/foreign restrictions have parser tests. Syntax batch: 149 checks,
+68 VM executions; expansion itself still rejects `spread-unimplemented` and has no
+execution coverage. Integrated validate-slet passed; raw evidence and scope are in
+`research/experiments/frontend-syntax/vocabulary-syntax/{README.md,validation.log}`.
+The DSL feature is **not complete**. Implement shared binding-spread
+with spread-shadow/snapshot/definition-alias/capture rules, no dynamic discovery or
+receiver detachment; do not add a callback-only path. Module-valued parameter transport
+must not be invented implicitly. See `docs/word-bindings.md` and `docs/spread.md`.
 
 Dependency: audit baseline; S/O as needed for individual paths.
 
@@ -567,7 +574,7 @@ Can start before task runtime; must preserve group bounds when those become avai
 - [ ] **X04** Implement keyed record expansion, explicit override, overlap/unknown-key
   checks, readonly/static protections and effects of overridden contributions.
 - [ ] **X05** Implement module/record/sum name binding, no-shadow and file-scope visibility
-  rules; add `use ...module` sugar without duplicate initialization or automatic re-export.
+  rules; add `use module...` sugar without duplicate initialization or automatic re-export.
 - [ ] **X06** Validate diagnostics, copies/owner bounds, lexical resolution, sugar
   equivalence and all applicable modes; measure specialization/copy/retention growth.
   Include explicit-requirement adapters with heterogeneous runtime packs and exact

@@ -59,8 +59,8 @@ Those predefined words are reserved at module level: a module-level `let`, `exte
 declaration may not bind one (`reserved`), because the name is already the language's own word and
 rebinding it would silently change what `u32` or `ref` means. The keyword `oneof` cannot be bound or shadowed at any scope. A local binding inside a body may
 shadow one, like any outer name. Everything else a program names is the program's own vocabulary;
-Spread-introduced names are the exception to ordinary local shadowing: `let ...e`
-and `use ...module` reject collisions even with visible predefined names.
+Spread-introduced names are the exception to ordinary local shadowing: `let context...`
+and `use module...` reject collisions even with visible predefined names.
 
 Numeric literals are decimal, hexadecimal prefixed by 0x, or binary prefixed by 0b. A single
 underscore may separate any two digits, so 1_000_000 and 0b1010_1010 read as they look; a separator
@@ -460,7 +460,8 @@ A callable expression returning multiple results as an expression body forwards 
 ### 6.1 Explicit spread and packs (target; not implemented)
 
 [Supplies, spread and packs](spread.md) specifies `...e` in ordered/keyed supplies,
-fixed-array construction, final ordered rest requirements and `let ...e` name binding.
+fixed-array construction, final ordered rest requirements and suffix vocabulary binding
+(`let context...`, optionally initialized with `= expression`).
 Explicit spread evaluates once and expands at any list position; unmarked final
 result-vector forwarding above is unchanged. Packs have static shape and possibly
 runtime components, not first-class tuple values. Record spreads contribute data
@@ -568,7 +569,7 @@ operand interfaces permit ordinary lexical `op_name(left, right)`. Unary negatio
 and bitwise-not similarly permit a lexical function after primitive/member routes.
 A selected bad signature or noncallable member errors without fallback. No lexical
 `_right` search; arguments stay in source order with normal copy/ref contracts.
-`use ...library` opts into lexical operator vocabulary without installing members.
+`use library...` opts into lexical operator vocabulary without installing members.
 Generics resolve in definition scope per specialization. Table/any operations never
 try runtime lexical fallback. Comparison and index/call lexical extensions remain
 explicit gates; the protocol table does not implicitly authorize them.
@@ -1364,11 +1365,11 @@ profile, not new source syntax or permission to pass checked borrows to unknown 
 There is no `pub` syntax in this version. There is no traps section: known zero division
 rejects, dynamic zero division aborts. Configurable trap handling needs a separate language decision.
 
-`use ...std.text` is approved import-and-spread sugar for `use std.text` followed
-by `let ...text`; it retains qualified `text` access. Only exported names are
+`use std.text...` is approved import-and-spread sugar for `use std.text` followed
+by `let text...`; it retains qualified `text` access. Only exported names are
 introduced, visible after the declaration, with no automatic re-export. Spread
-names cannot shadow visible names (`spread-shadow`). `let ...record` copies data
-fields, not methods; `let ...sum_type` binds constructors. See [spread.md](spread.md)
+names cannot shadow visible names (`spread-shadow`). `let record...` copies data
+fields, not methods; `let sum_type...` binds constructors. See [spread.md](spread.md)
 for file-scope visibility, collisions and exact evaluation rules. These forms are
 not yet implemented.
 
@@ -1431,7 +1432,7 @@ in section 7. Semantic arity/staticness/type checks are not disguised as parser 
 module          := top-item* export-config? EOF
 top-item        := top-let | use-declaration
 top-let         := local-let
-use-declaration := 'use' '...'? dotted-name
+use-declaration := 'use' dotted-name '...'?
 dotted-name     := Name ('.' Name)*
 local-let       := named-definition | keyed-definition | value-binding | binding-spread | foreign-declaration
 named-definition:= 'let' Name named-parameters result-annotation? '=' body
@@ -1440,12 +1441,13 @@ keyed-parameters:= '{' (Name (':' type-expression)?) (',' Name (':' type-express
 -- A host function: no body, so the result is required rather than optional.
 foreign-declaration := 'extern' 'let' Name parameters ':' result-spec
 value-binding   := 'let' binder (',' binder)* '=' expression-list
-binding-spread  := 'let' '...' expression
+binding-spread  := 'let' Name '...' ('=' expression)?
 binder          := Name (':' type-expression)?
 parameters      := '(' parameter-groups? ','? ')'
 named-parameters:= '(' (parameter-groups (',' rest-requirement)? | rest-requirement)? ','? ')'
 parameter-groups:= parameter-group (',' parameter-group)*
-parameter-group := Name (',' Name)* (':' type-expression)?
+parameter-group := parameter-name (',' parameter-name)* (':' type-expression)?
+parameter-name  := Name '...'?  (one vocabulary marker maximum; block bodies only, not foreign)
 rest-requirement:= '...' Name
 result-annotation := ':' result-spec
 result-spec     := type-expression | '(' type-list? ')'

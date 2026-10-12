@@ -1,6 +1,6 @@
 # Supplies, spread and packs
 
-**Status: agreed source design direction; not implemented.** This document specifies
+**Status: agreed source design; syntax is parsed, semantic expansion is not implemented.** This document specifies
 static spread, packs and name introduction for the unified `.let` language. It
 extends [syntax.md](syntax.md), using the existing value/place/ownership contracts.
 Concrete elaboration interfaces and the open details below require approval before
@@ -8,8 +8,9 @@ implementation. It does not enable runtime-arity calls or restore open-word mach
 
 ## 1. Principle and scope
 
-`...e` expands an evaluated source into the enclosing supply. A final ordered rest
-requirement `...args` collects remaining components into a static-shape pack.
+Prefix `...e` expands an evaluated source into the enclosing supply. A final ordered
+rest requirement `...args` collects remaining components into a static-shape pack.
+Suffix `context...` introduces an existing or newly bound context's eligible names.
 Spread is not a standalone value operator, tuple constructor or recursive flatten.
 
 | Context | Accepted source | Contribution |
@@ -17,7 +18,7 @@ Spread is not a standalone value operator, tuple constructor or recursive flatte
 | Ordered argument, return or binding-initializer list | Statically known result vector, pack, fixed array | Ordered components |
 | Fixed-array construction | Same statically shaped ordered sources | Ordered elements, checked against element type and total length |
 | Keyed initializer/application | Record with statically known data fields | Named data-field supplies |
-| `let ...e` | Module, record, sum type with statically known names | Local names as specified below |
+| `let context...` / `let context... = e` | Module, record, sum type with statically known names | Local names as specified below |
 
 Runtime-length list expansion is deferred, including its construction syntax.
 Runtime table-key expansion into fixed keyed calls is not included. Neither
@@ -211,9 +212,30 @@ requires its schema/callee, such as `point { ...p }`. Dynamic tables retain thei
 separate COW value contract; table-to-table spreading is deferred, not implicitly
 implemented by record spread.
 
-## 5. Introducing names: `let ...e`
+## 5. Introducing names: `let context...`
 
-Evaluate `e` once and introduce all eligible names into the current lexical scope:
+Suffix `...` introduces vocabulary; prefix `...` expands supplies or collects rest
+requirements. The approved name-introduction forms are:
+
+```let
+let context...             -- expand an existing binding
+let context... = make()    -- evaluate once, bind context normally, then expand
+use std.text...            -- import, retain text, then expand
+with_context(n) do(ctx...) -- receive one ordinary argument, then expand
+  action()
+end
+```
+
+The context remains available for qualified access. An initialized context uses
+ordinary single-binding result adjustment, not a pack or a hidden namespace object.
+To expand a computed expression, give it an explicit context name. The old prefix
+binding/import spellings are rejected, not retained as aliases.
+
+**Implementation status:** the suffix forms and dedicated vocabulary-parameter AST
+are parsed and tested. Semantic expansion still rejects `spread-unimplemented`;
+the following expansion rules remain approved contracts, not executable behavior.
+
+Introduce all eligible names from the context into the current lexical scope:
 
 | Source | Names introduced |
 | --- | --- |
@@ -246,14 +268,14 @@ No blanket zero-cost claim is made.
 ## 6. Import and spread sugar
 
 ```let
-use ...std.text
+use std.text...
 ```
 
 is exactly:
 
 ```let
 use std.text
-let ...text
+let text...
 ```
 
 `text` remains available for qualified access. Import resolution, module initialization,
@@ -264,7 +286,7 @@ namespace itself). Names are visible after the declaration and are not automatic
 re-exported.
 
 Like ordinary `use`, this is file-scope only. No selective list, renaming syntax,
-local import or dynamic module discovery is introduced. `let ...record` remains
+local import or dynamic module discovery is introduced. `let record...` remains
 available inside function bodies. Target discovery uses `.let` only.
 
 ## 7. Grammar additions
@@ -276,9 +298,10 @@ spread-item       := '...' expression
 supply-item       := expression | spread-item
 supply-list       := supply-item (',' supply-item)* ','?
 keyed-item        := Name '=' expression | spread-item
-binding-spread    := 'let' '...' expression
+binding-spread    := 'let' Name '...' ('=' expression)?
+vocabulary-param := Name '...' (':' expression)?
 rest-requirement  := '...' Name
-use-declaration   := 'use' '...'? dotted-name
+use-declaration   := 'use' dotted-name '...'?
 ```
 
 Argument/return/binding-initializer lists admit `supply-list`; keyed initializers

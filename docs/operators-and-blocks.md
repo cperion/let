@@ -56,7 +56,7 @@ method rules; overloads do not invent retained references to temporary storage.
 ### 2.1 Scope supplies operator vocabulary
 
 ```let
-use ...geometry
+use geometry...
 let combined = a + b
 ```
 

@@ -136,7 +136,7 @@ former lexical calls: this is a schema API change affecting clients, not a compa
 guarantee merely because schemas are closed.
 
 `use std.text` makes `text.trim(s)` available but does not introduce lexical `trim`.
-`use ...std.text` brings exported `trim` into scope and enables `s.trim()` if no member
+`use std.text...` brings exported `trim` into scope and enables `s.trim()` if no member
 already supplies it. Import-spread collision checks still apply. Do not install module
 exports globally or synthesize extension registrations.
 

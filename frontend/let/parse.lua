@@ -240,7 +240,7 @@ function Parser:primary()
         local schema=self:schema()
         return A.c.SumSchema(schema.members,mergeSpan(token.span,schema.span))
     end
-    if self:at('...') then D.reject('spread-context','Spread requires a supply list or name-binding declaration',token.span) end
+    if self:at('...') then D.reject('spread-context','Prefix spread requires a supply list; vocabulary introduction uses a name suffix',token.span) end
     if token.kind == "number" then
         self:next()
         -- A literal that does not fit a word arrives as its two words.
@@ -322,6 +322,15 @@ function Parser:schema()
     return A.c.SchemaExpr(asList(members), mergeSpan(open.span, close.span))
 end
 
+local function vocabularyBody(params,body)
+    for _,param in ipairs(params) do
+        if param.kind=='VocabularyParam' and body.kind~='Block' then
+            D.reject('vocabulary-position','Vocabulary parameters require a block body',param.span)
+        end
+    end
+    return body
+end
+
 function Parser:lambda()
     local open=self:expect('do')
     local params=asList{}
@@ -332,7 +341,7 @@ function Parser:lambda()
     if self:take('=') then
         if not explicit then D.reject('parse','An expression lambda requires parenthesized parameters, including do()',open.span) end
         local value=self:expression()
-        return A.c.Lambda(params,result,A.c.Expression(value),mergeSpan(open.span,value.span))
+        return A.c.Lambda(params,result,vocabularyBody(params,A.c.Expression(value)),mergeSpan(open.span,value.span))
     end
     local statements=self:statementList('end')
     local close=self:expect('end')
@@ -356,6 +365,17 @@ end
 -- optional/contextual in lambdas. Every callable uses the same parenthesized syntax.
 function Parser:parameters(closing, requireAnnotation, allowRest)
     local params = {}
+    local vocabulary=false
+    local function parameterName()
+        local token=self:expectName('a parameter name')
+        local marker=self:take('...')
+        if marker then
+            if requireAnnotation then D.reject('vocabulary-position','Foreign declarations cannot introduce a body vocabulary',marker.span) end
+            if vocabulary then D.reject('vocabulary-position','At most one parameter may introduce vocabulary',marker.span) end
+            vocabulary=true
+        end
+        return {token=token,marker=marker}
+    end
     if self:at(closing) then return asList(params) end
     repeat
         local spread=self:take('...')
@@ -367,10 +387,10 @@ function Parser:parameters(closing, requireAnnotation, allowRest)
             if not self:at(closing) then D.reject('rest-position','One unannotated rest requirement must be last',self:peek().span) end
             return asList(params)
         end
-        local names = { self:expectName("a parameter name") }
+        local names = { parameterName() }
         while self:at(",") and self:peek(1).kind == "name" do
             self:next()
-            names[#names + 1] = self:expectName("a parameter name")
+            names[#names + 1] = parameterName()
         end
         local annotation = nil
         if self:take(":") then
@@ -379,9 +399,11 @@ function Parser:parameters(closing, requireAnnotation, allowRest)
             D.reject("parse", "Every parameter of a named definition needs a type annotation",
                 self:peek().span)
         end
-        for _, name in ipairs(names) do
-            params[#params + 1] = A.c.Param(A.name(name), annotation,
-                mergeSpan(name.span, annotation and annotation.span or name.span))
+        for _, item in ipairs(names) do
+            local name=item.token
+            local constructor=item.marker and A.c.VocabularyParam or A.c.Param
+            params[#params + 1] = constructor(A.name(name), annotation,
+                mergeSpan(name.span, annotation and annotation.span or item.marker and item.marker.span or name.span))
         end
     until not self:more(closing)
     return asList(params)
@@ -395,7 +417,7 @@ end
 -- import, and `let use = ...` keeps working.
 function Parser:useDecl()
     local start = self:expectName("a module name")
-    local spread=self:take('...')~=nil
+    if self:at('...') then D.reject('spread-context','Import vocabulary uses a suffix: use module...',self:peek().span) end
     local path = {}
     while true do
         local name = self:expectName("a module name")
@@ -403,7 +425,8 @@ function Parser:useDecl()
         if not self:at(".") then break end
         self:next()
     end
-    return A.c.UseDecl(table.concat(path, "."),spread,S(start.span))
+    local marker=self:take('...')
+    return A.c.UseDecl(table.concat(path, "."),marker~=nil,mergeSpan(start.span,marker and marker.span or self.tokens[self.pos-1].span))
 end
 
 function Parser:declaration()
@@ -424,11 +447,13 @@ function Parser:declaration()
     end
     if first.kind == "name" and first.text == "use" then return self:useDecl() end
     local let = self:expect("let")
-    if self:take('...') then
-        local value=self:expression()
-        return A.c.SpreadDecl(value,mergeSpan(let.span,value.span))
-    end
+    if self:at('...') then D.reject('spread-context','Binding vocabulary uses a suffix: let context... or let context... = expression',self:peek().span) end
     local name = self:expectName("a definition name")
+    local marker=self:take('...')
+    if marker then
+        local initial=self:take('=') and self:expression() or nil
+        return A.c.SpreadDecl(A.name(name),initial,mergeSpan(let.span,initial and initial.span or marker.span))
+    end
     if self:at("{") then
         -- `let f { a: T, b: U }: R = body`: a word whose requirements are keyed. Each key is
         -- annotated, because a keyed requirement has no position to infer its type from.
@@ -476,7 +501,7 @@ function Parser:definitionBody(name, params, keyed)
         D.reject("parse", "A result is declared with ':'", self:peek().span)
     end
     self:expect("=")
-    return A.c.WordDef(name, params, keyed, result, self:body())
+    return A.c.WordDef(name, params, keyed, result, vocabularyBody(params,self:body()))
 end
 
 -- `{ name: type, ... }`: a word's keyed requirements, in the form a schema literal uses. A word
@@ -587,7 +612,7 @@ function Parser:statement()
         end
         local decl = self:declaration()
         if decl.kind == "WordDecl" then return A.c.WordStmt(decl.def, decl.span) end
-        if decl.kind == 'SpreadDecl' then return A.c.SpreadStmt(decl.value,decl.span) end
+        if decl.kind == 'SpreadDecl' then return A.c.SpreadStmt(decl.name,decl.initial,decl.span) end
         return A.c.ValueStmt(decl.def, decl.span)
     elseif token.kind == "keyword" and token.text == "if" then
         return self:ifStatement()

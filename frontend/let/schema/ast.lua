@@ -14,7 +14,7 @@ module Ast {
        # names the namespace its exports are reached through. The lexical name is that last
        # segment, so the loader derives it from `path` rather than storing it twice.
        | UseDecl(string path, boolean spread)
-       | SpreadDecl(Expr value)
+       | SpreadDecl(Name name, Expr? initial)
        # `extern let name(a: U32) : T`: a host function. It has no body, so its result is required.
        | ForeignDecl(ForeignDef def)
        attributes (Span span)
@@ -32,6 +32,7 @@ module Ast {
   Binder = (Name name, Expr? annotation, Span span)
 
   Requirement = Param(Name name, Expr? annotation)
+              | VocabularyParam(Name name, Expr? annotation)
               | RestParam(Name name)
               attributes (Span span)
   ResultSpec = Single(Expr type) | Many(Expr* types)
@@ -77,7 +78,7 @@ module Ast {
        # Let-only method attached to an open-word binding: `let receiver.name(args) = body`.
        | OpenMethodStmt(Name receiver, WordDef def)
        | ValueStmt(ValueDef def)
-       | SpreadStmt(Expr value)
+       | SpreadStmt(Name name, Expr? initial)
        | StoreStmt(Expr target, string operator, Expr value)
        | CallStmt(Expr call)
        | IfStmt(Expr test, Stmt* yes, Stmt* no)

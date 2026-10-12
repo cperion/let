@@ -10,7 +10,7 @@ implementation evidence; specs below do not establish implementation status.
 - **`owners-references-ids.md`:** approved collector-free ownership target, actual-owner proof, containers/ids, capability facts, explicit remaining gates and required tests. Not implemented.
 - **`application-sugar.md`:** literal-led postfix arguments and member-first, closed-interface lexical receiver calls; ordinary ownership semantics, imports and generic/dynamic boundaries. Not implemented.
 - **`operators-and-blocks.md`:** schema-owned operator protocols and trailing block sugar; static-first design, concrete interface/ordering gates and separate dynamic integration. Not implemented.
-- **`spread.md`:** static supply expansion, second-class packs, record updates, name binding and `use ...module` sugar; target semantics and tests, not implemented.
+- **`spread.md`:** static supply expansion, second-class packs, record updates, name binding and `use module...` sugar; suffix vocabulary syntax is parsed, semantic expansion remains unimplemented.
 - **`tasks.md`:** approved structured-task/channel/select design, scoped capabilities, cancellation and work stealing; concrete suspension/concurrency ABIs remain pending. Not implemented.
 - **`word-bindings.md`:** shared word computation and binding policy, literal-do recursion/exports, reserved `oneof`, callable keyed entries, implementation limits and validation scope.
 - **`syntax.md`:** integrated target grammar (spread/rest/import sugar/trailing blocks), operator protocols and standard-library navigation for one collector-free Let; implementation status is separate.

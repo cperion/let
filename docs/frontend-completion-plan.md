@@ -142,7 +142,7 @@ mutation-during-callback cases. No blanket allocation-free communication claim.
 ### O9 — Static supplies, packs and import-and-spread
 
 Follow [spread.md](spread.md): ordered/keyed expansion, fixed arrays, static-shape
-rest packs, no-shadow name binding and `use ...module`. Specify parser/elaboration
+rest packs, no-shadow name binding and `use module...`. Specify parser/elaboration
 interfaces before coding; reuse existing source values/places and specialization.
 Preserve implicit final-result forwarding, source-order effects, owner/group bounds,
 static partial-supply and import initialization. Do not implement runtime packs or

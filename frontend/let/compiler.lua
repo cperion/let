@@ -49,7 +49,9 @@ local function indexDeclarations(ast)
                 addBinding(bindings, order, binder.name.text, declaration)
             end
         elseif kind == 'SpreadDecl' then
-            -- Names depend on elaboration; never hoist them during syntactic indexing.
+            -- Only an explicit initialized context is a declaration here. Expanded
+            -- names depend on elaboration and must never be syntactically hoisted.
+            if declaration.initial then addBinding(bindings,order,declaration.name.text,declaration) end
         elseif kind == "UseDecl" then
             addBinding(bindings, order, declaration.path:match("([^.]+)$"), declaration)
         else

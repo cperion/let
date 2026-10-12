@@ -13,7 +13,7 @@ tracks delivery; do not create dummy modules merely to match this list.
 
 ## 1. Namespace and exposure
 
-`use std.text` binds namespace `text`. `use ...std.text` additionally introduces its
+`use std.text` binds namespace `text`. `use std.text...` additionally introduces its
 exports with the spread no-shadow rule, while retaining qualified access. Neither
 form automatically re-exports names. `std.*` is reserved for bundled modules; an
 unknown standard module rejects rather than loading an arbitrary working-directory
@@ -30,7 +30,7 @@ The same applies to complete exports of the older resource modules.
 [lexical receiver-call sugar](application-sugar.md), `"{}".fmt(n)` calls that same
 word when no string member named `fmt` exists; no separate builtin formatting method
 is needed. Members always win over lexical names, including store `remove`/`has`.
-Plain `use std.text` enables qualified text calls; `use ...std.text` brings its free
+Plain `use std.text` enables qualified text calls; `use std.text...` brings its free
 words into scope for fluent spelling on closed interfaces lacking those members.
 Table/any member calls never use a runtime lexical fallback. The implementation map's
 `std/fmt.let` and `std/pattern.let` are proposed implementation files, **not approval

@@ -1203,7 +1203,7 @@ function M.build(unit, options)
     if type(unit)~="table" or unit.phase~="parsed" then D.reject("compiler-phase","Semantic construction needs a parsed source unit") end
     Walk.walk(unit.ast,{enter=function(node)
         if node.kind=='RestParam' then reject('rest-unimplemented','Static-shape rest specialization is not implemented',node) end
-        if node.kind=='Spread' or node.kind=='FieldSpread' or node.kind=='SpreadDecl' or node.kind=='SpreadStmt' or (node.kind=='UseDecl' and node.spread) then
+        if node.kind=='VocabularyParam' or node.kind=='Spread' or node.kind=='FieldSpread' or node.kind=='SpreadDecl' or node.kind=='SpreadStmt' or (node.kind=='UseDecl' and node.spread) then
             reject('spread-unimplemented','Expansion for '..node.kind..' is not implemented',node)
         end
         if (node.kind=='BinaryExpr' and node.operator=='..') or (node.kind=='StoreStmt' and node.operator=='..=') then

@@ -92,7 +92,7 @@ needs only the innermost block's `end`, if there is a block at all. It does not 
 Current conservative captured-word materialization limits still apply, even with
 literal arguments. This deliberately replaces the earlier trailing-block append rule.
 
-## Approved vocabulary-parameter sugar — deferred, not implemented
+## Vocabulary-parameter syntax — parsed; expansion not implemented
 
 `ctx...` receives one ordinary parameter and expands its names; `...args` remains
 an ordered rest requirement. There is no arity inference or type-dependent reinterpretation.
@@ -103,7 +103,7 @@ window("Mini") do(ui...)
 end
 ```
 
-means `do(ui) let ...ui; title "Mini" end`. Named block definitions permit the
+means `do(ui) let ui...; title "Mini" end`. Named block definitions permit the
 same marker: `let configure(ui...) = do ... end`. At most one parameter is marked;
 expression bodies and foreign declarations reject it. The parameter remains available.
 
@@ -114,12 +114,12 @@ No mutable aliases, detached receiver methods, dynamic namespace discovery or
 invented callable identity are permitted. Receiving names does not invoke them:
 a nullary pipeline step still needs `resolve_names()`.
 
-**Implementation dependency:** the current frontend rejects `let ...value` with
-`spread-unimplemented`; there is no binding-spread elaborator to reuse yet. The
-marker approval does not establish implemented vocabulary expansion. Implementation is
-deliberately deferred until the binding-spread work, rather than interrupting the
-current word-unification checkpoint. Runtime record
-snapshots and compile-time module namespaces need distinct, explicit producer
+**Implementation dependency:** `ctx...`, `let context...`,
+`let context... = expression` and `use module...` now parse; prefix binding/import
+spellings reject. All name expansion still rejects `spread-unimplemented` because
+the shared binding-spread elaborator remains unfinished. Initialized contexts retain
+the ordinary explicit binding; a bare `let context...` reads an existing one.
+Runtime record snapshots and compile-time module namespaces need distinct, explicit producer
 contracts before this can be reported as executable support.
 
 ## Braces have explicit contexts
