@@ -22,6 +22,23 @@ Runtime execution does not invoke `abc-opt`, the frontend, or a C compiler.
 Portable C is a build-time peer sink, not the native JIT's intermediate language.
 The VM receives bytecode, not source filenames or Let constructs.
 
+## Concrete runtime primitive baseline (approved, not implemented)
+
+[runtime-interfaces.md](runtime-interfaces.md) specifies the target private types,
+function signatures, state transitions, ownership transport and lock hierarchy;
+[implementation-map.md](implementation-map.md) identifies files/removals per work ID.
+These contracts replace open-ended per-worker/backend interface choices, while public
+encoding and source-language hard gates stay explicit.
+
+[runtime-primitives.md](runtime-primitives.md) selects the implementation structures
+and algorithms: semantic holdings and immutable TypeOps; intrusive iterative release;
+segmented stable-slot stores; specialized COW buffers; allocator-generated task-owned
+spill/resume bindings; PARKING/PARKED/NOTIFIED handshake; mutex-protected channel rings
+and worker deques; select arbitration; generation-based idle wakeups; and immutable
+per-realization native publication with atomic entry slots. These are the baseline,
+not alternative suggestions. WORKLIST E binds them to the actual VM ABI and coordinates
+O/C/D/T/P/W. No runtime implementation or performance acceptance is claimed.
+
 ## Structured task runtime target (not implemented)
 
 [Tasks and channels](tasks.md) define the approved source direction: structured

@@ -1,6 +1,185 @@
 # ABC VM and JIT refactor target
 
+**Live project tracking has moved to [WORKLIST.md](WORKLIST.md).** It consolidates
+older incomplete work and new features using stable checkbox IDs, dependencies,
+acceptance conditions and a fresh code/test audit of `06ec9dc`. This document remains
+the architectural rationale and chronological evidence record. Checkboxes below
+are scoped historical/package records, not an independent live project backlog;
+record new status in WORKLIST and append supporting evidence here when relevant.
+
+Current crosswalk: Phase 5 → A; caller-owned regions → R; source staging/demands → S;
+frontend gaps → F; ownership → O; containers/dynamics/libraries → C/D/L; one `.let`
+→ U; tasks/pthreads/AOT → T/P/W; spread → X. Deferred work is explicitly in Z.
+Current source specs supersede old GC/open-word target passages below; those passages
+are not authorization to restore retired ownership or execution machinery.
+
+## Implementer entry points
+
+Start with WORKLIST's selected ID and its file table, then
+[docs/implementation-map.md](docs/implementation-map.md) for exact existing/new paths,
+consumer changes, tests and removals. Runtime implementation follows
+[docs/runtime-interfaces.md](docs/runtime-interfaces.md): primitive catalog fields;
+owner/TypeOps/copy-release APIs; runtime/task/worker split; request/ticket/wait-node
+layouts; memory-order and lock hierarchy; backend enter/resume/park contract; image
+publication; source owner-analysis entry points. Algorithms are in
+[docs/runtime-primitives.md](docs/runtime-primitives.md). These are implementation
+instructions, not optional competing architectures. Do not create unused scaffolding
+or a compatibility facade; implement coherent producer/consumer slices.
+
+Public encoding, dynamic schema identity, polymorphic owner generalization and
+abort/foreign embedding semantics remain named hard gates. An agent must raise those
+rather than invent semantics. Initial cross-worker allocation uses thread-safe
+platform allocation/free, not an unmeasured worker-cache/remote-free subsystem.
+
 ## Status and latest decisions
+
+### Lexical operator vocabulary — approved direction, not implemented
+
+Libraries may export lexical protocol functions through ordinary import-spread.
+Arithmetic/bitwise/concatenation resolve primitive, left member, right member, then
+lexical op_name(left,right) for closed operand interfaces; unary negation/bitwise-not
+follow primitive/member/lexical order. Selected failures never search another route.
+No member installation, overload registry, hidden ref or runtime lexical fallback.
+This shares lexical vocabulary principles with receiver-call sugar but must not use
+a left-receiver rewrite that skips right-member precedence. Comparisons and index/
+call lexical extensions remain explicit gates. Updated syntax/operator authority,
+Q03 and file/test map; documentation only, with no runtime validation claimed.
+
+### Generic invocation policies — explicit requirements, approved target only
+
+`docs/spread.md` §3 now uses `logged(t: type, f: t, ...args)` rather than an
+unannotated `f` falsely implying generics. The explicit requirement fixes the call
+shape; known code identity enables direct specialization, otherwise a typed runtime
+callable uses ordinary indirect transport. Static partial supply can bind only t
+while f remains outstanding. Packs carry runtime components without runtime packing.
+`defer ...; return f(...args)` supports post-call work without inspecting the result
+vector, preserving live results/holdings before final return. It is not a tail transfer
+past outstanding cleanup and does not run after abort. Arbitrary result inspection,
+lambda rest, erased variadic ABI, retry and memoization contracts remain out of scope.
+X03/X06 and the implementation map record the integrated acceptance tests. Documentation
+only: no implementation, runtime validation or performance result is claimed.
+
+### Literal-led fluent application — approved, not implemented
+
+`docs/application-sugar.md` specifies `print "{}".fmt(n)` as
+`print("{}".fmt(n))`; member/index/explicit-call postfixes belong to the literal-led
+argument, while infix remains outside. Existing numeric-dot lexing already supports
+`21.doubled()`. Q05 covers parsing; Q11 covers receiver-call resolution.
+
+Existing members win. Only a closed interface lacking a member enables lexical
+`name(receiver,args)`; incompatible/noncallable members error, never fall back.
+Table/any remain dynamic member calls and module paths remain namespace lookup.
+Generics resolve per specialization in definition-site scope; import-spread opts into
+lexical fluent vocabulary. Copying/writing a by-value parameter remains valid; mutation
+through a ref parameter requires an explicit reference. No hidden ref/write-back,
+lexical bound closure, ambiguity-on-coexistence rule or runtime missing-key fallback.
+This supersedes earlier exploratory ambiguity rejection; all lowering remains ordinary calls.
+
+### Block-lambda and unit-inference refinements — approved, not implemented
+
+Ungrouped block-lambda atoms stop postfix/self-delimited application at `end`;
+immediate invocation/access requires grouping. Infix parsing is unchanged. Block
+lambdas work as ordinary multi-line match/select handler expressions, now illustrated
+in syntax/operator docs. Prefer named words for self-recursive/reusable definitions
+and lambda bindings for callable values; export/recursion distinctions remain.
+
+Before absent recursive result contracts default to `any`, infer unit for unconstrained
+members of a resolved SCC only when all members have block bodies, only own bare
+returns/fallthrough, intra-SCC calls used as discarded statements, and no non-unit
+explicit/expected/export contract. Nested callable bodies are separate; expression
+bodies and valued returns disqualify the shortcut. This needs SCC resolution, not
+a result-type fixpoint. Supersedes the earlier blanket recursive-unit annotation
+requirement below. Live implementation: WORKLIST Q08/Q10.
+
+### Standalone block lambdas — approved target, not implemented
+
+`let f = do ... end` constructs a nullary word; `do |p| ... end` constructs a
+parameterized block lambda. Expression lambdas remain `|p| expression`. Ungrouped
+`|p| do ... end` rejects; intentional returned block lambdas require grouping, e.g.
+`|x| (do return x end)`. Direct `= do` on a named definition remains its executed
+body. Trailing blocks supply ordinary block-lambda expressions. WORKLIST Q10 covers
+parser/AST/capture handling and callable-binding exports/main discovery; main's
+standalone u32 ABI and normal local-recursion/ownership rules do not change.
+This supersedes the earlier pipe-plus-do block spelling in the arrow-removal record
+below, without changing historical implementation evidence.
+
+### Arrow-free lambdas — approved target, not implemented
+
+Lambda syntax is `|parameters| body`: `|x| x + 1`, `|| unit()` and
+`|x: u32| do ... end`. Closing pipes already delimit parameters; signatures retain
+colon syntax and trailing blocks desugar to ordinary arrow-free lambdas. Remove
+`->` from lexer tokens without compatibility spelling, future reservation or special
+migration diagnostics. Preserve `--` comment handling. WORKLIST Q09 coordinates
+lexer/parser, active fixtures/examples and source emitters; historical evidence is
+not rewritten. This documentation does not change current compiler acceptance.
+
+### Unit falls through; values are returned — approved target, not implemented
+
+A named-word/method/lambda block with an established unit result contract can fall
+through through the ordinary bare-return cleanup path. Unit comes from annotation,
+expected callable type or unconstrained acyclic inference without value-returning
+paths. Value-result paths still require explicit return; recursive/default contracts
+are not silently weakened. Final calls discard results; inner block completion is
+not a function return. Defer, ownership and structured-scope obligations remain.
+This supersedes the earlier implicit-unit exclusion, not the prohibition on implicit
+last-expression values. WORKLIST Q08 and syntax.md §5 own the implementation contract.
+
+### Self-delimiting no-parentheses calls — approved target, not implemented
+
+Accept one atomic literal (integer/float/byte/string/long-string/bool) or one `do`
+block without argument parentheses: `a.push 21`, `log "hello"`, `g.spawn do ... end`.
+Explicit calls still accept a final block. Parsing is grammatical, not arity-driven;
+newlines remain whitespace. `f 1 + 2` is `f(1) + 2`; negative arguments use `f(-1)`.
+Indexing and keyed braces retain their meanings. No general `f x`, implicit multi-
+literal argument list. Unit fallthrough is separately approved above. Grammar/contracts: syntax.md §12 and
+operators-and-blocks.md §7. WORKLIST Q05 implements; XP02 closes the arity experiment
+as not adopted. The isolated experiment and its discovered frontend gap are preserved.
+
+### Target syntax and library consolidation — documentation, not implementation
+
+`docs/syntax.md` now integrates spread/rest/import-and-spread and trailing-block
+productions, operator protocol summary and a complete target module inventory including
+`std.task`. `docs/stdlib.md` replaces the nonexistent `stdlib/README.md` reference with
+actual API contracts and explicit missing signatures/export-placement decisions.
+String is no longer described as a byte-slice alias; builtin concatenation consistently
+covers strings and same-element lists. No public formatting/pattern module is inferred
+from implementation filenames. Library completion remains WORKLIST L01/F06/T; this
+documentation does not close the whole-doc audit or claim executable support.
+
+### Whippet removal — mandatory completion criterion
+
+WORKLIST D07 removes Whippet entirely from the active project, including
+`vendor/whippet`, Whippet headers, dependency/build/link integration, tracing
+adapters/descriptors, GC root registration, collection safepoints and obsolete GC
+tests/examples. There is no dormant collector fallback. Historical archives retain
+evidence only, never active build inputs. Required lifetime, error, stack-limit and
+foreign-boundary guarantees transfer to the collector-free contracts. This is an
+explicit exit criterion; removal is not yet implemented by this documentation.
+
+### Concrete runtime primitive baseline — approved; not implemented
+
+`docs/runtime-primitives.md` now fixes the initial data structures and algorithms,
+not just feature boundaries. Semantic holdings avoid counting register traffic;
+TypeOps binds copy/release identities; dead-owner storage drives iterative release.
+Lists/strings use specialized COW buffers; stores use fixed nonmoving segments.
+Tasks have allocator-generated spill/resume bindings and a PARKING/PARKED/NOTIFIED
+handshake. Channels use locked rings/intrusive waits; select uses explicit arbitration;
+workers use locked deques, a shared timer heap and a generation-based idle protocol.
+Native lazy publication becomes immutable per-realization code plus atomic entry
+slots retained for the image lifetime, not whole-image RW/RX reopening under readers.
+Live engineering items E01–E06 coordinate existing O/C/D/T/P/W responsibilities.
+Exact cell/C/encoding bindings and lock/memory-order proofs remain implementation
+work; no second allocator, host-stack suspension or generalized helper engine is added.
+
+### Schema operators and trailing blocks — approved direction, not implemented
+
+`docs/operators-and-blocks.md` records static schema-owned protocol methods and
+trailing `do` sugar for a final ordinary lambda. Primitive/boolean behavior stays
+fixed; normal effects, receiver places and ownership remain binding. Schema-interface
+preservation across structural types and comparison/unordered policy are explicit
+design gates. Dynamic `any` dispatch is a separate integration slice, not a new
+backend scalar engine or table metatable feature. Live tasks are WORKLIST Q01–Q07;
+no parser, runtime or ABI changes are claimed by this documentation.
 
 ### Collector-free source ownership — approved design, not implemented
 
@@ -157,10 +336,12 @@ The working strategy and specified revision-6 ISA are approved by the user's ins
 - Do not introduce adapters, compatibility modes, opaque fallbacks, new allocators or new subsystems without discussing a material design change first.
 - Keep changes within the approved scope. No opportunistic cleanup or new scheduling optimizations during the semantic migration.
 - Temporary build breakage inside a coordinated chunk is acceptable. Record it plainly; do not mark that chunk complete or preserve an incorrect compatibility layer solely to make an intermediate build green.
-- Build and run the relevant checks at coherent boundaries, not after each edit. Diagnose failures before repeating suites indiscriminately.
+- Implement substantial coherent replacements across definitions, producers, consumers and tests. Checklist boxes are responsibilities, not micro-patch or test gates; combine related items rather than stopping after each file or function.
+- Build and run focused checks at integrated responsibility boundaries, not after each edit. Reserve full-suite/clean/sanitizer/performance runs for relevant milestones. Use an early targeted probe only when it resolves a concrete implementation blocker; diagnose and batch corrections before rerunning.
+- Do not repeatedly revalidate the baseline, repair obsolete behavior to keep intermediate states green, or substitute reporting/documentation churn for implementation. Follow WORKLIST's execution policy.
 - Preserve explicit ABC continuations, capture/liveness, result order, escaped storage, traps and the agreed stack-capacity policy.
 - Do not silently switch to a new return-slot layout or host-recursive ABC execution.
-- Do not use subagents or internal edit-plan sidecars without a separate explicit request. This file is the checklist.
+- Do not use subagents or internal edit-plan sidecars without a separate explicit request. [WORKLIST.md](WORKLIST.md) is the live checklist; this file preserves chunk evidence.
 
 Before a chunk, record its scope and expected exit condition. Afterward, record changed responsibilities, removed paths, checks actually run and their outcomes. Check a box only when that specific item is complete; use a short blocked/partial note otherwise. A passing output test is not evidence that an obsolete abstraction was removed.
 
@@ -473,7 +654,7 @@ This closes the observed active-suite blocker, not the whole refactor. Phase-5 c
 - [x] Run the full active validation suite after integration. Evidence: clean copied-source `all validate` passes after the final cache/example migration; see `phase-4-final-fixtures/clean-full.log`. Rerun affected checks if subsequent fixes alter their contracts; do not treat an earlier pass as covering later edits.
 - [x] Run the fixed performance comparison against the preserved typed baseline, with the same tools and workloads. Evidence: `research/experiments/ab-symmetry/final-comparison/README.md`; six paired rounds, unchanged workload sizes and timing logic, one documented private-API adjustment in optional runner dump code. Measurement is complete, not performance acceptance: interpreter Fibonacci regresses and several native images grow.
 - [ ] Audit for old A-left/A-only assumptions, quickened opcode paths, dead reverse families, duplicated semantics and hidden adapters.
-- [ ] Align documentation with implemented/validated behavior. **Partial:** `docs/spec.md`, architecture, memory/callable/foreign profiles, module format, existing selected-first project instructions and this checklist are reconciled. Other design/frontend/GC target pages and the complete cross-document audit remain open.
+- [ ] Align documentation with implemented/validated behavior. **Partial; tracked as A02:** core runtime and new collector-free/task/spread docs have been aligned, but the complete cross-document audit remains open. Historical GC/open-word target passages are superseded, not future packages to implement.
 - [ ] Report code/metadata size, interpreter and native performance changes, incomplete work and untested paths. Distinguish structural expectations from measurements.
 - [ ] Review the complete migration diff for unrelated changes and preserve user work.
 

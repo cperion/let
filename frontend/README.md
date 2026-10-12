@@ -96,9 +96,18 @@ See [the source design](../docs/source-partial-evaluation.md) and
 
 The snapshot does **not** contain `wordlet/eval.lua`, `wordlet/value.lua`, `wordlet/cabi.lua`, `wordlet/lower.lua`, `wordlet/jit.lua`, or the old compiler facade. ABC does not retain the Lua evaluator or direct source-to-C backend. User-authored executable computation, including compile-time computation, must lower to verified ABC bytecode and run through `abc_vm`.
 
-Remaining frontend work includes recursive/exported types, methods and keyed supply, nested words, general block-bodied lambdas, raw-pointer source operations, `extern`/`defer`, module initialization/storage, managed/address-bearing sum ABIs, and completed-program ownership/provenance verification. The target now integrates borrow/owner proofs in one source model, with acyclic
-counting and immutable DAGs rather than profile-5 GC reachability. Current profile
-checks must remain honest until that implementation and ABI migration is complete.
+The current suite already covers typed recursive types, methods/full and static keyed
+supply, nested words, block/vector lambdas, raw pointers, extern lowering and defer,
+plus imported/exported typed interfaces. Do not treat those whole features as missing.
+Remaining gaps include nested keyed partial supply, owned/escaping callable transport,
+address-bearing sum/public ABIs, nonliteral module initialization/storage and complete
+source-demand/ownership verification. Legacy dynamic open-word IR still needs replacement
+by the approved value-table design; semantic-IR checks are not runtime support.
+
+[WORKLIST.md](../WORKLIST.md) records current evidence and specific open tasks, including
+a full feature-matrix audit. The target integrates borrow/owner proofs in one source
+model with acyclic counting and immutable DAGs, not profile-5 GC reachability. Current
+profile checks remain honest until the implementation/ABI migration is complete.
 
 ## Provenance
 

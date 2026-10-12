@@ -23,7 +23,8 @@ Runtime-length list expansion is deferred, including its construction syntax.
 Runtime table-key expansion into fixed keyed calls is not included. Neither
 `f(...some_list)` nor spreading an opaque `any` is a runtime argument dispatcher.
 Spreading into concatenation `..` is also deferred: no implicit reduction, separator
-or empty-input rule is invented. Existing `..` remains a binary string operation.
+or empty-input rule is invented. Builtin `..` concatenates two strings or two lists
+of the same element type; it does not accept a runtime-length spread/reduction.
 
 ## 2. Evaluation and ordered expansion
 
@@ -44,8 +45,10 @@ For explicit ordered spread:
 Thus `...make_array()` expands a sole array result, while `...two_results()` contributes
 exactly two components even if one is an array. Statically unknown result arity
 rejects. Existing unit-result semantics are unchanged: spread does not invent an
-empty result vector for a unit-returning call. A zero-length array or empty pack
-can contribute zero components.
+empty result vector for a unit-returning call. An empty pack contributes zero
+components. Spread does not introduce zero-length arrays: syntax.md's current target
+requires positive fixed-array lengths. Accepting zero-length arrays needs a separate
+explicit decision, not an inference from spread.
 
 Explicit spread works at any list position:
 
@@ -74,16 +77,25 @@ A named word may have one unannotated rest requirement, last in its ordered
 parameter list:
 
 ```let
-let logged(f, ...args) = do
-  log("calling")
+let logged(t: type, f: t, ...args) = do
+  log "calling"
   return f(...args)
 end
+
+let result = logged((u32): u32, twice, 21)
 ```
 
-This example requires `f` to retain a statically known callable identity/signature
-through specialization. An opaque dynamic `any` does not acquire that knowledge
-from pack syntax; automatic generic callable specialization is not implemented by
-this declaration alone.
+`t` is an explicit static calling requirement; `f` supplies an implementation of
+that requirement. Supplying a noncallable type does not make it callable: ordinary
+checking rejects the application in the body. Known code identity permits direct
+specialization; a runtime callable with that known signature uses ordinary indirect
+transport. The signature fixes the ABI even when the implementation is unknown.
+
+This is the approved generic adapter pattern, not `logged(f, ...args)` with a
+silently generic `f`. An unannotated named parameter still defaults to `any`, with
+its normal dynamic/transferability restrictions. No implicit type parameter, new
+`callable` keyword, runtime pack or special `any` treatment is introduced. `log`
+and `twice` above are illustrative definitions supplied by the program.
 
 A pack has a statically known length and per-component types, but its values may
 be runtime values. It is second-class source metadata plus component values, not
@@ -113,6 +125,61 @@ Packs can support library formatting through specialization. They do not alone
 make every format static: compile-time format checking additionally requires a
 known format string and the VM-backed source evaluation machinery. Runtime format
 strings retain runtime checks; no second compile-time string evaluator is authorized.
+
+### 3.1 Invocation policies through ordinary specialization
+
+An adapter specializes its static calling requirement and pack shape while retaining
+runtime component values and their ownership/effect facts. For
+`logged((u32): u32, twice, 21)`, the requirement and argument/result shapes are known;
+if `twice` retains known code identity, lowering emits an ordinary direct call.
+Otherwise a conforming runtime callable uses the same fixed-signature indirect ABI.
+Neither case needs an allocated tuple, runtime varargs array or dynamic arity scan.
+This does not guarantee call elimination, zero copies or allocation-free callee work.
+
+Ordinary static partial supply specializes the policy's interface:
+
+```let
+let log_u32 = logged((u32): u32)
+let a = log_u32(twice, 21)
+let b = log_u32(square, 7)
+```
+
+Here `f` is still outstanding, so supplying `t` alone does not saturate the adapter
+or consume a zero-length rest pack prematurely. Once the fixed requirements are
+satisfied, rest accepts the remaining argument expressions under the normal rules.
+The partial is static specialization, not a first-class erased variadic object.
+
+### 3.2 Preserve results with return and defer
+
+Pre-call work and exact tail-result forwarding use `return f(...args)`. Post-call
+work that does not inspect the result components can use the existing defer contract:
+
+```let
+let traced(t: type, f: t, ...args) = do
+  print "enter"
+  defer print "leave"
+  return f(...args)
+end
+```
+
+Order: register the action (evaluating its callee/arguments now), invoke `f`, obtain
+its complete result vector, execute deferred work, then transport those results to
+the caller. Preserve each result's live value and holding across the deferred call,
+using ordinary return/defer machinery. There is no result-pack object or new hidden
+calling convention. With outstanding deferred work, this is not a tail transfer that
+can discard the adapter's continuation before running its action.
+
+Deferred work runs only on normal completion, not after program-ending abort. If it
+fails/aborts, normal result delivery does not occur. The adapter composes callee and
+policy effects, including suspension where allowed; no effect or group-bound capture
+is erased by the type requirement. `print` here is an illustrative library word.
+
+`let result = f(...args)` does NOT name the complete result vector: ordinary binding
+adjustment applies. Inspecting arbitrary returned components requires a separately
+specified capability; argument packs do not imply result-pack bindings. Retrying
+needs repeatability/failure policy; memoization needs keys, state and cacheability.
+No generic purity, automatic replay or cache semantics are introduced by these examples.
+Lambda rest and erased runtime variadic callable interfaces remain outside this scope.
 
 ## 4. Keyed spread and record update
 
@@ -242,7 +309,8 @@ arity, type mismatch, readonly/static requirements, imports and owner/group esca
 Do not replace those checks with a generic spread error.
 
 Tests must cover one-time ordered evaluation, overridden effects, single-array versus
-multiple-result expansion, nonrecursive flattening, parentheses, empty arrays/packs,
+multiple-result expansion, nonrecursive flattening, parentheses, empty packs and
+preserved rejection of invalid empty-array construction,
 implicit final forwarding, unit results, return/binding differences, partial versus
 rest-saturated calls, heterogeneous runtime pack components and rejected pack erasure.
 Test keyed overlaps/unknown keys/readonly requirements; snapshots versus aliases;
@@ -251,6 +319,14 @@ forward-declaration collisions; lexical visibility; sugar equivalence and single
 module initialization. Include hidden owner/group bounds in components and rejected
 runtime lists/tables/`any` call expansion. Verify resulting ordinary IR and all
 applicable execution bindings, not just parser acceptance.
+
+Adapter acceptance additionally covers explicit callable requirements with known and
+runtime callee identities; heterogeneous runtime argument components; single/unit/
+multi-result forwarding; static type-only partial supply; wrong argument/signature
+rejection; captures/ref/group bounds without any boxing; and deferred work that
+clobbers registers, allocates or suspends while returned values remain live. Check
+normal return/defer order and unchanged abort semantics with independent expectations.
+Unannotated `f` must not be silently promoted to the explicit-requirement behavior.
 
 Source elaboration must reuse existing value/place, demand and specialization
 machinery, preserve existing scheduling and VM-only computation, and emit ordinary

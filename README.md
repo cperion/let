@@ -1,5 +1,8 @@
 # Let
 
+Project status and remaining work: [live checklist](WORKLIST.md).
+Architecture and implementation history: [refactor record](REFACTOR.md).
+
 Let is a progressively typed language built around the ABC three-stack virtual machine.
 The approved [collector-free design](docs/owners-references-ids.md) has one Let language:
 implicit owners, proved borrows, acyclic counting, immutable value sharing and stores/ids.

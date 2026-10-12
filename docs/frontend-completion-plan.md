@@ -1,5 +1,11 @@
 # Frontend completion: one collector-free Let
 
+**Live status: [WORKLIST.md](../WORKLIST.md).** This document is dependency/design
+rationale, not a second checklist. The live record adds older source-demand/frontend
+completion and VM qualification work omitted from the ownership-centered O packages.
+Crosswalk: O1–O3 → O/S; O4–O5 → C; O6 → D; O7 → U; O8 → T/P/W/L; O9 → X.
+Use current code and test evidence there rather than historical blanket gap labels.
+
 **Status: approved direction, implementation plan not executed.** The authoritative
 ownership target is [owners-references-ids.md](owners-references-ids.md), integrated
 with [syntax.md](syntax.md), source virtual places/demands and VM-only evaluation.

@@ -202,6 +202,13 @@ that it behaves like a parkable channel operation.
 
 ## 9. Counting and runtime state
 
+The concrete approved implementation baseline is [runtime-primitives.md](runtime-primitives.md):
+locked ring-buffer channels, intrusive task-owned waits, select arbitration,
+locked worker deques and a shared timer heap, explicit park/wake handshake and
+allocator-generated resume bindings. Work stealing does not mean initial Chase–Lev
+implementation. Native lazy code uses immutable per-realization publication; current
+whole-image reprotection must be replaced before concurrent sharing.
+
 Potentially shareable buffers use atomic counts **from creation**. Task-confined
 mutable owners use ordinary counts; there is no live counter-mode upgrade. A
 receiver's holding must exist before publication, and borrowed readers need a
@@ -258,10 +265,10 @@ AOT/runtime Emscripten build passes lifecycle, parking, channel and release test
 ```let
 use std.task
 
-let total(): u64 = task.scope(u64, |g| -> do
+let total(): u64 = task.scope(u64, do |g|
   let weights = freeze(build_weights())
-  let a = g.spawn(|| -> weigh(weights, 0, 500))
-  let b = g.spawn(|| -> weigh(weights, 500, 1000))
+  let a = g.spawn(|| weigh(weights, 0, 500))
+  let b = g.spawn(|| weigh(weights, 500, 1000))
   return a.join() + b.join()
 end)
 ```
@@ -269,9 +276,9 @@ end)
 A channel is explicitly owned, rather than selected from ambient scope:
 
 ```let
-let squares(n: u32): u64 = task.scope(u64, |g| -> do
+let squares(n: u32): u64 = task.scope(u64, do |g|
   let ch = g.channel(u64, 16)
-  g.spawn(|| -> produce_and_close(ch, n))
+  g.spawn(|| produce_and_close(ch, n))
   return consume_until_closed(ch)
 end)
 ```

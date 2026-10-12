@@ -1,0 +1,57 @@
+luajit: REJECT [result-arity] at arity-probe.slet:6 A call used as an expression must return exactly one value
+stack traceback:
+	[C]: in function 'error'
+	...riments/arity-application/../../../frontend/let/diag.lua:20: in function 'reject'
+	...nts/arity-application/../../../frontend/let/semantic.lua:40: in function 'reject'
+	...nts/arity-application/../../../frontend/let/semantic.lua:616: in function 'expr'
+	...nts/arity-application/../../../frontend/let/semantic.lua:580: in function 'expr'
+	...nts/arity-application/../../../frontend/let/semantic.lua:918: in function 'returnValues'
+	...nts/arity-application/../../../frontend/let/semantic.lua:1037: in function 'build'
+	...nts/arity-application/../../../frontend/let/semantic.lua:1157: in function 'typed'
+	...nts/arity-application/../../../frontend/let/compiler.lua:113: in function 'compile'
+	research/experiments/arity-application/run.lua:93: in main chunk
+	[C]: at 0x5cc7670c6120
+ACCEPT scalar => double((3))
+ACCEPT binary => add((3), (4))
+ACCEPT nested => add((double((3))), (4))
+ACCEPT values => add((x), (y))
+ACCEPT infix => (double((3)) + 4)
+ACCEPT multiply => (add((1), (2)) * 3)
+ACCEPT power => (double((3)) ^ 2)
+ACCEPT grouped explicit => add(1, (2 * 3))
+ACCEPT partial explicit => add(3)
+ACCEPT nullary value => work
+ACCEPT nullary explicit => work()
+ACCEPT final scalar adjustment => take((pair()))
+ACCEPT final forwarding unchanged => take(pair())
+ACCEPT higher order explicit => apply(double, 3)
+ACCEPT second unary operand => add((1), ((- 2)))
+ACCEPT nullary callable argument => apply((work), (3))
+ACCEPT comma is outer boundary => add(double((3)), 4)
+ACCEPT block => g.spawn(|| -> do return work() end)
+ACCEPT explicit block => g.spawn(|| -> do return work() end)
+ACCEPT binding => let n = add((double((3))), (4))
+ACCEPT separate statements => send((item)); finish()
+ACCEPT space equivalence => send((item)); finish()
+ACCEPT semicolon boundary => send((item)); finish()
+ACCEPT builder => m.function((1), (1), |f| -> do f.b.cget((0)); f.b.muli((2)); f.b.ret((1), (1)); return end)
+REJECT bare partial => bare-arity: missing argument 2 of add near <eof>
+REJECT comma argument => bare-arity: missing argument 2 of add near ,
+REJECT mixed explicit/bare => bare-boundary: unexpected tokens after complete expression near 3
+REJECT higher order bare => bare-arity: missing argument 2 of apply near <eof>
+REJECT group after bare operand attaches as call => bare-arity: missing argument 2 of add near <eof>
+REJECT rest => bare-boundary: unexpected tokens after complete expression near 1
+REJECT dynamic => bare-boundary: unexpected tokens after complete expression near 1
+REJECT keyed => bare-boundary: unexpected tokens after complete expression near 1
+REJECT nullary surplus => bare-boundary: unexpected tokens after complete expression near 3
+REJECT first unary => bare-unary: first unary argument needs an explicit call; avoid subtraction/xor ambiguity near -
+REJECT unknown block => bare-signature: a fixed nonzero ordered signature is required before do near do
+REJECT block not final => bare-block: block must fill final requirement near do
+REJECT crossing explicit separator => bare-arity: missing argument 2 of send near ;
+REJECT no implicit unit => call-statement: only calls are expression statements near end
+REJECT comparison chaining => parse: comparison chaining requires grouping near <
+HAZARD signature change: send((item)); finish() -> send((item), (finish()))
+VM add double 3 4 => 10 (four modes)
+VM double 3 + 4 => 10 (four modes)
+VM add 1 2 * 3 => 9 (four modes)
+VM double 3 ^ 2 => 36 (four modes)

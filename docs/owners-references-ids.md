@@ -178,10 +178,10 @@ A literal capture list makes this easy to diagnose, but hidden or passed callabl
 must obey exactly the same rule through their summaries.
 
 ```
-let adder(n: u32): (u32): u32 = |x: u32| -> x + n
+let adder(n: u32): (u32): u32 = |x: u32| x + n
 let tally(): (u32): unit = do
   let c = counter { value = 0 }
-  return |k: u32| -> do c.value += k end
+  return do |k: u32| c.value += k end
 end
 ```
 
@@ -312,6 +312,10 @@ calls can borrow `s.view()`; keeping a foreign view requires a valid ownership
 contract or copying it, not inventing an owner.
 
 ### 6.4 Concatenation and text library
+
+[stdlib.md](stdlib.md) owns the public module/API inventory, including incomplete
+export signatures. The vocabulary here does not make every text operation a predefined
+global or approve public modules merely from proposed implementation filenames.
 
 `..` concatenates two strings or two lists of the same element type, with no
 implicit numeric formatting. It is right associative, below additive and above

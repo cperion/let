@@ -2,6 +2,8 @@
 
 Let is the main language. This document specifies its surface language for `architecture.md`.
 Examples are specification examples, not claims that a parser/compiler already implements them.
+The integrated grammar is in §12; §16 inventories the standard library and links to
+[stdlib.md](stdlib.md) for API contracts and explicitly unfinished signatures.
 
 **Target: one collector-free Let language. Not implemented.**
 [Owners, references and ids](owners-references-ids.md) defines the approved ownership
@@ -42,15 +44,23 @@ second, capitalized spelling of any of it.
 
 Reserved keywords are `let`, `extern`, `do`, `defer`, `end`, `if`, `then`, `else`, `return`, `and`,
 `or`, `not`, `true`, and `false`. Predefined bindings are the primitive types `u8`, `u16`, `u32`,
-`u64`, `i32`, `i64`, `f64`, `bool`, `unit` and `type`, the byte slice `string`, and the type
-constructors `oneof` (section 8.1), `ref` (section 8.2), `array` and `slice` (sections 8.3 and 8.4),
-and `ptr` with its null pointer `null` (section 8.5).
+`u64`, `i32`, `i64`, `f64`, `bool`, `unit` and `type`, the byte-value type `string`,
+and `any`. Type constructors include `oneof`, `ref`, `array`, `slice`, `ptr`, `store`,
+`id`, `list` and `frozen`; `null` constructs a null pointer. Section 15.11 and the
+[standard-library reference](stdlib.md) distinguish predefined operations from imported
+module exports. `string` is not an alias for `slice(u8)`.
+
+`use` is a contextual module-declaration word, not an added expression keyword.
+`...` is supply/name expansion, `..` concatenation and `.` selection; longest-token
+matching distinguishes them outside strings/comments. Spread does not add a general
+unary-expression operator or alter numeric literal semantics.
 
 Those predefined words are reserved at module level: a module-level `let`, `extern` or word
 declaration may not bind one (`reserved`), because the name is already the language's own word and
 rebinding it would silently change what `u32` or `oneof` means. A local binding inside a body may
 shadow one, like any outer name. Everything else a program names is the program's own vocabulary;
-GUIDE.md section 3 describes the spelling style Let source is written in.
+Spread-introduced names are the exception to ordinary local shadowing: `let ...e`
+and `use ...module` reject collisions even with visible predefined names.
 
 Numeric literals are decimal, hexadecimal prefixed by 0x, or binary prefixed by 0b. A single
 underscore may separate any two digits, so 1_000_000 and 0b1010_1010 read as they look; a separator
@@ -98,7 +108,10 @@ does not adopt another operand's type the way an integer literal does: `1.5` is 
 Comments begin with `--`. `--` followed immediately by a long bracket opens a block comment that ends
 at that bracket's own closing form, so it may span lines and its body may contain anything; any other
 `--` runs to the end of the line. A line comment is the only newline-sensitive lexical
-rule. Operators use longest-token matching, so `!=`, `<<=` and `->` are single tokens.
+rule. Operators use longest-token matching, so `!=` and `<<=` are single tokens.
+`->` is not a target token or reserved future form: it lexes as `-` then `>` and
+fails under ordinary expression syntax. `--` still begins a comment, so `-->`
+starts a line comment; no migration-specific diagnostic is required.
 
 An item boundary is grammatical, not visual. In a block, `let`, `return`, statement `if`, and `end`
 cannot continue an ordinary expression. Adjacent names do not apply functions. A postfix `(` or `{`
@@ -147,6 +160,14 @@ let identity(t: type, x: t) = x
 `t` must be known before checking x's requirement. This is ordinary type demand, not an implicit type
 parameter or a new `static` keyword.
 
+The same mechanism expresses generic invocation policies: `let logged(t: type,
+f: t, ...args) = do ... return f(...args) end`. Supply an explicit calling requirement,
+e.g. `logged((u32): u32, twice, 21)`. Its argument/result shape is static even when
+argument values or the callee implementation are runtime values. An unannotated `f`
+still means `any`; pack syntax does not silently make it generic. See
+[spread.md §3](spread.md#3-packs-and-rest-requirements) for partial specialization and
+result-preserving `defer`, with no runtime tuple or erased variadic ABI.
+
 Top-level binding names are mutually visible; their initializers are evaluated once, eagerly, during
 module initialization in declaration order. A forward reference demands a later initializer early,
 and a cycle demanding a value before its initializer completes rejects. Creating a word does not
@@ -185,7 +206,7 @@ runtime value, write a lambda explicitly:
 
 ```
 let add(a, b: u32) = a + b
-let add_runtime(n: u32) = |x: u32| -> add(n, x)
+let add_runtime(n: u32) = |x: u32| add(n, x)
 ```
 
 Inside a residual function `add(n)` rejects if n is runtime; `add(n, x)` is a valid saturated call.
@@ -199,19 +220,26 @@ runtime storage. Known current contents do not make a mutable record a static ar
 
 ## 4. Anonymous words and signatures
 
-Every lambda uses pipes:
+Expression lambdas use parameter pipes followed by an expression. Block lambdas
+use `do`, optional parameter pipes, statements and `end`:
 
 ```
-|x| -> x + 1
-|a, b| -> a ~ b
-|x: u32| -> x + 1
-|a, b: u32| -> do let t = a * a  return t + b end
-|| -> unit()
+|x| x + 1
+|a, b| a ~ b
+|x: u32| x + 1
+do |a, b: u32| let t = a * a  return t + b end
+|| unit()
 ```
 
-Bare `x -> ...` is NOT a lambda form: `->` only ever introduces a lambda body. A result is written
-with `:`, and a signature's inputs are parenthesized, so a signature is unambiguous even when its
-type aliases are lowercase and even inside a lambda's parameter list:
+For an expression lambda the closing pipe ends the parameter list; the expression
+begins immediately. No arrow is required or accepted in the target. At body start, `-` is unary and `|` starts a
+nested lambda: `|x| -x` and `|x| |y| x + y` are grammatical. Signature annotations
+stop at the closing parameter pipe; lambda expression bodies end at the ordinary
+enclosing delimiter (for example the comma in `f(|x| x + 1, y)`).
+
+A result is written with `:`, and a signature's inputs are parenthesized, so a
+signature is unambiguous even when type aliases are lowercase or used inside a
+lambda parameter list. This is approved syntax, not current parser support:
 
 ```
 let number = u32
@@ -225,9 +253,9 @@ arbitrary body-based parameter inference is not introduced. The current typed
 implementation still rejects an unconstrained untyped lambda.
 
 ```
-let inc: (u32): u32 = |x| -> x + 1
+let inc: (u32): u32 = |x| x + 1
 let twice(f: (u32): u32, x: u32) = f(f(x))
-let inc_2x = twice(|x| -> x + 1)
+let inc_2x = twice(|x| x + 1)
 ```
 
 Expected callable types are passed to lambda arguments as their corresponding requirements become
@@ -245,9 +273,33 @@ for argument evaluation or match coverage/handler checking. First-class lambda v
 partial supply and unsupported argument/environment shapes retain ordinary checked-base construction.
 This is not result memoization or general lazy closure checking.
 
-`->` introduces a lambda's BODY; it never denotes a result type. A lambda's result is declared by an
-annotated binding or by the requirement it is passed to. Typed lambda parameters plus an inferred
-result are also valid, and a lambda body may itself be a signature: `|x: u32| -> (u32): u32`.
+A lambda's result is constrained by an annotated binding or the requirement it is
+passed to, or inferred under the ordinary rules. Typed parameters with an inferred
+result are valid; a lambda body can itself be a signature: `|x: u32| (u32): u32`.
+A block lambda uses the same unit-fallthrough/value-return rules as any other callable.
+
+```let
+let inc = |x: u32| x + 1
+let work = do |x: u32|
+  log "working"
+  return x + 1
+end
+let start = do
+  work(3)
+end
+```
+
+In value-expression position, `do ... end` constructs a nullary callable; it does
+not execute the block and bind its result. `let x = do return 3 end` binds a word,
+not the number 3. Invocation remains explicit: `x()`. `do |p| ... end` constructs
+a parameterized block lambda, with ordinary contextual typing and captures.
+
+There is one spelling for each lambda body kind. A pipe expression lambda cannot
+start with an ungrouped `do`: `|x| do return x end` rejects rather than changing
+meaning into a lambda returning another lambda. To intentionally return a block
+lambda, group it: `|x: u32| (do return x end)`. This is a grammar rule, not a legacy
+adapter. A lambda value binding retains ordinary local binding/capture rules; it
+does not acquire the self-recursion privileges of a local named word.
 
 Signature forms are:
 
@@ -271,7 +323,11 @@ is not an assertion that a callable owns an environment.
 
 ## 5. Bodies, blocks and conditionals
 
-A word body is an expression or a `do ... end` block:
+A named word/method body is an expression or a `do ... end` statement block. Directly
+after that definition's `=`, `do` selects the executed body, not a returned lambda.
+In ordinary value-expression positions, `do` instead constructs the block lambda
+specified in §4. Group a block lambda to return it as a named expression body:
+`let make(x: u32) = (do return x end)`.
 
 ```
 let square(x: u32) = x * x
@@ -281,17 +337,42 @@ let square_block(x: u32) = do
 end
 ```
 
-An expression body returns that expression's result vector. A block has no implicit last-expression
-result: every reachable function path must return. A bare `return` returns unit. A declaration or
-call statement at the end does not imply a return. Code after a definitely terminating statement in
-the same list is rejected as unreachable.
+An expression body returns that expression's result vector. A block has no implicit
+last-expression result. **Unit falls through; values are returned.** Reaching the end
+of a callable's block body performs a bare `return` only when its established result
+contract is one unit result. A value-returning contract still requires every reachable
+path to return its values explicitly (`missing-return` otherwise). A final call
+statement discards its results; it does not supply the enclosing callable's result.
+Code after a definitely terminating statement in the same list rejects as unreachable.
+
+This rule applies uniformly to named words, schema methods and lambdas, including
+trailing blocks. Unit can be established by an annotation, an expected callable
+signature, or ordinary acyclic inference: an otherwise unconstrained inferable block
+with no reachable value-returning path infers unit. Bare returns agree with that
+inference. Never change an existing result contract to unit to excuse fallthrough.
+An unknown conditional with a value return on one branch and fallthrough on the
+other rejects. Existing known-branch elaboration rules still govern reachability.
+
+Recursive components use the bounded unit-inference rule in §10 before applying
+an absent-contract `any` default. This never overrides an explicit/expected/export
+contract. An explicit `return unit()` is a unit result but is syntactically a valued
+return, so it is outside that deliberately narrow recursive shortcut.
+
+Implicit unit completion follows the same exit path as explicit bare return:
+applicable deferred actions run, local holdings are released and enclosing structured
+scope obligations complete. Falling out of an inner statement block only completes
+that block; it does not return from the callable. Abort behavior is unchanged.
+
+This is approved target behavior, not a claim that current missing-return checks
+already implement contextual unit fallthrough.
 
 Blocks may contain declarations, field assignments, compound field assignments, call statements,
 statement conditionals, deferred actions and returns. A call statement must be saturated; it evaluates
 the call and discards its result vector, and a deferred action is a call statement that runs when the
 block it is written in is left (section 8.8). Discarding an incomplete word is an error, not a call
-for effects. Arbitrary unused arithmetic expressions are not statements. `do ... end` is a body form,
-not a standalone value expression or a declaration-scope statement.
+for effects. Arbitrary unused arithmetic expressions are not statements. A standalone
+`do ... end` is a callable value expression, not an immediately executed block or a
+declaration-scope statement. Constructing and discarding it does not run its body.
 
 Conditionals have two grammatical forms:
 
@@ -382,11 +463,17 @@ Runtime list/table call expansion and spreading into `..` are not included.
 
 ## 7. Operators and evaluation order
 
+**Approved extension, not implemented:** [schema operators and trailing blocks](operators-and-blocks.md)
+defines static schema-owned `op_*` methods. Primitive rules below remain fixed;
+user records gain only explicitly supplied protocols, not automatic structural
+arithmetic/equality. Schema-interface preservation and comparison ordering require
+the concrete contracts listed there. `and`, `or`, `not` remain boolean-only.
+
 Tightest first:
 
 | Level | Operators | Associativity |
 | --- | --- | --- |
-| postfix | `f(...)`, `T {...}`, `.name` | left |
+| postfix | `f(...)`, `T {...}`, `.name`, indexing; terminal literal/block application | left |
 | power | `^` | right |
 | unary | `-`, `~`, `not` | prefix |
 | multiplicative | `*`, `/`, `%` | left |
@@ -401,15 +488,15 @@ Tightest first:
 | logical or | `or` | left |
 
 Pipes in prefix position introduce a lambda; infix pipe is bitwise-or. A lambda parameter annotation
-stops at the closing pipe, so `|f: (u32): u32| -> f` reads as one parameter whose type is a signature.
-The lambda body extends as a full body/expression to its enclosing delimiter. Signature arrows do
-not introduce parameter names or executable bodies.
+stops at the closing pipe, so `|f: (u32): u32| f` reads as one parameter whose type is
+a signature. The lambda body extends as a full body/expression to its enclosing
+delimiter. Signatures use `:`, not arrows, and do not create executable bodies.
 
 Power binds tighter than unary on its left: `-x ^ 2` means `-(x ^ 2)`. Unary is allowed on the right
 of power, so `x ^ -1` means `x ^ (-1)`. Here -1 is modular u32 negation, not a signed exponent. Two
 comparisons cannot chain without explicit grouping; `a < b < c` rejects.
 
-Arithmetic and bitwise operators require one integer type, except that `+`, `-`, `*` and `/` also
+Builtin arithmetic and bitwise operators require one integer type, except that `+`, `-`, `*` and `/` also
 apply to f64. As section 1 says, a literal adopts the other operand's type when its value fits,
 mixed widths of one signedness widen to the wider one, and mixing signed and unsigned rejects.
 Add/subtract/multiply/negate/power wrap at the width the type names.
@@ -423,7 +510,8 @@ Ordered comparison requires one integer type or f64, and equality requires equal
 integer type, bool, f64 or unit; unit equals unit). A comparison widens its operands to one integer
 type the way an arithmetic operation does. Two `string` values compare by content, since a byte
 sequence has no identity a program can observe. Record, word, type, slice and callable equality are
-not added by the equality tokens.
+not added structurally by the equality tokens. A user schema supplies equality
+only through its explicit operator protocol below.
 
 `and`, `or`, `not` require bool and produce bool. There is no truthiness and no operand-valued Lua
 and/or behavior. `and` and `or` short-circuit. Other binary operators evaluate operands left-to-right;
@@ -442,6 +530,47 @@ immutable lexical bindings.
 For `base.field op= rhs`, evaluate the target base/path once, read the old field value once, then
 evaluate rhs, compute the operation and store. If rhs mutates that field, the final operation still
 uses the earlier snapshot. Plain field assignment evaluates its target once, then rhs, then stores.
+
+### 7.1 Schema-owned operator protocols (target; not implemented)
+
+Operators resolve to ordinary schema methods; expression and `do ... end` bodies
+are equally valid. Existing primitive operations win when their contract applies.
+Otherwise use the left schema's method; only if absent try the right schema's
+`_right` method. A selected method with a bad signature errors without fallback.
+Evaluate left then right once even for right dispatch. No conversion/candidate
+search, runtime applicability probe or automatic structural operator is introduced.
+
+| Methods | Operation |
+| --- | --- |
+| `op_add`, `op_sub`, `op_mul`, `op_div`, `op_rem`, `op_pow` | `+ - * / % ^` |
+| `op_band`, `op_bor`, `op_bxor`, `op_shl`, `op_shr` | `&`, `\|`, binary `~`, `<<`, `>>` |
+| `op_concat` | `..` |
+| `op_neg`, `op_bnot` | unary `-`, unary `~` |
+| `op_eq` | `==`; `!=` negates its bool result |
+| `op_compare` | ordered comparisons using the specified order result |
+| `op_index`, `op_set_index` | value indexing / indexed store |
+| `op_call` | positional instance application, with ordinary result vector |
+
+Arithmetic/bitwise/concatenation binary protocols also have `_right` forms. Schema
+identity through structural conversions/generics/erasure and comparison reverse/
+`unordered` rules are hard gates detailed in [operators-and-blocks.md](operators-and-blocks.md),
+not inferred from this table. One signature per protocol name; no extension methods
+on another schema or replacement of primitive semantics. For arithmetic, bitwise
+and concatenation operations, after BOTH member routes are absent, closed static
+operand interfaces permit ordinary lexical `op_name(left, right)`. Unary negation
+and bitwise-not similarly permit a lexical function after primitive/member routes.
+A selected bad signature or noncallable member errors without fallback. No lexical
+`_right` search; arguments stay in source order with normal copy/ref contracts.
+`use ...library` opts into lexical operator vocabulary without installing members.
+Generics resolve in definition scope per specialization. Table/any operations never
+try runtime lexical fallback. Comparison and index/call lexical extensions remain
+explicit gates; the protocol table does not implicitly authorize them.
+
+`op_index` returns a value: `ref(x[i])` then rejects `element-ref`. `op_set_index`
+requires a valid writable receiver. Compound indexed stores evaluate receiver/index
+once, read once, evaluate RHS, compute, then write once. Native array/slice place
+rules remain unchanged. Assignment, member selection, boolean control flow and
+`do` cannot be overloaded. Dynamic `any` dispatch is a separate implementation slice.
 
 ## 8. Records, keyed supply and methods
 
@@ -564,8 +693,11 @@ callable values, each receiving that alternative's payload:
 
 ```
 let area(s: shape): u32 = s {
-  circle = |c: circle| -> c.radius * c.radius,
-  rect = |r: rect| -> r.width * r.height,
+  circle = |c: circle| c.radius * c.radius,
+  rect = do |r: rect|
+    let w = r.width
+    return w * r.height
+  end,
 }
 ```
 
@@ -717,15 +849,17 @@ applied to an element type and a length, and a literal is written with brackets:
 let xs = [10, 20, 30]
 let ys: array(u32, 3) = [10, 20, 30]
 let first = xs[0]
-let pick = |i: u32| -> xs[i]
+let pick = |i: u32| xs[i]
 xs[1] = 99
 xs[0] += 5
 ```
 
 The length is part of the type, so it is never inferred from a later assignment and a literal is
-checked against it. A literal takes its element type from its elements, or from an annotation, which
-is what an empty literal needs: `[]` with no element has nothing to infer from and rejects
-(`type-required`). A literal whose length does not match, whose elements do not share one type, or an
+checked against it. A literal takes its element type from its elements, or from an
+annotation. `[]` has no element type to infer (`type-required` without context);
+providing a type alone does not waive the positive-length rule below. Empty-array
+acceptance is not introduced by spread; a future zero-length-array change requires
+an explicit decision. A literal whose length does not match, whose elements do not share one type, or an
 `array` whose length is not a positive literal rejects (`array-length`, `type-mismatch`).
 
 Indexing is `a[i]` for a `u32` `i`. A known index outside the array rejects while compiling
@@ -933,21 +1067,19 @@ let with_region(r: type, bytes: u32, body: (ptr(u8)): r) : r = do
   return result
 end
 
-let sum() : u32 = with_region(u32, 8, |p: ptr(u8)| -> do
+let sum() : u32 = with_region(u32, 8, do |p: ptr(u8)|
   p[0] = 7
   p[1] = 35
   return u32(p[0]) + u32(p[1])
 end)
 ```
 
-When the body is known code it is specialized, which is what keeps this cheap: the body's code is
-emitted inside a per-invocation copy of the combinator, the call site is a direct call to that copy,
-and no function pointer is involved. When the combinator's own body is foldable as well -- when it
-has no effect of its own -- the whole call folds away and nothing at all is left, which is the case
-measured for a body of pure arithmetic. So a known body costs at most one direct call; what it never
-costs is a dynamic one. When the body arrives as a run-time view the combinator is an indirect call
-and the release still runs. A `return` inside the body returns from the *body*, not from the
-combinator, so the release runs on every normal path.
+Known callable identity enables specialization and direct calls; inlining, call
+elimination and allocation elimination require the ordinary proofs. There is no
+at-most-one-call or zero-cost language guarantee. A runtime callable uses its normal
+indirect-call contract. A `return` inside the body returns from the body, not the
+combinator, so explicit cleanup runs on every normal completion path. Trailing
+`do` sugar has exactly the same behavior as this explicit lambda form.
 
 What this does not do is enforce anything. A pointer into the region may be returned, stored in module
 storage or captured by a closure that outlives it, and the compiler accepts that, because a `ptr`
@@ -956,7 +1088,7 @@ cleans up; it does not prevent misuse. This is the trade the design accepts, and
 region's memory arrives as `ptr` and never as `ref`: a program that needs the guarantee writes its own
 region type and keeps the pointer inside it.
 
-The standard `std.memory` module supplies such a checked boundary: `with_buffer` keeps its raw
+The target standard `std.memory` module specifies such a checked boundary: `with_buffer` keeps its raw
 allocation private and lends a record of erased read/write method views. These views borrow real
 local receivers/adapters and cannot escape the resource scope. Bounds failures are explicit results,
 not raw accesses. Caller-derived results unrelated to the allocation may still return. This is the
@@ -997,6 +1129,12 @@ value leaves, which is not the order a back edge would give.
 `defer` is a statement form and not a type, so it tracks nothing: it does not prevent the resource
 from being used after the action runs, it does not follow a copy of anything, and it does not run at
 all when an abort ends the process. It is section 8.7's shape, written where the resource is acquired.
+An adapter can therefore use `defer print "leave"; return f(...args)` to perform
+post-call work without binding the result vector as a tuple. The result components
+and their holdings remain live across the deferred action before final transport;
+the call cannot be turned into a tail transfer that skips the action. This does not
+provide arbitrary result-pack inspection, retry or memoization semantics.
+
 Memory owners are released automatically without user behavior. A deferred action
 is instead an explicit program effect; it is not invoked by memory reclamation and
 is not a finalizer. Existing abort behavior is not changed by this distinction.
@@ -1058,11 +1196,35 @@ Result annotations constrain every reachable result vector. Without an annotatio
 infer their result types and any common static components. A known condition need not evaluate an
 unselected branch, but all returning arms of an unknown condition must agree as specified above.
 
-Every residual recursive component needs a complete result contract. Explicit
-annotations and module result contracts must agree; in the unified progressive
-target, an otherwise absent contract defaults to one `any` result (section 15).
-The current typed checkpoint instead requires an explicit contract. This does not
-introduce inference by executing an unknown recursive path.
+Every residual recursive component needs a complete result contract. Explicit,
+expected and module/export contracts must agree. Before defaulting an absent result
+to one `any`, apply this conservative unit-procedure rule to the resolved call SCC:
+
+1. Every member has a `do` body, not an expression body.
+2. Inspect each member's own returns, excluding nested callable bodies. Every return
+   is bare, or control falls through; any valued `return` disqualifies the shortcut.
+3. Calls within the component occur only as discarded call statements, not as values,
+   conditions, arguments, initializers or returned recursive results.
+4. No member has an explicit/expected/export result contract other than unit.
+
+When all conditions hold, infer unit for otherwise unconstrained members; already
+specified unit contracts remain unchanged. This requires resolved calls/SCC discovery
+but no result-type fixpoint. Do not execute unknown code to discover arity or returns.
+A conservative source-body check does not delete unreachable valued returns to make
+a component eligible. Failure of this shortcut is not by itself a rejection: use
+ordinary explicit-contract/default rules, then check the bodies against them.
+`return countdown(n - 1)` remains outside the shortcut, as does `return unit()`.
+
+```let
+let countdown(n: u32) = do
+  if n == 0 then return end
+  countdown(n - 1)
+end
+```
+
+This component infers unit. Otherwise an absent recursive contract defaults to one
+`any` in the unified target. Current typed compilation still requires its existing
+explicit contracts; the new inference rule is not implemented.
 
 Static recursive evaluation can run without a residual result contract. A source recursive function whose static arguments change may produce distinct specialization keys; compilation continues until the evaluation terminates or the build is interrupted. There is no depth, step or specialization-count cutoff.
 
@@ -1089,8 +1251,30 @@ coordinated migration is implemented. A Let file contains top-level let declarat
 exactly one final module export declaration:
 
 A file that defines a top-level word `main` may instead omit the export configuration; `main` is
-then the only export. That is what lets either source profile be written as a program rather than a
+then the only export. That lets a Let source file be written as a program rather than a
 module, and a host runs it by calling `main`.
+
+The target also recognizes `let main = do ... end` as a callable-value binding,
+subject to the same export ABI and capture rules—not just named-definition syntax.
+General callable-binding export and automatic entry discovery must be implemented
+coherently; the current literal-only top-level initializer/direct-word export paths
+are not sufficient. This spelling does not change the standalone program contract
+`main(): u32`; a unit-returning main is not silently coerced into an exit code.
+
+```let
+let main = do
+  print "simulating"
+  return 0
+end
+```
+
+Here `print` is an illustrative library word, not a newly predefined API. A local
+binding to such a block still constructs a callable, not a Rust-style block value.
+
+Style: use named definitions for reusable/self-recursive words; use block-lambda
+bindings for callable values, callbacks, handlers and convenient entry bindings.
+These spellings are not interchangeable: local recursion privilege and callable-value
+export handling remain distinct. This is guidance, not a new restriction.
 
 ```
 return {
@@ -1164,10 +1348,13 @@ because a source string has no directory to resolve against.
 The reserved `std.*` namespace selects bundled standard modules instead of relative files.
 `use std.memory` binds `memory` to the scoped-memory module. An unknown standard module rejects;
 it cannot silently select a file from the working directory. Standard sources use the same frontend,
-owner/capability checks and VM-backed static execution as other modules. The bundled modules are `std.bytes`,
-`std.memory`, `std.text`, `std.stream`, `std.file`, `std.terminal` and `std.program`; their APIs
-and normal-completion cleanup contracts are documented in `stdlib/README.md`.
-CLI `--program` / `artifact:program()` wraps an exported zero-runtime-input, single-`u32`-result
+owner/capability checks and VM-backed static execution as other modules. The target
+module inventory is `std.bytes`, `std.memory`, `std.text`, `std.stream`, `std.file`,
+`std.terminal`, `std.program` and `std.task`. This is a target, not a claim that those
+modules are bundled in the current checkout. [stdlib.md](stdlib.md) is the authoritative
+inventory/API reference, including normal-cleanup contracts and pending signatures;
+there is no `stdlib/README.md` implementation reference to rely on.
+The documented target CLI `--program` / `artifact:program()` wraps an exported zero-runtime-input, single-`u32`-result
 `main` with POSIX startup, module initialization and the embedded native runtime. This is an emission
 profile, not new source syntax or permission to pass checked borrows to unknown foreign code.
 
@@ -1182,66 +1369,164 @@ fields, not methods; `let ...sum_type` binds constructors. See [spread.md](sprea
 for file-scope visibility, collisions and exact evaluation rules. These forms are
 not yet implemented.
 
+Approved self-delimiting calls omit parentheses for one atomic literal or block:
+`f 21`, `f 1.5`, `f true`, `f 'x'` and `f "text"` mean their ordinary one-argument
+parenthesized calls; `f do |p| ... end` means
+`f(do |p| ... end)`. Long-bracket strings follow the same rule. With no block
+parameters the lambda is nullary. A parenthesized call can still append a block:
+`f(x) do |p| ... end` means `f(x, do |p| ... end)`, one application, not two.
+No arity lookup or newline-sensitive parsing is introduced. Keyed braces retain their
+existing meaning; a positional table argument is written `f(table { x = 3 })`.
+Desugaring precedes result-list adjustment; return is local to the lambda and normal
+capture/escape checks apply. `f 1 + 2` means `f(1) + 2`; negative arguments require
+`f(-1)` because minus is an operator. General `f x` and multi-argument `f 1 2` remain
+excluded. Array indexing/keyed supplies keep their meanings; use `f([1, 2])` to pass
+an array literal. See
+[operators-and-blocks.md](operators-and-blocks.md#7-trailing-block-argument-sugar)
+for grammar boundaries and unimplemented status.
+
+### 11.1 Literal-led and lexical receiver calls
+
+A bare literal argument includes its member/index/explicit-call postfix chain:
+`print "{}".fmt(n)` means `print("{}".fmt(n))`. Infix operations stay outside:
+`print "{}".fmt(n) .. "!"` concatenates after the print call; use explicit parentheses
+to pass the concatenation. Group the outer call to select its result's members.
+A literal-led supply plus trailing block still needs explicit argument parentheses.
+
+An invoked `receiver.name(args)` selects an existing member first. Only when the
+static receiver interface is closed and lacks that member does lexical `name` supply
+`name(receiver, args)`. A selected bad signature or noncallable member errors, never
+falls back. No ambiguity error for coexisting member/lexical names, extension registry
+or overload search. Module-qualified calls remain namespace lookup.
+
+The free-call route preserves parameter copy/ref behavior, with no hidden borrow,
+write-back or `ref` insertion. Writing a copied receiver is a valid value transformation,
+not a special error. Uninvoked `receiver.name` does not synthesize a lexical bound closure.
+Table/`any` receivers always use dynamic member semantics, with no lexical fallback.
+Generics resolve per specialization in the definition's lexical scope and report the
+failing instantiation. Import-spread explicitly opts into lexical fluent vocabulary;
+ordinary `use std.text` alone supplies only namespace-qualified operations. [application-sugar.md](application-sugar.md) owns the detailed contract.
+`"{}".fmt(n)` uses the existing lexical `fmt`, not an additional builtin string member.
+
 ## 12. Grammar outline
 
-The target additions for spread, rest requirements and import-and-spread are defined
-in [spread.md §7](spread.md#7-grammar-additions); the baseline productions below must
-be extended accordingly, not treated as excluding those approved forms.
+This is the integrated **target** outline, including spread, named-word rest,
+import-and-spread, atomic-literal calls and block-only/trailing blocks. It is not the current parser's acceptance
+matrix. [spread.md](spread.md) and [operators-and-blocks.md](operators-and-blocks.md)
+provide the semantic checks and explicit remaining gates.
 
 This grammar fixes the previously overlapping forms. Expression productions use the precedence table
 in section 7. Semantic arity/staticness/type checks are not disguised as parser decisions.
 
 ```
-module          := top-let* export-config EOF
-local-let       := named-definition | keyed-definition | value-binding | foreign-declaration
-named-definition:= 'let' Name parameters result-annotation? '=' body
+module          := top-item* export-config? EOF
+top-item        := top-let | use-declaration
+top-let         := local-let
+use-declaration := 'use' '...'? dotted-name
+dotted-name     := Name ('.' Name)*
+local-let       := named-definition | keyed-definition | value-binding | binding-spread | foreign-declaration
+named-definition:= 'let' Name named-parameters result-annotation? '=' body
 keyed-definition:= 'let' Name keyed-parameters result-annotation? '=' body
 keyed-parameters:= '{' (Name (':' type-expression)?) (',' Name (':' type-expression)?)* ','? '}'
 -- A host function: no body, so the result is required rather than optional.
 foreign-declaration := 'extern' 'let' Name parameters ':' result-spec
 value-binding   := 'let' binder (',' binder)* '=' expression-list
+binding-spread  := 'let' '...' expression
 binder          := Name (':' type-expression)?
-parameters      := '(' parameter-groups? ')'
+parameters      := '(' parameter-groups? ','? ')'
+named-parameters:= '(' (parameter-groups (',' rest-requirement)? | rest-requirement)? ','? ')'
+parameter-groups:= parameter-group (',' parameter-group)*
 parameter-group := Name (',' Name)* (':' type-expression)?
+rest-requirement:= '...' Name
 result-annotation := ':' result-spec
 result-spec     := type-expression | '(' type-list? ')'
-body            := expression | 'do' statement* 'end'
+body            := named-block-body | expression
+named-block-body:= 'do' statement* 'end'  (selected by direct do after definition '=')
 statement       := local-let | field-store | call-statement | return-statement | defer-statement
                  | 'if' expression 'then' statement* ('else' statement*)? 'end'
 return-statement:= 'return' expression-list?
 defer-statement := 'defer' call-statement
-expression-list := expression (',' expression)*
-lambda          := '|' lambda-parameters? '|' '->' body
+expression-list := supply-item (',' supply-item)*
+supply-item     := expression | '...' expression
+lambda          := expression-lambda | block-lambda
+expression-lambda := '|' lambda-parameters? '|' expression
+block-lambda    := 'do' ('|' lambda-parameters? '|')? statement* 'end'  (an atom)
 lambda-parameters := parameter groups, with annotations optionally supplied by context
-postfix         := atom (arguments | initializer | '.' Name)*
+postfix         := atom postfix-suffix* self-delimited-call?
+postfix-suffix  := arguments | initializer | '.' Name | '[' expression ']'
+self-delimited-call := literal-argument | trailing-block
+literal-argument := atomic-literal literal-postfix*
+literal-postfix := '.' Name | '[' expression ']' | arguments
+atomic-literal  := integer-literal | float-literal | byte-literal
+                 | string-literal | long-string-literal | 'true' | 'false'
+long-string-literal := long-bracket
+trailing-block := block-lambda
+array-literal  := '[' expression-list? ','? ']'  (an atom)
 string-literal  := '"' (escape | byte-except-quote-or-newline)* '"'
 float-literal   := digits ('.' digits)? exponent? | digits '.' digits exponent?
 exponent        := ('e' | 'E') ('+' | '-')? digits
 byte-literal    := "'" (escape | byte-except-quote-or-newline) "'"
 long-bracket    := '[' '='+ '[' .* ']' '='+ ']'   (same number of '=' on each side)
 long-comment    := '--' '[' '='* '[' .* ']' '='* ']'
-arguments       := '(' expression-list? ')'
-initializer     := '{' (Name '=' expression) (',' Name '=' expression)* ','? '}' | '{' '}'
+arguments       := '(' expression-list? ','? ')'
+initializer     := '{' (keyed-item (',' keyed-item)* ','?)? '}'
+keyed-item      := Name '=' expression | '...' expression
 schema          := '{' schema-members? '}'
-schema-member   := Name (':' type-expression)? | Name parameters result-annotation? '=' body
+schema-member   := Name (':' type-expression)? | Name named-parameters result-annotation? '=' body
 concat          := additive ('..' concat)?
 if-expression   := 'if' expression 'then' expression 'else' expression
 signature       := '(' type-list? ')' ':' result-spec
 ```
 
-Top-let has local-let's syntax but module visibility rules. Optional semicolons delimit complete
-items. Delimited comma lists permit a trailing comma; empty parameter/argument/lambda lists are valid.
+Expression-lambda's immediate expression cannot begin with an ungrouped `do`;
+parentheses explicitly permit returning a block-lambda value. Named-block-body does
+not have its own parameter pipes: parameters belong to the named definition. Thus
+`let f(x) = do |y| ... end` is not shorthand for returning a lambda; use grouping.
+Value bindings (`let f = do ... end`) are distinct from named definitions with
+parameter lists and construct callable values.
+
+An ungrouped block-lambda atom is terminal for postfix parsing: no direct call,
+index, member selection or self-delimited-call suffix follows its `end`. Write
+`(do return 3 end)()` to invoke it immediately, and group before other postfix use.
+The same applies to parameterized block lambdas. Infix continuation still follows
+normal precedence. Consequently a following parenthesized statement cannot attach
+as a call to an ungrouped block-lambda initializer across a newline. This is a
+syntactic atom restriction, not a newline rule.
+
+Top-let has local-let's syntax but module visibility rules. The optional export form
+is omitted only for a module with the specified `main` convention. `use` is file-scope
+only. A trailing block appends to a final parenthesized argument list before result
+adjustment; with a callee alone it forms a one-lambda application. To call a call's
+result instead, group it: `(f(x)) do ... end`. No block implicitly extends a keyed
+initializer; group its result when that is the intended callee.
+
+Literal-led sugar passes the literal and its member/index/explicit-call chain as
+one argument to the preceding callee. Postfixes bind to that argument, not the outer
+result. Only one terminal sugar suffix is allowed per postfix level: `print "a" "b"`
+and `f 1 2` reject; `(f 1) 2` explicitly invokes the first result. Use `f("a") do ... end`
+for string plus block arguments, or `(f "a") do ... end` to call a result. Further
+postfix use after a terminal sugar call requires grouping. Newlines remain whitespace;
+semicolons separate statements where a following literal/block would otherwise attach.
+
+Rest is permitted only as one final named-word/method ordered requirement; foreign
+and lambda rest are outside the initial scope. Name binding spread is not destructuring.
+Keyed spread still needs a constructor/callee head; bare `{ ...p }` is not a value
+literal. Semantic array length/type checks apply after expansion. The `?` plus
+trailing-comma notation does not permit a lone comma in an otherwise empty list.
+
+Optional semicolons delimit complete items. Delimited comma lists permit a trailing
+comma; empty parameter/argument/lambda lists are valid.
 Parameter groups end after an annotation; a following comma begins the next group. For instance,
 `(a, b: u32, c: bool)` is two groups. In a binding list, annotations belong to individual binders.
 
 A parenthesized comma sequence is legal only as a signature side/result-spec, never as a general
-expression. Parser lookahead over balanced parentheses can recognize an input type list followed by
-an arrow; scalar grouping otherwise adjusts its expression to one value. Pipe lambdas remove the need
-to guess whether a name before an arrow binds a variable or denotes a type.
+expression. Parser lookahead over balanced parentheses recognizes a signature input
+type list followed by `:`; scalar grouping otherwise adjusts its expression to one
+value. Lambda parameter pipes distinguish binding names from signature type expressions.
 
 type expressions use expression syntax but must evaluate to a type/calling requirement. There is no
 separate capitalization rule or implicit conversion of a value into its type. Their surrounding
-colon, arrow or list delimiter determines where they end. A result-spec's comma list is distinct
+colon, closing parameter pipe or list delimiter determines where they end. A result-spec's comma list is distinct
 from a single signature-valued result, e.g. `: ((u32): u32)`.
 
 `if a then if b then x else y else z` associates each else with its structurally pending expression
@@ -1300,7 +1585,8 @@ return {
 
 ## 14. Explicit exclusions and validation
 
-No juxtaposition, layout blocks, implicit block returns, bare-name lambdas, mutable lexical bindings,
+No general juxtaposition or arity-driven application, layout blocks, implicit
+last-expression value returns, bare-name lambdas, mutable lexical bindings,
 user-written lifetime/rank parameters, reference arithmetic, fabricated null or dangling
 references, residual partial application, general tuple values, sparse or growing arrays or a
 zero-length array, record-value literals without a
@@ -1318,7 +1604,8 @@ that every operation is count-free or allocation-free.
 Required syntax/semantic tests include:
 
 - whitespace/one-line equivalence, explicit separators, maximal tokens and comments;
-- pipe lambdas versus lowercase type aliases/signatures; grouped and nested signature arrows;
+- arrow-free pipe lambdas versus lowercase type aliases/signatures; grouped/nested signatures,
+  unary/nested-lambda bodies and closing-pipe versus infix-pipe boundaries;
 - shared parameter annotations versus per-binder annotations; contextual lambda typing;
 - static partial supply, residual saturated calls, overapplication and nullary calls;
 - multiple-result forwarding/grouping, unit fill, exact return contracts and result annotations;
@@ -1355,8 +1642,9 @@ behavior has not changed.
 
 Omitted named parameter groups, keyed requirements, schema fields and unconstrained
 lambda parameters default to `any`. Expected signatures still supply lambda types;
-locals retain initializer inference. Recursive words without result annotations
-default to one `any` result. Foreign ABI declarations remain explicitly typed.
+locals retain initializer inference. Recursive components first apply §10's bounded
+unit-procedure inference; remaining absent result contracts default to one `any`.
+Foreign ABI declarations remain explicitly typed.
 Annotations establish earlier checks, not another ownership or execution engine.
 
 The grouping rule is unchanged: adjacent names share the following annotation.
@@ -1367,7 +1655,7 @@ let add(a, b) = a + b                 -- (a, b: any)
 let scale(k: u32, v) = v * k          -- v is any, k is u32
 let distance { x, y } = x * x + y * y -- keys x and y are any
 let enemy = { hp, speed: u32 }        -- hp is an any field
-let inc = |x| -> x + 1                -- standalone lambda, x is any
+let inc = |x| x + 1                   -- standalone lambda, x is any
 ```
 
 A local binding keeps its initializer's inferred type; only an `any` initializer or
@@ -1495,9 +1783,12 @@ No old tracing descriptor is silently reinterpreted as a release descriptor.
 
 ### 15.11 Predefined words
 
-The ordinary-word vocabulary includes `any`, `table`, `list`, `store`, `id`,
-`frozen`, `freeze`, `is`, `fmt`, `has`, `remove`, `count` and the container/text
-library operations. `table {}` has an explicit constructor head; bare map literals
+The predefined vocabulary includes `any`, `table`, `list`, `store`, `id`,
+`frozen`, `freeze`, `is`, `fmt`, `has`, `remove` and the proposed table operation
+`count` (whose exact signature remains a library gate). Container methods and
+imported text/task operations are not all implicit global bindings.
+[stdlib.md](stdlib.md) distinguishes predefined names, receiver methods and public
+module exports; implementation filenames do not automatically define public modules. `table {}` has an explicit constructor head; bare map literals
 and an `open()` compatibility layer are not introduced. Section 12 incorporates
 optional annotations and section 7 includes concatenation. Ownership requires no
 new source rank/lifetime syntax.
@@ -1580,3 +1871,66 @@ foreign integration and shutdown protocols. Task source semantics are now specif
 in the linked design; runtime correctness is not established by that specification.
 These are work to finish under the no-collector constraint, not reasons to restore
 a collector.
+
+## 16. Standard-library target and API locations
+
+[stdlib.md](stdlib.md) is the canonical module/API inventory. The table below is a
+navigation summary, not a claim of shipped standard modules. All modules use ordinary
+words, signatures, checked capabilities and explicit effects; none selects another
+ownership language.
+
+| Module | Target surface | Detailed contract |
+| --- | --- | --- |
+| `std.bytes` | Checked byte-access protocols | stdlib §8; full signatures pending |
+| `std.memory` | `with_buffer`, `result(r)`, scoped checked memory views | §8.7 and stdlib §8 |
+| `std.text` | String search/transforms/parsing; text-library export placement | stdlib §5; exact export signatures pending |
+| `std.stream` | Scoped stream protocols | stdlib §8; full signatures pending |
+| `std.file` | `with_file`, `result(r)`, scoped file access | §8.7 and stdlib §8 |
+| `std.terminal` | `with_terminal`, `result(r)`, scoped terminal access | §8.7 and stdlib §8 |
+| `std.program` | Startup/argument/host integration | §11 and stdlib §8; full API pending |
+| `std.task` | `scope`, `yield`, `select`, `on_after`, task/channel result types | [tasks.md](tasks.md), stdlib §7 |
+
+### 16.1 Predefined containers and text operations
+
+- `store(T) {}` with `add`, `try_add`, `reserve`, id indexing, `remove`, `has`,
+  `length`, `each`; `id(T)` is non-owning. See stdlib §3.
+- `list(T) {}` with value indexing, `push`, `try_push`, `pop`, `insert`, `remove_at`,
+  `append`, `reserve`, `view`, `length`, `each`. See stdlib §4.
+- `string` with byte indexing, `append`, `push`, `sub`, `compact`, `view`, `length`;
+  `string(view)` copies bytes. `..` handles strings and same-element lists. See stdlib §4.
+- `table {}` with named/keyed value access, presence/removal, dense-sequence methods
+  and snapshots; `any`, `frozen(T)`, `freeze`, `is` retain section 15's rules.
+- `fmt(format, ...args)` retains its predefined spelling. It is an ordinary library
+  computation with static/runtime checks, not permission for compiler-side evaluation.
+  Proposed implementation filenames do not create `std.fmt` or `std.pattern` public
+  namespaces. Formatting/pattern export placement and edge cases are listed in stdlib §5.
+
+### 16.2 Concurrency words
+
+`task.scope(r, body)` supplies a group. Its methods are `spawn(work)`,
+`channel(t, capacity)`, `cancel()` and `cancelled()`. Handles provide `join()`;
+channels provide `send(v)`, `receive()`, `close()`, `on_send(v,handler)` and
+`on_receive(handler)`. `task.on_after(ns,handler)` builds a timer case and
+`task.select { label = case, ... }` commits one operation. `task.yield()` is explicit.
+All use the scoped lifetimes, normal return and cooperative cancellation rules in
+[tasks.md](tasks.md); none introduces async syntax or ambient channel ownership.
+
+```let
+use std.task
+
+let total(): u64 = task.scope(u64) do |g|
+  let a = g.spawn do return sum_range(0, 500) end
+  let b = g.spawn do return sum_range(500, 1000) end
+  return a.join() + b.join()
+end
+```
+
+### 16.3 What is not yet fully specified
+
+The integrated grammar does not close every library/API question. [stdlib.md §8](stdlib.md#8-resource-modules-and-specification-completion-gates)
+lists exact missing resource signatures, text export/format/pattern rules, `count`,
+callback mutation, task type/time details and packaging. Operator schema authority
+and comparison/unordered policy remain in [operators-and-blocks.md](operators-and-blocks.md).
+Capability-requirement syntax and public ABI/encoding remain separate gates. These
+must be decided explicitly before implementation of their affected paths; neither
+an example nor an implementation filename supplies the missing contract.
