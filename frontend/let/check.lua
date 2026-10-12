@@ -410,7 +410,11 @@ function M.expr(expr, locals, storages)
                 D.bug("ir-literal", "A constant does not fit in its own width")
             end
         elseif expr.type == S.f64 then
-            if expr.literal.kind ~= "Float" then D.bug("ir-literal", "f64 constant needs a Float literal") end
+            if expr.literal.kind=='FloatBits' then
+                for _,word in ipairs{expr.literal.high,expr.literal.low} do
+                    if word~=word or word%1~=0 or word<0 or word>4294967295 then D.bug('ir-literal','FloatBits words must be u32') end
+                end
+            elseif expr.literal.kind ~= "Float" then D.bug("ir-literal", "f64 constant needs a Float or FloatBits literal") end
         elseif expr.type == S.bool then
             if expr.literal.kind ~= "Boolean" then D.bug("ir-literal", "bool constant needs a Boolean literal") end
         elseif expr.type == S.unit then

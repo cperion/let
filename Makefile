@@ -182,6 +182,7 @@ validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi 
 	cd frontend && $(LUA) tests/lowering.lua
 	cd frontend && $(LUA) tests/optimize.lua
 	cd frontend && $(LUA) tests/staging.lua
+	cd frontend && $(LUA) tests/source_demands.lua
 	cd frontend && LUA="$(LUA)" $(LUA) tests/staging_sessions.lua
 	$(LUA) tools/validate_slet_frontend.lua
 	CC="$(CC)" $(LUA) tools/validate_c_aot.lua

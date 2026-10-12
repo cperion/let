@@ -111,8 +111,8 @@ function Ir.Return:each(fn) end
 local Builder = {}
 Builder.__index = Builder
 
-function M.builder()
-    return setmetatable({ memo = {}, values = 0, storage = 0, expressions = 0 }, Builder)
+function M.builder(sourceContext)
+    return setmetatable({ memo = {}, values = 0, storage = 0, expressions = 0, sourceContext=sourceContext }, Builder)
 end
 
 function Builder:valueId()
@@ -231,6 +231,7 @@ end
 -- Statement emitters append to a list and return any result values.
 function Builder:emit(list, stmt)
     list[#list + 1] = stmt
+    if self.sourceContext then self.sourceContext:emit(list,stmt) end
     return stmt
 end
 -- A trap whose condition an identical adjacent trap already checked is redundant. The condition is

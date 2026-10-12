@@ -133,6 +133,10 @@ end
 
 local floatBits
 local function floatLiteral(value)
+    if type(value)=='table' then
+        if value.kind=='FloatBits' then return string.format('0x%08x%08x',value.high,value.low) end
+        value=value.value
+    end
     if not floatBits then
         local ffi = require("ffi")
         ffi.cdef("typedef union { double d; uint32_t word[2]; } let_abc_double_bits;")
@@ -448,7 +452,7 @@ function Function:expr(expr, stack)
         elseif expr.type == S.bool then
             self:instruction("PUSH." .. stack .. " " .. (expr.literal.value and "1" or "0"), expr)
         elseif expr.type == S.f64 then
-            local bits = floatLiteral(expr.literal.value)
+            local bits = floatLiteral(expr.literal)
             local offset = self.constants.floats[bits]
             if offset == nil then D.bug("lower-constant", "f64 constant is absent from the module pool") end
             self:instruction(".loadkind float", expr)
@@ -874,7 +878,7 @@ function M.lower(functions, options)
         end})
         Walk.walk(fn, {enter = function(node)
             if S.Ty.V:isclassof(node) then inspectType(node); return false end
-            if node.kind=="Const" and node.type==S.f64 then retainFloat(node.literal.value) end
+            if node.kind=="Const" and node.type==S.f64 then retainFloat(node.literal) end
             if node.kind=="Const" and node.type:isSlice() and node.literal.kind=="Str" then retainString(node.literal.bytes);usesAddress=true;usesMemory=true end
             if node.kind=="InPlace" or node.kind=="PlaceParam" or node.kind=="Addr" or node.kind=="BorrowArg" or ((node.kind=="Read" or node.kind=="Store") and node.place.kind~="Local") then usesMemory=true end
             if node.kind=="Addr" or node.kind=="BorrowArg" then usesAddress=true end

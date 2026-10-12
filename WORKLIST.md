@@ -174,6 +174,29 @@ implement the superseded per-callee budget merely to check a legacy audit box.
 
 ## S — Source values, demands and VM-only evaluation
 
+**Checkpoint — Owner: primary coding agent. State: partial (design approved).**
+Initial S01/S02/S04/S08 application/static-demand cutover, with relevant F01/F02
+and return/defer acceptance. Replace AST-shape static supply, premature callable
+materialization and separate keyed static adapter orchestration with shared source
+knowledge/callable records; connect required scalar demands to the existing VM
+session. Preserve dynamic D03 boundaries rather than extending open-word semantics.
+Files: `frontend/let/semantic.lua`, new `source_state.lua`/`demand.lua`, `compiler.lua`,
+`stage.lua`, `specialize.lua`, affected IR/checker/lowering consumers, `tools/abc`,
+frontend tests, Makefile and API docs. Schema changes start in `frontend/ir.asdl`.
+Acceptance: aliases/computed supplies, direct/keyed/partial equivalence, runtime
+rejections, exact scalar bits, returns across defer, all static modes including
+optimizer-disabled execution, policy/session cleanup and unchanged failed outputs.
+Aggregate snapshots, counted escapes and full persistent module images remain O/S05
+and S06 dependencies, not completed by this scalar boundary.
+Checkpoint evidence: `frontend/tests/source_demands.lua` passed 52 checks;
+`compiler.lua` 276 checks; `lambdas.lua` 269 checks/80 VM executions;
+`staging.lua` 27 checks; `staging_sessions.lua` 280 checks plus optimizer-disabled
+four-mode staging. These are focused checks, not full acceptance. API documentation,
+CLI/import/failure-publication validation, preparation measurements and review of
+ordered effect/trap obligations in demand fragments remain outstanding. No S item
+is checked off. Preserve this partial change while the approved syntax batch migrates
+its active source fixtures once.
+
 Sources: `docs/source-partial-evaluation.md`, `source-virtual-contract.md`,
 `source-compilation-api.md`. B03 supplies the scalar session, not this machinery.
 
@@ -422,6 +445,23 @@ Dependency: T/P semantics and explicit portable-C scope/ABI approval.
   Until then browser support remains unvalidated. No direct JS-worker backend/fallback.
 
 ## X — Static spread, packs and import sugar
+
+**Active syntax batch — Owner: primary coding agent. State: active (batch approved).**
+Coordinate X01–X05 syntax, Q05/Q09/Q10 and F05 grouping in one AST/parser/elaboration
+cutover. Authoritative schema: `frontend/ast.asdl`; regenerate `let/schema/ast.lua`.
+Touch lexer/parser, structural/scoping consumers, semantic result adjustment and
+callable export/entry discovery, active fixtures/examples/source generators, tests
+and syntax/API support notes. Preserve grouping explicitly; ordinary Lambda/Apply
+nodes own block/literal sugar. Add context-restricted spread/rest forms; unfinished
+pack/name-expansion paths diagnose explicitly, without a runtime pack or open-word
+fallback. Remove arrow tokens/branches and erased-group assumptions. Archives remain
+unchanged. Unit completion, receiver/operator resolution, full generic specialization
+and ownership are separate semantic obligations, not automatically completed here.
+Acceptance: AST boundaries, literal postfix precedence, trailing-block adjustment,
+block nonexecution/grouping, scalar versus vector results, valid callable entries,
+spread/rest placement and unsupported diagnostics, active-source migration and
+integrated frontend execution. Next: implement the coordinated syntax boundary;
+check off only deliverables actually implemented and validated.
 
 Authority: `docs/spread.md`; dependency: S/F specialization interfaces, O/U bounds.
 Can start before task runtime; must preserve group bounds when those become available.

@@ -90,6 +90,8 @@ module Ir {
           # key for 0.0 and -0.0, so interning by value would give -0.0 the node of whichever
           # zero was built first and lose the sign of a constant the C backend emits verbatim.
           | Float(number value)
+          # VM-produced f64 bits, including NaN payloads; never round-trip through a host number.
+          | FloatBits(number high, number low) unique
   Unary = Neg | Not | BitNot
   Binary = Add | Sub | Mul | Div | Rem | Pow
          | BitAnd | BitOr | BitXor | Shl | Shr

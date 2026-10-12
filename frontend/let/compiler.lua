@@ -102,15 +102,42 @@ function M.file(path)
 end
 
 -- Resolve and type a parsed source unit into structurally verified ASDL Ir.Fn nodes.
-function M.typed(input)
-    local unit = input and input.phase and input or M.source(input)
-    return Semantic.build(unit)
+local function withSession(options, run)
+    local session=require('let.demand').open(options)
+    local ok,result=pcall(run,session)
+    session:close()
+    if not ok then error(result,0) end
+    return result
+end
+
+local function freshUnit(unit)
+    -- Elaboration annotations are request-local, including repeated typing of one AST.
+    local seen={}
+    local function clone(value)
+        if type(value)~='table' then return value end
+        if seen[value] then return seen[value] end
+        local result={};seen[value]=result
+        for key,item in pairs(value) do
+            if key~='_semanticParams' and key~='_resultTypes' and key~='_typeDeclaration' then result[key]=clone(item) end
+        end
+        return setmetatable(result,getmetatable(value))
+    end
+    local ast=clone(unit.ast)
+    local bindings,order=indexDeclarations(ast)
+    return {phase='parsed',profile=unit.profile,name=unit.name,ast=ast,bindings=bindings,declarationOrder=order}
+end
+
+function M.typed(input, options)
+    return withSession(options,function(session)
+        local unit = input and input.phase and freshUnit(input) or M.source(input)
+        return Semantic.build(unit,{demands=session})
+    end)
 end
 
 -- Production source compilation: parsing, semantic construction, checked IR verification and the
 -- shared ABC lowering path. No source computation executes in Lua.
 function M.compile(options)
-    local unit = M.typed(options)
+    local unit = M.typed(options,options)
     local lowerOptions = {}
     for key, value in pairs(options or {}) do lowerOptions[key] = value end
     lowerOptions.profile = unit.profile.name
@@ -144,7 +171,7 @@ end
 
 -- Construct verified IR for a profile-checked import graph, without requiring
 -- an executable backend. Imported functions keep deterministic private IDs.
-function M.typedFile(path)
+local function typedFile(path, session)
     local cache,active,nextModule={},{},0
     local function load(modulePath, root)
         if active[modulePath] then D.reject("import-cycle","Module import cycle reaches "..modulePath) end
@@ -163,7 +190,7 @@ function M.typedFile(path)
             for _,fn in ipairs(child.functions) do if not seen[fn.id] then seen[fn.id]=true;dependencies[#dependencies+1]=fn end end
         end end
         local prefix="";if not root then nextModule=nextModule+1;prefix="__let_module_"..nextModule.."_" end
-        Semantic.build(unit,{prefix=prefix,imports=imports,types=importTypes,schemas=importSchemas,typeCells=typeCells,dependencies=dependencies,foreigns=foreigns,importsResolved=true})
+        Semantic.build(unit,{prefix=prefix,imports=imports,types=importTypes,schemas=importSchemas,typeCells=typeCells,dependencies=dependencies,foreigns=foreigns,importsResolved=true,demands=session})
         local functions={} for _,fn in ipairs(dependencies) do functions[#functions+1]=fn end
         for _,fn in ipairs(unit.functions) do functions[#functions+1]=fn end
         local exported={} for _,item in ipairs(unit.ast.export.functions) do
@@ -177,9 +204,13 @@ function M.typedFile(path)
         foreigns=loaded.foreigns,modules=cache}
 end
 
+function M.typedFile(path, options)
+    return withSession(options,function(session) return typedFile(path,session) end)
+end
+
 function M.compileFile(path, options)
     options=options or {}
-    local loaded=M.typedFile(path);local lowerOptions={} for key,value in pairs(options) do lowerOptions[key]=value end
+    local loaded=M.typedFile(path,options);local lowerOptions={} for key,value in pairs(options) do lowerOptions[key]=value end
     lowerOptions.profile=M.profileForPath(path).name
     lowerOptions.foreigns=loaded.foreigns
     if lowerOptions.exports==nil then lowerOptions.exports=Semantic.exports(loaded.unit) end

@@ -5,7 +5,6 @@ local S = require("let.schema")
 local IR = require("let.ir")
 local Check = require("let.check")
 local ABC = require("let.abc")
-local Optimizer = require("let.optimize")
 local D = require("let.diag")
 
 ffi.cdef [[ typedef union { uint64_t u; uint32_t word[2]; double d; } let_specialize_bits; ]]
@@ -25,13 +24,17 @@ local function constant(builder, value, expected)
     local bits=Bits();bits.u=value.bits
     if expected==S.bool then return builder:bool(bits.word[0]~=0) end
     if expected==S.unit then return builder:const(S.unit,I.UInt(0)) end
-    if expected==S.f64 then return builder:float(S.f64,bits.d) end
+    if expected==S.f64 then return builder:const(S.f64,I.FloatBits(tonumber(bits.word[1]),tonumber(bits.word[0]))) end
     if expected:isInteger() then
         if expected:isWide() then return builder:int64(expected,tonumber(bits.word[1]),tonumber(bits.word[0])) end
         return builder:int(expected,tonumber(bits.word[0]))
     end
     D.todo("specialize-type","Known-value specialization is not implemented for "..S.display(expected))
 end
+
+-- Shared exact-cell decoding for VM-produced source knowledge and the explicit
+-- host specialization API. This is representation transport, not source evaluation.
+M.constant=constant
 
 function M.build(functions, options)
     options=options or {};local target=definition(functions,options.entry or "main")
@@ -67,7 +70,7 @@ function M.specialize(functions, options)
     local artifact=ABC.lower(combined,lower)
     local ok,Assembler=pcall(require,"assembler");if not ok then D.internal("specialize-host","Cannot load assembler: "..tostring(Assembler)) end
     local bytes,locations=Assembler.assemble(artifact.assembly)
-    local module,provenance=Optimizer.optimizeMapped(bytes)
+    local module,provenance=require('let.optimize').optimizeMapped(bytes)
     return {phase="specialized",entry=wrapper.id,fn=wrapper,functions=combined,artifact=artifact,module=module,locations=locations,provenance=provenance}
 end
 

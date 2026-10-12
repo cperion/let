@@ -5,6 +5,7 @@ local Check = require("let.check")
 local Walk = require("let.walk")
 local Resolve = require("let.resolve")
 local D = require("let.diag")
+local Source = require("let.source_state")
 
 local M = {}
 local I, L = S.Ir, S.ASDL.List
@@ -22,12 +23,6 @@ local BINARY = {
 }
 local COMPARISON = { ["=="]=true, ["!="]=true, ["<"]=true, ["<="]=true, [">"]=true, [">="]=true }
 
-local STATIC_LITERAL={U32Literal=true,U64Literal=true,FloatLiteral=true,BoolLiteral=true,UnitLiteral=true,StringLiteral=true}
-local function staticSupply(node)
-    if STATIC_LITERAL[node.kind] then return true end
-    if node.kind=="Apply" and node.callee.kind=="Reference" and BUILTIN_TYPES[node.callee.name.text] then for _,argument in ipairs(node.arguments) do if not staticSupply(argument) then return false end end;return true end
-    return false
-end
 
 local function schemaName(node,schemas)
     if not node then return nil end
@@ -283,7 +278,8 @@ function Function:sumMatch(node, expected)
             end
             local result=self.builder:valueId();local args={}
             if payloadExpr then args[1]=I.ValueArg(payloadExpr) end
-            self.builder:emit(list,located(I.Indirect(L({result}),callable,L(args)),lambda))
+            local application=Source.supply(callable.sourceCallable,args)
+            self.builder:emit(list,located(I.Call(L({result}),application.target,L(Source.arguments(application))),lambda))
             return self.builder:ref(result,resultType)
         end)
         if ok then if value.borrowedLocal then resultBorrow=true end;self.builder:store(list,I.Local(resultStorage),value) end
@@ -294,6 +290,41 @@ function Function:sumMatch(node, expected)
     self.builder:emit(parentBody,located(I.Var(resultStorage,resultType,nil),node));self.builder:emit(parentBody,located(I.Switch(variantValue,variant.type,L(cases)),node))
     local value=self.builder:read(parentBody,resultType,I.Local(resultStorage));local result=self.builder:ref(value,resultType);result.borrowedLocal=resultBorrow;return result
 end
+function Function:captureCallable(binding, child, slots, recursiveSlots)
+    local original=binding.sourceCallable or Source.callable(binding)
+    local captured={} for key,value in pairs(original) do captured[key]=value end
+    captured.captures={};captured.supplied={}
+    local function transport(arg, input)
+        if arg.kind=='ValueArg' and arg.value.kind=='Const' then return arg end
+        local index=#child.inputs;child.inputs[#child.inputs+1]=input
+        local result
+        if input.kind=='InPlace' then
+            local storage=child.builder:storageId();child.params[#child.params+1]=I.PlaceParam(index,storage,input.type)
+            result=I.BorrowArg(I.Local(storage))
+        else
+            local value=child.builder:valueId();child.params[#child.params+1]=I.ValueParam(index,value,input.type)
+            result=I.ValueArg(child.builder:ref(value,input.type))
+        end
+        slots[#slots+1]=arg
+        if recursiveSlots then recursiveSlots[#recursiveSlots+1]=result end
+        return result
+    end
+    for index,arg in ipairs(original.captures) do
+        local input
+        if arg.kind=='ValueArg' then input=S.inValue(arg.value.type)
+        else
+            local definition=original.target==self.id and self or self.lambdaState.resolve(original.target)
+            input=assert(definition and definition.inputs[index],'missing captured place contract')
+        end
+        captured.captures[index]=transport(arg,input)
+    end
+    for _,requirement in ipairs(original.original) do
+        local arg=original.supplied[requirement.identity]
+        if arg then captured.supplied[requirement.identity]=transport(arg,requirement.input) end
+    end
+    return {sourceCallable=captured,type=S.view(S.sig(captured.inputs,captured.results)),callable=true}
+end
+
 function Function:lambda(node, expected, inferResults)
     local ownSignature=not expected
     if ownSignature then
@@ -320,15 +351,15 @@ function Function:lambda(node, expected, inferResults)
         if item.kind=="Reference" and not parameterNames[item.name.text] and self.scope[item.name.text] and not seen[item.name.text] then seen[item.name.text]=true;captures[#captures+1]=item.name.text end
     end})
     table.sort(captures)
-    if not self.managed then for _,name in ipairs(captures) do if containsBorrow(self.scope[name].type) then reject("borrow-store","An escaping closure cannot retain a reference or slice capture",node) end end end
-    if #captures>0 and not self.managed then reject("slet-forbidden","SLet lambdas cannot capture local values",node) end
+    if not self.managed then for _,name in ipairs(captures) do if self.scope[name].type and containsBorrow(self.scope[name].type) then reject("borrow-store","An escaping closure cannot retain a reference or slice capture",node) end end end
     self.lambdaState.count=self.lambdaState.count+1;local id=self.id.."_lambda_"..self.lambdaState.count
     local lambdaResults=expected.visible.results;if inferResults then lambdaResults=nil end
     local child=setmetatable({id=id,signatures=self.signatures,globals=self.globals,types=self.types,typeCells=self.typeCells,schemas=self.schemas,methodState=self.methodState,builder=IR.builder(),body={},scope={},inputs={},results=lambdaResults,params={},dynamic=self.dynamic,managed=self.managed,generated=self.generated,lambdaState=self.lambdaState,deferScopes={}},Function)
     local slots={}
     for _,name in ipairs(captures) do
         local source=self.scope[name];local input=#child.inputs
-        if source.storage and (source.type:isRecord() or source.type:isArray()) then
+        if source.sourceCallable or source.localWord then child.scope[name]=self:captureCallable(source,child,slots)
+        elseif source.storage and (source.type:isRecord() or source.type:isArray()) then
             child.inputs[#child.inputs+1]=S.inPlace(source.type);local storage=child.builder:storageId();child.params[#child.params+1]=I.PlaceParam(input,storage,source.type);child.scope[name]={storage=storage,type=source.type}
             slots[#slots+1]=I.BorrowArg(I.Local(source.storage))
         else
@@ -340,6 +371,7 @@ function Function:lambda(node, expected, inferResults)
             slots[#slots+1]=I.ValueArg(captured)
         end
     end
+    local captureCount=#child.inputs
     for index,param in ipairs(node.params) do
         local inputType=expected.visible.inputs[index].type
         if param.annotation and not ownSignature and typeExpr(param.annotation,self.types)~=inputType then reject("type-mismatch","Lambda parameter annotation does not match its signature",param) end
@@ -347,10 +379,11 @@ function Function:lambda(node, expected, inferResults)
     end
     if node.body.kind=="Expression" then child:returnValues({node.body.value},node.body.value)
     else child:statements(node.body.statements);if Check.falls(child.body) then reject("missing-return","Lambda can finish without returning",node) end end
-    self.generated[#self.generated+1]=located(I.Fn(id,I.Body,#captures,L(child.inputs),L(child.results),L(child.params),L(child.body)),node)
+    self.generated[#self.generated+1]=located(I.Fn(id,I.Body,captureCount,L(child.inputs),L(child.results),L(child.params),L(child.body)),node)
     local actual=inferResults and S.view(S.sig(expected.visible.inputs,child.results)) or expected
-    local value=self.builder:valueId();self.builder:emit(self.body,located(I.View(value,actual,id,L(slots),#slots>0 and self.builder:storageId() or nil),node))
-    return self.builder:ref(value,actual)
+    local callable=Source.callable({target=id,inputs=actual.visible.inputs,results=child.results,prefixArgs=slots})
+    callable.lambda=true
+    return Source.value(callable,node.span)
 end
 
 function Function:methodTarget(binding, methodName, owner)
@@ -459,7 +492,8 @@ function Function:localWord(def, owner)
     local parentSlots,recursiveSlots={},{}
     for _,captureName in ipairs(captureNames) do
         local source=self.scope[captureName];local input=#child.inputs
-        if source.storage and (source.type:isRecord() or source.type:isArray()) then
+        if source.sourceCallable or source.localWord then child.scope[captureName]=self:captureCallable(source,child,parentSlots,recursiveSlots)
+        elseif source.storage and (source.type:isRecord() or source.type:isArray()) then
             child.inputs[#child.inputs+1]=S.inPlace(source.type)
             local storage=child.builder:storageId();child.params[#child.params+1]=I.PlaceParam(input,storage,source.type)
             child.scope[captureName]={storage=storage,type=source.type,borrowedLocal=source.borrowedLocal}
@@ -473,6 +507,7 @@ function Function:localWord(def, owner)
             parentSlots[#parentSlots+1]=I.ValueArg(captured);recursiveSlots[#recursiveSlots+1]=I.ValueArg(child.builder:ref(value,source.type))
         end
     end
+    local captureCount=#child.inputs
     local descriptor={localWord=true,target=id,inputs=visibleInputs,results=results,keyed=keyed,prefixArgs=parentSlots}
     self.scope[name]=descriptor
     child.scope[name]={localWord=true,target=id,inputs=visibleInputs,results=results,keyed=keyed,prefixArgs=recursiveSlots}
@@ -485,10 +520,66 @@ function Function:localWord(def, owner)
     child.def=def
     if def.body.kind=="Expression" then child:returnValues({def.body.value},def.body.value) else child:statements(def.body.statements) end
     if Check.falls(child.body) then reject("missing-return","Word `"..name.."` can finish without returning",def) end
-    self.generated[#self.generated+1]=located(I.Fn(id,I.Body,#captureNames,L(child.inputs),L(results),L(child.params),L(child.body)),owner)
+    self.generated[#self.generated+1]=located(I.Fn(id,I.Body,captureCount,L(child.inputs),L(results),L(child.params),L(child.body)),owner)
+end
+
+-- First-class transport is the only place that creates a callable environment.
+function Function:materializeCallable(expr)
+    if not expr.sourceCallable then return expr end
+    local callable=expr.sourceCallable
+    if callable.lambda and #callable.captures>0 and not self.managed then
+        reject('slet-forbidden','An escaping lambda capture needs an owned representation',expr)
+    end
+    local target,slots=callable.target,{}
+    for _,arg in ipairs(callable.captures) do slots[#slots+1]=arg end
+    local hasSupply=next(callable.supplied)~=nil
+    if hasSupply then
+        -- A boundary adapter binds arbitrary original requirement positions, including
+        -- keyed holes. Direct invocation never constructs this wrapper/environment.
+        self.lambdaState.count=self.lambdaState.count+1
+        target=self.id.."_bound_"..self.lambdaState.count
+        local builder=IR.builder();local inputs,params,arguments={},{},{}
+        local function parameter(input)
+            local index=#inputs;inputs[#inputs+1]=input
+            if input.kind=="InPlace" then
+                local storage=builder:storageId();params[#params+1]=I.PlaceParam(index,storage,input.type)
+                return I.BorrowArg(I.Local(storage))
+            end
+            local value=builder:valueId();params[#params+1]=I.ValueParam(index,value,input.type)
+            return I.ValueArg(builder:ref(value,input.type))
+        end
+        -- Captures already have the ABI's original hidden-prefix order.
+        for index,arg in ipairs(callable.captures) do
+            local ty
+            if arg.kind=="ValueArg" then ty=S.inValue(arg.value.type)
+            else
+                local definition=callable.target==self.id and self or self.lambdaState.resolve(callable.target)
+                ty=assert(definition and definition.inputs[index],'missing capture layout')
+            end
+            arguments[#arguments+1]=parameter(ty)
+        end
+        local supplied={}
+        for _,requirement in ipairs(callable.original) do
+            local arg=callable.supplied[requirement.identity]
+            if arg then slots[#slots+1]=arg;supplied[requirement.identity]=parameter(requirement.input) end
+        end
+        local hidden=#inputs
+        for _,requirement in ipairs(callable.requirements) do supplied[requirement.identity]=parameter(requirement.input) end
+        for _,requirement in ipairs(callable.original) do arguments[#arguments+1]=supplied[requirement.identity] end
+        local values,returned={},{}
+        for index,ty in ipairs(callable.results) do values[index]=builder:valueId();returned[index]=builder:ref(values[index],ty) end
+        local body={I.Call(L(values),callable.target,L(arguments)),I.Return(L(returned))}
+        self.generated[#self.generated+1]=I.Fn(target,I.Body,hidden,L(inputs),L(callable.results),L(params),L(body))
+    end
+    local value=self.builder:valueId()
+    self.builder:emit(self.body,located(I.View(value,expr.type,target,L(slots),#slots>0 and self.builder:storageId() or nil),expr))
+    local result=located(self.builder:ref(value,expr.type),expr)
+    result.borrowedLocal=expr.borrowedLocal
+    return result
 end
 
 function Function:coerce(expr, expected, node)
+    if expr.sourceCallable and expected then expr=self:materializeCallable(expr) end
     if not expected or expr.type==expected then return expr end
     if self:sameType(expr.type,expected) then
         if expr.kind=="Ref" then return located(self.builder:ref(expr.value,expected),node) end
@@ -518,7 +609,12 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         else name=node.callee.base.name.text.."."..node.callee.field.text end
     else callable=self:expr(node.callee);name="<callable>" end
     local binding=node.callee.kind=="Reference" and self.scope[name] or nil
-    local localWord=selectedMethod or (binding and binding.localWord and binding or nil)
+    if not binding and self.globals[name] then
+        local value=self.lambdaState.resolveGlobal(name)
+        if value.sourceCallable then binding={sourceCallable=value.sourceCallable,type=value.type,callable=true} end
+    end
+    local localWord=selectedMethod or (binding and (binding.localWord or binding.sourceCallable) and (binding.sourceCallable or binding) or nil)
+    if callable and callable.sourceCallable then localWord=callable.sourceCallable;callable=nil end
     local indirect=not localWord and (callable and {type=callable.type,expr=callable} or binding and (binding.callable or binding.type==S.any) and binding or nil)
     if node.callee.kind=="FieldSelect" and node.callee.base.kind=="Reference" then
         local sum=self.types[node.callee.base.name.text]
@@ -573,20 +669,21 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         if conversion and #node.arguments==1 then return self:coerce(self:expr(node.arguments[1],conversion),conversion,node) end
         reject("unknown-name", "Unknown word `"..name.."`", node.callee)
     end
-    if target.keyed then reject("keyed-required","Word `"..name.."` must be supplied by key",node) end
+    if target.keyed and not (target.sourceCallable and next(target.supplied)) then reject("keyed-required","Word `"..name.."` must be supplied by key",node) end
     if #node.arguments>#target.inputs then reject("arity", "Word `"..name.."` expects at most "..#target.inputs.." arguments", node) end
-    local args={};if localWord then for _,slot in ipairs(localWord.prefixArgs) do args[#args+1]=slot end end;local localBorrow=false
+    local args={};local localBorrow=false
     for index,arg in ipairs(node.arguments) do
         local value=self:coerce(self:expr(arg,target.inputs[index].type),target.inputs[index].type,arg)
         if value.borrowedLocal then localBorrow=true end
         args[#args+1]=I.ValueArg(value)
     end
+    local application=not indirect and Source.supply(Source.callable(target,name),args) or nil
     if prepareOnly then
         if #node.arguments<#target.inputs then reject("arity","A deferred action must be a saturated call",node) end
-        return {target=target,name=name,indirect=indirect,args=args,node=node}
+        return {target=target,name=name,indirect=indirect,args=application and Source.arguments(application) or args,node=node}
     end
     if #node.arguments<#target.inputs then
-        local runtimeSupply=false for _,argument in ipairs(node.arguments) do if not staticSupply(argument) then runtimeSupply=true;break end end
+        local runtimeSupply=false for _,argument in ipairs(args) do if not self.lambdaState.demands:known(self:context(),argument.value) then runtimeSupply=true;break end end
         if runtimeSupply and self.dynamic and not indirect and not localWord and not target.foreign then
             local callableValue=self.builder:valueId();self.builder:emit(self.body,located(I.View(callableValue,S.any,target.target or name,L{},nil),node))
             local dynamicArgs={} for _,arg in ipairs(args) do dynamicArgs[#dynamicArgs+1]=I.ValueArg(self:coerce(arg.value,S.any,node)) end
@@ -594,19 +691,20 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
             return self.builder:ref(result,S.any)
         end
         if indirect then return self:indirectPartial(node,indirect,target,args,expected) end
-        for _,argument in ipairs(node.arguments) do if not staticSupply(argument) then reject("static-required","Partial application requires static values",argument) end end
-        local remaining={} for index=#node.arguments+1,#target.inputs do remaining[#remaining+1]=target.inputs[index] end
-        local ty=S.view(S.sig(remaining,target.results))
-        if expected and expected~=ty then reject("type-mismatch","Partial application does not match the expected callable signature",node) end
-        local value=self.builder:valueId();self.builder:emit(self.body,located(I.View(value,ty,target.target or name,L(args),#args>0 and self.builder:storageId() or nil),node))
-        local result=self.builder:ref(value,ty);if localBorrow then result.borrowedLocal=true end
+        for index,argument in ipairs(args) do
+            args[index]=I.ValueArg(self.lambdaState.demands:require(self:context(),argument.value,self.lambdaState.resolve,node.arguments[index]))
+        end
+        application=Source.supply(Source.callable(target,name),args)
+        local result=Source.value(application,node.span)
+        if expected and expected~=result.type then reject("type-mismatch","Partial application does not match the expected callable signature",node) end
+        if localBorrow then result.borrowedLocal=true end
         return result
     end
     local values={} for index=1,#target.results do values[index]=self.builder:valueId() end
     if indirect then
         local callableValue=indirect.expr or self.builder:ref(indirect.value,indirect.type)
         self.builder:emit(self.body,located(I.Indirect(L(values),callableValue,L(args)),node))
-    else self.builder:emit(self.body,located(I.Call(L(values),target.target or name,L(args)),node)) end
+    else self.builder:emit(self.body,located(I.Call(L(values),application.target,L(Source.arguments(application))),node)) end
     if discard then return end
     local refs={} for index,value in ipairs(values) do
         refs[index]=located(self.builder:ref(value,target.results[index]),node);refs[index].schema=target.resultSchemas and target.resultSchemas[index] or nil
@@ -644,9 +742,9 @@ function Function:keyedSupply(node,target,expected)
         local ty=index and target.inputs[index].type or S.any
         local value=self:coerce(self:expr(field.value,ty),ty,field.value)
         byName[name]=I.ValueArg(value);suppliedOrder[#suppliedOrder+1]={name=name,index=index,arg=byName[name],node=field.value}
-        if not index or not staticSupply(field.value) then runtime=true end
+        if not index or not self.lambdaState.demands:known(self:context(),value) then runtime=true end
     end
-    if runtime then
+    if runtime and (#node.fields<#target.inputs or self.dynamic) then
         if not self.managed then reject("slet-forbidden","SLet cannot retain a runtime keyed callable",node) end
         if target.localWord then reject("semantic-todo","Runtime keyed supply of a nested word or method is not implemented",node) end
         if target.foreign then reject("static-foreign","A foreign word cannot be opened by runtime keyed supply",node) end
@@ -660,32 +758,28 @@ function Function:keyedSupply(node,target,expected)
         end
         return located(word,node)
     end
-    local missing={} for index,name in ipairs(target.keyed) do if not byName[name] then missing[#missing+1]={name=name,index=index,input=target.inputs[index]} end end
-    if #missing>0 then
-        if target.localWord then reject("semantic-todo","Partial keyed supply of a nested word is not implemented",node) end
-        if target.method and not self.managed then reject("slet-forbidden","SLet cannot retain a partially supplied method receiver",node) end
-        self.lambdaState.count=self.lambdaState.count+1;local id=self.id.."_keyed_"..self.lambdaState.count
-        local builder=IR.builder();local inputs,params,arguments={},{},{}
-        for _,supply in ipairs(suppliedOrder) do arguments[supply.name]=supply.arg end
-        local visibleInputs={}
-        for _,item in ipairs(missing) do local input=#inputs;inputs[#inputs+1]=item.input;visibleInputs[#visibleInputs+1]=item.input;local value=builder:valueId();params[#params+1]=I.ValueParam(input,value,item.input.type);arguments[item.name]=I.ValueArg(builder:ref(value,item.input.type)) end
-        local args={} for _,name in ipairs(target.keyed) do args[#args+1]=arguments[name] end
-        local values={} for index=1,#target.results do values[index]=builder:valueId() end
-        local body={I.Call(L(values),target.target,L(args))};local returned={} for index,value in ipairs(values) do returned[index]=builder:ref(value,target.results[index]) end;body[#body+1]=I.Return(L(returned))
-        self.generated[#self.generated+1]=located(I.Fn(id,I.Body,0,L(inputs),L(target.results),L(params),L(body)),node)
-        local ty=S.view(S.sig(visibleInputs,target.results));if expected and expected~=ty then reject("type-mismatch","Partial keyed supply does not match the expected callable signature",node) end
-        local value=self.builder:valueId();self.builder:emit(self.body,located(I.View(value,ty,id,L{},nil),node));return self.builder:ref(value,ty)
+    local supplies={} for _,supply in ipairs(suppliedOrder) do
+        supplies[supply.index]=#node.fields<#target.inputs and I.ValueArg(self.lambdaState.demands:require(self:context(),supply.arg.value,self.lambdaState.resolve,supply.node)) or supply.arg
     end
-    local args={}
-    if target.localWord then for _,arg in ipairs(target.prefixArgs) do args[#args+1]=arg end end
-    for _,name in ipairs(target.keyed) do args[#args+1]=byName[name] end
+    local application=Source.supply(Source.callable(target),supplies)
+    if #application.requirements>0 then
+        local result=Source.value(application,node.span)
+        if expected and expected~=result.type then reject("type-mismatch","Partial keyed supply does not match the expected callable signature",node) end
+        return result
+    end
     local values={} for index=1,#target.results do values[index]=self.builder:valueId() end
-    self.builder:emit(self.body,located(I.Call(L(values),target.target,L(args)),node))
+    self.builder:emit(self.body,located(I.Call(L(values),application.target,L(Source.arguments(application))),node))
     if #target.results~=1 then reject("result-arity","A keyed call used as an expression must return exactly one value",node) end
     return located(self.builder:ref(values[1],target.results[1]),node)
 end
 
+function Function:context()
+    if not self.builder.sourceContext then self.builder.sourceContext=Source.context(self.id) end
+    return self.builder.sourceContext
+end
+
 function Function:expr(node, expected)
+    self:context()
     local kind=node.kind
     local expr
     if kind=="U32Literal" then
@@ -704,20 +798,21 @@ function Function:expr(node, expected)
     elseif kind=="Reference" then
         local binding=self.scope[node.name.text]
         if binding then
-            if binding.localWord then
-                local ty=S.view(S.sig(binding.inputs,binding.results));if expected==S.any then ty=S.any end
-                local value=self.builder:valueId();self.builder:emit(self.body,located(I.View(value,ty,binding.target,L(binding.prefixArgs),#binding.prefixArgs>0 and self.builder:storageId() or nil),node));expr=self.builder:ref(value,ty)
+            if binding.sourceCallable then expr=Source.value(binding.sourceCallable,node.span)
+            elseif binding.localWord then
+                expr=Source.value(Source.callable(binding,node.name.text),node.span)
+                if expected==S.any then expr=self:coerce(expr,S.any,node) end
             elseif binding.storage or binding.place then
                 local place=binding.place or I.Local(binding.storage);local value=self.builder:read(self.body,binding.type,place);expr=self.builder:ref(value,binding.type);expr.schema=binding.schema;expr.borrowedLocal=binding.borrowedLocal
             else expr=self.builder:ref(binding.value,binding.type);expr.schema=binding.schema;expr.borrowedLocal=binding.borrowedLocal end
         else
             local target=self.signatures[node.name.text]
             if target then
-                local ty=expected==S.any and S.any or S.view(S.sig(target.inputs,target.results));local value=self.builder:valueId()
-                self.builder:emit(self.body,located(I.View(value,ty,target.target or node.name.text,L{},nil),node));expr=self.builder:ref(value,ty)
+                expr=Source.value(Source.callable(target,node.name.text),node.span)
+                if expected==S.any then expr=self:coerce(expr,expected,node) end
             else
                 local global=self.globals[node.name.text]
-                if global then expr=self:expr(global.node,global.type)
+                if global then expr=self.lambdaState.resolveGlobal(node.name.text)
                 elseif self.dynamicReceiver then
                     local key=self.builder:const(S.string,I.Str(node.name.text));expr=self:dynamicWord("WordGet",{self.dynamicReceiver,key},node)
                 else reject("unknown-name", "Unknown value `"..node.name.text.."`", node) end
@@ -750,7 +845,7 @@ function Function:expr(node, expected)
             return located(self:dynamicWord("WordSupply",{source,addition},node),node)
         end
         if node.schema.kind=="Reference" then
-            local binding=self.scope[node.schema.name.text];local target=binding and binding.localWord and binding or self.signatures[node.schema.name.text]
+            local binding=self.scope[node.schema.name.text];local target=binding and (binding.sourceCallable or binding.localWord and binding) or self.signatures[node.schema.name.text]
             if target and target.keyed then return self:keyedSupply(node,target,expected) end
         elseif node.schema.kind=="FieldSelect" and node.schema.base.kind=="Reference" then
             local receiver=self.scope[node.schema.base.name.text]
@@ -901,17 +996,17 @@ function Function:returnValues(nodes, owner)
             if produced.kind then values[1]=produced else for _,value in ipairs(produced) do values[#values+1]=value end end
         else for _,node in ipairs(nodes) do values[#values+1]=self:expr(node) end end
         if #values==0 then values[1]=self.builder:const(S.unit,I.UInt(0)) end
-        self.results={} for index,value in ipairs(values) do self.results[index]=value.type end
+        self.results={} for index,value in ipairs(values) do values[index]=self:materializeCallable(value);self.results[index]=values[index].type end
         self:emitDefers();self.builder:return_(self.body,values);located(self.body[#self.body],owner);return
     end
     if #nodes==0 and #self.results==1 and self.results[1]==S.unit then
-        local value=self.builder:const(S.unit,I.UInt(0));self.builder:return_(self.body,{value});located(self.body[#self.body],owner);return
+        local value=self.builder:const(S.unit,I.UInt(0));self:emitDefers();self.builder:return_(self.body,{value});located(self.body[#self.body],owner);return
     end
     if #nodes==1 and nodes[1].kind=="Apply" and #self.results>1 then
         local values=self:call(nodes[1],nil,false,true)
         if #values~=#self.results then reject("return-arity", "Expected "..#self.results.." return values",owner) end
         for index,value in ipairs(values) do values[index]=self:coerce(value,self.results[index],nodes[1]) end
-        self.builder:return_(self.body,values);located(self.body[#self.body],owner);return
+        self:emitDefers();self.builder:return_(self.body,values);located(self.body[#self.body],owner);return
     end
     if #nodes~=#self.results then reject("return-arity", "Expected "..#self.results.." return values",owner) end
     local values={} for index,node in ipairs(nodes) do
@@ -923,6 +1018,7 @@ function Function:returnValues(nodes, owner)
 end
 
 function Function:statements(statements)
+    self:context()
     local deferred={}
     self.deferScopes[#self.deferScopes+1]=deferred
     for _,stmt in ipairs(statements) do
@@ -960,7 +1056,7 @@ function Function:statements(statements)
                         pending[index]={binder=binder,callableTarget=target.target or origin.name.text,type=ty}
                     else
                         local value=produced[index] or self.builder:const(S.unit,I.UInt(0))
-                        local coerced=self:coerce(value,wanted,binder);pending[index]={binder=binder,expr=coerced,schema=schemaName(binder.annotation,self.schemas) or coerced.schema}
+                        local coerced=value.sourceCallable and (not wanted or wanted==value.type) and value or self:coerce(value,wanted,binder);pending[index]={binder=binder,expr=coerced,schema=schemaName(binder.annotation,self.schemas) or coerced.schema}
                     end
                 end
             end
@@ -969,10 +1065,16 @@ function Function:statements(statements)
                 local value=self.builder:valueId()
                 if entry.alias then self.scope[name]={storage=entry.alias,type=entry.type,borrowedLocal=entry.borrowedLocal}
                 elseif entry.callableTarget then
-                    self.builder:emit(self.body,located(I.View(value,entry.type,entry.callableTarget,L{},nil),stmt))
-                    self.scope[name]={value=value,type=entry.type,callable=true}
+                    local target=self.signatures[entry.callableTarget]
+                    if not target then for _,candidate in pairs(self.signatures) do if candidate.target==entry.callableTarget then target=candidate;break end end end
+                    local source=Source.value(Source.callable(assert(target),entry.callableTarget),stmt.span)
+                    if entry.type==S.any then
+                        local material=self:coerce(source,S.any,stmt)
+                        self.scope[name]={value=self.builder:let(self.body,S.any,material),type=S.any,callable=true}
+                    else self.scope[name]={sourceCallable=source.sourceCallable,type=source.type,callable=true} end
                 else
-                    if entry.expr.type:isView() and entry.expr.kind=="Ref" then self.scope[name]={value=entry.expr.value,type=entry.expr.type,callable=true}
+                    if entry.expr.sourceCallable then self.scope[name]={sourceCallable=entry.expr.sourceCallable,type=entry.expr.type,callable=true}
+                    elseif entry.expr.type:isView() and entry.expr.kind=="Ref" then self.scope[name]={value=entry.expr.value,type=entry.expr.type,callable=true}
                     elseif entry.expr.type:isSum() and entry.expr.kind=="Ref" then self.scope[name]={value=entry.expr.value,type=entry.expr.type,borrowedLocal=entry.expr.borrowedLocal}
                     elseif entry.expr.type:isRecord() or entry.expr.type:isArray() or entry.expr.type:isRef() or entry.expr.type:isPtr() then
                         local storage=self.builder:var(self.body,entry.expr.type,entry.expr);self.scope[name]={storage=storage,type=entry.expr.type,schema=entry.schema,borrowedLocal=entry.expr.borrowedLocal}
@@ -1143,19 +1245,53 @@ function M.build(unit, options)
             if #decl.def.binders~=#decl.def.values then reject("binding-arity","A top-level value declaration needs one value per binder",decl) end
             for index,binder in ipairs(decl.def.binders) do
                 local node=decl.def.values[index];local inferred=literalType(node)
-                if not inferred then reject("semantic-todo","Only literal top-level values are implemented; initializer computation must run through ABC",node) end
                 local ty=binder.annotation and typeExpr(binder.annotation,types) or inferred
-                if inferred~=ty and ty~=S.any and not (inferred:isInteger() and ty:isInteger()) then reject("type-mismatch","Top-level initializer does not match its annotation",node) end
                 globals[binder.name.text]={node=node,type=ty}
             end
         elseif decl.kind=="ValueDecl" then -- compile-time type declaration already collected above
         elseif decl.kind=="UseDecl" then if not options.importsResolved then reject("import-input","A source string cannot resolve imports; compile a file",decl) end
         else reject("semantic-todo", "Top-level "..decl.kind.." is not implemented by source-to-IR construction",decl) end
     end
-    local functions,generated,lambdaState,methodState={},{},{count=0},{}
-    for _,entry in ipairs(order) do
-        local fn=Function.new(entry.def,entry.id,signatures,globals,types,dynamic,unit.profile and unit.profile.managed,generated,lambdaState,cells,schemas,methodState):build();functions[#functions+1]=fn
+    local functions,generated,lambdaState,methodState={},{},{count=0,demands=assert(options.demands,'compilation owns source demands')},{}
+    local declarations,built,building={},{},{}
+    for _,entry in ipairs(order) do declarations[entry.id]=entry end
+    for _,fn in ipairs(options.dependencies or {}) do built[fn.id]=fn end
+    local function resolve(id)
+        if built[id] then return built[id] end
+        for _,fn in ipairs(generated) do if fn.id==id then return fn end end
+        local entry=declarations[id];if not entry then return nil end
+        if building[id] then reject('static-cycle','A required static value depends on unfinished definition `'..id..'`',entry.def) end
+        building[id]=true
+        local fn=Function.new(entry.def,entry.id,signatures,globals,types,dynamic,unit.profile and unit.profile.managed,generated,lambdaState,cells,schemas,methodState):build()
+        built[id]=fn;building[id]=nil
+        return fn
     end
+    lambdaState.resolve=resolve
+    lambdaState.resolveGlobal=function(name)
+        local global=assert(globals[name])
+        if global.value then return global.value end
+        if global.initializing then reject('static-cycle','Initializer cycle reaches `'..name..'`',global.node) end
+        global.initializing=true
+        local initializer=setmetatable({id=prefix..'__init_'..name,signatures=signatures,
+            globals=globals,types=types,typeCells=cells,schemas=schemas,methodState=methodState,
+            builder=IR.builder(),body={},scope={},inputs={},params={},dynamic=dynamic,
+            managed=unit.profile and unit.profile.managed,generated=generated,
+            lambdaState=lambdaState,deferScopes={}},Function)
+        local value=initializer:expr(global.node,global.type)
+        if global.type and not value.sourceCallable then value=initializer:coerce(value,global.type,global.node) end
+        if not value.sourceCallable then
+            value=lambdaState.demands:require(initializer:context(),value,resolve,global.node)
+        elseif global.type and global.type~=value.type then reject('type-mismatch','Module callable does not match its annotation',global.node) end
+        global.value=value;global.initializing=nil
+        return value
+    end
+    -- Declaration-order initialization; forward demands share the same binding state.
+    for _,decl in ipairs(unit.ast.declarations) do
+        if decl.kind=='ValueDecl' and not decl._typeDeclaration then
+            for _,binder in ipairs(decl.def.binders) do lambdaState.resolveGlobal(binder.name.text) end
+        end
+    end
+    for _,entry in ipairs(order) do functions[#functions+1]=resolve(entry.id) end
     for _,fn in ipairs(generated) do functions[#functions+1]=fn end
     for _,item in ipairs(unit.ast.export.functions) do if item.kind=="ExportAlias" then
         local source

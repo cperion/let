@@ -11,7 +11,7 @@ local function main()
     local command=arg[1]
     if not command or command=='--help' or command=='-h' then
         print('usage: abc asm SOURCE -o MODULE')
-        print('       abc compile SOURCE.let|SOURCE.slet -o MODULE [--export WORD] [--emit-asm]')
+        print('       abc compile SOURCE.let|SOURCE.slet -o MODULE [--export WORD] [--emit-asm] [--static-mode=interpreted|threaded|eager|lazy]')
         print('       abc opt MODULE -o OPTIMIZED')
         print('       abc c MODULE -o OUTPUT.c')
         print('       abc run MODULE|SOURCE.let|SOURCE.slet [EXPORT] [ARGS...] [--stack=N] [--jit=off|threaded|lazy|eager]')
@@ -21,15 +21,21 @@ local function main()
     local runtime=io.open(util.runtime,'rb')
     if not runtime then error('build the runtime first with make',0) end runtime:close()
     if command=='run' and arg[2] and (arg[2]:match('%.slet$') or arg[2]:match('%.let$')) then
-        local path=arg[2];local profile=path:match('%.slet$') and 'slet' or 'let';local extra='main'
-        for i=3,#arg do if arg[i]:sub(1,2)~='--' then extra=arg[i]; break end end
-        local artifact=require('let.compiler').compileFile(path,{exports={extra}})
+        local path=arg[2];local extra='main';local mode='interpreted';local forwarded={};local i=3
+        while i<=#arg do
+            local selected=arg[i]:match('^%-%-static%-mode=(.*)$')
+            if arg[i]=='--static-mode' then i=i+1;selected=arg[i];if not selected then error('--static-mode needs a mode',0) end end
+            if selected then mode=selected else forwarded[#forwarded+1]=arg[i] end
+            i=i+1
+        end
+        for _,value in ipairs(forwarded) do if value:sub(1,2)~='--' then extra=value;break end end
+        local artifact=require('let.compiler').compileFile(path,{exports={extra},staticMode=mode})
         local temporary=os.tmpname()
         local ok,result=pcall(function()
             local image=assembler.assemble(artifact.assembly)
             util.write(temporary,image) -- the runtime verifies once while loading
             local args={util.runtime,'run',temporary}
-            for i=3,#arg do args[#args+1]=arg[i] end
+            for _,value in ipairs(forwarded) do args[#args+1]=value end
             return execute(args)
         end)
         os.remove(temporary); if not ok then error(result,0) end return result
@@ -44,7 +50,7 @@ local function main()
         local args={util.runtime}; for i=1,#arg do args[#args+1]=arg[i] end return execute(args)
     end
     if command~='asm' and command~='compile' then error('unknown command '..command,0) end
-    local source,output,exports,emit_asm=nil,nil,{},false; local i=2
+    local source,output,exports,emit_asm=nil,nil,{},false; local i=2;local staticMode='interpreted'
     while i<=#arg do
         local option=arg[i]
         if option=='-o' or option=='--output' then
@@ -52,6 +58,9 @@ local function main()
         elseif option=='--export' and command=='compile' then
             i=i+1; if not arg[i] then error('--export needs a word',0) end exports[#exports+1]=arg[i]
         elseif option=='--emit-asm' and command=='compile' then emit_asm=true
+        elseif option=='--static-mode' and command=='compile' then
+            i=i+1;staticMode=arg[i];if not staticMode then error('--static-mode needs a mode',0) end
+        elseif command=='compile' and option:match('^%-%-static%-mode=') then staticMode=option:match('=(.*)$')
         elseif option:sub(1,1)=='-' or source then error('unexpected argument '..option,0)
         else source=option end
         i=i+1
@@ -60,7 +69,7 @@ local function main()
     local text=util.read(source)
     if command=='compile' then
         if not source:match('%.slet$') and not source:match('%.let$') then error('Let source must end in .let or .slet',0) end
-        local options={}
+        local options={staticMode=staticMode}
         if #exports>0 then options.exports=exports end
         text=require('let.compiler').compileFile(source,options).assembly
     end

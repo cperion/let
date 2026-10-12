@@ -551,8 +551,7 @@ return { functions = { main } }
 local keyedRuntimeSupply=checkedLet{profile="let",name="keyed-runtime-supply.let",source=[=[
 let add { a: u32, b: u32 }: u32 = a + b
 let digits { a: u32, b: u32, c: u32 }: u32 = a * 100 + b * 10 + c
-let main(): u32 = do
-  let supplied: u32 = 20
+let main(supplied: u32): u32 = do
   let partial = add { b = supplied, note = 1 }
   if u32(partial.b) != 20 or u32(partial.note) != 1 then return 0 end
   partial.b = 22
@@ -562,8 +561,7 @@ let main(): u32 = do
   full.a = 19
   return u32(partial(20)) + u32(changed(20)) + u32(full())
 end
-let bookkeeping(): u32 = do
-  let supplied: u32 = 2
+let bookkeeping(supplied: u32): u32 = do
   let partial = digits { b = supplied }
   let changed = partial { b = 4, note = 9 }
   if u32(partial(1, 3)) != 123 or u32(changed(1, 3)) != 143 then return 0 end
@@ -602,7 +600,11 @@ let main(): u32 = do
   return add(2)
 end
 ]]})
-check(not ok and D.is(err) and err.code=="slet-forbidden","SLet rejects managed lambda captures")
+check(ok,"Direct local lambda captures need no owned callable representation: "..tostring(err))
+if ok then
+  local result=Compiler.stage(err.functions,{profile="slet",entry="main",exports={"main"},mode="interpreted"})
+  check(tonumber(result.cells[1])==42,"Direct captured lambda preserves its scalar capture")
+end
 ok,err=pcall(Compiler.typed,{profile="slet",name="borrow.slet",source=[[
 let bad(): slice(u32) = do
   let xs = [1, 2]
