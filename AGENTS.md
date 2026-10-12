@@ -1,5 +1,41 @@
 # Project instructions for coding agents
 
+## Version control — jj backed by Git
+
+This repository uses colocated jj/Git. Use **jj for change management**; Git remains
+its object store and remote transport format. Do not casually alternate mutating Git
+and jj commands. Read-only Git inspection is fine. The integration bookmark is
+`master`, tracking `master@origin` (not a guessed `main`).
+
+- Start with `jj status`, `jj log` and the relevant diff. Preserve existing work;
+  a nonempty working-copy change is not automatically yours to repurpose.
+- Describe each new, coherent change before editing: `jj describe -m '...'`.
+  Keep approved specifications separate from their implementation. Include the work
+  IDs where applicable; substantial cross-file cutovers belong together.
+- jj snapshots eligible working-copy files when commands run, not continuously on
+  every keystroke. Run `jj status` at checkpoints. Ignored/untracked-excluded artifacts
+  and external files are not backed up by this mechanism.
+- At completion, review `jj diff`, run the appropriate checks and record actual
+  outcomes. `jj new` starts a fresh child change, leaving the completed parent intact.
+  Broken/partial checkpoints are allowed but must be described honestly, not presented
+  as validated fixes. Do not mix unrelated changes merely to keep every commit green.
+- Fetch with `jj git fetch`; inspect divergence before integration. Do not use a blind
+  Git pull/merge in the colocated workspace. No automatic upstream integration,
+  published-history rewriting or force pushing. Never use Git reset/rebase to clean up.
+- Bookmarks do not automatically advance to each working-copy change. After reviewing
+  the exact revisions, explicitly advance `master` to the completed change. Inspect
+  `jj git push --bookmark master --dry-run` before any authorized publication; do not
+  publish the empty working-copy child. Pushing requires user authorization.
+- Inspect `jj op log` for recovery. Undo/restore can affect other work; inspect the
+  operation and obtain agreement before destructive recovery. An operation log is not
+  a substitute for reviewed commits and remote backups.
+- Parallel agents still require isolated Git worktrees under the team policy; never
+  share one writable directory. Initialize colocated jj in an isolated worktree only
+  deliberately, and coordinate shared Git refs. This policy does not authorize agents
+  or parallel work without the user's request.
+- Git and jj identities are separately configurable. Keep this repository's email
+  consistent in both; do not rewrite historical authors when updating configuration.
+
 ## Authoritative documents and project management
 
 Start from the current code and the selected work item, not an old conversation summary or historical gap list.
