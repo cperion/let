@@ -15,17 +15,17 @@ let op = oneof { push: u32, add: unit, halt: unit }
 let run(code: ptr(op), pc: u32, stack: ptr(u32), sp: u32): u32 = do
   let op = code[pc]
   let npc, nsp, done = op {
-    push = |value: u32| -> do
+    push = do(value: u32)
       stack[sp] = value
       return pc + 1, sp + 1, false
     end,
-    add = |u: unit| -> do
+    add = do(u: unit)
       let right = stack[sp - 1]
       let left = stack[sp - 2]
       stack[sp - 2] = left + right
       return pc + 1, sp - 1, false
     end,
-    halt = |u: unit| -> do return pc, sp, true end,
+    halt = do(u: unit) return pc, sp, true end,
   }
   if done then return stack[sp - 1] end
   return run(code, npc, stack, nsp)

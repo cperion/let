@@ -265,7 +265,7 @@ AOT/runtime Emscripten build passes lifecycle, parking, channel and release test
 ```let
 use std.task
 
-let total(): u64 = task.scope(u64, do |g|
+let total(): u64 = task.scope(u64, do(g)
   let weights = freeze(build_weights())
   let a = g.spawn(|| weigh(weights, 0, 500))
   let b = g.spawn(|| weigh(weights, 500, 1000))
@@ -276,7 +276,7 @@ end)
 A channel is explicitly owned, rather than selected from ambient scope:
 
 ```let
-let squares(n: u32): u64 = task.scope(u64, do |g|
+let squares(n: u32): u64 = task.scope(u64, do(g)
   let ch = g.channel(u64, 16)
   g.spawn(|| produce_and_close(ch, n))
   return consume_until_closed(ch)

@@ -50,10 +50,10 @@ local COMPARISONS = setOf({ "==", "!=", "<", "<=", ">", ">=" })
 local LEVELS = {
     setOf({ "or" }), setOf({ "and" }), COMPARISONS,
     setOf({ "|" }), setOf({ "~" }), setOf({ "&" }),
-    setOf({ "<<", ">>" }), setOf({ "+", "-" }), setOf({ "*", "/", "%" }),
+    setOf({ "<<", ">>" }), setOf({ ".." }), setOf({ "+", "-" }), setOf({ "*", "/", "%" }),
 }
 local UNARY = setOf({ "-", "~", "not" })
-local ASSIGN = setOf({ "=", "+=", "-=", "*=", "/=", "%=", "^=", "&=", "|=", "~=", "<<=", ">>=" })
+local ASSIGN = setOf({ "=", "+=", "-=", "*=", "/=", "%=", "^=", "&=", "|=", "~=", "<<=", ">>=", "..=" })
 
 function Parser:peek(offset) return self.tokens[self.pos + (offset or 0)] or self.tokens[#self.tokens] end
 function Parser:next() local token = self.tokens[self.pos]; self.pos = self.pos + 1; return token end
@@ -73,16 +73,6 @@ function Parser:more(closing)
     return true
 end
 
--- Inside brackets the full expression grammar applies again, including bitwise `|`.
-function Parser:inBrackets(fn)
-    local saved = self.pipeAllowed
-    self.pipeAllowed = true
-    local ok, result = pcall(fn)
-    self.pipeAllowed = saved
-    if not ok then error(result, 0) end
-    return result
-end
-
 function Parser:expectName(what)
     local token = self:peek()
     if token.kind ~= "name" then
@@ -94,7 +84,6 @@ end
 -- expressions ----------------------------------------------------------------
 
 function Parser:expression()
-    if self:at("|") then return self:lambda() end
     if self:at("if") then return self:ifExpression() end
     local left = self:binary(1)
     if self:at("::") then
@@ -102,10 +91,6 @@ function Parser:expression()
     end
     if self:at(":") then
         D.reject("parse", "Signature inputs must be parenthesized: '(u32): u32'", self:peek().span)
-    end
-    if self:at("->") then
-        D.reject("parse", "'->' introduces a lambda body; a signature is written '(inputs): results'",
-            self:peek().span)
     end
     return left
 end
@@ -117,13 +102,12 @@ function Parser:binary(level)
     local seen = false
     while true do
         local token = self:peek()
-        if (token.kind == "op" or token.kind == "keyword") and ops[token.text]
-            and not (token.text == "|" and self.pipeAllowed == false) then
+        if (token.kind == "op" or token.kind == "keyword") and ops[token.text] then
             if seen and ops == COMPARISONS then
                 D.reject("parse", "Comparison operators do not chain; group them explicitly", token.span)
             end
             self:next()
-            local right = self:binary(level + 1)
+            local right = self:binary(token.text=='..' and level or level + 1)
             left = A.c.BinaryExpr(token.text, left, right, mergeSpan(left.span, right.span))
             seen = true
         else
@@ -153,13 +137,23 @@ function Parser:power()
     return base
 end
 
-function Parser:postfix()
+local function atomicLiteral(token)
+    return token.kind=='number' or token.kind=='float' or token.kind=='byte' or token.kind=='string'
+        or token.text=='true' or token.text=='false'
+end
+
+function Parser:postfix(literalOnly)
+    local blockAtom=self:at('do')
     local expr = self:primary()
+    if blockAtom then return expr end
+    local lastSuffix
     while true do
         if self:at("(") then
             local args = self:argumentList()
             expr = A.c.Apply(expr, args, mergeSpan(expr.span, spanOf(args)))
-        elseif self:at("{") then
+            lastSuffix='arguments'
+        elseif not literalOnly and self:at("{") then
+            lastSuffix='keyed'
             -- A keyed definition -- `name: type`, or a method -- is a schema, and attaching it to a
             -- word supplies that word's keyed requirement: `oneof { circle: circle_shape }` is the
             -- keyed spelling of `oneof({ circle: circle_shape })`. `name = value` is a keyed supply,
@@ -176,27 +170,45 @@ function Parser:postfix()
                 expr = A.c.RecordSupply(expr, fields, mergeSpan(expr.span, spanOf(fields)))
             end
         elseif self:at("[") then
+            lastSuffix='index'
             self:next()
             local index = self:expression()
             local close = self:expect("]")
             expr = A.c.IndexExpr(expr, index, mergeSpan(expr.span, close.span))
         elseif self:at(".") then
+            lastSuffix='field'
             self:next()
             local field = self:expectName("a field name")
             expr = A.c.FieldSelect(expr, A.name(field), mergeSpan(expr.span, field.span))
+        elseif not literalOnly and self:at('do') then
+            if lastSuffix=='keyed' then D.reject('parse','Group a keyed supply before applying its result to a block',self:peek().span) end
+            local block=self:lambda()
+            if lastSuffix=='arguments' then
+                local args={} for _,arg in ipairs(expr.arguments) do args[#args+1]=arg end
+                args[#args+1]=block
+                return A.c.Apply(expr.callee,asList(args),mergeSpan(expr.span,block.span))
+            end
+            return A.c.Apply(expr,asList{block},mergeSpan(expr.span,block.span))
+        elseif not literalOnly and atomicLiteral(self:peek()) then
+            local argument=self:postfix(true)
+            return A.c.Apply(expr,asList{argument},mergeSpan(expr.span,argument.span))
         else
             return expr
         end
     end
 end
 
+function Parser:supplyItem()
+    local spread=self:take('...')
+    local value=self:expression()
+    return spread and A.c.Spread(value,mergeSpan(spread.span,value.span)) or value
+end
+
 function Parser:argumentList()
     local open = self:expect("(")
     local items = {}
     if not self:at(")") then
-        self:inBrackets(function()
-            repeat items[#items + 1] = self:expression() until not self:more(")")
-        end)
+        repeat items[#items + 1] = self:supplyItem() until not self:more(")")
     end
     local close = self:expect(")")
     local list = asList(items)
@@ -208,14 +220,18 @@ function Parser:fieldSupplies()
     local open = self:expect("{")
     local fields = {}
     if not self:at("}") then
-        self:inBrackets(function()
-            repeat
+        repeat
+            local spread=self:take('...')
+            if spread then
+                local value=self:expression()
+                fields[#fields+1]=A.c.FieldSpread(value,mergeSpan(spread.span,value.span))
+            else
                 local key = self:expectName("a field name")
                 self:expect("=")
                 local value = self:expression()
                 fields[#fields + 1] = A.c.FieldSupply(A.name(key), value, mergeSpan(key.span, value.span))
-            until not self:more("}")
-        end)
+            end
+        until not self:more("}")
     end
     local close = self:expect("}")
     local list = asList(fields)
@@ -229,9 +245,7 @@ function Parser:arrayLiteral()
     local open = self:expect("[")
     local items = {}
     if not self:at("]") then
-        self:inBrackets(function()
-            repeat items[#items + 1] = self:expression() until not self:more("]")
-        end)
+        repeat items[#items + 1] = self:supplyItem() until not self:more("]")
     end
     local close = self:expect("]")
     return A.c.ArrayExpr(asList(items), mergeSpan(open.span, close.span))
@@ -239,6 +253,8 @@ end
 
 function Parser:primary()
     local token = self:peek()
+    if self:at('do') then return self:lambda() end
+    if self:at('...') then D.reject('spread-context','Spread requires a supply list or name-binding declaration',token.span) end
     if token.kind == "number" then
         self:next()
         -- A literal that does not fit a word arrives as its two words.
@@ -268,8 +284,6 @@ function Parser:primary()
         return self:schema()
     elseif token.kind == "op" and token.text == "[" then
         return self:arrayLiteral()
-    elseif token.kind == "op" and token.text == "|" then
-        return self:lambda()
     elseif token.kind == "keyword" and token.text == "if" then
         return self:ifExpression()
     elseif token.kind == "name" then
@@ -290,12 +304,10 @@ function Parser:parenOrSignature()
     local open = self:expect("(")
     local items = {}
     if not self:at(")") then
-        self:inBrackets(function()
-            repeat items[#items + 1] = self:expression() until not self:more(")")
-        end)
+        repeat items[#items + 1] = self:expression() until not self:more(")")
     end
     local close = self:expect(")")
-    if #items == 1 and not self:at(":") then return items[1] end
+    if #items == 1 and not self:at(":") then return A.c.Group(items[1],mergeSpan(open.span,close.span)) end
     self:expect(":", "':' and a result type after a parenthesized input list")
     local results = self:resultSpec()
     return A.c.SignatureExpr(asList(items), results, mergeSpan(open.span, spanOf(results) or close.span))
@@ -305,36 +317,40 @@ function Parser:schema()
     local open = self:expect("{")
     local members = {}
     if not self:at("}") then
-        self:inBrackets(function()
-            repeat
-                local key = self:expectName("a schema member name")
-                if self:at(":") then
-                    self:next()
-                    local annotation = self:expression()
-                    members[#members + 1] = A.c.FieldMember(A.name(key), annotation,
-                        mergeSpan(key.span, annotation.span))
-                else
-                    self:expect("(", "'(' after a method name")
-                    local params = self:parameters(")", false)
-                    self:expect(")")
-                    local def = self:methodSuffix(A.name(key), params)
-                    members[#members + 1] = A.c.MethodMember(def,
-                        mergeSpan(key.span, spanOf(def) or key.span))
-                end
-            until not self:more("}")
-        end)
+        repeat
+            local key = self:expectName("a schema member name")
+            if self:at(":") then
+                self:next()
+                local annotation = self:expression()
+                members[#members + 1] = A.c.FieldMember(A.name(key), annotation,mergeSpan(key.span,annotation.span))
+            else
+                self:expect("(", "'(' after a method name")
+                local params = self:parameters(")", false, true)
+                self:expect(")")
+                local def = self:methodSuffix(A.name(key), params)
+                members[#members + 1] = A.c.MethodMember(def,mergeSpan(key.span,spanOf(def) or key.span))
+            end
+        until not self:more("}")
     end
     local close = self:expect("}")
     return A.c.SchemaExpr(asList(members), mergeSpan(open.span, close.span))
 end
 
 function Parser:lambda()
-    local open = self:expect("|")
-    local params = self:parameters("|", false)
-    self:expect("|", "'|' closing the lambda parameters")
-    self:expect("->", "'->' after lambda parameters")
-    local body = self:body()
-    return A.c.Lambda(params, body, mergeSpan(open.span, spanOf(body) or spanOf(params) or open.span))
+    local open=self:expect('do')
+    local params=asList{}
+    local explicit=self:take('(')
+    if explicit then params=self:parameters(')',false);self:expect(')') end
+    local result
+    if self:take(':') then result=self:resultSpec() end
+    if self:take('=') then
+        if not explicit then D.reject('parse','An expression lambda requires parenthesized parameters, including do()',open.span) end
+        local value=self:expression()
+        return A.c.Lambda(params,result,A.c.Expression(value),mergeSpan(open.span,value.span))
+    end
+    local statements=self:statementList('end')
+    local close=self:expect('end')
+    return A.c.Lambda(params,result,A.c.Block(asList(statements)),mergeSpan(open.span,close.span))
 end
 
 function Parser:ifExpression()
@@ -350,13 +366,21 @@ end
 -- parameters -----------------------------------------------------------------
 
 -- Groups of `Name (',' Name)*` optionally followed by `':' expr`. Annotations are
--- mandatory for foreign declarations and profile-checked later for definitions; optional in lambdas. A parameter
--- annotation ends at the next `|` at its own level, which is the lambda's closing pipe; the full
--- expression grammar (including bitwise `|`) applies inside parentheses.
-function Parser:parameters(closing, requireAnnotation)
+-- mandatory for foreign declarations and profile-checked later for definitions;
+-- optional/contextual in lambdas. Every callable uses the same parenthesized syntax.
+function Parser:parameters(closing, requireAnnotation, allowRest)
     local params = {}
     if self:at(closing) then return asList(params) end
     repeat
+        local spread=self:take('...')
+        if spread then
+            if not allowRest then D.reject('rest-position','Rest is only supported in named ordered requirements',spread.span) end
+            local name=self:expectName('a rest requirement name')
+            params[#params+1]=A.c.RestParam(A.name(name),mergeSpan(spread.span,name.span))
+            self:take(',')
+            if not self:at(closing) then D.reject('rest-position','One unannotated rest requirement must be last',self:peek().span) end
+            return asList(params)
+        end
         local names = { self:expectName("a parameter name") }
         while self:at(",") and self:peek(1).kind == "name" do
             self:next()
@@ -364,13 +388,7 @@ function Parser:parameters(closing, requireAnnotation)
         end
         local annotation = nil
         if self:take(":") then
-            local saved = self.pipeAllowed
-            -- `|` closes the parameter list, so a bitwise-or in an annotation needs parentheses.
-            self.pipeAllowed = false
-            local ok, parsed = pcall(self.expression, self)
-            self.pipeAllowed = saved
-            if not ok then error(parsed, 0) end
-            annotation = parsed
+            annotation = self:expression()
         elseif requireAnnotation then
             D.reject("parse", "Every parameter of a named definition needs a type annotation",
                 self:peek().span)
@@ -391,6 +409,7 @@ end
 -- import, and `let use = ...` keeps working.
 function Parser:useDecl()
     local start = self:expectName("a module name")
+    local spread=self:take('...')~=nil
     local path = {}
     while true do
         local name = self:expectName("a module name")
@@ -398,7 +417,7 @@ function Parser:useDecl()
         if not self:at(".") then break end
         self:next()
     end
-    return A.c.UseDecl(table.concat(path, "."), S(start.span))
+    return A.c.UseDecl(table.concat(path, "."),spread,S(start.span))
 end
 
 function Parser:declaration()
@@ -419,6 +438,10 @@ function Parser:declaration()
     end
     if first.kind == "name" and first.text == "use" then return self:useDecl() end
     local let = self:expect("let")
+    if self:take('...') then
+        local value=self:expression()
+        return A.c.SpreadDecl(value,mergeSpan(let.span,value.span))
+    end
     local name = self:expectName("a definition name")
     if self:at("{") then
         -- `let f { a: T, b: U }: R = body`: a word whose requirements are keyed. Each key is
@@ -429,7 +452,7 @@ function Parser:declaration()
     end
     if self:at("(") then
         self:next()
-        local params = self:parameters(")", false)
+        local params = self:parameters(")", false, true)
         self:expect(")")
         local def = self:definitionBody(A.name(name), params)
         return A.c.WordDecl(def, mergeSpan(let.span, spanOf(def) or name.span))
@@ -465,8 +488,6 @@ function Parser:definitionBody(name, params, keyed)
         result = self:resultSpec()
     elseif self:at("::") then
         D.reject("parse", "A result is declared with ':'", self:peek().span)
-    elseif self:at("->") then
-        D.reject("parse", "A result is declared with ':'; '->' introduces a lambda body", self:peek().span)
     end
     self:expect("=")
     return A.c.WordDef(name, params, keyed, result, self:body())
@@ -478,15 +499,13 @@ function Parser:keyedParameters()
     local open = self:expect("{")
     local params = {}
     if not self:at("}") then
-        self:inBrackets(function()
-            repeat
-                local name = self:expectName("a keyed requirement name")
-                self:expect(":", "':' and a type after a keyed requirement name")
-                local annotation = self:expression()
-                params[#params + 1] = A.c.Param(A.name(name), annotation,
-                    mergeSpan(name.span, annotation.span))
-            until not self:more("}")
-        end)
+        repeat
+            if self:at('...') then D.reject('rest-position','Keyed rest requirements are not supported',self:peek().span) end
+            local name = self:expectName("a keyed requirement name")
+            self:expect(":", "':' and a type after a keyed requirement name")
+            local annotation = self:expression()
+            params[#params + 1] = A.c.Param(A.name(name), annotation,mergeSpan(name.span,annotation.span))
+        until not self:more("}")
     end
     local close = self:expect("}")
     local list = asList(params)
@@ -517,8 +536,8 @@ function Parser:resultSpec()
 end
 
 function Parser:expressionList()
-    local values = { self:expression() }
-    while self:take(",") do values[#values + 1] = self:expression() end
+    local values = { self:supplyItem() }
+    while self:take(",") do values[#values + 1] = self:supplyItem() end
     return asList(values)
 end
 
@@ -528,6 +547,7 @@ function Parser:body()
     if not self:at("do") then return A.c.Expression(self:expression()) end
     local open = self:peek()
     self:next()
+    if self:at('(') then D.reject('parse','A named definition executes its do body; group a lambda to return it',self:peek().span) end
     local statements = self:statementList("end")
     local close = self:expect("end")
     local list = asList(statements)
@@ -550,6 +570,7 @@ function Parser:statementList(...)
     while not closed() do
         local statement = self:statement()
         statements[#statements + 1] = statement
+        while self:take(';') do end
         if statement.kind == "ReturnStmt" and not closed() then
             D.reject("unreachable", "A statement after `return` can never run", self:peek().span)
         end
@@ -575,12 +596,13 @@ function Parser:statement()
         if self:peek(1).kind=="name" and self:peek(2).text=="." then
             local let=self:next();local receiver=self:expectName("an open-word receiver");self:expect(".")
             local name=self:expectName("a method name");self:expect("(")
-            local params=self:parameters(")",false);self:expect(")")
+            local params=self:parameters(")",false,true);self:expect(")")
             local def=self:definitionBody(A.name(name),params)
             return A.c.OpenMethodStmt(A.name(receiver),def,mergeSpan(let.span,spanOf(def) or name.span))
         end
         local decl = self:declaration()
         if decl.kind == "WordDecl" then return A.c.WordStmt(decl.def, decl.span) end
+        if decl.kind == 'SpreadDecl' then return A.c.SpreadStmt(decl.value,decl.span) end
         return A.c.ValueStmt(decl.def, decl.span)
     elseif token.kind == "keyword" and token.text == "if" then
         return self:ifStatement()
@@ -678,10 +700,12 @@ end
 -- which is what lets a host run a `.slet` string that was written as a program rather than a module.
 function Parser:implicitMain(declarations)
     for _, decl in ipairs(declarations) do
-        -- Only a word is executable code; a lambda binding is a value and cannot be exported.
-        if decl.kind == "WordDecl" and decl.def.name.text == "main" then
-            return A.c.Export(asList({}), asList({ A.c.ExportName(decl.def.name) }), asList({}))
+        local name
+        if decl.kind=='WordDecl' and decl.def.name.text=='main' then name=decl.def.name end
+        if decl.kind=='ValueDecl' then
+            for _,binder in ipairs(decl.def.binders) do if binder.name.text=='main' then name=binder.name end end
         end
+        if name then return A.c.Export(asList{},asList{A.c.ExportName(name)},asList{}) end
     end
     return nil
 end
@@ -699,6 +723,7 @@ function Parser:program()
             return A.c.Program(asList(declarations), export)
         end
         declarations[#declarations + 1] = self:declaration()
+        while self:take(';') do end
     end
     local export = self:export()
     if self:peek().kind ~= "eof" then
@@ -707,7 +732,7 @@ function Parser:program()
     return A.c.Program(asList(declarations), export)
 end
 
-function M.program(tokens) return setmetatable({ tokens = tokens, pos = 1, pipeAllowed = true }, Parser):program() end
+function M.program(tokens) return setmetatable({ tokens = tokens, pos = 1 }, Parser):program() end
 function M.source(text, name) return M.program(Lex.tokens(text, name)) end
 
 return M

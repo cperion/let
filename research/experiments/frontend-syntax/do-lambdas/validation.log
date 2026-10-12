@@ -1,0 +1,48 @@
+rm -f build/libabc.a
+rm -f build/libabc-tool.a
+ar rcs build/libabc.a build/module.o build/memory_module.o build/verify.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/banked_0.o build/banked_1.o build/banked_2.o build/banked_3.o build/banked_4.o build/banked_5.o build/banked_6.o build/banked_7.o build/residualize.o build/native_emit.o build/native_image.o build/threaded_emit.o build/generated/threaded.o
+ar rcs build/libabc-tool.a build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+/tmp/clang20 -O2 -g build/cli.o build/libabc.a -o build/abc-runtime
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_lifetime.c build/libabc.a -lm -o build/validate-lifetime
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+cp tools/abc build/abc
+chmod +x build/abc
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)
+build/abc asm tools/validate_lifetime.abcasm -o build/validate-lifetime.abc
+build/validate-lifetime build/validate-lifetime.abc
+validated 48 public module/VM lifetime cases (all mode pairs, uncalled and called images)
+cd frontend && /tmp/lua-compat tools/embed.lua --check
+schemas up to date
+cd frontend && /tmp/lua-compat tests/schemas.lua
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+cd frontend && /tmp/lua-compat tests/walk.lua
+PASS: schema-driven traversal (4 checks)
+cd frontend && /tmp/lua-compat tests/parse.lua
+PASS: lexer/parser (232 checks)
+cd frontend && /tmp/lua-compat tests/syntax_batch.lua
+syntax batch: 98 checks, 40 VM executions
+cd frontend && /tmp/lua-compat tests/compiler.lua
+PASS: Let compiler source ingestion and semantic IR (276 checks)
+cd frontend && /tmp/lua-compat tests/lambdas.lua
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+cd frontend && /tmp/lua-compat tests/lowering.lua
+PASS: checked ASDL Ir -> ABC lowering (100 checks)
+cd frontend && /tmp/lua-compat tests/optimize.lua
+PASS: shared C residual-DAG optimizer and LuaJIT FFI (118 checks)
+cd frontend && /tmp/lua-compat tests/staging.lua
+PASS: VM-backed compile-time execution (27 checks)
+cd frontend && /tmp/lua-compat tests/source_demands.lua
+source demand checks: 52
+cd frontend && LUA="/tmp/lua-compat" /tmp/lua-compat tests/staging_sessions.lua
+PASS: unoptimized staging uses only the in-process VM in all four modes
+PASS: owned staging sessions (280 checks)
+/tmp/lua-compat tools/validate_slet_frontend.lua
+luajit: REJECT [main-signature] A standalone main must have signature (): u32
+stack traceback:
+	[C]: in function 'error'
+	./frontend/let/compiler.lua:111: in function 'typed'
+	./frontend/let/compiler.lua:142: in function 'compile'
+	tools/validate_slet_frontend.lua:20: in main chunk
+	[C]: at 0x568aca362120
+make: *** [Makefile:188: validate-slet] Error 1

@@ -20,13 +20,13 @@ end
 
 -- Two lambdas that capture the same shape but differ in code, so each arm carries its environment.
 let scaled(c: bool, x: u32): u32 = do
-  let f = if c then |y: u32| -> y + x else |y: u32| -> y * 2
+  let f = if c then do(y: u32) = y + x else do(y: u32) = y * 2
   return f(f(1))
 end
 
 -- A tagged callable whose tag is only known at the call site. An unannotated result infers the
 -- tagged type, so the value crosses a call boundary intact.
-let mk(c: bool) = if c then inc else |y: u32| -> y * 3
+let mk(c: bool) = if c then inc else do(y: u32) = y * 3
 let across(c: bool, x: u32): u32 = do
   let f = mk(c)
   return f(x)

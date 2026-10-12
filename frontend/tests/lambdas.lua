@@ -9,17 +9,17 @@ local Int=require('int64')
 local checks,executions=0,0
 local function check(value,message) assert(value,message); checks=checks+1 end
 local cases={
-    {name='context',body='let add: (u32, u32): u32 = |a, b| -> a + b\nreturn add(n, 2)',expected={'42'},results={S.u32}},
-    {name='parameters',body='let add = |a, b: u32| -> a + b\nreturn add(n, 2)',expected={'42'},results={S.u32}},
-    {name='redundant',body='let add: (u32, u32): u32 = |a, b: u32| -> a + b\nreturn add(n, 2)',expected={'42'},results={S.u32}},
-    {name='nullary',body='let value = || -> 42\nreturn value()',expected={'42'},results={S.u32}},
-    {name='block',body='let choose = |a: u32| -> do if a == 0 then return 2 end return a + 2 end\nreturn choose(n)',expected={'42'},results={S.u32}},
-    {name='vector',contract='(u32, bool)',body='let pair = |a: u32| -> do return a + 2, true end\nreturn pair(n)',expected={'42','1'},results={S.u32,S.bool}},
-    {name='unit',contract='unit',body='let noop = || -> do return end\nreturn noop()',expected={},results={S.unit}},
-    {name='immediate',body='return (|a: u32| -> a + 2)(n)',expected={'42'},results={S.u32}},
-    {name='floating',contract='f64',body='let add = |a: f64| -> a + 2.0\nreturn add(f64(n))',expected={'4631107791820423168'},results={S.f64}},
+    {name='context',body='let add: (u32, u32): u32 = do(a, b) = a + b\nreturn add(n, 2)',expected={'42'},results={S.u32}},
+    {name='parameters',body='let add = do(a, b: u32) = a + b\nreturn add(n, 2)',expected={'42'},results={S.u32}},
+    {name='redundant',body='let add: (u32, u32): u32 = do(a, b: u32) = a + b\nreturn add(n, 2)',expected={'42'},results={S.u32}},
+    {name='nullary',body='let value = do() = 42\nreturn value()',expected={'42'},results={S.u32}},
+    {name='block',body='let choose = do(a: u32) if a == 0 then return 2 end return a + 2 end\nreturn choose(n)',expected={'42'},results={S.u32}},
+    {name='vector',contract='(u32, bool)',body='let pair = do(a: u32) return a + 2, true end\nreturn pair(n)',expected={'42','1'},results={S.u32,S.bool}},
+    {name='unit',contract='unit',body='let noop = do return end\nreturn noop()',expected={},results={S.unit}},
+    {name='immediate',body='return (do(a: u32) = a + 2)(n)',expected={'42'},results={S.u32}},
+    {name='floating',contract='f64',body='let add = do(a: f64) = a + 2.0\nreturn add(f64(n))',expected={'4631107791820423168'},results={S.f64}},
     {name='argument-context',prelude='let apply(f: (u32): u32, x: u32): u32 = f(x)\n',
-        body='return apply(|a| -> a + 2, n)',expected={'42'},results={S.u32}},
+        body='return apply(do(a) = a + 2, n)',expected={'42'},results={S.u32}},
 }
 local equivalent={}
 for _,case in ipairs(cases) do
@@ -49,12 +49,12 @@ end
 check(equivalent.context==equivalent.parameters and equivalent.context==equivalent.redundant,
     'annotation placement does not change emitted representation or code')
 local invalid={
-    {'untyped','type-required','let f = |a, b| -> a + b\nreturn 0'},
-    {'missing-one','type-required','let f = |a: u32, b| -> a + b\nreturn 0'},
-    {'annotation-conflict','type-mismatch','let f: (u32): u32 = |a: bool| -> 0\nreturn 0'},
-    {'result-conflict','type-mismatch','let f: (u32): bool = |a| -> a\nreturn 0'},
-    {'inferred-result-conflict','type-mismatch','let f = |a: u32| -> do if a == 0 then return 1 end return true end\nreturn 0'},
-    {'missing-return','missing-return','let f = |a: u32| -> do let x = a end\nreturn 0'},
+    {'untyped','type-required','let f = do(a, b) = a + b\nreturn 0'},
+    {'missing-one','type-required','let f = do(a: u32, b) = a + b\nreturn 0'},
+    {'annotation-conflict','type-mismatch','let f: (u32): u32 = do(a: bool) = 0\nreturn 0'},
+    {'result-conflict','type-mismatch','let f: (u32): bool = do(a) = a\nreturn 0'},
+    {'inferred-result-conflict','type-mismatch','let f = do(a: u32) if a == 0 then return 1 end return true end\nreturn 0'},
+    {'missing-return','missing-return','let f = do(a: u32) let x = a end\nreturn 0'},
 }
 for _,case in ipairs(invalid) do
     local name=case[1]..'.slet'

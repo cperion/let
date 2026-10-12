@@ -177,6 +177,7 @@ validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi 
 	cd frontend && $(LUA) tests/schemas.lua
 	cd frontend && $(LUA) tests/walk.lua
 	cd frontend && $(LUA) tests/parse.lua
+	cd frontend && $(LUA) tests/syntax_batch.lua
 	cd frontend && $(LUA) tests/compiler.lua
 	cd frontend && $(LUA) tests/lambdas.lua
 	cd frontend && $(LUA) tests/lowering.lua

@@ -71,13 +71,13 @@ check(parses("let f(x: u32) : u32 = do if x == 0 then return 1 else return 2 end
 rejects("unreachable", "let f(x: u32) : u32 = do return 1\n return 2 end\nreturn { functions = { f } }")
 
 -- lambdas and signatures ------------------------------------------------------
-check(parses("let g = |x| -> x + 1\nreturn { functions = {} }").declarations[1].def.values[1].kind == "Lambda",
+check(parses("let g = do(x) = x + 1\nreturn { functions = {} }").declarations[1].def.values[1].kind == "Lambda",
     "untyped lambda")
-check(parses("let g = |a, b: u32| -> a + b\nreturn { functions = {} }").declarations[1].def.values[1].kind == "Lambda",
+check(parses("let g = do(a, b: u32) = a + b\nreturn { functions = {} }").declarations[1].def.values[1].kind == "Lambda",
     "grouped lambda parameters")
-check(parses("let g = || -> unit()\nreturn { functions = {} }").declarations[1].def.values[1].kind == "Lambda",
+check(parses("let g = do() = unit()\nreturn { functions = {} }").declarations[1].def.values[1].kind == "Lambda",
     "empty lambda parameters")
-local inner = parses("let g = |f: (u32): u32| -> f\nreturn { functions = {} }").declarations[1].def.values[1]
+local inner = parses("let g = do(f: (u32): u32) = f\nreturn { functions = {} }").declarations[1].def.values[1]
 check(inner.kind == "Lambda" and inner.params[1].annotation.kind == "SignatureExpr",
     "a signature annotation inside pipes is not read as bitwise-or")
 check(parses("let E = (u32): u32\nreturn { functions = {} }").declarations[1].def.values[1].kind == "SignatureExpr",
@@ -90,20 +90,20 @@ check(parses("let E = (u32) : u32\nreturn { functions = {} }").declarations[1].d
     "one-element parenthesized input list")
 check(parses("let E = (u32): ((u32): u32)\nreturn { functions = {} }").declarations[1].def.values[1].kind
     == "SignatureExpr", "a parenthesized input list nests as a callable result")
--- `->` introduces a lambda body only; `::` is gone; signature inputs must be parenthesized.
+-- Arrows and `::` are not syntax; signature inputs must be parenthesized.
 rejects("parse", "let f(x: u32) -> u32 = x\nreturn { functions = { f } }")
 rejects("parse", "let C = { v: u32, get() -> u32 = v }\nreturn { types = { C } }")
 rejects("parse", "let f(x: u32) :: u32 = x\nreturn { functions = { f } }")
 rejects("parse", "let E = u32 :: u32\nreturn { functions = {} }")
 rejects("parse", "let E = u32: u32\nreturn { functions = {} }")
 -- A `:` after a name is an annotation, so a signature needs its inputs parenthesized.
-check(parses("let g: (u32): u32 = |x| -> x + 1\nreturn { functions = {} }")
+check(parses("let g: (u32): u32 = do(x) = x + 1\nreturn { functions = {} }")
     .declarations[1].def.binders[1].annotation.kind == "SignatureExpr",
     "a binding annotation may be a signature")
-check(parses("let f(x: u32): (u32): u32 = |y: u32| -> y\nreturn { functions = { f } }")
+check(parses("let f(x: u32): (u32): u32 = (do(y: u32) = y)\nreturn { functions = { f } }")
     .declarations[1].def.result.kind == "Single", "a result may itself be a signature")
 local grouped = parses("let x = (1 + 2) * 3\nreturn { functions = {} }").declarations[1].def.values[1]
-check(grouped.kind == "BinaryExpr" and grouped.left.kind == "BinaryExpr", "parenthesized expression groups")
+check(grouped.kind == "BinaryExpr" and grouped.left.kind == "Group" and grouped.left.value.kind == "BinaryExpr", "parenthesized expression groups")
 
 -- records, schemas, methods ---------------------------------------------------
 local schema = parses("let Counter = { value: u32, inc() : u32 = do value += 1 return value end, }\nreturn { types = { Counter } }")
@@ -169,7 +169,7 @@ check(expr("a + b * c").right.kind == "BinaryExpr", "* binds tighter than +")
 check(expr("a << b + c").kind == "BinaryExpr" and expr("a << b + c").left.kind == "Reference", "shift is looser than +")
 check(expr("a & b | c").kind == "BinaryExpr" and expr("a & b | c").left.kind == "BinaryExpr", "| is looser than &")
 check(expr("a == b").kind == "BinaryExpr" and expr("a or b and c").left.kind == "Reference", "and binds tighter than or")
-check(expr("x ~ (x << 13)").right.kind == "BinaryExpr", "xor with shift")
+check(expr("x ~ (x << 13)").right.kind == "Group" and expr("x ~ (x << 13)").right.value.kind == "BinaryExpr", "xor with shift")
 check(expr("a != b").operator == "!=", "!= is inequality")
 
 -- exports ---------------------------------------------------------------------

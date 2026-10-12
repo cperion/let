@@ -13,7 +13,8 @@ module Ast {
        # `use util.helper`: the dotted name names a file next to this one, and the last segment
        # names the namespace its exports are reached through. The lexical name is that last
        # segment, so the loader derives it from `path` rather than storing it twice.
-       | UseDecl(string path)
+       | UseDecl(string path, boolean spread)
+       | SpreadDecl(Expr value)
        # `extern let name(a: U32) : T`: a host function. It has no body, so its result is required.
        | ForeignDecl(ForeignDef def)
        attributes (Span span)
@@ -22,15 +23,17 @@ module Ast {
   # A word's requirements are either positional or keyed, never both: `let f(a: U32)` and
   # `let f { a: U32 }` are different spellings of the same idea, and a definition may also take
   # neither. `parse.lua` checks this invariant where it builds the definition.
-  WordDef = (Name name, Param* params, Param* keyed, ResultSpec? result, Body body)
+  WordDef = (Name name, Requirement* params, Requirement* keyed, ResultSpec? result, Body body)
   # A host function: a name, annotated requirements and a declared result, and no body, because the
   # implementation is not written in this language.
-  ForeignDef = (Name name, Param* params, ResultSpec result)
+  ForeignDef = (Name name, Requirement* params, ResultSpec result)
   # let a: U32, b = expr
   ValueDef = (Binder* binders, Expr* values)
   Binder = (Name name, Expr? annotation, Span span)
 
-  Param = (Name name, Expr? annotation, Span span)
+  Requirement = Param(Name name, Expr? annotation)
+              | RestParam(Name name)
+              attributes (Span span)
   ResultSpec = Single(Expr type) | Many(Expr* types)
   Body = Expression(Expr value) | Block(Stmt* statements)
 
@@ -43,22 +46,27 @@ module Ast {
        # A float literal is IEEE-754 double; its value is the number the decimal text denotes.
        | FloatLiteral(number value)
        | Reference(Name name)
+       | Group(Expr value)
+       # Only parsed as an item of a supported supply list, never as a unary operator.
+       | Spread(Expr value)
        | Apply(Expr callee, Expr* arguments)
        | FieldSelect(Expr base, Name field)
-       | RecordSupply(Expr schema, FieldSupply* fields)
+       | RecordSupply(Expr schema, KeyedItem* fields)
        # Let-only bare `{ name = value }`, distinct from a schema and from keyed application.
-       | OpenSupply(FieldSupply* fields)
+       | OpenSupply(KeyedItem* fields)
        | ArrayExpr(Expr* items)
        | IndexExpr(Expr base, Expr index)
        | SchemaExpr(SchemaMember* members)
-       | Lambda(Param* params, Body body)
+       | Lambda(Requirement* params, ResultSpec? result, Body body)
        | SignatureExpr(Expr* inputs, ResultSpec results)
        | UnaryExpr(string operator, Expr operand)
        | BinaryExpr(string operator, Expr left, Expr right)
        | Condition(Expr test, Expr yes, Expr no)
        attributes (Span span)
 
-  FieldSupply = (Name name, Expr value, Span span)
+  KeyedItem = FieldSupply(Name name, Expr value)
+            | FieldSpread(Expr value)
+            attributes (Span span)
   SchemaMember = FieldMember(Name name, Expr type)
                | MethodMember(WordDef def)
                attributes (Span span)
@@ -67,6 +75,7 @@ module Ast {
        # Let-only method attached to an open-word binding: `let receiver.name(args) = body`.
        | OpenMethodStmt(Name receiver, WordDef def)
        | ValueStmt(ValueDef def)
+       | SpreadStmt(Expr value)
        | StoreStmt(Expr target, string operator, Expr value)
        | CallStmt(Expr call)
        | IfStmt(Expr test, Stmt* yes, Stmt* no)

@@ -40,8 +40,8 @@ let admission_session = {
 let settle(user: u32, amount: u32): u32 = do
   let session = admission_session { attempts = 0, limit = 100 }
   return session.admit(u32, request { user = user, amount = amount },
-    |accepted: accepted| -> accepted.amount,
-    |reason: rejection_reason| -> 0,
+    do(accepted: accepted) = accepted.amount,
+    do(reason: rejection_reason) = 0,
   )
 end
 
@@ -49,15 +49,15 @@ end
 let evaluate(user: u32, amount: u32): admission_outcome = do
   let session = admission_session { attempts = 0, limit = 100 }
   return session.admit(admission_outcome, request { user = user, amount = amount },
-    |accepted: accepted| -> admission_outcome.accepted(accepted),
-    |reason: rejection_reason| -> admission_outcome.rejected(reason),
+    do(accepted: accepted) = admission_outcome.accepted(accepted),
+    do(reason: rejection_reason) = admission_outcome.rejected(reason),
   )
 end
 
 let summarize(user: u32, amount: u32): u32 =
   evaluate(user, amount) {
-    accepted = |accepted: accepted| -> accepted.amount,
-    rejected = |reason: rejection_reason| -> 0,
+    accepted = do(accepted: accepted) = accepted.amount,
+    rejected = do(reason: rejection_reason) = 0,
   }
 
 return { types = { request, admission_session, accepted, rejection_reason, admission_outcome },

@@ -1,0 +1,56 @@
+/tmp/clang20 -O2 -g build/cli.o build/libabc.a -o build/abc-runtime
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_lifetime.c build/libabc.a -lm -o build/validate-lifetime
+/usr/bin/ld: build/cli.o: in function `main':
+/home/cperion_ext/dev/let/src/cli.c:77:(.text+0x677): undefined reference to `abc_module_read'
+/usr/bin/ld: /home/cperion_ext/dev/let/src/cli.c:100:(.text+0x6f7): undefined reference to `abc_vm_create'
+/usr/bin/ld: /home/cperion_ext/dev/let/src/cli.c:100:(.text+0x719): undefined reference to `abc_vm_load'
+/usr/bin/ld: /home/cperion_ext/dev/let/src/cli.c:100:(.text+0x75a): undefined reference to `abc_vm_call'
+/usr/bin/ld: build/cli.o: in function `disassemble':
+/home/cperion_ext/dev/let/src/cli.c:42:(.text+0xbff): undefined reference to `abc_find_site'
+/usr/bin/ld: build/cli.o: in function `main':
+/home/cperion_ext/dev/let/src/cli.c:103:(.text+0x1141): undefined reference to `abc_vm_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/src/cli.c:103:(.text+0x114b): undefined reference to `abc_module_free'
+/usr/bin/ld: build/cli.o: in function `report':
+/home/cperion_ext/dev/let/src/cli.c:6:(.text.unlikely.+0x15): undefined reference to `abc_status_name'
+clang-20: error: linker command failed with exit code 1 (use -v to see invocation)
+make: *** [Makefile:118: build/abc-runtime] Error 1
+make: *** Waiting for unfinished jobs....
+/usr/bin/ld: /tmp/validate_lifetime-cb60ea.o: in function `main':
+/home/cperion_ext/dev/let/tools/validate_lifetime.c:28:(.text+0x56): undefined reference to `abc_vm_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:30:(.text+0x69): undefined reference to `abc_vm_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:20:(.text+0xa5): undefined reference to `abc_module_read'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:21:(.text+0xbd): undefined reference to `abc_vm_create'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:21:(.text+0xd7): undefined reference to `abc_vm_load'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:23:(.text+0xf4): undefined reference to `abc_vm_create'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:23:(.text+0x10e): undefined reference to `abc_vm_load'
+/usr/bin/ld: /tmp/validate_lifetime-cb60ea.o: in function `call':
+/home/cperion_ext/dev/let/tools/validate_lifetime.c:7:(.text+0x160): undefined reference to `abc_vm_call'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:7:(.text+0x1c4): undefined reference to `abc_vm_call'
+/usr/bin/ld: /tmp/validate_lifetime-cb60ea.o: in function `main':
+/home/cperion_ext/dev/let/tools/validate_lifetime.c:26:(.text+0x1f2): undefined reference to `abc_module_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:26:(.text+0x206): undefined reference to `abc_module_free'
+/usr/bin/ld: /tmp/validate_lifetime-cb60ea.o: in function `call':
+/home/cperion_ext/dev/let/tools/validate_lifetime.c:7:(.text+0x250): undefined reference to `abc_vm_call'
+/usr/bin/ld: /tmp/validate_lifetime-cb60ea.o: in function `main':
+/home/cperion_ext/dev/let/tools/validate_lifetime.c:28:(.text+0x27e): undefined reference to `abc_vm_free'
+/usr/bin/ld: /tmp/validate_lifetime-cb60ea.o: in function `call':
+/home/cperion_ext/dev/let/tools/validate_lifetime.c:7:(.text+0x2c7): undefined reference to `abc_vm_call'
+/usr/bin/ld: /tmp/validate_lifetime-cb60ea.o: in function `main':
+/home/cperion_ext/dev/let/tools/validate_lifetime.c:35:(.text+0x359): undefined reference to `abc_vm_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:35:(.text+0x363): undefined reference to `abc_vm_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:35:(.text+0x36d): undefined reference to `abc_module_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:38:(.text+0x3f2): undefined reference to `abc_vm_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/validate_lifetime.c:38:(.text+0x3fc): undefined reference to `abc_vm_free'
+clang-20: error: linker command failed with exit code 1 (use -v to see invocation)
+make: *** [Makefile:130: build/validate-lifetime] Error 1
+/usr/bin/ld: /tmp/abc_opt-276dd5.o: in function `main':
+/home/cperion_ext/dev/let/tools/abc_opt.c:33:(.text+0x158): undefined reference to `abc_emit_c'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/abc_opt.c:34:(.text+0x180): undefined reference to `abc_optimize'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/abc_opt.c:38:(.text+0x279): undefined reference to `abc_emitted_c_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/abc_opt.c:38:(.text+0x2a7): undefined reference to `abc_optimized_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/abc_opt.c:37:(.text+0x369): undefined reference to `abc_emitted_c_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/abc_opt.c:37:(.text+0x370): undefined reference to `abc_optimized_free'
+/usr/bin/ld: /home/cperion_ext/dev/let/tools/abc_opt.c:36:(.text+0x383): undefined reference to `abc_status_name'
+clang-20: error: linker command failed with exit code 1 (use -v to see invocation)
+make: *** [Makefile:120: build/abc-opt] Error 1

@@ -57,10 +57,10 @@ for _,case in ipairs{{'fibonacci','55'},{'countdown','5000050000'}} do
     end
 end
 
--- These were bootstrap-only capabilities. Keep their production rejection
--- explicit instead of replacing them with different successful programs.
-local rejected={
-    {name='top-level-partial.slet',code='semantic-todo',source=[[
+-- These former gaps now exercise source callable knowledge. Their old rejection
+-- expectations must not hide the implemented static-demand boundary.
+local supported={
+    {name='top-level-partial.slet',expected='270369 67634689',source=[[
 let xorshift(a, b, c, state: u32): u32 = do
     let x = state ~ (state << a)
     let y = x ~ (x >> b)
@@ -72,7 +72,7 @@ let main(): (u32, u32) = do
     return x, next32(x)
 end
 ]]},
-    {name='runtime-partial.slet',code='static-required',source=[[
+    {name='computed-partial.slet',expected='42 43',source=[[
 let seed(x: u64): u64 = x
 let add(a, b: u64): u64 = a + b
 let main(): (u64, u64) = do
@@ -83,10 +83,23 @@ let main(): (u64, u64) = do
 end
 ]]},
 }
+for index,case in ipairs(supported) do
+    local artifact=Compiler.compile{profile='slet',name=case.name,source=case.source,staticMode='interpreted'}
+    local path=prefix..'-knowledge-'..index..'.abc';Util.publish(Assembler.assemble(artifact.assembly),path)
+    for _,mode in ipairs{'interpreted','compiled','lazy','jit=threaded'} do execute(path,'main',{},case.expected,mode) end
+    os.remove(path)
+end
+local rejected={
+    {name='runtime-partial.slet',code='static-required',source=[[
+let add(a, b: u64): u64 = a + b
+let main(runtime: u64): u64 = do let partial = add(runtime) return partial(2) end
+]]},
+    {name='missing-static-policy.slet',code='execution-policy',source=supported[2].source},
+}
 for _,case in ipairs(rejected) do
     local ok,diagnostic=pcall(Compiler.compile,{profile='slet',name=case.name,source=case.source})
     assert(not ok and D.is(diagnostic) and diagnostic.code==case.code and
         diagnostic.span and diagnostic.span.file==case.name,
         'unsupported production source lost its explicit diagnostic: '..case.name..': '..tostring(diagnostic))
 end
-print(('validated production SLet frontend/optimizer: %d executions, 2 explicit unsupported-source diagnostics'):format(executions))
+print(('validated production SLet frontend/optimizer: %d executions, 2 explicit static-demand diagnostics'):format(executions))

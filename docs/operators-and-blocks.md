@@ -202,7 +202,8 @@ application. Parsing never asks for a callee's arity or type.
 | `f true`, `f false`, `f 'x'` | `f(true)`, `f(false)`, `f('x')` |
 | `f "text"` | `f("text")` |
 | `f do ... end` | `f(do ... end)` |
-| `f do \|x\| ... end` | `f(do \|x\| ... end)` |
+| `f do(x) ... end` | `f(do(x) ... end)` |
+| `f do(x) = expression` | `f(do(x) = expression)` |
 | `f(a, b) do ... end` | `f(a, b, do ... end)` |
 
 Atomic literals are integer, float, byte, string (including existing long-bracket
@@ -221,7 +222,7 @@ returns and other expression positions as well as call statements.
 A parenthesized call followed by a block passes one final lambda argument:
 
 ```let
-with_region(u32, 8) do |p|
+with_region(u32, 8) do(p)
   return compute(p)
 end
 ```
@@ -229,12 +230,12 @@ end
 means exactly:
 
 ```let
-with_region(u32, 8, do |p|
+with_region(u32, 8, do(p)
   return compute(p)
 end)
 ```
 
-With no pipes, the appended lambda is nullary:
+With no parameters, the appended block lambda is nullary:
 
 ```let
 g.spawn do return work() end
@@ -246,12 +247,12 @@ argument becomes nonfinal and contributes one result unless explicitly spread.
 Evaluate callee, written arguments and the final lambda's capture construction in
 ordinary source order. The block body runs only when the callee invokes it.
 
-Expression lambdas use `|parameters| expression`; block lambdas use
-`do |parameters| ... end`, or `do ... end` for nullary blocks. Both are arrow-free.
-Trailing-block desugaring supplies the ordinary block-lambda expression.
-Remove `->` from target lexing, with no alias, reservation
-or migration-specific diagnostic. Current implementations/archived fixtures using
-arrows remain historical until the coordinated parser/test migration.
+Both lambda body kinds begin with `do`: `do(parameters): result = expression`,
+`do(parameters): result ... end`, or nullary `do ... end`. Parameters and result
+annotations use ordinary definition syntax; annotations are optional, but expression
+lambdas require parentheses, including `do() = expression`. Trailing-lambda sugar
+supplies this same ordinary expression. Pipe and arrow lambda forms have no aliases;
+`|` is an infix operator only. Archived evidence retains its historical spelling.
 
 Parameters use ordinary lambda grouping/annotation and expected-callable typing.
 Return exits the block's lambda, not its enclosing function. Capture, escape,
@@ -288,8 +289,9 @@ literal-argument := atomic-literal literal-postfix*
 literal-postfix := '.' Name | '[' expression ']' | arguments
 atomic-literal  := integer-literal | float-literal | byte-literal
                  | string-literal | long-string-literal | 'true' | 'false'
-block-lambda   := 'do' ('|' lambda-parameters? '|')? statement* 'end'
-trailing-block := block-lambda
+block-lambda   := 'do' ('(' lambda-parameters? ')')? (':' result-spec)? statement* 'end'
+expression-lambda := 'do' '(' lambda-parameters? ')' (':' result-spec)? '=' expression
+trailing-block := block-lambda | expression-lambda
 ```
 
 A trailing block appends to a final parenthesized argument suffix, or creates a
@@ -304,7 +306,7 @@ Bare `f x`, multi-argument `f 1 2` and arity-directed parsing are excluded.
 ### Standalone block lambdas
 
 ```let
-let work = do |x: u32|
+let work = do(x: u32)
   return x + 1
 end
 let main = do
@@ -315,10 +317,10 @@ end
 
 These bindings construct words. `let x = do return 3 end` binds a nullary word,
 not 3; call it with `x()`. Existing capture/lifetime and binding-recursion rules
-apply. A pipe lambda's immediate expression cannot begin with ungrouped `do`:
-`|x| do ... end` rejects, preventing silent reinterpretation of the former spelling.
-Intentional nesting is `|x: u32| (do return x end)`. A named definition returning
-a block lambda likewise groups it: `let make(x: u32) = (do return x end)`.
+apply. A lambda's `=` introduces an expression: `do(x: u32) = do return x end`
+returns a block lambda without grouping. A named definition's `= do` is instead
+its executed body; `= do(...)` rejects there. Return a lambda with explicit grouping:
+`let make(x: u32) = (do() = x)`.
 
 Callable-value exports and main discovery must recognize valid block-lambda bindings.
 This is not just token sugar over the current direct-word export path. Main's existing
@@ -339,13 +341,13 @@ Block lambdas are ordinary keyed handler values too:
 
 ```let
 let await_value(ch: task.chan(u32)): u32 = task.select {
-  ready = ch.on_receive(do |r|
+  ready = ch.on_receive(do(r)
     return r {
-      item = |value| value,
-      closed = || 0,
+      item = do(value) = value,
+      closed = do() = 0,
     }
   end),
-  timeout = task.on_after(1000, do |u: unit|
+  timeout = task.on_after(1000, do(u: unit)
     return 0
   end),
 }
@@ -369,7 +371,7 @@ remain outside this shortcut. Full rules are in syntax.md §10. Value-returning 
 unit exit merely to avoid `missing-return`.
 
 ```let
-html.render do |h|
+html.render do(h)
   h.heading "Inventory"
   h.section do
     h.paragraph "Nothing to display"
@@ -438,7 +440,7 @@ Required evidence:
   spread and nested calls. Distinguish append-to-call from calling a grouped result;
   preserve keyed supply semantics and reject unsupported mixed sugar forms.
 - Standalone blocks construct without executing; nullary/parameterized captures and
-  lifetimes follow ordinary rules. Reject ungrouped `|x| do`; accept explicitly grouped
+  lifetimes follow ordinary rules. Reject named-definition `= do(...)`; accept grouped
   nested blocks. Distinguish named executed bodies from returned block lambdas, preserve
   local recursion rules, and validate callable-binding exports/main's actual ABI.
 - Unit completion for named words/methods/lambdas via annotation, expected signature

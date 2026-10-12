@@ -221,6 +221,19 @@ Sources: `docs/source-partial-evaluation.md`, `source-virtual-contract.md`,
 
 ## F — Finish actual frontend gaps, not already tested foundations
 
+**Word/binding unification — Owner: primary coding agent. State: design; model approved.**
+One executable word owns requirements/results/body/captures/code identity. Binding
+context owns names, visibility, recursion and exports; aliases do not create code
+identity or environments. Named keyed-entry sugar remains a separate grammar gate.
+Inspection confirms separate parameter/capture/body builders in `semantic.lua` for
+module/local named words, lambdas and methods, plus a lambda-specific materialization
+restriction. The next coherent cutover must replace these responsibilities, not add
+an API above them. Proposed files: authoritative `frontend/ast.asdl`, generated AST,
+parser/scoping consumers, `source_state.lua`, `semantic.lua`, compiler registration
+and affected tests. Preserve receiver binding and explicit ABC transport; no new VM
+callable kind. Concrete implementation interfaces/removal and inference boundaries
+must be reviewed before that new implementation chunk.
+
 Dependency: audit baseline; S/O as needed for individual paths.
 
 - [ ] **F01** Produce a current syntax-to-parser/checker/IR/lowering/execution matrix.
@@ -446,7 +459,7 @@ Dependency: T/P semantics and explicit portable-C scope/ABI approval.
 
 ## X — Static spread, packs and import sugar
 
-**Active syntax batch — Owner: primary coding agent. State: active (batch approved).**
+**Active syntax batch — Owner: primary coding agent. State: partial; entry-policy gate resolved.**
 Coordinate X01–X05 syntax, Q05/Q09/Q10 and F05 grouping in one AST/parser/elaboration
 cutover. Authoritative schema: `frontend/ast.asdl`; regenerate `let/schema/ast.lua`.
 Touch lexer/parser, structural/scoping consumers, semantic result adjustment and
@@ -457,11 +470,23 @@ pack/name-expansion paths diagnose explicitly, without a runtime pack or open-wo
 fallback. Remove arrow tokens/branches and erased-group assumptions. Archives remain
 unchanged. Unit completion, receiver/operator resolution, full generic specialization
 and ownership are separate semantic obligations, not automatically completed here.
+Approved refinement: unify lambdas as `do(parameters)` with optional result
+annotations and expression/block bodies; remove pipe lambdas and pipe-specific
+annotation parsing, not just arrows. Existing captures/ownership and VM ABI remain.
 Acceptance: AST boundaries, literal postfix precedence, trailing-block adjustment,
 block nonexecution/grouping, scalar versus vector results, valid callable entries,
 spread/rest placement and unsupported diagnostics, active-source migration and
-integrated frontend execution. Next: implement the coordinated syntax boundary;
-check off only deliverables actually implemented and validated.
+integrated frontend execution. Unified do-lambda replacement is implemented. User
+approved preserving current entry behavior: removed the new u32-only main restriction
+and its AST flag; typed callable/noncallable export checks remain. Syntax suite now
+passes 106 checks/48 VM executions, including named and anonymous i64 entries and
+unit entry discovery. Updated obsolete production-validator rejections to positive
+static-partial/computed-supply cases, retaining genuine runtime-supply/missing-policy
+rejections; validator passes 112 executions and two diagnostics. Other frontend
+constituents passed in the preceding aggregate run; the complete make target was
+not rerun after the final validator publishing correction. Evidence:
+`research/experiments/frontend-syntax/do-lambdas/README.md`. No performance, full
+S-source acceptance or complete Q10/X elaboration claim is made.
 
 Authority: `docs/spread.md`; dependency: S/F specialization interfaces, O/U bounds.
 Can start before task runtime; must preserve group bounds when those become available.
@@ -541,22 +566,26 @@ requires D descriptor/box contracts. Initial scope is static operators and block
   and task-scope completion as those subsystems land. Current support must be checked
   per path; documentation approval is not a completed implementation.
 
-- [ ] **Q09** Remove lambda arrows: target `|parameters| expression` and Q10's
-  `do |parameters| ... end` / nullary `do ... end` block forms. Touch `frontend/let/lex.lua` operator tokens,
-  `parse.lua:lambda`, active frontend fixtures/examples and source-producing tools.
-  Keep closing-pipe annotation boundaries, nested lambdas, unary bodies, contextual
-  typing and existing signatures unchanged. `->` has no alias/reservation or special
-  migration diagnostic; ordinary unexpected-token handling suffices. Preserve `--`
-  comments. Migrate active inputs coherently; preserve archived evidence and the
-  explicitly historical arity probe. Validate at the integrated syntax boundary.
+- [ ] **Q09** Replace pipe/arrow lambdas with unified anonymous definitions:
+  `do(parameters): result = expression` or `do(parameters): result ... end`;
+  result annotations are optional and nullary blocks may omit parentheses. Expression
+  lambdas require parentheses, including `do() = expression`; bare `do =` rejects.
+  Share named parameter grouping/annotations; explicit lambda results must agree with
+  context. `|` is infix-only; remove closing-pipe state and both old lambda spellings.
+  Neither arrows nor pipes have compatibility aliases. Preserve `--` comments and
+  archived evidence. Active parser/schema/semantic/test/example migration is implemented;
+  current focused evidence: syntax batch 98 checks/40 VM executions, parser 232,
+  compiler 276, lambda 269/80 VM executions and source demands 52. Wider boundary
+  validation and final review remain before closure.
 
 - [ ] **Q10** Implement standalone block-lambda expressions: `let f = do ... end`
   constructs a callable, not an eagerly executed block. An ungrouped block-lambda
   atom takes no postfix/self-delimited suffix: immediate invocation/access requires
   grouping; test the post-end newline hazard. Parameterized blocks use
-  `do |p| ... end`; reject an expression lambda beginning with ungrouped `do`, and
-  permit intentional nesting through parentheses. Named-definition direct `= do`
-  remains an executed body. Unify trailing-block desugaring with ordinary block-lambda
+  `do(p) ... end`; expression lambdas use `do(p) = expression`. A lambda's `=`
+  permits ungrouped nesting (`do(x) = do(y) = x + y`). Named-definition direct `= do`
+  remains an executed body and rejects a following parameter list; returning a lambda
+  there requires grouping (`let make(x: u32) = (do() = x)`). Unify trailing-block desugaring with ordinary block-lambda
   construction. Touch parser primary/body/lambda paths, AST/semantic capture and result
   handling, compiler callable-binding exports and main discovery; see implementation map.
   Preserve local recursion, unit/value returns, capture/group bounds and main():u32.

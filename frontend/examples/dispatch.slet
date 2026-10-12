@@ -21,13 +21,13 @@ let machine = {
 -- Decode and apply one opcode, returning the machine to run next.
 let advance(m: machine): machine =
   m.code[m.pc] {
-    push = |value: u32| -> do
+    push = do(value: u32)
       m.stack[m.top] = value
       m.top += 1
       m.pc += 1
       return m
     end,
-    add = |u: unit| -> do
+    add = do(u: unit)
       let right = m.stack[m.top - 1]
       let left = m.stack[m.top - 2]
       m.stack[m.top - 2] = left + right
@@ -35,7 +35,7 @@ let advance(m: machine): machine =
       m.pc += 1
       return m
     end,
-    halt = |u: unit| -> do
+    halt = do(u: unit)
       m.done = true
       return m
     end,

@@ -1,0 +1,38 @@
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)
+build/abc asm tools/validate_lifetime.abcasm -o build/validate-lifetime.abc
+build/validate-lifetime build/validate-lifetime.abc
+validated 48 public module/VM lifetime cases (all mode pairs, uncalled and called images)
+cd frontend && /tmp/lua-compat tools/embed.lua --check
+schemas up to date
+cd frontend && /tmp/lua-compat tests/schemas.lua
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+cd frontend && /tmp/lua-compat tests/walk.lua
+PASS: schema-driven traversal (4 checks)
+cd frontend && /tmp/lua-compat tests/parse.lua
+PASS: lexer/parser (232 checks)
+cd frontend && /tmp/lua-compat tests/syntax_batch.lua
+syntax batch: 106 checks, 48 VM executions
+cd frontend && /tmp/lua-compat tests/compiler.lua
+PASS: Let compiler source ingestion and semantic IR (276 checks)
+cd frontend && /tmp/lua-compat tests/lambdas.lua
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+cd frontend && /tmp/lua-compat tests/lowering.lua
+PASS: checked ASDL Ir -> ABC lowering (100 checks)
+cd frontend && /tmp/lua-compat tests/optimize.lua
+PASS: shared C residual-DAG optimizer and LuaJIT FFI (118 checks)
+cd frontend && /tmp/lua-compat tests/staging.lua
+PASS: VM-backed compile-time execution (27 checks)
+cd frontend && /tmp/lua-compat tests/source_demands.lua
+source demand checks: 52
+cd frontend && LUA="/tmp/lua-compat" /tmp/lua-compat tests/staging_sessions.lua
+PASS: unoptimized staging uses only the in-process VM in all four modes
+PASS: owned staging sessions (280 checks)
+/tmp/lua-compat tools/validate_slet_frontend.lua
+luajit: ./build/tool_util.lua:17: bad argument #1 to 'write' (string expected, got nil)
+stack traceback:
+	[C]: in function 'error'
+	./build/tool_util.lua:48: in function 'publish'
+	tools/validate_slet_frontend.lua:88: in main chunk
+	[C]: at 0x5cfb4600c120
+make: *** [Makefile:188: validate-slet] Error 1

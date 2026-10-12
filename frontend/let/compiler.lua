@@ -48,6 +48,8 @@ local function indexDeclarations(ast)
             for _, binder in ipairs(declaration.def.binders) do
                 addBinding(bindings, order, binder.name.text, declaration)
             end
+        elseif kind == 'SpreadDecl' then
+            -- Names depend on elaboration; never hoist them during syntactic indexing.
         elseif kind == "UseDecl" then
             addBinding(bindings, order, declaration.path:match("([^.]+)$"), declaration)
         else
@@ -180,6 +182,7 @@ local function typedFile(path, session)
         local selected=M.profileForPath(modulePath);local unit=M.source{source=read(modulePath),name=modulePath,profile=selected.name}
         local imports,importTypes,importSchemas,dependencies,foreigns,typeCells,seen={},{},{},{},{},{},{}
         for _,decl in ipairs(unit.ast.declarations) do if decl.kind=="UseDecl" then
+            if decl.spread then D.reject('spread-unimplemented','Import name expansion is not implemented',decl.span) end
             local child=load(importPath(modulePath,decl.path,selected.name),false)
             local namespace=decl.path:match("([^.]+)$"):gsub("%.s?let$","")
             for member,entry in pairs(child.exports) do imports[namespace.."."..member]=entry end

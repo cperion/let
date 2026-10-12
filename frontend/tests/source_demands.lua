@@ -96,7 +96,7 @@ let add(a: u32, b: u32): u32 = a + b
 let main(): u32 = do
   let plus = add(20)
   let nested(x: u32): u32 = plus(x)
-  let lambda: (u32): u32 = |x: u32| -> nested(x)
+  let lambda: (u32): u32 = do(x: u32) = nested(x)
   return lambda(22)
 end
 return { functions = { main } }

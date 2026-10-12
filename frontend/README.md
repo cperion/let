@@ -30,9 +30,9 @@ A capture-free lambda can take its types from context, or declare its parameter
 types and infer its results from the body:
 
 ```let
-let add: (u32, u32): u32 = |a, b| -> a + b
+let add: (u32, u32): u32 = do(a, b) = a + b
 -- Alternatively:
-let add = |a, b: u32| -> a + b
+let add = do(a, b: u32) = a + b
 ```
 
 A typed callable parameter also supplies context for an unannotated lambda.

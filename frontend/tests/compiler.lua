@@ -361,8 +361,8 @@ let make_array(): triple = [5, 6, 7]
 let array_total(xs: triple): u32 = xs[0] + xs[1] + xs[2]
 let select(p: pair): choice = choice.some { x = p.x, y = p.y }
 let unwrap(value: choice): u32 = value {
-  none = || -> 0,
-  some = |p| -> p.x + u32(p.y),
+  none = do() = 0,
+  some = do(p) = p.x + u32(p.y),
 }
 let main(): u32 = do
   let p = bump(make_pair())
@@ -394,8 +394,8 @@ let option = oneof { none: unit, some: u32 }
 let main(): u32 = do
   let value = option.some(40)
   let inferred = value {
-    none = || -> do return 0 end,
-    some = |payload| -> do return payload + 2 end,
+    none = do return 0 end,
+    some = do(payload) return payload + 2 end,
   }
   return inferred
 end
@@ -412,7 +412,7 @@ ok,err=pcall(Compiler.typed,{profile="slet",name="mismatched-block-match.slet",s
 let option = oneof { none: unit, some: u32 }
 let main(): u32 = do
   let value = option.some(40)
-  let inferred = value { none = || -> do return false end, some = |payload| -> do return payload end }
+  let inferred = value { none = do return false end, some = do(payload) return payload end }
   return u32(inferred)
 end
 ]=]})
@@ -423,8 +423,8 @@ let option = oneof { none: unit, some: u32 }
 let main(): u32 = do
   let present = option.some(40)
   let absent = option.none()
-  let x = present { none = || -> 0, some = |value| -> value + 1 }
-  let y = absent { some = |value| -> value, none = || -> 1 }
+  let x = present { none = do() = 0, some = do(value) = value + 1 }
+  let y = absent { some = do(value) = value, none = do() = 1 }
   return x + y
 end
 return { functions = { main } }
@@ -443,11 +443,11 @@ check(#sumModules==3 and sumModules[1]==sumModules[2] and sumModules[2]==sumModu
 local blockMatchSource=[[
 let option = oneof { none: unit, some: u32 }
 let unwrap(value: option): u32 = value {
-  none = || -> do
+  none = do
     let zero = 0
     return zero
   end,
-  some = |payload| -> do
+  some = do(payload)
     let adjusted = payload + 2
     return adjusted
   end,
@@ -467,7 +467,7 @@ local closureSource = [[
 let capture = { base: u32, more: u32 }
 let make(): (u32): u32 = do
   let environment = capture { more = 20, base = 20 }
-  return |x: u32| -> environment.base + environment.more + x
+  return do(x: u32) = environment.base + environment.more + x
 end
 let main(): u32 = do
   let add = make()
@@ -481,7 +481,7 @@ check(hasIR(closureProgram,'View'),'capturing source lambdas preserve callable I
 local indirectPartialSource=[=[
 let add(a, b: u32): u32 = a + b
 let bind(f: (u32, u32): u32, n: u32): (u32): u32 = f(n)
-let make(base: u32): (u32, u32): u32 = |a: u32, b: u32| -> base + a + b
+let make(base: u32): (u32, u32): u32 = (do(a: u32, b: u32) = base + a + b)
 let main(): u32 = bind(add, 2)(40)
 let managed(): u32 = bind(make(1), 2)(39)
 return { functions = { main, managed } }
@@ -584,7 +584,7 @@ local exactLambda=Compiler.compile{profile="slet",name="lambda.slet",source=[[
 let noop(): unit = do return end
 let main(): u32 = do
   noop()
-  let add: (u32, u32): u32 = |x: u32, y: u32| -> x + y
+  let add: (u32, u32): u32 = do(x: u32, y: u32) = x + y
   return add(20, 22)
 end
 return { functions = { main } }
@@ -596,7 +596,7 @@ end
 ok,err=pcall(Compiler.typed,{profile="slet",name="capture.slet",source=[[
 let main(): u32 = do
   let base = 40
-  let add: (u32): u32 = |x: u32| -> base + x
+  let add: (u32): u32 = do(x: u32) = base + x
   return add(2)
 end
 ]]})
@@ -670,12 +670,12 @@ let pair = { x: u32 }
 let make_ref_reader(): (u32): u32 = do
   let p = pair { x = 40 }
   let r = ref(p)
-  return |more: u32| -> r.x + more
+  return do(more: u32) = r.x + more
 end
 let make_slice_reader(): (u32): u32 = do
   let xs = [10, 20, 12]
   let view = slice(xs)
-  return |i: u32| -> view[i]
+  return do(i: u32) = view[i]
 end
 let main(): u32 = do
   let read = make_ref_reader()
@@ -870,12 +870,12 @@ let compute(): u32 = do
   let xs = [p.x, p.y]
   let view = slice(xs)
   let tagged = option.some(view[0] + view[1])
-  return tagged { none = || -> 0, some = |value| -> value + 1 }
+  return tagged { none = do() = 0, some = do(value) = value + 1 }
 end
 let make_pair(): pair = pair { x = 20, y = 22 }
 let pair_total(p: pair): u32 = p.x + p.y
 let make_choice(): pair_option = pair_option.some { x = 19, y = 23 }
-let choice_total(value: pair_option): u32 = value { none = || -> 0, some = |p| -> p.x + p.y }
+let choice_total(value: pair_option): u32 = value { none = do() = 0, some = do(p) = p.x + p.y }
 return { functions = { compute, make_pair, pair_total, make_choice, choice_total } }
 ]])
 -- Keep the typed half of the former mixed-profile import execution test.
@@ -904,12 +904,12 @@ let capture = { base: u32 }
 let make(): (u32): u32 = do
   let environment = capture { base = 20 }
   let retained = ref(environment)
-  return |x: u32| -> retained.base + x
+  return do(x: u32) = retained.base + x
 end
 let make_pick(): (u32): u32 = do
   let xs = [10, 20, 12]
   let view = slice(xs)
-  return |i: u32| -> view[i]
+  return do(i: u32) = view[i]
 end
 let make_slice(): slice(u32) = do
   let xs = [1, 2]
@@ -1000,7 +1000,7 @@ let main(): u32 = do
   let a, b = pair()
   let kept = pair()
   let x, padding = 1
-  let block: (u32): u32 = |n: u32| -> do return n + 1 end
+  let block: (u32): u32 = do(n: u32) return n + 1 end
   return first(a) + b + kept - 20 + x + (add(1))(2) + block(1)
 end
 return { functions = { main } }

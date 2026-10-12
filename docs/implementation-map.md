@@ -99,10 +99,12 @@ serializing; filenames in this table do not authorize an implicit format extensi
 | Q07 | Q static files plus D type descriptors and callable lowering | Dynamic descriptor dispatch calls ordinary implementations; no per-instance tables or backend scalar copies |
 | Q08 | `frontend/let/semantic.lua` result inference, method/lambda builders, `Function:build` and defer scopes; `check.lua`, `schema/ir.lua`, `abc.lua`, `frontend/tests/compiler.lua`, `lambdas.lua`, operator tests | Unit fallthrough uses ordinary bare-return cleanup. Add §10's conservative resolved-SCC unit classification before any defaults, excluding nested callable returns and respecting non-unit contracts. Preserve inner-block flow; no last-expression value return |
 
-Q09 touches `frontend/let/lex.lua` (remove `->` token), `parse.lua:lambda` (body
-immediately after closing pipe), active lexer/parser/compiler/lambda tests, examples
-and source emitters. Update trailing-block desugaring descriptions. No AST/VM node
-is needed solely to remove punctuation; no legacy token alias or special diagnostic.
+Q09 touches `frontend/let/lex.lua` (remove `->` token), `parse.lua:lambda` (unified
+`do(parameters)` with expression/block bodies), `frontend/ast.asdl` (optional lambda
+result annotation), semantic result/context checking, active tests/examples and source
+emitters. Remove prefix-pipe parsing and closing-pipe annotation state; `|` remains an
+infix operator. Explicit nullary parentheses are required for expression lambdas.
+No VM node, old spelling alias or migration-specific arrow diagnostic is added.
 Retain historical archives and label old probe output as pre-migration evidence.
 
 Q10 touches `frontend/let/parse.lua:primary/lambda/body`, `schema/ast.lua`, traversal
@@ -112,8 +114,9 @@ entry discovery where it relies on direct named words. Normalize a standalone bl
 and a trailing block to the same ordinary lambda representation; do not add an eager
 block-expression evaluator. Update `frontend/tests/lambdas.lua`, `compiler.lua`, parser
 and trailing-block fixtures. Cross-reference S06/F04/F06 for module/ABI lifetime work.
-Reject ungrouped pipe-lambda `do` bodies, retain grouped returned block lambdas and
-named-definition bodies, and test main's unchanged u32 ABI with callable bindings.
+A lambda's `=` permits nested lambdas without grouping. Named-definition `= do`
+remains an executed body and rejects `do(...)`; group a lambda returned from a named
+expression body. Test explicit/contextual result agreement and main's unchanged u32 ABI.
 An ungrouped block-lambda atom cannot accept postfix/self-delimited continuation;
 Q10 must test post-end newlines, explicit grouping and unchanged infix continuation.
 

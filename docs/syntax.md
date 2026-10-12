@@ -206,7 +206,7 @@ runtime value, write a lambda explicitly:
 
 ```
 let add(a, b: u32) = a + b
-let add_runtime(n: u32) = |x: u32| add(n, x)
+let add_runtime(n: u32) = (do(x: u32) = add(n, x))
 ```
 
 Inside a residual function `add(n)` rejects if n is runtime; `add(n, x)` is a valid saturated call.
@@ -220,26 +220,29 @@ runtime storage. Known current contents do not make a mutable record a static ar
 
 ## 4. Anonymous words and signatures
 
-Expression lambdas use parameter pipes followed by an expression. Block lambdas
-use `do`, optional parameter pipes, statements and `end`:
+A lambda is an anonymous definition: `do`, optional parenthesized parameters and
+result annotation, then either `= expression` or statements followed by `end`.
+Definitions, methods and lambdas share parameter grouping and annotation syntax.
 
-```
-|x| x + 1
-|a, b| a ~ b
-|x: u32| x + 1
-do |a, b: u32| let t = a * a  return t + b end
-|| unit()
+```let
+do(x) = x + 1
+do(a, b) = a ~ b
+do(x: u32): u32 = x + 1
+do(a, b: u32) let t = a * a return t + b end
+do() = unit()
+do return end
 ```
 
-For an expression lambda the closing pipe ends the parameter list; the expression
-begins immediately. No arrow is required or accepted in the target. At body start, `-` is unary and `|` starts a
-nested lambda: `|x| -x` and `|x| |y| x + y` are grammatical. Signature annotations
-stop at the closing parameter pipe; lambda expression bodies end at the ordinary
-enclosing delimiter (for example the comma in `f(|x| x + 1, y)`).
+Expression lambdas require explicit parentheses, including nullary `do() = expr`;
+`do = expr` rejects. Blocks may omit nullary parentheses. After `do`, `(` always
+starts parameters, never a grouped first statement. `|` is exclusively an infix
+operator; neither pipe lambdas nor arrows are accepted. Expression bodies extend
+to their enclosing delimiter, including the comma in `f(do(x) = x + 1, y)`.
+Currying is `do(x) = do(y) = x + y`; `do(x) = do return x end` returns a block lambda.
 
 A result is written with `:`, and a signature's inputs are parenthesized, so a
 signature is unambiguous even when type aliases are lowercase or used inside a
-lambda parameter list. This is approved syntax, not current parser support:
+lambda parameter list:
 
 ```
 let number = u32
@@ -253,9 +256,9 @@ arbitrary body-based parameter inference is not introduced. The current typed
 implementation still rejects an unconstrained untyped lambda.
 
 ```
-let inc: (u32): u32 = |x| x + 1
+let inc: (u32): u32 = do(x) = x + 1
 let twice(f: (u32): u32, x: u32) = f(f(x))
-let inc_2x = twice(|x| x + 1)
+let inc_2x = twice(do(x) = x + 1)
 ```
 
 Expected callable types are passed to lambda arguments as their corresponding requirements become
@@ -273,14 +276,15 @@ for argument evaluation or match coverage/handler checking. First-class lambda v
 partial supply and unsupported argument/environment shapes retain ordinary checked-base construction.
 This is not result memoization or general lazy closure checking.
 
-A lambda's result is constrained by an annotated binding or the requirement it is
-passed to, or inferred under the ordinary rules. Typed parameters with an inferred
-result are valid; a lambda body can itself be a signature: `|x: u32| (u32): u32`.
+A lambda's result is constrained by its explicit result annotation, its contextual
+signature, or inferred under ordinary rules. Explicit and contextual contracts must
+agree. Typed parameters with inferred results remain valid; a lambda body can itself
+be a signature: `do(x: u32) = (u32): u32`.
 A block lambda uses the same unit-fallthrough/value-return rules as any other callable.
 
 ```let
-let inc = |x: u32| x + 1
-let work = do |x: u32|
+let inc = do(x: u32) = x + 1
+let work = do(x: u32)
   log "working"
   return x + 1
 end
@@ -291,15 +295,14 @@ end
 
 In value-expression position, `do ... end` constructs a nullary callable; it does
 not execute the block and bind its result. `let x = do return 3 end` binds a word,
-not the number 3. Invocation remains explicit: `x()`. `do |p| ... end` constructs
+not the number 3. Invocation remains explicit: `x()`. `do(p) ... end` constructs
 a parameterized block lambda, with ordinary contextual typing and captures.
 
-There is one spelling for each lambda body kind. A pipe expression lambda cannot
-start with an ungrouped `do`: `|x| do return x end` rejects rather than changing
-meaning into a lambda returning another lambda. To intentionally return a block
-lambda, group it: `|x: u32| (do return x end)`. This is a grammar rule, not a legacy
-adapter. A lambda value binding retains ordinary local binding/capture rules; it
-does not acquire the self-recursion privileges of a local named word.
+A named definition's direct `= do` still introduces its executed block body.
+`let make(x) = do(...) ...` rejects; group a returned lambda:
+`let make(x: u32) = (do() = x)`. A lambda's own `=` unambiguously introduces an
+expression, so its nested lambdas need no grouping. Lambda value bindings retain
+ordinary capture rules, not the self-recursion privileges of local named words.
 
 Signature forms are:
 
@@ -487,10 +490,10 @@ Tightest first:
 | logical and | `and` | left |
 | logical or | `or` | left |
 
-Pipes in prefix position introduce a lambda; infix pipe is bitwise-or. A lambda parameter annotation
-stops at the closing pipe, so `|f: (u32): u32| f` reads as one parameter whose type is
-a signature. The lambda body extends as a full body/expression to its enclosing
-delimiter. Signatures use `:`, not arrows, and do not create executable bodies.
+Pipe is only infix bitwise-or. `do(f: (u32): u32) = f` has one signature-typed
+parameter, using the same parentheses as a named definition. A lambda expression
+body extends to its enclosing delimiter. Signatures use `:`, not arrows, and do
+not create executable bodies.
 
 Power binds tighter than unary on its left: `-x ^ 2` means `-(x ^ 2)`. Unary is allowed on the right
 of power, so `x ^ -1` means `x ^ (-1)`. Here -1 is modular u32 negation, not a signed exponent. Two
@@ -693,8 +696,8 @@ callable values, each receiving that alternative's payload:
 
 ```
 let area(s: shape): u32 = s {
-  circle = |c: circle| c.radius * c.radius,
-  rect = do |r: rect|
+  circle = do(c: circle) = c.radius * c.radius,
+  rect = do(r: rect)
     let w = r.width
     return w * r.height
   end,
@@ -849,7 +852,7 @@ applied to an element type and a length, and a literal is written with brackets:
 let xs = [10, 20, 30]
 let ys: array(u32, 3) = [10, 20, 30]
 let first = xs[0]
-let pick = |i: u32| xs[i]
+let pick = do(i: u32) = xs[i]
 xs[1] = 99
 xs[0] += 5
 ```
@@ -1067,7 +1070,7 @@ let with_region(r: type, bytes: u32, body: (ptr(u8)): r) : r = do
   return result
 end
 
-let sum() : u32 = with_region(u32, 8, do |p: ptr(u8)|
+let sum() : u32 = with_region(u32, 8, do(p: ptr(u8))
   p[0] = 7
   p[1] = 35
   return u32(p[0]) + u32(p[1])
@@ -1371,10 +1374,10 @@ not yet implemented.
 
 Approved self-delimiting calls omit parentheses for one atomic literal or block:
 `f 21`, `f 1.5`, `f true`, `f 'x'` and `f "text"` mean their ordinary one-argument
-parenthesized calls; `f do |p| ... end` means
-`f(do |p| ... end)`. Long-bracket strings follow the same rule. With no block
+parenthesized calls; `f do(p) ... end` means
+`f(do(p) ... end)`. Long-bracket strings follow the same rule. With no block
 parameters the lambda is nullary. A parenthesized call can still append a block:
-`f(x) do |p| ... end` means `f(x, do |p| ... end)`, one application, not two.
+`f(x) do(p) ... end` means `f(x, do(p) ... end)`, one application, not two.
 No arity lookup or newline-sensitive parsing is introduced. Keyed braces retain their
 existing meaning; a positional table argument is written `f(table { x = 3 })`.
 Desugaring precedes result-list adjustment; return is local to the lambda and normal
@@ -1449,8 +1452,8 @@ defer-statement := 'defer' call-statement
 expression-list := supply-item (',' supply-item)*
 supply-item     := expression | '...' expression
 lambda          := expression-lambda | block-lambda
-expression-lambda := '|' lambda-parameters? '|' expression
-block-lambda    := 'do' ('|' lambda-parameters? '|')? statement* 'end'  (an atom)
+expression-lambda := 'do' '(' lambda-parameters? ')' (':' result-spec)? '=' expression
+block-lambda    := 'do' ('(' lambda-parameters? ')')? (':' result-spec)? statement* 'end'  (an atom)
 lambda-parameters := parameter groups, with annotations optionally supplied by context
 postfix         := atom postfix-suffix* self-delimited-call?
 postfix-suffix  := arguments | initializer | '.' Name | '[' expression ']'
@@ -1480,8 +1483,8 @@ signature       := '(' type-list? ')' ':' result-spec
 
 Expression-lambda's immediate expression cannot begin with an ungrouped `do`;
 parentheses explicitly permit returning a block-lambda value. Named-block-body does
-not have its own parameter pipes: parameters belong to the named definition. Thus
-`let f(x) = do |y| ... end` is not shorthand for returning a lambda; use grouping.
+not have its own parameter list: parameters belong to the named definition. Thus
+`let f(x) = do(y) ... end` is not shorthand for returning a lambda; use grouping.
 Value bindings (`let f = do ... end`) are distinct from named definitions with
 parameter lists and construct callable values.
 
@@ -1522,11 +1525,11 @@ Parameter groups end after an annotation; a following comma begins the next grou
 A parenthesized comma sequence is legal only as a signature side/result-spec, never as a general
 expression. Parser lookahead over balanced parentheses recognizes a signature input
 type list followed by `:`; scalar grouping otherwise adjusts its expression to one
-value. Lambda parameter pipes distinguish binding names from signature type expressions.
+value. The `do` keyword distinguishes lambda parameters from signature type expressions.
 
 type expressions use expression syntax but must evaluate to a type/calling requirement. There is no
 separate capitalization rule or implicit conversion of a value into its type. Their surrounding
-colon, closing parameter pipe or list delimiter determines where they end. A result-spec's comma list is distinct
+colon, closing parameter parenthesis or list delimiter determines where they end. A result-spec's comma list is distinct
 from a single signature-valued result, e.g. `: ((u32): u32)`.
 
 `if a then if b then x else y else z` associates each else with its structurally pending expression
@@ -1604,8 +1607,8 @@ that every operation is count-free or allocation-free.
 Required syntax/semantic tests include:
 
 - whitespace/one-line equivalence, explicit separators, maximal tokens and comments;
-- arrow-free pipe lambdas versus lowercase type aliases/signatures; grouped/nested signatures,
-  unary/nested-lambda bodies and closing-pipe versus infix-pipe boundaries;
+- unified do lambdas versus named bodies and lowercase signatures; explicit/contextual
+  result agreement, grouped returned lambdas, currying and infix-only pipe;
 - shared parameter annotations versus per-binder annotations; contextual lambda typing;
 - static partial supply, residual saturated calls, overapplication and nullary calls;
 - multiple-result forwarding/grouping, unit fill, exact return contracts and result annotations;
@@ -1655,7 +1658,7 @@ let add(a, b) = a + b                 -- (a, b: any)
 let scale(k: u32, v) = v * k          -- v is any, k is u32
 let distance { x, y } = x * x + y * y -- keys x and y are any
 let enemy = { hp, speed: u32 }        -- hp is an any field
-let inc = |x| x + 1                   -- standalone lambda, x is any
+let inc = do(x) = x + 1               -- standalone lambda, x is any
 ```
 
 A local binding keeps its initializer's inferred type; only an `any` initializer or
@@ -1918,7 +1921,7 @@ All use the scoped lifetimes, normal return and cooperative cancellation rules i
 ```let
 use std.task
 
-let total(): u64 = task.scope(u64) do |g|
+let total(): u64 = task.scope(u64) do(g)
   let a = g.spawn do return sum_range(0, 500) end
   let b = g.spawn do return sum_range(500, 1000) end
   return a.join() + b.join()

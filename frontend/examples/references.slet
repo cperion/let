@@ -22,7 +22,7 @@ end
 -- A closure borrows the record it captures, so a reference to it reaches the caller's instance.
 let borrowed(x: u32): u32 = do
   let c = counter { value = x }
-  let bump = |d: u32| -> do
+  let bump = do(d: u32)
     let r = ref(c)
     r.value += d
     return r.value
@@ -38,12 +38,12 @@ let first = node { value = 10, next = link.none() }
 let second = node { value = 1, next = link.some(ref(first)) }
 
 let following(): u32 = second.next {
-  none = |u: unit| -> 0,
-  some = |r: ref(node)| -> r.value,
+  none = do(u: unit) = 0,
+  some = do(r: ref(node)) = r.value,
 }
 let bump_following(): u32 = second.next {
-  none = |u: unit| -> 0,
-  some = |r: ref(node)| -> do
+  none = do(u: unit) = 0,
+  some = do(r: ref(node))
     r.value += 5
     return r.value
   end,

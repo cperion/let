@@ -26,6 +26,7 @@ local COMPARISON = { ["=="]=true, ["!="]=true, ["<"]=true, ["<="]=true, [">"]=tr
 
 local function schemaName(node,schemas)
     if not node then return nil end
+    if node.kind=='Group' then return schemaName(node.value,schemas) end
     local name
     if node.kind=="Reference" then name=node.name.text
     elseif node.kind=="FieldSelect" and node.base.kind=="Reference" then name=node.base.name.text.."."..node.field.text
@@ -44,7 +45,13 @@ local function containsBorrow(ty, seen)
     return false
 end
 
+local function ungroup(node)
+    while node and node.kind=='Group' do node=node.value end
+    return node
+end
+
 local function typeExpr(node, types)
+    node=ungroup(node)
     if node and node.kind=="Reference" then
         local ty=BUILTIN_TYPES[node.name.text] or (types and types[node.name.text])
         if ty then return ty end
@@ -69,10 +76,11 @@ local function typeExpr(node, types)
             local child=typeExpr(node.arguments[1],types)
             return name=="ref" and S.ref(child) or name=="ptr" and S.ptr(child) or S.slice(child)
         elseif name=="array" then
-            if #node.arguments~=2 or node.arguments[2].kind~="U32Literal" or node.arguments[2].value<1 then reject("array-length","array expects a type and a positive literal length",node) end
-            return S.array(typeExpr(node.arguments[1],types),node.arguments[2].value)
+            local length=ungroup(node.arguments[2])
+            if #node.arguments~=2 or length.kind~='U32Literal' or length.value<1 then reject('array-length','array expects a type and a positive literal length',node) end
+            return S.array(typeExpr(node.arguments[1],types),length.value)
         elseif name=="oneof" then
-            if #node.arguments~=1 or node.arguments[1].kind~="SchemaExpr" then reject("type-required","oneof expects one schema",node) end
+            if #node.arguments~=1 or ungroup(node.arguments[1]).kind~="SchemaExpr" then reject("type-required","oneof expects one schema",node) end
             local record=typeExpr(node.arguments[1],types);return S.sum(S.fieldsOf(record))
         end
     elseif node and node.kind=="SignatureExpr" then
@@ -144,12 +152,14 @@ function Function.new(def, id, signatures, globals, types, dynamic, managed, gen
 end
 
 function Function:knownType(node)
+    if node.kind=='Group' then return self:knownType(node.value) end
     if node.kind=="Reference" then local binding=self.scope[node.name.text];return binding and binding.type end
     if node.kind=="FieldSelect" or node.kind=="IndexExpr" then if self:knownType(node.base)==S.any then return S.any end end
     if node.kind=="Apply" and node.callee.kind=="Reference" then local target=self.signatures[node.callee.name.text];return target and #target.results==1 and target.results[1] or nil end
 end
 
 function Function:placeBinding(node)
+    if node.kind=='Group' then return self:placeBinding(node.value) end
     if node.kind=="Reference" then return self.scope[node.name.text] end
     if node.kind=="FieldSelect" then
         local parent=self:placeBinding(node.base);if not parent then return nil end
@@ -186,6 +196,7 @@ function Function:sameType(left,right,seen)
 end
 
 function Function:place(node)
+    if node.kind=='Group' then return self:place(node.value) end
     if node.kind=="Reference" then
         local binding=self.scope[node.name.text]
         if not binding or (not binding.storage and not binding.place) then reject("not-a-place","`"..node.name.text.."` is not addressable",node) end
@@ -339,6 +350,16 @@ function Function:lambda(node, expected, inferResults)
         expected=S.view(S.sig(inputs,{}));inferResults=true
     end
     if not expected:isView() then reject("type-required","A lambda needs a callable signature annotation",node) end
+    local declared=resultTypes(node.result,self.types)
+    if declared then
+        if not inferResults then
+            if #declared~=#expected.visible.results then reject('type-mismatch','Lambda result annotation does not match its context',node) end
+            for index,ty in ipairs(declared) do
+                if ty~=expected.visible.results[index] then reject('type-mismatch','Lambda result annotation does not match its context',node) end
+            end
+        end
+        expected=S.view(S.sig(expected.visible.inputs,declared));inferResults=false
+    end
     if not inferResults and #expected.visible.results<1 then reject("semantic-todo","Zero-result source lambdas are not implemented",node) end
     if #node.params~=#expected.visible.inputs then reject("arity","Lambda parameter count does not match its signature",node) end
     local parameterNames={} for _,param in ipairs(node.params) do
@@ -594,6 +615,22 @@ function Function:coerce(expr, expected, node)
     reject("type-mismatch", "Expected "..S.display(expected).." but found "..S.display(expr.type), node)
 end
 
+-- One source result-list rule for calls, returns and bindings. Parenthesized
+-- expressions go through expr and therefore contribute exactly one value.
+function Function:supplies(nodes, expectedAt)
+    local values,origins={},{}
+    for index,node in ipairs(nodes) do
+        local expected=expectedAt and expectedAt(#values+1)
+        local produced
+        if index==#nodes and node.kind=='Apply' then
+            produced=self:call(node,expected,false,true)
+            if produced.kind then produced={produced} end
+        else produced={self:expr(node,expected)} end
+        for _,value in ipairs(produced) do values[#values+1]=value;origins[#origins+1]=node end
+    end
+    return values,origins
+end
+
 function Function:call(node, expected, discard, allResults, prepareOnly)
     local name,callable,selectedMethod
     if node.callee.kind=="FieldSelect" then
@@ -670,19 +707,21 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         reject("unknown-name", "Unknown word `"..name.."`", node.callee)
     end
     if target.keyed and not (target.sourceCallable and next(target.supplied)) then reject("keyed-required","Word `"..name.."` must be supplied by key",node) end
-    if #node.arguments>#target.inputs then reject("arity", "Word `"..name.."` expects at most "..#target.inputs.." arguments", node) end
+    local supplied,origins=self:supplies(node.arguments,function(index) return target.inputs[index] and target.inputs[index].type end)
+    if target.dynamic then for index=#target.inputs+1,#supplied do target.inputs[index]=S.inValue(S.any) end end
+    if #supplied>#target.inputs then reject('arity','Word `'..name..'` expects at most '..#target.inputs..' arguments',node) end
     local args={};local localBorrow=false
-    for index,arg in ipairs(node.arguments) do
-        local value=self:coerce(self:expr(arg,target.inputs[index].type),target.inputs[index].type,arg)
+    for index,value in ipairs(supplied) do
+        value=self:coerce(value,target.inputs[index].type,origins[index])
         if value.borrowedLocal then localBorrow=true end
         args[#args+1]=I.ValueArg(value)
     end
     local application=not indirect and Source.supply(Source.callable(target,name),args) or nil
     if prepareOnly then
-        if #node.arguments<#target.inputs then reject("arity","A deferred action must be a saturated call",node) end
+        if #args<#target.inputs then reject("arity","A deferred action must be a saturated call",node) end
         return {target=target,name=name,indirect=indirect,args=application and Source.arguments(application) or args,node=node}
     end
-    if #node.arguments<#target.inputs then
+    if #args<#target.inputs then
         local runtimeSupply=false for _,argument in ipairs(args) do if not self.lambdaState.demands:known(self:context(),argument.value) then runtimeSupply=true;break end end
         if runtimeSupply and self.dynamic and not indirect and not localWord and not target.foreign then
             local callableValue=self.builder:valueId();self.builder:emit(self.body,located(I.View(callableValue,S.any,target.target or name,L{},nil),node))
@@ -692,7 +731,7 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         end
         if indirect then return self:indirectPartial(node,indirect,target,args,expected) end
         for index,argument in ipairs(args) do
-            args[index]=I.ValueArg(self.lambdaState.demands:require(self:context(),argument.value,self.lambdaState.resolve,node.arguments[index]))
+            args[index]=I.ValueArg(self.lambdaState.demands:require(self:context(),argument.value,self.lambdaState.resolve,origins[index]))
         end
         application=Source.supply(Source.callable(target,name),args)
         local result=Source.value(application,node.span)
@@ -711,8 +750,7 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         if localBorrow and containsBorrow(target.results[index]) then refs[index].borrowedLocal=true end
     end
     if allResults then return refs end
-    if #target.results~=1 then reject("result-arity", "A call used as an expression must return exactly one value", node) end
-    return refs[1]
+    return refs[1] or self.builder:const(S.unit,I.UInt(0))
 end
 function Function:invokePrepared(call)
     local values={} for index=1,#call.target.results do values[index]=self.builder:valueId() end
@@ -782,7 +820,8 @@ function Function:expr(node, expected)
     self:context()
     local kind=node.kind
     local expr
-    if kind=="U32Literal" then
+    if kind=='Group' then return self:expr(node.value,expected)
+    elseif kind=="U32Literal" then
         local literalType=expected==S.any and S.i64 or expected and expected:isInteger() and expected or S.u32
         local maximum=S.maxOf(literalType)
         if maximum and node.value>maximum then reject("numeric-range","Integer literal does not fit "..S.display(literalType),node) end
@@ -988,33 +1027,21 @@ function Function:expr(node, expected)
 end
 
 function Function:returnValues(nodes, owner)
+    local values,origins=self:supplies(nodes,function(index) return self.results and self.results[index] end)
+    if #values==0 then values[1]=self.builder:const(S.unit,I.UInt(0));origins[1]=owner end
     if not self.results then
-        local values={}
-        if #nodes==0 then values[1]=self.builder:const(S.unit,I.UInt(0))
-        elseif #nodes==1 and nodes[1].kind=="Apply" then
-            local produced=self:call(nodes[1],nil,false,true)
-            if produced.kind then values[1]=produced else for _,value in ipairs(produced) do values[#values+1]=value end end
-        else for _,node in ipairs(nodes) do values[#values+1]=self:expr(node) end end
-        if #values==0 then values[1]=self.builder:const(S.unit,I.UInt(0)) end
-        self.results={} for index,value in ipairs(values) do values[index]=self:materializeCallable(value);self.results[index]=values[index].type end
-        self:emitDefers();self.builder:return_(self.body,values);located(self.body[#self.body],owner);return
+        self.results={}
+        for index,value in ipairs(values) do values[index]=self:materializeCallable(value);self.results[index]=values[index].type end
     end
-    if #nodes==0 and #self.results==1 and self.results[1]==S.unit then
-        local value=self.builder:const(S.unit,I.UInt(0));self:emitDefers();self.builder:return_(self.body,{value});located(self.body[#self.body],owner);return
-    end
-    if #nodes==1 and nodes[1].kind=="Apply" and #self.results>1 then
-        local values=self:call(nodes[1],nil,false,true)
-        if #values~=#self.results then reject("return-arity", "Expected "..#self.results.." return values",owner) end
-        for index,value in ipairs(values) do values[index]=self:coerce(value,self.results[index],nodes[1]) end
-        self:emitDefers();self.builder:return_(self.body,values);located(self.body[#self.body],owner);return
-    end
-    if #nodes~=#self.results then reject("return-arity", "Expected "..#self.results.." return values",owner) end
-    local values={} for index,node in ipairs(nodes) do
-        values[index]=self:coerce(self:expr(node,self.results[index]),self.results[index],node)
-        if not self.managed and values[index].borrowedLocal and containsBorrow(values[index].type) then reject("borrow-return","A value retaining local storage cannot be returned",node) end
+    if #values~=#self.results then reject('return-arity','Expected '..#self.results..' return values',owner) end
+    for index,value in ipairs(values) do
+        values[index]=self:coerce(value,self.results[index],origins[index])
+        if not self.managed and values[index].borrowedLocal and containsBorrow(values[index].type) then
+            reject('borrow-return','A value retaining local storage cannot be returned',origins[index])
+        end
     end
     self:emitDefers()
-    self.builder:return_(self.body,values); located(self.body[#self.body],owner)
+    self.builder:return_(self.body,values);located(self.body[#self.body],owner)
 end
 
 function Function:statements(statements)
@@ -1028,22 +1055,14 @@ function Function:statements(statements)
         elseif kind=="OpenMethodStmt" then
             self:openMethod(stmt)
         elseif kind=="ValueStmt" then
-            local produced={}
-            for index,valueNode in ipairs(stmt.def.values) do
-                if index==#stmt.def.values and valueNode.kind=="Apply" then
-                    local values=self:call(valueNode,nil,false,true)
-                    if values.kind then produced[#produced+1]=values else for _,value in ipairs(values) do produced[#produced+1]=value end end
-                else
-                    local binder=#stmt.def.binders==#stmt.def.values and stmt.def.binders[index] or nil
-                    local wanted=binder and binder.annotation and typeExpr(binder.annotation,self.types) or nil
-                    local value=self:expr(valueNode,wanted);local selectedSchema=binder and schemaName(binder.annotation,self.schemas);if selectedSchema then value.schema=selectedSchema end
-                    produced[#produced+1]=value
-                end
-            end
+            local produced=self:supplies(stmt.def.values,function(index)
+                local binder=stmt.def.binders[index]
+                return binder and binder.annotation and typeExpr(binder.annotation,self.types) or nil
+            end)
             local pending={}
             for index,binder in ipairs(stmt.def.binders) do
                 local wanted=binder.annotation and typeExpr(binder.annotation,self.types) or nil
-                local origin=#stmt.def.binders==#stmt.def.values and stmt.def.values[index] or nil
+                local origin=#stmt.def.binders==#stmt.def.values and ungroup(stmt.def.values[index]) or nil
                 local source=origin and origin.kind=="Reference" and self.scope[origin.name.text] or nil
                 if source and source.storage and (source.type:isRecord() or source.type:isArray()) then
                     if wanted and wanted~=source.type then reject("type-mismatch","Aggregate alias annotation does not match",binder) end
@@ -1144,6 +1163,15 @@ end
 
 function M.build(unit, options)
     if type(unit)~="table" or unit.phase~="parsed" then D.reject("compiler-phase","Semantic construction needs a parsed source unit") end
+    Walk.walk(unit.ast,{enter=function(node)
+        if node.kind=='RestParam' then reject('rest-unimplemented','Static-shape rest specialization is not implemented',node) end
+        if node.kind=='Spread' or node.kind=='FieldSpread' or node.kind=='SpreadDecl' or node.kind=='SpreadStmt' or (node.kind=='UseDecl' and node.spread) then
+            reject('spread-unimplemented','Expansion for '..node.kind..' is not implemented',node)
+        end
+        if (node.kind=='BinaryExpr' and node.operator=='..') or (node.kind=='StoreStmt' and node.operator=='..=') then
+            reject('concatenation-unimplemented','Value string/list concatenation is not implemented',node)
+        end
+    end})
     options=options or {};local prefix=options.prefix or "";local dynamic=unit.profile and unit.profile.dynamic
     local signatures,globals,types,order,foreigns,cells={},{},{},{},{},{}
     for cell,ty in pairs(options.typeCells or {}) do cells[cell]=ty end
@@ -1155,11 +1183,11 @@ function M.build(unit, options)
     local typeDefs,typeState,typeDecl,typeOrder,schemas,schemaSerial={},{},{},{},{},0
     for name,schema in pairs(options.schemas or {}) do schemas[name]=schema;if schema.face and schema.face.id>schemaSerial then schemaSerial=schema.face.id end end
     local constructors={ref=true,ptr=true,slice=true,array=true,oneof=true}
-    local function obviousType(node) return node.kind=="SchemaExpr" or node.kind=="SignatureExpr" or (node.kind=="Apply" and node.callee.kind=="Reference" and constructors[node.callee.name.text]) end
+    local function obviousType(node) node=ungroup(node);return node.kind=="SchemaExpr" or node.kind=="SignatureExpr" or (node.kind=="Apply" and node.callee.kind=="Reference" and constructors[node.callee.name.text]) end
     for _,decl in ipairs(unit.ast.declarations) do
         if decl.kind=="ValueDecl" and #decl.def.binders==1 and #decl.def.values==1 and not decl.def.binders[1].annotation and obviousType(decl.def.values[1]) then
             local name=decl.def.binders[1].name.text;if rawget(types,name) or typeDefs[name] then reject("duplicate-name","Type `"..name.."` is declared twice",decl) end
-            typeDefs[name]=decl.def.values[1];typeDecl[name]=decl;typeOrder[#typeOrder+1]=name;decl._typeDeclaration=true
+            typeDefs[name]=ungroup(decl.def.values[1]);typeDecl[name]=decl;typeOrder[#typeOrder+1]=name;decl._typeDeclaration=true
         end
     end
     local changed=true
@@ -1167,7 +1195,7 @@ function M.build(unit, options)
         changed=false
         for _,decl in ipairs(unit.ast.declarations) do
             if decl.kind=="ValueDecl" and #decl.def.binders==1 and #decl.def.values==1 and not decl.def.binders[1].annotation and not decl._typeDeclaration then
-                local node=decl.def.values[1]
+                local node=ungroup(decl.def.values[1])
                 local referenced=node.kind=="Reference" and (BUILTIN_TYPES[node.name.text] or rawget(types,node.name.text) or typeDefs[node.name.text])
                 local selected=node.kind=="FieldSelect" and node.base.kind=="Reference" and rawget(types,node.base.name.text.."."..node.field.text)
                 if referenced or selected then local name=decl.def.binders[1].name.text;if rawget(types,name) or typeDefs[name] then reject("duplicate-name","Type `"..name.."` is declared twice",decl) end;typeDefs[name]=node;typeDecl[name]=decl;typeOrder[#typeOrder+1]=name;decl._typeDeclaration=true;changed=true end
@@ -1231,7 +1259,6 @@ function M.build(unit, options)
         else decl.def._resultTypes=contract end
         contracts[decl.def.name.text]=nil
     end end
-    for name in pairs(contracts) do D.reject("unknown-name","Results contract names unknown word `"..name.."`") end
     for _,decl in ipairs(unit.ast.declarations) do
         if decl.kind=="WordDecl" then
             local inputs,results,keyed=signature(decl.def,dynamic,types);local id=prefix..decl.def.name.text;signatures[decl.def.name.text]={inputs=inputs,results=results,resultSchemas=resultInterfaces(decl.def.result,schemas),keyed=keyed,target=id};order[#order+1]={def=decl.def,id=id}
@@ -1293,25 +1320,45 @@ function M.build(unit, options)
     end
     for _,entry in ipairs(order) do functions[#functions+1]=resolve(entry.id) end
     for _,fn in ipairs(generated) do functions[#functions+1]=fn end
-    for _,item in ipairs(unit.ast.export.functions) do if item.kind=="ExportAlias" then
-        local source
-        if item.value.kind=="Reference" then source=item.value.name.text
-        elseif item.value.kind=="FieldSelect" and item.value.base.kind=="Reference" then source=item.value.base.name.text.."."..item.value.field.text
-        else reject("semantic-todo","A function export alias currently requires a direct word",item.value) end
-        local target=signatures[source];if not target then reject("unknown-name","Unknown exported word `"..source.."`",item.value) end
-        local public=item.name.text;if signatures[public] then reject("duplicate-name","Function export alias `"..public.."` conflicts with a word",item.name) end
+    for name,contract in pairs(contracts) do
+        local global=globals[name]
+        if not global or not global.value.sourceCallable then D.reject('unknown-name','Results contract names unknown callable `'..name..'`') end
+        local results=global.value.sourceCallable.results
+        if #results~=#contract then reject('result-type','Callable binding disagrees with its result contract',global.node) end
+        for index,ty in ipairs(results) do if ty~=contract[index] then reject('result-type','Callable binding disagrees with its result contract',global.node) end end
+    end
+    for _,item in ipairs(unit.ast.export.functions) do
+        local source=item.name.text
+        if item.kind=='ExportAlias' then
+            local node=item.value
+            while node.kind=='Group' do node=node.value end
+            if node.kind=='Reference' then source=node.name.text
+            elseif node.kind=='FieldSelect' and node.base.kind=='Reference' then source=node.base.name.text..'.'..node.field.text
+            else reject('export-callable','Export a named callable binding or qualified word',node) end
+        end
+        local target=signatures[source]
+        if not target and globals[source] then
+            target=globals[source].value.sourceCallable
+            if not target then reject('export-callable','Exported binding `'..source..'` is not callable',item.name) end
+        end
+        if not target then reject('unknown-name','Unknown exported word `'..source..'`',item.name) end
+        local public=item.name.text
+        if item.kind=='ExportAlias' and (signatures[public] or globals[public]) then reject('duplicate-name','Function export alias `'..public..'` conflicts with a binding',item.name) end
+        if item.kind=='ExportAlias' or not signatures[public] then
         local builder=IR.builder();local params,args={},{ }
         for index,input in ipairs(target.inputs) do
             if input.kind~="InValue" then reject("semantic-todo","Export aliases of borrowed-input words are not implemented",item) end
             local value=builder:valueId();params[#params+1]=I.ValueParam(index-1,value,input.type);args[#args+1]=I.ValueArg(builder:ref(value,input.type))
         end
         local results={} for index=1,#target.results do results[index]=builder:valueId() end
-        local body={I.Call(L(results),target.target or source,L(args))};local returned={}
+        local application=Source.supply(Source.callable(target,source),args)
+        local body={I.Call(L(results),application.target,L(Source.arguments(application)))};local returned={}
         for index,value in ipairs(results) do returned[index]=builder:ref(value,target.results[index]) end
         body[#body+1]=I.Return(L(returned))
         local id=prefix..public;local wrapper=located(I.Fn(id,I.Entry,0,L(target.inputs),L(target.results),L(params),L(body)),item)
         functions[#functions+1]=wrapper;signatures[public]={inputs=target.inputs,results=target.results,target=id}
-    end end
+        end
+    end
     local checked={} for _,fn in ipairs(options.dependencies or {}) do checked[#checked+1]=fn end
     for _,fn in ipairs(functions) do checked[#checked+1]=fn end
     Check.program(checked, nil, foreigns)

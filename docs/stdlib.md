@@ -202,7 +202,7 @@ deadline. Other tasks cannot read or write mutable module storage.
 ```let
 use std.task
 
-let total(): u64 = task.scope(u64) do |g|
+let total(): u64 = task.scope(u64) do(g)
   let a = g.spawn() do return sum_range(0, 500) end
   let b = g.spawn() do return sum_range(500, 1000) end
   return a.join() + b.join()
