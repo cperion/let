@@ -146,41 +146,30 @@ function Parser:postfix(literalOnly)
     local blockAtom=self:at('do')
     local expr = self:primary()
     if blockAtom then return expr end
-    local lastSuffix
     while true do
         if self:at("(") then
             local args = self:argumentList()
             expr = A.c.Apply(expr, args, mergeSpan(expr.span, spanOf(args)))
-            lastSuffix='arguments'
         elseif not literalOnly and self:at("{") then
-            lastSuffix='keyed'
             -- Headed braces always supply values. Only the reserved primary
             -- `oneof { ... }` constructs a sum schema; no content-based guessing.
             local fields = self:fieldSupplies()
             expr = A.c.RecordSupply(expr, fields, mergeSpan(expr.span, spanOf(fields)))
         elseif self:at("[") then
-            lastSuffix='index'
             self:next()
             local index = self:expression()
             local close = self:expect("]")
             expr = A.c.IndexExpr(expr, index, mergeSpan(expr.span, close.span))
         elseif self:at(".") then
-            lastSuffix='field'
             self:next()
             local field = self:expectName("a field name")
             expr = A.c.FieldSelect(expr, A.name(field), mergeSpan(expr.span, field.span))
         elseif not literalOnly and self:at('do') then
-            if lastSuffix=='keyed' then D.reject('parse','Group a keyed supply before applying its result to a block',self:peek().span) end
             local block=self:lambda()
-            if lastSuffix=='arguments' then
-                local args={} for _,arg in ipairs(expr.arguments) do args[#args+1]=arg end
-                args[#args+1]=block
-                return A.c.Apply(expr.callee,asList(args),mergeSpan(expr.span,block.span))
-            end
-            return A.c.Apply(expr,asList{block},mergeSpan(expr.span,block.span))
+            expr=A.c.Apply(expr,asList{block},mergeSpan(expr.span,block.span))
         elseif not literalOnly and atomicLiteral(self:peek()) then
             local argument=self:postfix(true)
-            return A.c.Apply(expr,asList{argument},mergeSpan(expr.span,argument.span))
+            expr=A.c.Apply(expr,asList{argument},mergeSpan(expr.span,argument.span))
         else
             return expr
         end
@@ -541,10 +530,9 @@ end
 -- bodies and statements ------------------------------------------------------
 
 function Parser:body()
-    if not self:at("do") then return A.c.Expression(self:expression()) end
+    if not self:at("do") or self:peek(1).text=='(' then return A.c.Expression(self:expression()) end
     local open = self:peek()
     self:next()
-    if self:at('(') then D.reject('parse','A named definition executes its do body; group a lambda to return it',self:peek().span) end
     local statements = self:statementList("end")
     local close = self:expect("end")
     local list = asList(statements)

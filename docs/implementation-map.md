@@ -115,8 +115,9 @@ and a trailing block to the same ordinary lambda representation; do not add an e
 block-expression evaluator. Update `frontend/tests/lambdas.lua`, `compiler.lua`, parser
 and trailing-block fixtures. Cross-reference S06/F04/F06 for module/ABI lifetime work.
 A lambda's `=` permits nested lambdas without grouping. Named-definition `= do`
-remains an executed body and rejects `do(...)`; group a lambda returned from a named
-expression body. Test explicit/contextual result agreement and main's unchanged u32 ABI.
+remains an executed body without a parameter list; `= do(...)`, including `do()`,
+returns a lambda. Application suffixes always compose left, never reopen arguments.
+Test explicit/contextual result agreement and the existing entry ABI policy.
 An ungrouped block-lambda atom cannot accept postfix/self-delimited continuation;
 Q10 must test post-end newlines, explicit grouping and unchanged infix continuation.
 

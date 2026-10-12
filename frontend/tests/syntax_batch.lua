@@ -24,7 +24,7 @@ check(expression('do(x: u32) = do return x end').body.value.kind=='Lambda','expr
 check(expression('do(x: u32): u32 = x').result.kind=='Single','explicit lambda result annotation')
 check(expression('do(): (u32, bool) return 1, true end').result.kind=='Many','vector lambda annotation')
 rejects('do = 1');rejects('do(x) == x');rejects('|x| x')
-rejected('parse',function() Parse.source('let make(x: u32) = do() = x') end)
+check(Parse.source('let make(x: u32) = do() = x\nreturn { functions = { make } }').declarations[1].def.body.value.kind=='Lambda','named expression may return a nullary lambda')
 rejects('|x: u32| -> x')
 rejects('|x: u32| do return x end')
 rejects('do return 1 end()')
@@ -36,10 +36,13 @@ check(expression('f 1 + 2').left.kind=='Apply','infix outside literal argument')
 check(expression('f - 1').kind=='BinaryExpr','minus is not literal sugar')
 check(expression('f[1]').kind=='IndexExpr','indexing unchanged')
 check(expression('(f 1) 2').callee.kind=='Group','explicit grouping calls result')
-rejects('f x');rejects('f 1 2');rejects('f 1 do return 2 end')
-rejects('f { x = 1 } do return 2 end')
+rejects('f x')
+check(expression('f 1 2').callee.kind=='Apply','literal suffixes associate left')
+check(expression('f 1 do return 2 end').callee.kind=='Apply','block applies to literal application result')
+check(expression('f { x = 1 } do return 2 end').callee.kind=='RecordSupply','block applies to keyed supply result')
+check(expression('f 1 2 + 3').left.callee.kind=='Apply','whole suffix chain binds before infix')
 local block=expression('f(pair()) do return 3 end')
-check(#block.arguments==2 and block.arguments[2].kind=='Lambda','trailing block appends before result adjustment')
+check(#block.arguments==1 and block.arguments[1].kind=='Lambda' and block.callee.kind=='Apply','trailing block never reopens argument list')
 check(expression('(f(1)) do return 2 end').callee.kind=='Group','grouped application invokes its result')
 local group=expression('((pair()))')
 check(group.kind=='Group' and group.value.kind=='Group','grouping retained rather than erased')
@@ -74,6 +77,11 @@ local function run(source,expected)
 end
 run('let main = do return 42 end',42)
 run('let main = do(): u32 = 42',42)
+run('let add(x: u32, y: u32): u32 = x + y\nlet main(): u32 = add 20 22',42)
+run('let make(x: u32) = do(y: u32) = y + 2\nlet main(): u32 = make 0 40',42)
+run('let make() = do() = 42\nlet main(): u32 = make()()',42)
+run('let make() = do(): u32 return 42 end\nlet main(): u32 = make()()',42)
+run('let apply(x: u32, f: (): u32): u32 = x + f()\nlet main(): u32 = apply 20 do return 22 end',42)
 run([[
 let pair(): (u32, u32) = do return 20, 22 end
 let take(x: u32): u32 = x
@@ -83,7 +91,7 @@ let main(): u32 = take((pair())) + add(pair())
 run([[
 let invoke(x: u32, f: (): u32): u32 = x + f()
 let pair(): (u32, u32) = do return 20, 900 end
-let main(): u32 = invoke(pair()) do return 22 end
+let main(): u32 = invoke(pair(), do return 22 end)
 ]],42)
 run([[
 let invoke(f: (u32): u32): u32 = f(20)

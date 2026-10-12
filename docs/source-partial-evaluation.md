@@ -262,8 +262,13 @@ Contents solely by object identity or cache a call result solely by arguments.
 Evaluate callee and arguments in order; check/adjust requirements; attach supply;
 then determine saturation. This rule is shared by named words and lambdas.
 
-- Incomplete SLet application requires static supplied values under section 3.
-  References to known bindings and computed static values qualify, not just literals.
+- An incomplete SLet application **leaving its ordered application chain** requires
+  static supplied values under section 3. Within consecutive Apply suffixes, pending
+  requirements may hold runtime values until saturation, without constructing a
+  partial object. Each suffix keeps its own result adjustment; grouping and other
+  expression boundaries close the chain. See [application-sugar.md §1.1](application-sugar.md#11-pending-requirements-within-a-chain).
+  References to known bindings and computed static values qualify at a static demand,
+  not just literals.
 - Let runtime supply retains its open-word/mutable-field semantics. It is not
   silently redefined as immutable lambda capture.
 - Saturated required-static invocation executes its checked ABC fragment through

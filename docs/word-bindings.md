@@ -58,16 +58,39 @@ change does not implement runtime variadic signatures or runtime pack objects.
 
 ### Keep the named-body boundary
 
-After a named definition's `=`, direct `do ... end` is its executed block body.
-`do(` in that position rejects. Group a lambda returned by a named expression body:
+After a named definition's `=`, bare `do ... end` is its executed block body.
+`do(...)`, including `do()`, instead constructs a returned lambda. Grouping is optional
+for a parenthesized lambda constructor:
 
 ```let
-let make(x: u32) = (do() = x)
+let make(x: u32) = do() = x
 ```
 
 A lambda's own `=` always introduces an expression, so nesting needs no workaround:
 `do(x: u32) = do(y: u32) = x + y`. Both returned examples remain subject to capture
 lifetime/ownership support; their syntax does not authorize an escaping environment.
+
+## Uniform application suffixes
+
+Suffixes parse left-associatively: `f 1 2` is `f(1)(2)`. Elaboration carries
+unsaturated requirements across consecutive application suffixes, rather than
+materializing each intermediate partial. `f(x) do ... end` can therefore complete
+an ordinary two-argument f even when x is runtime; when f is unary, the block applies
+to its returned value. The same holds for `f x_literal do ... end`.
+Here `x_literal` denotes a literal, not a bare identifier. Argument lists are never
+reopened: write `f(x, do ... end)` for one application with both arguments.
+
+A literal retains its own member/index/explicit-call chain. Variables and arbitrary
+expressions still require parentheses. Each suffix performs its own result adjustment;
+static partial checks occur when an unsaturated word leaves the chain. Grouping is a
+boundary: `(f(runtime_x))(callback)` cannot complete the inner partial. See
+[application-sugar.md §1.1](application-sugar.md#11-pending-requirements-within-a-chain)
+for evaluation snapshots, other boundaries and defer. There is no arity-driven parser or
+implicit generic specialization is added. Currying through `= do(...) = do(...)`
+needs only the innermost block's `end`, if there is a block at all. It does not add
+`endall`, implicit last-expression returns, or a guarantee that captures disappear.
+Current conservative captured-word materialization limits still apply, even with
+literal arguments. This deliberately replaces the earlier trailing-block append rule.
 
 ## Approved vocabulary-parameter sugar — deferred, not implemented
 

@@ -1,0 +1,7 @@
+CURRENT
+optimize=false	REJECT [static-division-zero] at chain-memory.slet:3 Compile-time execution aborted: division-zero
+optimize=true	BUG [abc-opt-invalid] ABC optimization failed at byte 0x19: frame access outside a live byte block
+
+BASELINE 2e82c27f
+optimize=false	REJECT [static-index-range] Compile-time execution aborted: index-range
+optimize=true	BUG [abc-opt-invalid] ABC optimization failed at byte 0x14: frame access outside a live byte block

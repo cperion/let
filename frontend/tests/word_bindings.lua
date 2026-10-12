@@ -147,7 +147,6 @@ for _,source in ipairs{
     'let main() = do let oneof = 1 return oneof end',
     'let bad = f { field: u32 }\nreturn { functions = {} }',
     'let bad = oneof({ field: u32 })\nreturn { functions = {} }',
-    'let bad = table { f(x) = do() = x }\nreturn { functions = {} }',
 } do reject('parse',source) end
 reject('type-required','let invalid = oneof { method() = 1 }\nreturn { types = { invalid } }')
 for _,source in ipairs{

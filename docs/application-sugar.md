@@ -1,6 +1,6 @@
 # Disciplined application sugar
 
-**Status: approved direction; not implemented.** Extends [syntax.md](syntax.md) and
+**Status: literal/postfix application implemented; lexical receiver fallback remains a target.** Extends [syntax.md](syntax.md) and
 [operators-and-blocks.md](operators-and-blocks.md). Ordinary application remains the
 semantic operation. No signature-aware parser, implicit conversion search, extension
 registry or additional execution engine is introduced. Live work: Q05 and Q11.
@@ -35,12 +35,14 @@ print("{}".fmt(n) .. "!")  -- print the concatenated value
 
 Keep the syntactic boundary small:
 
-- `f x` and `f 1 2` reject; no general expression adjacency or multiple bare arguments.
+- `f x` rejects. `f 1 2` means `f(1)(2)`: consecutive suffixes associate left, not by arity.
 - `f(-1)` supplies a negative value. In `f - 1`, minus remains subtraction.
 - `f[1]` remains indexing; pass array literals with `f([1, 2])`.
 - `point { x = 3 }` remains keyed supply; pass a table value with `f(table { x = 3 })`.
-- Literal-led argument plus a block requires explicit parentheses: `f("x".g()) do ... end`.
-  To invoke the outer result with a block, write `(f "x".g()) do ... end`.
+- `f "x".g() do ... end` means `f("x".g())(lambda)`. Likewise `f(x) do ... end`
+  extends pending requirements or calls f(x)'s result once saturated; no argument list
+  is reopened. Use `f(x, do ... end)`
+  for one application with both arguments.
 - An ungrouped block-lambda atom still takes no postfix continuation after `end`.
 - Newlines remain whitespace. Semicolons delimit otherwise continuing statements.
 
@@ -57,6 +59,41 @@ This supersedes the earlier literal-only/no-postfix restriction, not ordinary op
 precedence. Numeric tokenization is already specified: a decimal point requires a
 digit on both sides, so `21.member()` is integer 21, selection dot, then member.
 Test that contract rather than reopening it or changing float literal acceptance.
+
+### 1.1 Pending requirements within a chain
+
+Parsing remains left-associated, but an unsaturated ordered application is not yet a
+word value. Elaboration carries its target and supplied arguments until a later
+consecutive application suffix saturates it. No runtime partial object is created.
+
+```let
+with_file(path) do(f) ... end  -- runtime path may wait for the callback
+add(n)(2)                     -- one invocation when add has two requirements
+adder(n)(2)                   -- two invocations when adder is unary and returns a word
+```
+
+Evaluate the callee once, then each suffix's arguments in source order. Snapshot
+argument computations before evaluating later arguments/suffixes, preserving reads,
+traps and effects. Invoke immediately upon saturation; later suffixes then target the
+result. This applies to known words and runtime callables with known signatures.
+Unknown dynamic interfaces do not acquire inferred arity or generic semantics.
+
+Each suffix adjusts its own results. `f(divmod(a, b)) do ... end` supplies both
+results of divmod in the first suffix, then the lambda in the second. It does not
+reopen the first list and make divmod nonfinal. One list cannot over-apply:
+`unary(1, 2)` rejects rather than forwarding 2 to a returned callable.
+
+At chain exit, existing partial-specialization/retention checks apply. Thus
+`let g = add(runtime_n)` rejects in SLet while `add(runtime_n)(2)` can saturate.
+Grouping is a boundary: `(add(runtime_n))(2)` also rejects; grouping the complete
+chain, `(add(runtime_n)(2))`, is fine. Argument, binding and return contexts, member/index
+selection and keyed supplies do not carry an ordered pending application across
+their boundary. Intrinsic special forms retain their existing argument contracts.
+
+For `defer`, earlier saturated prefixes execute during preparation; only the final
+saturated invocation is deferred. All its supplied arguments and receiver binding
+are established at preparation time. Ordinary capture/lifetime restrictions remain.
+This does not implement escaping runtime closures or the lexical-receiver fallback below.
 
 ## 2. Lexical receiver-call sugar
 

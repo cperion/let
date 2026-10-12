@@ -468,6 +468,13 @@ function Function:methodTarget(binding, methodName, owner)
     local receiver=binding.place or (binding.storage and I.Local(binding.storage))
     if receiver and (binding.type:isRef() or binding.type:isPtr()) then receiver=I.Deref(receiver,self:sealed(binding.type.target)) end
     if not receiver then reject("not-a-place","A method needs an addressable receiver",owner) end
+    if receiver.kind~='Local' then
+        -- Binding a receiver evaluates its address now, not after later argument
+        -- effects (or when an alias/deferred action is eventually invoked).
+        local ty=S.ptr(schema.type)
+        local address=self.builder:let(self.body,ty,located(self.builder:addr(receiver,ty),owner))
+        receiver=I.PtrIndex(self.builder:ref(address,ty),self.builder:u32(0),schema.type)
+    end
     return {definition=descriptor.definition,target=descriptor.target,inputs=descriptor.inputs,results=descriptor.results,keyed=descriptor.keyed,prefixArgs={I.BorrowArg(receiver)}}
 end
 
@@ -616,7 +623,7 @@ end
 
 -- One source result-list rule for calls, returns and bindings. Parenthesized
 -- expressions go through expr and therefore contribute exactly one value.
-function Function:supplies(nodes, expectedAt, bindingAt)
+function Function:supplies(nodes, expectedAt, bindingAt, finishAt)
     local values,origins={},{}
     for index,node in ipairs(nodes) do
         local expected=expectedAt and expectedAt(#values+1)
@@ -628,18 +635,45 @@ function Function:supplies(nodes, expectedAt, bindingAt)
             produced=self:call(node,expected,false,true)
             if produced.kind then produced={produced} end
         else produced={self:expr(node,expected)} end
-        for _,value in ipairs(produced) do values[#values+1]=value;origins[#origins+1]=node end
+        for _,value in ipairs(produced) do
+            if finishAt then value=finishAt(value,#values+1,node) end
+            values[#values+1]=value;origins[#origins+1]=node
+        end
     end
     return values,origins
 end
 
+-- Only consecutive Apply nodes share a pending application. Group, field/index
+-- selection and keyed supplies are explicit boundaries and go through expr normally.
 function Function:call(node, expected, discard, allResults, prepareOnly)
+    local chain={};local cursor=node
+    while cursor.kind=='Apply' do chain[#chain+1]=cursor;cursor=cursor.callee end
+    local value,pending
+    for index=#chain,1,-1 do
+        local final=index==1
+        value,pending=self:callSuffix(chain[index],final and expected or nil,
+            final and discard,final and allResults,final and prepareOnly,not final,pending,value)
+    end
+    return value
+end
+
+function Function:snapshotArgument(value,origin)
+    if value.kind=='Const' or value.kind=='Ref' then return value end
+    local id=self.builder:let(self.body,value.type,located(value,origin))
+    local result=located(self.builder:ref(id,value.type),origin)
+    result.schema=value.schema;result.borrowedLocal=value.borrowedLocal
+    return result
+end
+
+function Function:callSuffix(node, expected, discard, allResults, prepareOnly, continuing, pending, calleeValue)
     local name,callable,selectedMethod
-    if node.callee.kind=="FieldSelect" then
+    if not pending and not calleeValue and node.callee.kind=="FieldSelect" then
         local receiver=self:placeBinding(node.callee.base)
         if receiver and receiver.schema then selectedMethod=self:methodTarget(receiver,node.callee.field.text,node.callee) end
     end
-    if selectedMethod then name="<method>"
+    if pending then name=pending.name
+    elseif calleeValue then callable=calleeValue;name='<callable>'
+    elseif selectedMethod then name="<method>"
     elseif node.callee.kind=="Reference" then
         local reference=node.callee.name.text
         if self.dynamicReceiver and not self.scope[reference] and not self.signatures[reference] then callable=self:expr(node.callee);name="<callable>" else name=reference end
@@ -647,15 +681,15 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         if self.scope[node.callee.base.name.text] then callable=self:expr(node.callee);name="<callable>"
         else name=node.callee.base.name.text.."."..node.callee.field.text end
     else callable=self:expr(node.callee);name="<callable>" end
-    local binding=node.callee.kind=="Reference" and self.scope[name] or nil
-    if not binding and self.globals[name] then
+    local binding=not pending and not calleeValue and node.callee.kind=="Reference" and self.scope[name] or nil
+    if not pending and not binding and self.globals[name] then
         local value=self.lambdaState.resolveGlobal(name)
         if value.sourceCallable then binding={sourceCallable=value.sourceCallable,type=value.type,callable=true} end
     end
-    local knownWord=selectedMethod or (binding and binding.sourceCallable)
+    local knownWord=pending and pending.knownWord or selectedMethod or (binding and binding.sourceCallable)
     if callable and callable.sourceCallable then knownWord=callable.sourceCallable;callable=nil end
-    local indirect=not knownWord and (callable and {type=callable.type,expr=callable} or binding and (binding.callable or binding.type==S.any) and binding or nil)
-    if node.callee.kind=="FieldSelect" and node.callee.base.kind=="Reference" then
+    local indirect=pending and pending.indirect or (not knownWord and (callable and {type=callable.type,expr=callable} or binding and (binding.callable or binding.type==S.any) and binding or nil))
+    if not pending and not calleeValue and node.callee.kind=="FieldSelect" and node.callee.base.kind=="Reference" then
         local sum=self.types[node.callee.base.name.text]
         if sum and sum:isSum() then
             local payloadType=S.caseOf(sum,node.callee.field.text);if not payloadType then reject("unknown-field","Unknown sum alternative",node.callee) end
@@ -665,7 +699,7 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
             return located(self:constructVariant(sum,node.callee.field.text,payload,node),node)
         end
     end
-    if name=="ref" or name=="ptr" then
+    if not pending and (name=="ref" or name=="ptr") then
         if #node.arguments~=1 then reject("arity",name.." expects one place",node) end
         local place,ty=self:place(node.arguments[1]);local result=located(self.builder:addr(place,name=="ref" and S.ref(ty) or S.ptr(ty)),node);result.borrowedLocal=name=="ref";return result
     elseif name=="null" then
@@ -677,7 +711,7 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         local first=I.Index(place,self.builder:u32(0),ty.element);local address=self.builder:addr(first,S.ref(ty.element))
         local result=located(self.builder:make(S.slice(ty.element),{address,self.builder:u32(ty.length)}),node);result.borrowedLocal=true;return result
     end
-    if self.dynamic and not binding then
+    if self.dynamic and not binding and not pending then
         local arities={open=0,has=2,remove=2,count=1,key=2,freeze=1}
         local arity=arities[name]
         if arity then
@@ -697,7 +731,8 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
         return located(self.builder:isType(operand,tested),node)
     end
     local target
-    if indirect and indirect.type==S.any then
+    if pending then target=pending.target
+    elseif indirect and indirect.type==S.any then
         local inputs={} for index=1,#node.arguments do inputs[index]=S.inValue(S.any) end;target={inputs=inputs,results={S.any},dynamic=true}
     else
         if indirect and not indirect.type:isView() then reject("type-mismatch","Callee is not callable",node.callee) end
@@ -710,14 +745,23 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
     end
     self:requireContract(target,node)
     if target.keyed and not (target.sourceCallable and next(target.supplied)) then reject("keyed-required","Word `"..name.."` must be supplied by key",node) end
-    local supplied,origins=self:supplies(node.arguments,function(index) return target.inputs[index] and target.inputs[index].type end)
-    if target.dynamic then for index=#target.inputs+1,#supplied do target.inputs[index]=S.inValue(S.any) end end
-    if #supplied>#target.inputs then reject('arity','Word `'..name..'` expects at most '..#target.inputs..' arguments',node) end
-    local args={};local localBorrow=false
+    local args=pending and pending.args or {};local origins=pending and pending.origins or {}
+    local offset=#args;local localBorrow=pending and pending.localBorrow or false
+    local supplied,newOrigins=self:supplies(node.arguments,function(index)
+        local input=target.inputs[offset+index];return input and input.type
+    end,nil,function(value,index,origin)
+        local at=offset+index
+        if target.dynamic and not target.inputs[at] then target.inputs[at]=S.inValue(S.any) end
+        if not target.inputs[at] then reject('arity','Word `'..name..'` has only '..(#target.inputs-offset)..' remaining arguments in this suffix',node) end
+        value=self:coerce(value,target.inputs[at].type,origin)
+        return self:snapshotArgument(value,origin)
+    end)
     for index,value in ipairs(supplied) do
-        value=self:coerce(value,target.inputs[index].type,origins[index])
         if value.borrowedLocal then localBorrow=true end
-        args[#args+1]=I.ValueArg(value)
+        args[#args+1]=I.ValueArg(value);origins[#origins+1]=newOrigins[index]
+    end
+    if continuing and #args<#target.inputs then
+        return nil,{target=target,name=name,knownWord=knownWord,indirect=indirect,args=args,origins=origins,localBorrow=localBorrow}
     end
     local application=not indirect and Source.supply(Source.callable(target,name),args) or nil
     if prepareOnly then

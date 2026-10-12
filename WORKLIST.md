@@ -246,10 +246,47 @@ passed, including 112 production executions, 2 static-demand diagnostics, 12 por
 cases, 43 symmetric executions and 48 lifetime cases. Log:
 `research/experiments/frontend-syntax/word-bindings/validation.log`.
 No clean/sanitizer/performance qualification is claimed.
+**Composition investigation (no implementation change):** existing `abc-opt` already
+virtualizes eligible acyclic calls. The sum fixture's main/dispatcher contain CALLOC,
+which triggers its allocation exclusion: current 290→289 optimized bytes versus
+baseline 222→222; a scalar control fixture is 109→81 in both revisions. Four-mode
+optimized outputs agree. Investigate packed tagged-value representation versus forced
+frame storage before adding another inliner; ABI, exact bits and resource semantics
+need a concrete approved design. Evidence and proposed direction:
+`research/experiments/frontend-syntax/word-bindings/composition-investigation.md`.
+Approved design: `docs/tagged-value-lowering.md`; implementation is in progress.
+User approved fresh-padding canonicalization and compiler-dependent resource footprint
+changes without weakening runtime checks or changing bytecode encoding. The initial
+packed-cell path is implemented in abc.lua and passes the existing integrated suite,
+but dedicated exact-bit/nested-layout/resource tests and performance measurement are
+still pending. No second inliner or optimizer eligibility change has been introduced.
+
 **Remaining grammar gate:** named keyed-requirement declarations share the elaborator,
 but no keyed `do` constructor spelling has been approved/added. Do not claim every
 named declaration is literal syntax sugar until that gap is resolved. Legacy dynamic
 open-word/runtime-keyed-supply paths remain D03, not new COW container support.
+
+**Uniform application update — implemented; focused validation passed.** Every suffix
+applies the preceding value; removed terminal literal/block restrictions and argument-list
+reopening. Named `= do(...)` returns a lambda, including nullary `do()`; bare `= do`
+remains the executed body. No endall, implicit returns or new capture support. Syntax
+checks: 127 / 68 four-mode executions; parser 232; word bindings 105 / 84 executions.
+Existing multi-argument callback fixture migrated to an explicit argument list.
+Docs: syntax.md, application-sugar.md, operators-and-blocks.md, word-bindings.md.
+Chain-wide saturation is now implemented in the shared call path: runtime values can
+remain pending across consecutive Apply suffixes; each suffix adjusts its own results,
+and argument computations/receiver addresses are snapped before later effects. Grouping
+and other expression boundaries close the chain. Tests cover typed indirect callees,
+vector expansion, defer, over-application, snapshots, receiver retargeting and trap order.
+Application chains: 122 checks / 112 optimized/unoptimized four-mode executions;
+integrated validate-slet passed. Evidence:
+`research/experiments/frontend-syntax/application-chains/{README.md,validation.log}`.
+**Known unresolved failure:** an optimizer probe involving a frame-allocating callee
+fails with invalid frame access on both current and baseline frontends. Preserved in
+`research/experiments/frontend-syntax/word-bindings/chain-memory-probe.{lua,log}`.
+The passing chain trap test isolates ordering with explicit IR traps; it does not
+validate away that failure. Packed-value changes remain in progress and unqualified.
+Lexical discarded-receiver-write checking awaits Q11; the returned-word hint remains open.
 
 **Vocabulary parameters — approved, deliberately deferred until binding-spread work.** `do(ctx...)` and named block
 parameters use one ordinary parameter followed by implicit `let ...ctx`; prefix
@@ -566,9 +603,10 @@ requires D descriptor/box contracts. Initial scope is static operators and block
 - [ ] **Q05** Implement self-delimiting one-argument application for literal-led
   arguments (integer/float/byte/string/long-string/bool plus member/index/explicit-call
   postfix chain) and block-only `f do ... end`, plus
-  trailing blocks appended to explicit argument lists before result adjustment.
-  Preserve contextual literal/lambda typing, captures and local return. No arity lookup,
-  newline rule, general `f x`, multi-literal supply or array/braces reinterpretation.
+  left-associated suffix chaining: `f 1 2` is `f(1)(2)` and `f(x) do ... end`
+  applies `f(x)` to the lambda, never appending to its argument list. This supersedes
+  the earlier append/terminal-suffix rules. Preserve contextual typing, captures and
+  local return; no arity lookup, newline rule, general `f x` or array/braces reinterpretation.
   Unit fallthrough is a separate approved semantic change in Q08. Touch `parse.lua`,
   AST/semantic consumers and focused
   literal/block fixtures; minus remains an operator, so negative arguments use `f(-1)`.

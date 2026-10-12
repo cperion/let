@@ -230,22 +230,23 @@ end
 means exactly:
 
 ```let
-with_region(u32, 8, do(p)
+with_region(u32, 8)(do(p)
   return compute(p)
 end)
 ```
 
-With no parameters, the appended block lambda is nullary:
+With no parameters, the supplied block lambda is nullary:
 
 ```let
 g.spawn do return work() end
 ```
 
-This is **one application**, not an initial call followed by a second call or
-partial-supply operation. Desugar before argument-result adjustment: an old final
-argument becomes nonfinal and contributes one result unless explicitly spread.
-Evaluate callee, written arguments and the final lambda's capture construction in
-ordinary source order. The block body runs only when the callee invokes it.
+Each suffix is a separate syntactic application, with its own result adjustment.
+Elaboration carries pending requirements across consecutive application suffixes,
+invoking the terminal upon saturation. Thus runtime arguments in
+`with_region(u32, 8) do(p) ... end` can complete the same call without a runtime
+partial object. No earlier argument list is reopened. Argument reads, traps and
+effects occur in source order, and the block body runs only when invoked.
 
 Both lambda body kinds begin with `do`: `do(parameters): result = expression`,
 `do(parameters): result ... end`, or nullary `do ... end`. Parameters and result
@@ -259,31 +260,30 @@ Return exits the block's lambda, not its enclosing function. Capture, escape,
 borrowing and group restrictions remain normal callable restrictions: a block given
 to `spawn` is not allowed mutable captures merely because the syntax resembles a loop.
 
-An omitted argument list supplies exactly the block lambda. An explicit argument
-list followed by a block appends the lambda to that same application before result
-adjustment. `f(x) do ... end` does not mean `f(x)(lambda)`; write `(f(x)) do ... end`
-when calling the result is intended. Likewise `(f "text") do ... end` explicitly
-calls a string-call's result with a block. Multiple positional arguments otherwise
-require parentheses: write `f("text", x)` or `f("text") do ... end`, not `f "text" x`.
-
-One terminal literal/block sugar form attaches at each postfix level. Consecutive
-unparenthesized literals do not form a multi-argument supply: `print "a" "b"` and
-`f 1 2` reject; explicit grouping invokes the result, `(f 1) 2`.
-A literal suffix followed directly by `do` likewise needs explicit grouping or a
-parenthesized argument list. Postfix access to the outer sugar call's result requires
-grouping; a literal-led argument's own postfixes bind inside the argument. Nested blocks attach syntactically, never by indentation.
+A literal or lambda suffix supplies one argument. `f(x) do ... end` parses as
+`f(x)(lambda)`, just as `f "text" do ... end` parses as `f("text")(lambda)`.
+The intermediate f(x) invokes only if saturated; otherwise its requirements remain
+pending until the next suffix. At chain exit, normal static partial checks apply.
+Consecutive literal suffixes associate left: `f 1 2` means `f(1)(2)`.
+`print "a" "b"` therefore parses, but rejects at its second application if the first
+returns a noncallable. This is neither arity lookup nor a flat multi-argument call.
+Computed arguments still need parentheses: `f "text" x` rejects.
+A literal's own member/index/parenthesized-call chain belongs to that argument;
+use `(f "text").member` to select from the application result. Nested blocks attach
+syntactically, never by indentation.
 
 Keyed braces retain their existing meaning: `point { x = 3 }` supplies keyed
 requirements, not one positional Lua-style table. Pass a table value explicitly
 with `f(table { x = 3 })`. To call a keyed application's result with a block, group
-it; no block is implicitly added to the keyed supply. Standalone `do` in expression
+it if desired; grouping is not required and no block is added to the keyed supply. Standalone `do` in expression
 position is a block lambda, not an immediately executed block or a declaration-scope
-statement. Direct `do` after a named-definition `=` is that definition's executed body.
+statement. Bare `do` after a named-definition `=` is its executed body; `do(...)`,
+including `do()`, is a returned lambda expression.
 
 Grammar additions (integrated in syntax.md §12):
 
 ```text
-postfix         := atom postfix-suffix* self-delimited-call?
+postfix         := atom (postfix-suffix | self-delimited-call)*
 self-delimited-call := literal-argument | trailing-block
 literal-argument := atomic-literal literal-postfix*
 literal-postfix := '.' Name | '[' expression ']' | arguments
@@ -294,13 +294,13 @@ expression-lambda := 'do' '(' lambda-parameters? ')' (':' result-spec)? '=' expr
 trailing-block := block-lambda | expression-lambda
 ```
 
-A trailing block appends to a final parenthesized argument suffix, or creates a
-single-lambda application when no ungrouped call/initializer suffix is at the end.
-A literal-led suffix creates a one-argument application to the preceding callee,
-using ordinary final-argument result adjustment after the literal's postfix chain.
+Every literal/block suffix contributes a one-argument application. Parenthesized
+argument lists are never reopened; ordinary final-argument adjustment applies to
+each suffix. Saturation determines when invocation occurs. Grouping closes pending
+applications; see [application-sugar.md §1.1](application-sugar.md#11-pending-requirements-within-a-chain).
 Newlines remain whitespace; use existing semicolon boundaries when a following
 self-delimited argument would otherwise continue the preceding expression.
-Bare `f x`, multi-argument `f 1 2` and arity-directed parsing are excluded.
+Bare `f x` and arity-directed parsing are excluded; `f 1 2` is chained application.
 `f - 1` retains subtraction syntax, not a negative argument.
 
 ### Standalone block lambdas
@@ -319,8 +319,8 @@ These bindings construct words. `let x = do return 3 end` binds a nullary word,
 not 3; call it with `x()`. Existing capture/lifetime and binding-recursion rules
 apply. A lambda's `=` introduces an expression: `do(x: u32) = do return x end`
 returns a block lambda without grouping. A named definition's `= do` is instead
-its executed body; `= do(...)` rejects there. Return a lambda with explicit grouping:
-`let make(x: u32) = (do() = x)`.
+its executed body only when `do` has no parameter list. `= do(...)`, including
+`= do()`, returns a lambda: `let make(x: u32) = do() = x`.
 
 Literal-word bindings participate in the same export checking and main discovery as named
 sugar. Existing compiler entry signatures remain supported, including i64 and unit; no new
@@ -440,7 +440,7 @@ Required evidence:
   spread and nested calls. Distinguish append-to-call from calling a grouped result;
   preserve keyed supply semantics and reject unsupported mixed sugar forms.
 - Standalone blocks construct without executing; nullary/parameterized captures and
-  lifetimes follow ordinary rules. Reject named-definition `= do(...)`; accept grouped
+  lifetimes follow ordinary rules. Accept named-definition `= do(...)`, including `do()`; accept grouped
   nested blocks. Distinguish named executed bodies from returned block lambdas, preserve
   local recursion rules, and validate callable-binding exports/main's actual ABI.
 - Unit completion for named words/methods/lambdas via annotation, expected signature

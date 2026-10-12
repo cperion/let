@@ -1,0 +1,72 @@
+CURRENT fe042d9f
+.profile memory
+.function unwrap 1 1 i i
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CPUSH.A
+  CALLOC 8
+  CGET.A 6
+  FADDR.B 8
+  ST64.B 0
+  FADDR.A 8
+  LD32.A 0
+  PUSH.B 0
+  EQ.A
+  JNZ.A _abc_2
+  FADDR.A 8
+  LD32.A 4
+  CSET.A 3
+  CGET.A 3
+  CALL.A unwrap_word_2 1
+  CSET.A 2
+  CGET.A 2
+  CSET.A 5
+  JMP _abc_1
+_abc_2:
+  CALL.A unwrap_word_1 0
+  CSET.A 4
+  CGET.A 4
+  CSET.A 5
+  JMP _abc_1
+_abc_1:
+  CGET.A 5
+  CSET.A 1
+  CGET.A 1
+  RET.A 7 1
+.function main 0 1 - i
+  PUSH.A 0
+  CPUSH.A
+  CALLOC 8
+  PUSH.A 1
+  FADDR.B 8
+  ST32.B 0
+  PUSH.A 40
+  FADDR.B 8
+  ST32.B 4
+  FADDR.A 8
+  LD64.A 0
+  TCALL.A unwrap 2 1
+.function unwrap_word_1 0 1 - i
+  PUSH.A 0
+  RET.A 0 1
+.function unwrap_word_2 1 1 i i
+  CGET.A 0
+  PUSH.B 2
+  ADD.A
+  ZX32.A
+  RET.A 1 1
+.export main
+
+sum	raw=290	optimized=289	unchanged=false
+scalar	raw=109	optimized=81	unchanged=false
+
+BASELINE 2e82c27f
+sum	raw=222	optimized=222	unchanged=true
+scalar	raw=109	optimized=81	unchanged=false
