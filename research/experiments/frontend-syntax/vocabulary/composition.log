@@ -1,0 +1,7 @@
+BASELINE 228fc551 semantics; same pending packed lowering
+sum	raw=275	optimized=108	unchanged=false
+scalar	raw=109	optimized=81	unchanged=false
+
+CURRENT vocabulary; same pending packed lowering
+sum	raw=306	optimized=108	unchanged=false
+scalar	raw=109	optimized=81	unchanged=false

@@ -1,5 +1,6 @@
--- Lexical facts that are purely syntactic, computed once from the ASDL AST: the names a lambda
--- body captures. Tailness is intentionally not a source-level prepass; continuation-directed IR
+-- Lexical facts that are purely syntactic, computed once from the ASDL AST: candidate names
+-- a word body may capture. Actual capture selection belongs to semantic binding resolution.
+-- Tailness is intentionally not a source-level prepass; continuation-directed IR
 -- lowering decides locally whether each transfer keeps or replaces the current continuation.
 --
 -- Semantic name and type resolution belongs to the real compiler's explicit passes. This module never
@@ -108,8 +109,13 @@ end
 
 
 -- `label` names anonymous words (lambdas); named definitions use their own name.
--- The names a lambda body refers to but does not bind, in a stable order.
-function M.captures(node)
+-- Candidate outer names, in a stable order. Expansion-introduced names are not
+-- discovered by this syntactic pass. The elaborator resolves candidates against
+-- the definition-time outer bindings and excludes already-bound receiver fields.
+-- Because expansion cannot shadow ANY visible binding, a valid expanded local
+-- cannot be mistaken for an outer capture. Relaxing that rule requires revisiting
+-- this contract, not adding AST-based namespace discovery here.
+function M.captureCandidates(node)
     local bound, out = {}, {}
     for _, param in ipairs(node.params) do bound[param.name.text] = true end
     for _, param in ipairs(node.keyed or {}) do bound[param.name.text] = true end

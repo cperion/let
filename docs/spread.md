@@ -1,6 +1,10 @@
 # Supplies, spread and packs
 
-**Status: agreed source design; syntax is parsed, semantic expansion is not implemented.** This document specifies
+**Status: shared vocabulary expansion is implemented for supported source values;
+integrated and four-mode execution validation passes.** Ordered/keyed
+supply expansion and rest packs remain unimplemented. See
+[the vocabulary evidence](../research/experiments/frontend-syntax/vocabulary/README.md).
+This document specifies
 static spread, packs and name introduction for the unified `.let` language. It
 extends [syntax.md](syntax.md), using the existing value/place/ownership contracts.
 Concrete elaboration interfaces and the open details below require approval before
@@ -231,9 +235,13 @@ ordinary single-binding result adjustment, not a pack or a hidden namespace obje
 To expand a computed expression, give it an explicit context name. The old prefix
 binding/import spellings are rejected, not retained as aliases.
 
-**Implementation status:** the suffix forms and dedicated vocabulary-parameter AST
-are parsed and tested. Semantic expansion still rejects `spread-unimplemented`;
-the following expansion rules remain approved contracts, not executable behavior.
+**Implementation status:** suffix forms, shared record/namespace expansion and
+constructor aliases execute. The suite has 92 checks and 64 unoptimized executions
+across four modes, also passing with the pre-packed lowering. Existing initializer,
+capture and executable-profile restrictions remain; this does not complete aggregate
+staging or escaping owned closures. Public type/function exports share one namespace:
+repeated public spellings reject across both sections, an explicitly approved tightening
+of the previous export contract. There are no runtime namespace objects.
 
 Introduce all eligible names from the context into the current lexical scope:
 

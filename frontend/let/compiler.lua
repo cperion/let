@@ -182,27 +182,20 @@ local function typedFile(path, session)
         if cache[modulePath] then return cache[modulePath] end
         active[modulePath]=true
         local selected=M.profileForPath(modulePath);local unit=M.source{source=read(modulePath),name=modulePath,profile=selected.name}
-        local imports,importTypes,importSchemas,dependencies,foreigns,typeCells,seen={},{},{},{},{},{},{}
+        local namespaces,dependencies,foreigns,typeCells,seen={},{},{},{},{}
         for _,decl in ipairs(unit.ast.declarations) do if decl.kind=="UseDecl" then
-            if decl.spread then D.reject('spread-unimplemented','Import name expansion is not implemented',decl.span) end
             local child=load(importPath(modulePath,decl.path,selected.name),false)
             local namespace=decl.path:match("([^.]+)$"):gsub("%.s?let$","")
-            for member,entry in pairs(child.exports) do imports[namespace.."."..member]=entry end
-            for member,ty in pairs(child.types) do importTypes[namespace.."."..member]=ty end
-            for member,schema in pairs(child.schemas or {}) do importSchemas[namespace.."."..member]=schema end
+            namespaces[namespace]=child.namespace
             for _,foreign in ipairs(child.foreigns or {}) do foreigns[#foreigns+1]=foreign end
             for cell,ty in pairs(child.typeCells or {}) do typeCells[cell]=ty end
             for _,fn in ipairs(child.functions) do if not seen[fn.id] then seen[fn.id]=true;dependencies[#dependencies+1]=fn end end
         end end
         local prefix="";if not root then nextModule=nextModule+1;prefix="__let_module_"..nextModule.."_" end
-        Semantic.build(unit,{prefix=prefix,imports=imports,types=importTypes,schemas=importSchemas,typeCells=typeCells,dependencies=dependencies,foreigns=foreigns,importsResolved=true,demands=session})
+        Semantic.build(unit,{prefix=prefix,namespaces=namespaces,typeCells=typeCells,dependencies=dependencies,foreigns=foreigns,importsResolved=true,demands=session})
         local functions={} for _,fn in ipairs(dependencies) do functions[#functions+1]=fn end
         for _,fn in ipairs(unit.functions) do functions[#functions+1]=fn end
-        local exported={} for _,item in ipairs(unit.ast.export.functions) do
-            local entry=unit.signatures[item.name.text];if not entry then D.reject("unknown-name","Unknown exported word `"..item.name.text.."`",item.name.span) end
-            exported[item.name.text]=entry
-        end
-        local loaded={unit=unit,functions=functions,exports=exported,types=unit.exportedTypes,schemas=unit.exportedSchemas,typeCells=unit.typeCells,foreigns=unit.foreigns};cache[modulePath]=loaded;active[modulePath]=nil;return loaded
+        local loaded={unit=unit,functions=functions,namespace=unit.namespace,typeCells=unit.typeCells,foreigns=unit.foreigns};cache[modulePath]=loaded;active[modulePath]=nil;return loaded
     end
     local loaded=load(path,true)
     return {phase="typed-ir",unit=loaded.unit,functions=loaded.functions,

@@ -180,6 +180,7 @@ validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi 
 	cd frontend && $(LUA) tests/syntax_batch.lua
 	cd frontend && $(LUA) tests/word_bindings.lua
 	cd frontend && $(LUA) tests/application_chains.lua
+	cd frontend && $(LUA) tests/vocabulary.lua
 	cd frontend && $(LUA) tests/compiler.lua
 	cd frontend && $(LUA) tests/lambdas.lua
 	cd frontend && $(LUA) tests/lowering.lua

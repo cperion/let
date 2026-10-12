@@ -1,0 +1,5 @@
+CURRENT: approved single public namespace
+REJECT [duplicate-name] at export-name.slet:3 Public export `Thing` is repeated; types and functions share one namespace
+
+PREVIOUS FRONTEND (chain isolation copy)
+accepted; functions=2

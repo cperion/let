@@ -92,4 +92,30 @@ function M.value(callable, span)
     return {kind='SourceCallable',sourceCallable=callable,type=S.view(S.sig(callable.inputs,callable.results)),span=span}
 end
 
+-- Definition namespaces are compile-time identities, never runtime tables or
+-- environments. Aliases reuse the same member definitions.
+function M.namespace(members, origin)
+    return {kind='namespace',members=members,origin=origin}
+end
+function M.typeDefinition(ty, schema, origin)
+    return {kind='type',type=ty,schema=schema,origin=origin,constructors={}}
+end
+function M.member(definition, name)
+    if not definition then return nil end
+    if definition.kind=='namespace' then return definition.members[name] end
+    if definition.kind=='type' and definition.type:isSum() then
+        local payload=S.caseOf(definition.type,name)
+        if not payload then return nil end
+        local constructor=definition.constructors[name]
+        if not constructor then
+            constructor={kind='constructor',sum=definition.type,tag=name,payload=payload,origin=definition.origin}
+            definition.constructors[name]=constructor
+        end
+        return constructor
+    end
+end
+function M.definitionValue(definition, span)
+    return {kind='SourceDefinition',sourceDefinition=definition,span=span}
+end
+
 return M

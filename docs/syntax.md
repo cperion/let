@@ -1305,8 +1305,12 @@ return {
 ```
 
 A bare identifier exports under its own spelling. `alias = expression` gives an explicit public name;
-its expression must yield a known type or executable selection appropriate to the section. Duplicate
-public names within a section reject. Qualified selections require aliases, such as `draw = rng.draw`.
+its expression must yield a known type or executable selection appropriate to the section. The
+`types` and `functions` sections populate **one public namespace**: duplicate public names reject
+both within and across those sections. Distinct public names may alias the same definition.
+`results` constrains contracts and introduces no public binding. This deliberately tightens the
+previous cross-section export rule; no separate type/function lookup namespaces are retained.
+Qualified selections require aliases, such as `draw = rng.draw`.
 Method exports expose their receiver as the C entry's receiver parameter, not as an invented source
 argument. A view bound to mutable module-evaluation storage cannot be exported as implicit C global
 state.

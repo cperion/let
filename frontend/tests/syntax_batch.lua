@@ -82,17 +82,17 @@ end
 local indexed=Compiler.source{profile='slet',source='let context... = make(); let context...; return { functions = {} }'}
 check(indexed.bindings.context~=nil,'only initialized context adds an explicit module binding')
 rejected('duplicate-name',function() Compiler.source{profile='slet',source='let context... = make(); let context = 1; return { functions = {} }'} end)
-local captures=require('let.resolve').captures(expression('do() let ctx... = factory(seed); return ctx end'))
+local captures=require('let.resolve').captureCandidates(expression('do() let ctx... = factory(seed); return ctx end'))
 check(table.concat(captures,',')=='factory,seed','initialized context capture discovery binds its explicit name')
-captures=require('let.resolve').captures(expression('do() let ctx...; return 0 end'))
+captures=require('let.resolve').captureCandidates(expression('do() let ctx...; return 0 end'))
 check(table.concat(captures,',')=='ctx','existing-context expansion reads its context')
 check(expression('a .. b .. c').right.operator=='..','right-associative concatenation syntax')
 for _,case in ipairs{
     {'spread-unimplemented','let main(): u32 = f(...xs)'},
-    {'spread-unimplemented','let unknown...; let main(): u32 = 0'},
-    {'spread-unimplemented','let ctx... = make(); let main(): u32 = 0'},
-    {'spread-unimplemented','use missing...; let main(): u32 = 0'},
-    {'spread-unimplemented','let main(ctx...) = do return 0 end'},
+    {'spread-source','let unknown...; let main(): u32 = 0'},
+    {'unknown-name','let ctx... = make(); let main(): u32 = 0'},
+    {'import-input','use missing...; let main(): u32 = 0'},
+    {'parameter-type','let main(ctx...) = do return 0 end'},
     {'rest-unimplemented','let f(...args): u32 = 0; return { functions = { f } }'},
     {'concatenation-unimplemented','let main(): u32 = "a" .. "b"'},
 } do rejected(case[1],function() Compiler.typed{profile='slet',source=case[2]} end) end

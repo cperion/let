@@ -53,7 +53,7 @@ for ordered definitions; a concrete keyed-literal grammar still needs approval b
 claiming every named declaration has a literal spelling.
 
 Final rest syntax is shared by named definitions and their literal-`do` bindings.
-**Pack/spread elaboration is still unimplemented** and rejects explicitly. This
+**Rest-pack and supply-spread elaboration is still unimplemented** and rejects explicitly. This
 change does not implement runtime variadic signatures or runtime pack objects.
 
 ### Keep the named-body boundary
@@ -92,7 +92,7 @@ needs only the innermost block's `end`, if there is a block at all. It does not 
 Current conservative captured-word materialization limits still apply, even with
 literal arguments. This deliberately replaces the earlier trailing-block append rule.
 
-## Vocabulary-parameter syntax — parsed; expansion not implemented
+## Vocabulary parameters — shared expansion implemented
 
 `ctx...` receives one ordinary parameter and expands its names; `...args` remains
 an ordered rest requirement. There is no arity inference or type-dependent reinterpretation.
@@ -114,13 +114,18 @@ No mutable aliases, detached receiver methods, dynamic namespace discovery or
 invented callable identity are permitted. Receiving names does not invoke them:
 a nullary pipeline step still needs `resolve_names()`.
 
-**Implementation dependency:** `ctx...`, `let context...`,
-`let context... = expression` and `use module...` now parse; prefix binding/import
-spellings reject. All name expansion still rejects `spread-unimplemented` because
-the shared binding-spread elaborator remains unfinished. Initialized contexts retain
-the ordinary explicit binding; a bare `let context...` reads an existing one.
-Runtime record snapshots and compile-time module namespaces need distinct, explicit producer
-contracts before this can be reported as executable support.
+**Implemented:** `ctx...`, `let context...`,
+`let context... = expression` and `use module...` share semantic expansion; prefix
+binding/import spellings reject. Runtime record/callable-field DSLs, namespace aliases
+and sum-constructor aliases have four-mode execution coverage. Initialized contexts
+retain their ordinary explicit binding; a bare `let context...` reads an existing one.
+Type/function exports now share one public namespace: duplicate public names reject
+across sections, an approved source compatibility change. Module aliases carry definition
+identity, not runtime objects; record fields are ordinary snapshots. No implicit module-valued
+parameter transport is added. Vocabulary validation: 92 checks / 64 four-mode executions,
+including a separate run with pre-packed lowering. Existing capture ownership and aggregate
+staging restrictions remain; illustrative resource DSLs still depend on their library and
+closure support. See WORKLIST.md and the vocabulary evidence for scope and code-size costs.
 
 ## Braces have explicit contexts
 

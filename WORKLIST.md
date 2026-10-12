@@ -288,7 +288,7 @@ The passing chain trap test isolates ordering with explicit IR traps; it does no
 validate away that failure. Packed-value changes remain in progress and unqualified.
 Lexical discarded-receiver-write checking awaits Q11; the returned-word hint remains open.
 
-**Vocabulary syntax — suffix migration implemented; semantic expansion unfinished.**
+**Vocabulary syntax checkpoint — suffix migration implemented; then parser-only.**
 Approved forms now parse: `use module...`, `let ctx...`, `let ctx... = expression`,
 and `do(ctx...)` / named block parameters. The initialized form evaluates once and
 retains its explicit context under the approved semantics; the uninitialized form
@@ -297,13 +297,31 @@ rest, and prefix supply expansion is unchanged. Canonical AST has VocabularyPara
 and name/optional-initializer spread declarations/statements; module indexing and
 syntactic capture discovery account for the explicit context binding.
 Block-only/one-marker/foreign restrictions have parser tests. Syntax batch: 149 checks,
-68 VM executions; expansion itself still rejects `spread-unimplemented` and has no
-execution coverage. Integrated validate-slet passed; raw evidence and scope are in
+68 VM executions; at that checkpoint expansion still rejected `spread-unimplemented`
+and had no execution coverage. Integrated validate-slet passed; raw evidence and scope are in
 `research/experiments/frontend-syntax/vocabulary-syntax/{README.md,validation.log}`.
-The DSL feature is **not complete**. Implement shared binding-spread
-with spread-shadow/snapshot/definition-alias/capture rules, no dynamic discovery or
-receiver detachment; do not add a callback-only path. Module-valued parameter transport
-must not be invented implicitly. See `docs/word-bindings.md` and `docs/spread.md`.
+The syntax checkpoint alone did not complete the DSL feature.
+
+**Vocabulary semantics — scoped implementation and integrated validation complete.**
+Shared record snapshots and parameter expansion now
+execute; namespace bindings replace flattened import lookup; module/type/constructor
+aliases, declaration-position visibility and semantic capture selection are connected.
+No receiver detachment or runtime namespace transport. Dependency foreign ABI symbols
+are not implicit source imports; explicit public aliases retain their foreign contracts.
+Vocabulary: 92 checks / 64
+unoptimized four-mode executions; integrated validate-slet passes. Evidence and limits:
+`research/experiments/frontend-syntax/vocabulary/{README.md,validation.log}`.
+**Approved compatibility change:** type/function exports share one public namespace;
+repeated public names reject across sections, before resolving this module's aliases or
+initializers. Regression tests cover both section orders, bare/aliased names, within-section
+duplicates and valid distinct/private-to-public aliases. Baseline acceptance and tightened rejection are
+preserved in `export-name-probe.{lua,log}`. Isolated pre-packed lowering passes vocabulary,
+compiler, word-binding, chain, demand and lambda suites (`isolation.log`). Composition
+probe with the same pending packed lowering: sum raw bytes 275→306, optimized 108→108;
+scalar 109→109, optimized 81→81. This is code-size evidence, not timing evidence.
+Existing aggregate staging, capture ownership and optimizer/frame-allocation limitations
+remain; no clean/sanitizer or timing qualification. See `docs/word-bindings.md` and
+`docs/spread.md`.
 
 Dependency: audit baseline; S/O as needed for individual paths.
 
@@ -573,8 +591,10 @@ Can start before task runtime; must preserve group bounds when those become avai
   its fixed-signature indirect ABI. No implicit generics or special treatment of any.
 - [ ] **X04** Implement keyed record expansion, explicit override, overlap/unknown-key
   checks, readonly/static protections and effects of overridden contributions.
-- [ ] **X05** Implement module/record/sum name binding, no-shadow and file-scope visibility
+- [x] **X05** Implement module/record/sum name binding, no-shadow and file-scope visibility
   rules; add `use module...` sugar without duplicate initialization or automatic re-export.
+  Implemented within existing source-value/capture admission; aggregate staging remains S05.
+  See the vocabulary evidence above; rest/supply expansion and broader X06 acceptance remain open.
 - [ ] **X06** Validate diagnostics, copies/owner bounds, lexical resolution, sugar
   equivalence and all applicable modes; measure specialization/copy/retention growth.
   Include explicit-requirement adapters with heterogeneous runtime packs and exact
