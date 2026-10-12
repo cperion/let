@@ -142,10 +142,10 @@ local function importPath(owner, dotted, importer)
     return hasDynamic and dynamic or static
 end
 
--- Compile a file and its profile-checked import graph. Imported functions receive private,
--- deterministic IDs; only the entry module's declared exports remain public.
-function M.compileFile(path, options)
-    options=options or {};local cache,active,nextModule={},{},0
+-- Construct verified IR for a profile-checked import graph, without requiring
+-- an executable backend. Imported functions keep deterministic private IDs.
+function M.typedFile(path)
+    local cache,active,nextModule={},{},0
     local function load(modulePath, root)
         if active[modulePath] then D.reject("import-cycle","Module import cycle reaches "..modulePath) end
         if cache[modulePath] then return cache[modulePath] end
@@ -172,11 +172,18 @@ function M.compileFile(path, options)
         end
         local loaded={unit=unit,functions=functions,exports=exported,types=unit.exportedTypes,schemas=unit.exportedSchemas,typeCells=unit.typeCells,foreigns=unit.foreigns};cache[modulePath]=loaded;active[modulePath]=nil;return loaded
     end
-    local loaded=load(path,true);local lowerOptions={} for key,value in pairs(options) do lowerOptions[key]=value end
+    local loaded=load(path,true)
+    return {phase="typed-ir",unit=loaded.unit,functions=loaded.functions,
+        foreigns=loaded.foreigns,modules=cache}
+end
+
+function M.compileFile(path, options)
+    options=options or {}
+    local loaded=M.typedFile(path);local lowerOptions={} for key,value in pairs(options) do lowerOptions[key]=value end
     lowerOptions.profile=M.profileForPath(path).name
     lowerOptions.foreigns=loaded.foreigns
     if lowerOptions.exports==nil then lowerOptions.exports=Semantic.exports(loaded.unit) end
-    local artifact=ABC.lower(loaded.functions,lowerOptions);artifact.sourceUnit=loaded.unit;artifact.modules=cache;return artifact
+    local artifact=ABC.lower(loaded.functions,lowerOptions);artifact.sourceUnit=loaded.unit;artifact.modules=loaded.modules;return artifact
 end
 
 

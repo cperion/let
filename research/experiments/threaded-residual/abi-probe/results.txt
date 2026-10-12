@@ -1,0 +1,8 @@
+trial=0 iterations=10000000 seconds=0.019511275 ns_per_record=0.9756
+trial=1 iterations=10000000 seconds=0.018117263 ns_per_record=0.9059
+trial=2 iterations=10000000 seconds=0.019666812 ns_per_record=0.9833
+trial=3 iterations=10000000 seconds=0.021462729 ns_per_record=1.0731
+trial=4 iterations=10000000 seconds=0.020009282 ns_per_record=1.0005
+trial=5 iterations=10000000 seconds=0.017877747 ns_per_record=0.8939
+trial=6 iterations=10000000 seconds=0.018437659 ns_per_record=0.9219
+PASS correctness_cases=8 timed_calls=7 tape_bytes=96 median_ns_per_record=0.9756

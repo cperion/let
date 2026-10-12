@@ -1,4 +1,5 @@
 #include "residual_ir.h"
+#include "residual_builder.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,7 +133,353 @@ static char *dump_program(const abc_residual_program *program) {
     return text;
 }
 
+/* Exercise the actual symbolic-to-IR boundary, independently of the opcode
+ * generator: revision-6 instruction bytes and expected operand roles are fixed. */
+static abc_residual_bundle *build_checked(abc_module *module) {
+    abc_error error;
+    abc_residual_build_diagnostic build_error;
+    abc_residual_diagnostic validation_error;
+    abc_residual_bundle *bundle = NULL;
+    check(abc_verify_module(module, &error) == ABC_OK, error.message);
+    check(abc_residual_build(module, NULL, &bundle, &build_error) ==
+          ABC_RESIDUAL_BUILD_OK, build_error.message);
+    const abc_residual_source_function *sources =
+        abc_residual_bundle_source_functions(bundle);
+    for (unsigned i = 0; i < module->function_count; i++) {
+        if (!sources[i].supported)
+            fprintf(stderr,"declined fixture: function %u, initial bytes %02x %02x %02x\n",
+                    i,module->code[0],module->code[1],module->code[2]);
+        check(sources[i].supported, "builder unexpectedly declined a source function");
+    }
+    check(abc_residual_validate(abc_residual_bundle_program(bundle),
+          &validation_error), validation_error.message);
+    return bundle;
+}
+
+static const abc_residual_node *node_at(const abc_residual_function *function,
+                                        unsigned origin) {
+    for (size_t i = 0; i < function->blocks.count; i++) {
+        const abc_residual_block *block = &function->blocks.items[i];
+        for (size_t j = 0; j < block->nodes.count; j++)
+            if (block->nodes.items[j].origin.offset == origin)
+                return &block->nodes.items[j];
+    }
+    check(0, "missing residual operation at original PC");
+    return NULL;
+}
+
+/* Straight-line fixtures may acquire entry/continuation block parameters.
+ * Follow their explicit jump transport, rather than assuming raw IDs survive. */
+static uint64_t transport_source(const abc_residual_function *function, uint64_t value) {
+    for (size_t step=0;step<function->blocks.count;step++) {
+        uint64_t previous=value;
+        for (size_t i=0;i<function->blocks.count;i++) {
+            const abc_residual_block *block=&function->blocks.items[i];
+            for(size_t j=0;j<block->arguments.count;j++) if(block->arguments.items[j].value==value) {
+                for(size_t k=0;k<function->blocks.count;k++) {
+                    const abc_residual_terminator *term=&function->blocks.items[k].terminator;
+                    if(term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_JUMP &&
+                       term->value.jump.edge.target.value==block->id.value) {
+                        value=term->value.jump.edge.arguments.items[j].value;
+                        goto transported;
+                    }
+                }
+            }
+        }
+transported:
+        if(value==previous)break;
+    }
+    return value;
+}
+static int same_value(const abc_residual_function *function, abc_residual_id left, abc_residual_id right) {
+    return transport_source(function,left.value)==transport_source(function,right.value);
+}
+static const abc_residual_terminator *terminator_at(const abc_residual_function *function,unsigned origin) {
+    for(size_t i=0;i<function->blocks.count;i++) {
+        const abc_residual_terminator *term=&function->blocks.items[i].terminator;
+        if(term->origin.offset==origin && term->tag!=ABC_ASDL_RESIDUAL_TERMINATOR_JUMP)return term;
+    }
+    check(0,"missing residual terminator at original PC");return NULL;
+}
+
+static void check_builder_scalars(void) {
+    static const struct {
+        uint8_t opcode;
+        abc_asdl_residual_binary_op operation;
+        unsigned floating;
+    } binary[] = {
+        {0x22, ABC_ASDL_RESIDUAL_BINARY_OP_SUB, 0},
+        {0x26, ABC_ASDL_RESIDUAL_BINARY_OP_DIV_UNSIGNED, 0},
+        {0x34, ABC_ASDL_RESIDUAL_BINARY_OP_SHIFT_LEFT, 0},
+        {0x54, ABC_ASDL_RESIDUAL_BINARY_OP_POW_UNSIGNED, 0},
+        {0xdc, ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_SUB, 1}
+    };
+    for (unsigned bank = 0; bank < 2; bank++) {
+        for (size_t i = 0; i < sizeof(binary)/sizeof(binary[0]); i++) {
+            uint8_t code[] = {(uint8_t)(0x14+bank), (uint8_t)(0x16+(bank^1)),
+                (uint8_t)(binary[i].opcode+bank), (uint8_t)(0x8a+bank), 2, 1};
+            abc_function source = {.end=sizeof(code), .arguments=2, .results=1};
+            if (binary[i].floating) {
+                source.argument_kinds[0]=source.argument_kinds[1]=ABC_KIND_FLOAT;
+                source.result_kinds[0]=ABC_KIND_FLOAT;
+            }
+            abc_module module = {.code=code, .code_size=sizeof(code),
+                .functions=&source, .function_count=1, .memory_profile=binary[i].floating};
+            abc_residual_bundle *bundle=build_checked(&module);
+            const abc_residual_function *function=&abc_residual_bundle_program(bundle)->functions.items[0];
+            const abc_residual_node *node=node_at(function,2);
+            check(node->operation.tag==ABC_ASDL_RESIDUAL_OPERATION_BINARY &&
+                  node->operation.value.binary.operation==binary[i].operation,
+                  "scalar semantic identity was confused with its encoded byte");
+            check(same_value(function,node->operation.value.binary.left,function->arguments.items[0]) &&
+                  same_value(function,node->operation.value.binary.right,function->arguments.items[1]),
+                  "selected-first operands reversed in residual IR");
+            abc_residual_bundle_free(bundle);
+        }
+        for (unsigned width=0; width<2; width++) {
+            uint8_t code[]={(uint8_t)(0x14+bank),(uint8_t)(0x50+2*width+bank),
+                            (uint8_t)(0x8a+bank),1,1};
+            abc_function source={.end=sizeof(code),.arguments=1,.results=1};
+            abc_module module={.code=code,.code_size=sizeof(code),.functions=&source,.function_count=1};
+            abc_residual_bundle *bundle=build_checked(&module);
+            const abc_residual_program *program=abc_residual_bundle_program(bundle);
+            const abc_residual_function *function=&program->functions.items[0];
+            const abc_residual_node *node=node_at(function,1);
+            check(node->operation.tag==ABC_ASDL_RESIDUAL_OPERATION_UNARY &&
+                  node->operation.value.unary.operation==(width?ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND16:ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND8) &&
+                  same_value(function,node->operation.value.unary.input,function->arguments.items[0]),
+                  "narrow normalization identity/input changed");
+            unsigned typed=0;
+            for(size_t i=0;i<program->values.count;i++)
+                if(program->values.items[i].id.value==node->results.items[0].value)
+                    typed=program->values.items[i].type==ABC_ASDL_RESIDUAL_TYPE_U32;
+            check(typed,"narrow normalization must use existing U32 representation");
+            check(same_value(function,terminator_at(function,2)->value.return_value.values.items[0],node->results.items[0]),
+                  "narrow normalization lost selected return source");
+            abc_residual_bundle_free(bundle);
+        }
+        /* A C-operand EXT has one semantic identity, not the EXT prefix byte. */
+        uint8_t extended[] = {(uint8_t)(0x14+bank), (uint8_t)(0xf8+bank), 1, 1,
+                              (uint8_t)(0x8a+bank), 2, 1};
+        abc_function source={.end=sizeof(extended), .arguments=2, .results=1};
+        abc_module module={.code=extended, .code_size=sizeof(extended), .functions=&source, .function_count=1};
+        abc_residual_bundle *bundle=build_checked(&module);
+        const abc_residual_function *function=&abc_residual_bundle_program(bundle)->functions.items[0];
+        const abc_residual_node *node=node_at(function,1);
+        check(node->operation.value.binary.operation==ABC_ASDL_RESIDUAL_BINARY_OP_SUB &&
+              same_value(function,node->operation.value.binary.left,function->arguments.items[0]) &&
+              same_value(function,node->operation.value.binary.right,function->arguments.items[1]),
+              "extended C operand lost semantic identity or operand order");
+        abc_residual_bundle_free(bundle);
+
+        uint8_t conversion[] = {(uint8_t)(0x14+bank), (uint8_t)(0xea+bank), (uint8_t)(0xee + bank),
+                                (uint8_t)(0x58+bank), (uint8_t)(0x8a+bank), 1, 1};
+        source=(abc_function){.end=sizeof(conversion), .arguments=1, .results=1};
+        module.code=conversion;module.code_size=sizeof(conversion);module.memory_profile=1;
+        bundle=build_checked(&module);
+        function=&abc_residual_bundle_program(bundle)->functions.items[0];
+        const abc_residual_node *to_float=node_at(function,1), *from_float=node_at(function,2);
+        node=node_at(function,3);
+        check(to_float->operation.value.unary.operation==ABC_ASDL_RESIDUAL_UNARY_OP_SIGNED_TO_FLOAT &&
+              from_float->operation.value.unary.operation==ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_SIGNED &&
+              from_float->operation.value.unary.input.value==to_float->results.items[0].value,
+              "selected conversion did not feed the next selected operation");
+        check(node->operation.tag==ABC_ASDL_RESIDUAL_OPERATION_CHECK &&
+              node->operation.value.check.input.value==from_float->results.items[0].value,
+              "selected check did not consume its supplied value");
+        abc_residual_bundle_free(bundle);
+    }
+}
+
+static void check_builder_float_branches(void) {
+    const abc_asdl_residual_binary_op relations[]={ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_LESS,
+        ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_LESS_EQUAL,ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_EQUAL};
+    for(unsigned operation=0;operation<3;operation++)for(unsigned bank=0;bank<2;bank++) {
+        /* Independent revision-6 bytes: CGET0.X, CGET1.Y, FB*.X, two returns. */
+        uint8_t code[]={(uint8_t)(0x14+bank),(uint8_t)(0x16+(bank^1)),
+            (uint8_t)(0xf2+2*operation+bank),5,0,
+            (uint8_t)(0x02+bank),0,(uint8_t)(0x8a+bank),2,1,
+            (uint8_t)(0x02+bank),1,(uint8_t)(0x8a+bank),2,1};
+        abc_function source={.end=sizeof(code),.arguments=2,.results=1};
+        source.argument_kinds[0]=source.argument_kinds[1]=ABC_KIND_FLOAT;
+        abc_module module={.code=code,.code_size=sizeof(code),.functions=&source,.function_count=1,.memory_profile=1};
+        abc_residual_bundle *bundle=build_checked(&module);
+        const abc_residual_function *function=&abc_residual_bundle_program(bundle)->functions.items[0];
+        const abc_residual_terminator *term=terminator_at(function,2);
+        check(term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_BRANCH &&
+              term->value.branch.relation==relations[operation],"floating branch relation lost in residual IR");
+        check(same_value(function,term->value.branch.left,function->arguments.items[0]) &&
+              same_value(function,term->value.branch.right,function->arguments.items[1]),
+              "floating branch selected-first operand order lost in residual IR");
+        abc_residual_bundle_free(bundle);
+    }
+}
+
+static void check_builder_calls(void) {
+    for (unsigned bank=0;bank<2;bank++) for(unsigned result_bank=0;result_bank<2;result_bank++) {
+        /* Both caller banks have a live prefix; only the chosen bank passes arg2. */
+        uint8_t code[]={0x14,0x17,(uint8_t)(0x18+bank),2,
+            (uint8_t)(0x86+bank),4,0,0,0,1,(uint8_t)(0x0e + (bank^1)),
+            (uint8_t)(0x8a+bank),3,3,(uint8_t)(0x14+result_bank),
+            (uint8_t)(0x8a+result_bank),1,1};
+        abc_function sources[]={{.entry=0,.end=14,.arguments=3,.results=3},
+                                {.entry=14,.end=sizeof(code),.arguments=1,.results=1}};
+        abc_module module={.code=code,.code_size=sizeof(code),.functions=sources,.function_count=2};
+        abc_residual_bundle *bundle=build_checked(&module);
+        const abc_residual_program *program=abc_residual_bundle_program(bundle);
+        const abc_residual_function *function=&program->functions.items[0];
+        const abc_residual_node *call=node_at(function,4);
+        check(call->operation.tag==ABC_ASDL_RESIDUAL_OPERATION_CALL &&
+              same_value(function,call->operation.value.call.arguments.items[0],function->arguments.items[2]),
+              "CALL gathered from the wrong bank");
+        const abc_residual_terminator *returned=terminator_at(function,11);
+        check(returned->tag==ABC_ASDL_RESIDUAL_TERMINATOR_RETURN &&
+              returned->value.return_value.values.count==3 &&
+              same_value(function,returned->value.return_value.values.items[0],function->arguments.items[bank]) &&
+              same_value(function,returned->value.return_value.values.items[1],call->results.items[0]) &&
+              same_value(function,returned->value.return_value.values.items[2],function->arguments.items[bank^1]),
+              "CALL result destination or ordered RET vector damaged a live prefix");
+        const abc_residual_function *callee=&program->functions.items[1];
+        check(same_value(callee,terminator_at(callee,15)->value.return_value.values.items[0],callee->arguments.items[0]),
+              "callee RET source depends on its caller's destination");
+        abc_residual_bundle_free(bundle);
+    }
+    for(unsigned bank=0;bank<2;bank++) for(unsigned tail=0;tail<2;tail++) {
+        uint8_t code[]={(uint8_t)(0x14+bank),(uint8_t)(0x16+bank),
+            (uint8_t)(0x18+(bank^1)),2,(uint8_t)((tail?0xd6:0xd4)+bank),
+            (uint8_t)(tail?3:2),2,(uint8_t)(0x8a+bank),3,1};
+        if(!tail) {code[6]=(uint8_t)(0x8a+bank);code[7]=3;code[8]=1;}
+        unsigned length=tail?7:9;
+        abc_function source={.end=length,.arguments=3,.results=1,
+                             .argument_kinds={ABC_KIND_ADDR,ABC_KIND_INT,ABC_KIND_ADDR}};
+        abc_function site={.entry=4,.arguments=2,.results=1,.argument_kinds={ABC_KIND_ADDR,ABC_KIND_INT}};
+        abc_module module={.code=code,.code_size=length,.functions=&source,.function_count=1,
+                           .memory_profile=1,.callable_profile=1,.sites=&site,.site_count=1};
+        abc_residual_bundle *bundle=build_checked(&module);
+        const abc_residual_function *function=&abc_residual_bundle_program(bundle)->functions.items[0];
+        const abc_residual_id *arguments;
+        abc_residual_id callee;
+        if(tail) {
+            const abc_residual_terminator *term=terminator_at(function,4);
+            check(term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_TAIL_CALL,"indirect tail lost explicit transfer");
+            arguments=term->value.tail_call.arguments.items;callee=*term->value.tail_call.callee;
+        } else {
+            const abc_residual_node *call=node_at(function,4);
+            arguments=call->operation.value.call.arguments.items;callee=*call->operation.value.call.callee;
+        }
+        check(same_value(function,arguments[0],function->arguments.items[0]) &&
+              same_value(function,arguments[1],function->arguments.items[1]) &&
+              same_value(function,callee,function->arguments.items[2]),
+              "indirect call/tail argument bank, order or opposite target changed");
+        abc_residual_bundle_free(bundle);
+    }
+}
+
+static uint64_t constant_bits(const abc_residual_program *program,abc_residual_id id) {
+    for(size_t i=0;i<program->values.count;i++) {
+        const abc_residual_value *value=&program->values.items[i];
+        if(value->id.value==id.value) {
+            check(value->definition.tag==ABC_ASDL_RESIDUAL_DEFINITION_CONSTANT,"expected an explicit residual constant");
+            return value->definition.value.constant.low;
+        }
+    }
+    check(0,"missing constant definition");return 0;
+}
+
+static void check_builder_transfers(void) {
+    for(unsigned bank=0;bank<2;bank++) {
+        uint8_t capture[]={(uint8_t)(0x18+(bank^1)),2,(uint8_t)(0x14+bank),
+            (uint8_t)(0x16+(bank^1)),(uint8_t)(0x1c+(bank^1)),(uint8_t)(0x14+(bank^1)),
+            (uint8_t)(0x22+bank),(uint8_t)(0x0e + (bank^1)),(uint8_t)(0x8a+bank),3,2};
+        abc_function source={.end=sizeof(capture),.arguments=3,.results=2};
+        abc_module module={.code=capture,.code_size=sizeof(capture),.functions=&source,.function_count=1};
+        abc_residual_bundle *bundle=build_checked(&module);
+        const abc_residual_program *program=abc_residual_bundle_program(bundle);
+        const abc_residual_function *function=&program->functions.items[0];
+        const abc_residual_node *node=node_at(function,6);
+        const abc_residual_terminator *term=terminator_at(function,8);
+        check(same_value(function,node->operation.value.binary.left,function->arguments.items[0]) &&
+              same_value(function,node->operation.value.binary.right,function->arguments.items[1]) &&
+              same_value(function,term->value.return_value.values.items[0],node->results.items[0]) &&
+              same_value(function,term->value.return_value.values.items[1],function->arguments.items[2]),
+              "C replacement lost the captured value or the opposite live prefix");
+        abc_residual_bundle_free(bundle);
+
+        uint8_t immediate[]={(uint8_t)(0x14+bank),(uint8_t)(0x76+bank),3,
+                             (uint8_t)(0x4a+bank),(uint8_t)(0x8a+bank),1,1};
+        source=(abc_function){.end=sizeof(immediate),.arguments=1,.results=1};
+        module.code=immediate;module.code_size=sizeof(immediate);
+        bundle=build_checked(&module);program=abc_residual_bundle_program(bundle);function=&program->functions.items[0];
+        node=node_at(function,1);
+        check(node->operation.value.binary.operation==ABC_ASDL_RESIDUAL_BINARY_OP_SUB &&
+              same_value(function,node->operation.value.binary.left,function->arguments.items[0]) &&
+              constant_bits(program,node->operation.value.binary.right)==3 &&
+              node_at(function,3)->operation.value.unary.operation==ABC_ASDL_RESIDUAL_UNARY_OP_LOGICAL_NOT,
+              "immediate or unary semantic identity changed");
+        abc_residual_bundle_free(bundle);
+
+        uint8_t foreign[]={(uint8_t)(0x14+(bank^1)),(uint8_t)(0x14+bank),(uint8_t)(0x16+bank),
+            (uint8_t)(0xd8+bank),0,0,(uint8_t)(0x0e + (bank^1)),(uint8_t)(0x8a+bank),2,2};
+        abc_extern external={.name="test_foreign",.arguments=2,.results=1};
+        source=(abc_function){.end=sizeof(foreign),.arguments=2,.results=2};
+        module=(abc_module){.code=foreign,.code_size=sizeof(foreign),.functions=&source,.function_count=1,
+            .memory_profile=1,.callable_profile=1,.foreign_profile=1,.externs=&external,.extern_count=1};
+        bundle=build_checked(&module);function=&abc_residual_bundle_program(bundle)->functions.items[0];
+        node=node_at(function,3);term=terminator_at(function,7);
+        check(node->operation.value.call.kind==ABC_ASDL_RESIDUAL_CALL_KIND_FOREIGN &&
+              same_value(function,node->operation.value.call.arguments.items[0],function->arguments.items[0]) &&
+              same_value(function,node->operation.value.call.arguments.items[1],function->arguments.items[1]) &&
+              same_value(function,term->value.return_value.values.items[0],node->results.items[0]) &&
+              same_value(function,term->value.return_value.values.items[1],function->arguments.items[0]),
+              "foreign selected arguments/results damaged the opposite prefix");
+        abc_residual_bundle_free(bundle);
+
+        uint8_t halt[]={(uint8_t)(2+bank),5,(uint8_t)(2+bank),6,(uint8_t)bank};
+        source=(abc_function){.end=sizeof(halt),.results=2};
+        module=(abc_module){.code=halt,.code_size=sizeof(halt),.functions=&source,.function_count=1};
+        bundle=build_checked(&module);program=abc_residual_bundle_program(bundle);function=&program->functions.items[0];
+        term=terminator_at(function,4);
+        check(term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_HALT && term->value.halt.values.count==2 &&
+              constant_bits(program,term->value.halt.values.items[0])==5 &&
+              constant_bits(program,term->value.halt.values.items[1])==6,"HALT result source/order changed");
+        abc_residual_bundle_free(bundle);
+
+        uint8_t tail[]={(uint8_t)(0x14+bank),(uint8_t)(0x16+bank),(uint8_t)(0x88+bank),0,0,0,0,2,2,
+            (uint8_t)(0x14+(bank^1)),(uint8_t)(0x16+(bank^1)),(uint8_t)(0x8a+(bank^1)),2,2};
+        abc_function sources[]={{.end=9,.arguments=2,.results=2},
+            {.entry=9,.end=sizeof(tail),.arguments=2,.results=2}};
+        module=(abc_module){.code=tail,.code_size=sizeof(tail),.functions=sources,.function_count=2};
+        bundle=build_checked(&module);function=&abc_residual_bundle_program(bundle)->functions.items[0];
+        term=terminator_at(function,11);
+        check(same_value(function,term->value.return_value.values.items[0],function->arguments.items[0]) &&
+              same_value(function,term->value.return_value.values.items[1],function->arguments.items[1]),
+              "virtual tail changed selected argument order or result continuation");
+        abc_residual_bundle_free(bundle);
+
+        /* Mutual recursion retains real residual tail transfers. No execution
+         * is needed to verify their ordered argument vectors. */
+        uint8_t mutual[]={(uint8_t)(0x14+bank),(uint8_t)(0x16+bank),(uint8_t)(0x88+bank),0,0,0,0,2,2,
+            (uint8_t)(0x14+(bank^1)),(uint8_t)(0x16+(bank^1)),(uint8_t)(0x88+(bank^1)),0xee,0xff,0xff,0xff,2,2};
+        sources[0]=(abc_function){.end=9,.arguments=2,.results=1};
+        sources[1]=(abc_function){.entry=9,.end=sizeof(mutual),.arguments=2,.results=1};
+        module.code=mutual;module.code_size=sizeof(mutual);
+        bundle=build_checked(&module);program=abc_residual_bundle_program(bundle);function=&program->functions.items[0];
+        term=terminator_at(function,2);
+        check(term->tag==ABC_ASDL_RESIDUAL_TERMINATOR_TAIL_CALL &&
+              term->value.tail_call.kind==ABC_ASDL_RESIDUAL_CALL_KIND_DIRECT &&
+              term->value.tail_call.target==program->functions.items[1].id.value &&
+              same_value(function,term->value.tail_call.arguments.items[0],function->arguments.items[0]) &&
+              same_value(function,term->value.tail_call.arguments.items[1],function->arguments.items[1]),
+              "real tail changed selected argument source/order or target");
+        abc_residual_bundle_free(bundle);
+    }
+}
+
 int main(void) {
+    check_builder_scalars();
+    check_builder_float_branches();
+    check_builder_calls();
+    check_builder_transfers();
     abc_residual_arena *arena = abc_residual_arena_create();
     check(arena != NULL, "arena allocation failed");
     abc_residual_program program = make_program(arena);

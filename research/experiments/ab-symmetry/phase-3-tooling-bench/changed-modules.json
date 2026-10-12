@@ -1,0 +1,11 @@
+{
+  "warm-top": false,
+  "post-call-top": false,
+  "post-call-mixed": false,
+  "post-call-deep": false,
+  "post-free-top": false,
+  "ab-control": false,
+  "fib28": true,
+  "frame-alias": false,
+  "global-memory": false
+}

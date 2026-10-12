@@ -1,104 +1,76 @@
--- Generate the musttail-dispatch transfer front-end for the internal symbolic ABC VM.
-local root=(arg[0]:match('^(.*)/[^/]+$') or '.')
+-- Bind the shared revision-6 transfers to the symbolic machine.
+local root=arg[0]:match('^(.*)/[^/]+$') or '.'
 package.path=root..'/?.lua;'..root..'/../tools/?.lua;'..package.path
-local manifest=require('opcodes')
-local semantics=require('semantics')
-local dir=assert(arg[1],'output directory required')
-local path=dir..'/symbolic_dispatch.c.tmp'
-local out=assert(io.open(path,'wb'))
-local function emit(line) assert(out:write(line,'\n')) end
-
+local manifest,semantics=require('opcodes'),require('semantics')
+local directory=assert(arg[1],'output directory required')
+local output=assert(io.open(directory..'/symbolic_dispatch.c.tmp','wb'))
+local function emit(text)assert(output:write(text,'\n'))end
 emit('#include "symbolic.h"')
-emit('#include "opcodes.h"')
 emit('typedef abc_symbolic_exit (*abc_symbolic_handler)(abc_symbolic_machine *);')
-emit('static const abc_symbolic_handler handlers[OP_COUNT];')
-emit('#define SYM_NEXT(N) do { m->pc+=(N)+m->extra_advance; m->extra_advance=0; if(m->pc>=m->end || (m->blocks&&m->blocks[m->pc])) return ABC_SYM_EXIT_BLOCK; ABC_MUSTTAIL return handlers[m->code[m->pc]](m); } while(0)')
-emit('static abc_symbolic_exit boundary(abc_symbolic_machine *m){return abc_symbolic_machine_boundary(m);}')
-
-local function transfer(op)
-  local effect=semantics.symbolic[op.name]
-  if effect then return effect end
-  if op.mem then return {kind='memory'} end
-  local name=op.name
-  if name=='EXT' then return {kind='dynamic'} end
-  if name=='FCALL' then return {kind='foreign'} end
-  if name=='RET' then return {kind='return'} end
-  if name=='TCALL' then return {kind='tail'} end
-  if name=='CALL_A' or name=='CALL_B' then return {kind='call',destination=name:sub(-1)} end
-  if name=='CALLI_A' or name=='CALLI_B' then return {kind='indirect',destination=name:sub(-1)} end
-  if name=='TCALLI' then return {kind='indirect_tail'} end
-  if name:match('^CALL') or name:match('^TCALL') or name:match('^RET') then
-    return {kind='effect',family='call'}
-  end
-  error('opcode lacks symbolic transfer metadata: '..name)
+emit('static const abc_symbolic_handler handlers[OP_COUNT],extended_a[256],extended_b[256];')
+emit('#define SYM_NEXT(N) do {m->pc+=(N)+m->extra_advance;m->extra_advance=0;if(m->pc>=m->end||(m->blocks&&m->blocks[m->pc]))return ABC_SYM_EXIT_BLOCK;ABC_MUSTTAIL return handlers[m->code[m->pc]](m);}while(0)')
+local relations={BEQ='ABC_SYM_EQ',BNE='ABC_SYM_NE',BLT='ABC_SYM_LT',BLE='ABC_SYM_LE',
+ BLTU='ABC_SYM_LTU',BLEU='ABC_SYM_LEU',BGT='ABC_SYM_LT',BGE='ABC_SYM_LE',
+ BGTU='ABC_SYM_LTU',BGEU='ABC_SYM_LEU',FBLT='ABC_SYM_LT',FBLE='ABC_SYM_LE',FBEQ='ABC_SYM_EQ'}
+local function generate(instruction,bank,extended)
+ local name=manifest.operations[instruction.operation+1]
+ local transfer=assert(semantics.transfers[name],name)
+ local kind=transfer.kind
+ local selected=bank or instruction.stack
+ local other=selected==0 and 1 or 0
+ local identity='ABC_OPERATION_'..name
+ local handler=(extended and 'extended_'..name..'_'..selected or instruction.name):lower()
+ if kind=='ext' then
+  emit(('static abc_symbolic_exit h_%s(abc_symbolic_machine*m){ABC_MUSTTAIL return extended_%s[m->code[m->pc+1]](m);}'):format(handler,selected==0 and 'a' or 'b'))
+  return handler
+ end
+ local action,mask,length=nil,'ABC_SYM_TRANSFER_STACK',tostring(instruction.len)
+ local function call(helper,arguments) return 'abc_symbolic_machine_'..helper..'(m'..(arguments and ','..arguments or '')..')' end
+ if kind=='push' then action=call('push',selected..','..({[8]='abc_imm8(p[0])',[32]='(uint64_t)(int64_t)abc_i32(p)',[64]='abc_u64(p)'})[transfer.width])
+ elseif kind=='dup' or kind=='drop' or kind=='cpush' then action=call(kind,selected)
+ elseif kind=='copy' or kind=='move' then action=call('transfer',selected..','..other..','..(kind=='move' and 1 or 0))
+ elseif kind=='cpushn' then action=call(kind,selected..',p[0]')
+ elseif kind=='cpop' then action=call(kind)
+ elseif kind=='cget' or kind=='cset' then action=call(kind,selected..','..(transfer.depth~=nil and transfer.depth or 'p[0]'))
+ elseif kind=='cgetr' then action=call('cget_range',selected..',p[0],p[1]')
+ elseif kind=='binary' or kind=='float_binary' or kind=='unary' or kind=='float_unary' or kind=='check' or kind=='power' then
+  action=call(kind=='power' and 'pow' or kind,identity..','..selected);mask='ABC_SYM_TRANSFER_VALUE'
+ elseif kind=='immediate' or kind=='c_operand' then
+  action=call(kind,identity..','..selected..','..(kind=='immediate' and 'abc_imm8(p[0])' or 'p[0]'));mask='ABC_SYM_TRANSFER_VALUE'
+ elseif kind=='jump' or kind=='zero_branch' or kind=='branch' or kind=='float_branch' or kind=='immediate_branch' then
+  local control=({jump='JUMP',zero_branch='ZERO',branch='INTEGER',float_branch='FLOAT',immediate_branch='IMMEDIATE'})[kind]
+  local relation=kind=='zero_branch' and (transfer.zero and 'ABC_SYM_EQ' or 'ABC_SYM_NE') or relations[transfer.operation] or 'ABC_SYM_EQ'
+  local reverse=kind=='immediate_branch' and transfer.operation:match('^BG') and 1 or 0
+  local displacement=kind=='jump' and transfer.width==32 and 'abc_i32(p)' or 'abc_i16(p'..(kind=='immediate_branch' and '+1' or '')..')'
+  action=call('control',('ABC_SYM_CONTROL_%s,%s,%s,%d,%d,(uint32_t)((int64_t)(m->pc+%s)+%s),m->pc+%s,%s'):format(control,identity,relation,reverse,selected,length,displacement,length,kind=='immediate_branch' and 'abc_imm8(p[0])' or '0'))
+  mask='ABC_SYM_TRANSFER_CONTROL'
+ elseif kind=='switch' then
+  length='3+4*abc_u16(p)';action=call('switch',selected..',abc_u16(p),m->pc+'..length);mask='ABC_SYM_TRANSFER_CONTROL'
+ elseif kind=='abort' then action=call('abort','p[0]');mask='ABC_SYM_TRANSFER_CONTROL'
+ elseif kind=='halt' then action=call('halt',selected);mask='ABC_SYM_TRANSFER_CONTROL'
+ elseif kind=='memory' or kind=='allocate' or kind=='free' then action=call('memory');mask='ABC_SYM_TRANSFER_EFFECT'
+ elseif kind=='call' then action=call('call','(uint32_t)((int64_t)(m->pc+'..length..')+abc_i32(p)),p[4],'..selected..',m->pc+'..length);mask='ABC_SYM_TRANSFER_EFFECT'
+ elseif kind=='tcall' then action=call('tail','(uint32_t)((int64_t)(m->pc+'..length..')+abc_i32(p)),p[4],p[5],'..selected);mask='ABC_SYM_TRANSFER_EFFECT'
+ elseif kind=='ret' then action=call('return','p[0],p[1],'..selected);mask='ABC_SYM_TRANSFER_EFFECT'
+ elseif kind=='calli' then action=call('indirect','0,p[0],'..selected..',0');mask='ABC_SYM_TRANSFER_EFFECT'
+ elseif kind=='tcalli' then action=call('indirect','p[0],p[1],'..selected..',1');mask='ABC_SYM_TRANSFER_EFFECT'
+ elseif kind=='fcall' then action=call('foreign',selected);mask='ABC_SYM_TRANSFER_EFFECT'
+ else error('missing symbolic binding: '..name..' ('..kind..')') end
+ emit(('static abc_symbolic_exit h_%s(abc_symbolic_machine*m){const uint8_t*p=m->code+m->pc+%d;(void)p;if(m->transfer_mask&&!(m->transfer_mask&%s))return abc_symbolic_machine_boundary(m);if(!(%s))return m->exit;SYM_NEXT(%s);}'):format(handler,extended and 2 or 1,mask,action,length))
+ return handler
 end
-
-local function action(op)
-  local effect=transfer(op)
-  if effect.kind=='push' then
-    local value=effect.width==8 and 'abc_imm8(p[1])' or effect.width==32 and '(uint64_t)(int64_t)abc_i32(p+1)' or 'abc_u64(p+1)'
-    return ('abc_symbolic_machine_push(m,ABC_SYM_%s,%s)'):format(effect.stack,value)
-  elseif effect.kind=='dup' then return ('abc_symbolic_machine_dup(m,ABC_SYM_%s)'):format(effect.stack)
-  elseif effect.kind=='drop' then return ('abc_symbolic_machine_drop(m,ABC_SYM_%s)'):format(effect.stack)
-  elseif effect.kind=='cpush' then return ('abc_symbolic_machine_cpush(m,ABC_SYM_%s)'):format(effect.stack)
-  elseif effect.kind=='cpushn' then return 'abc_symbolic_machine_cpushn(m,p[1])'
-  elseif effect.kind=='cpop' then return 'abc_symbolic_machine_cpop(m)'
-  elseif effect.kind=='transfer' then return ('abc_symbolic_machine_transfer(m,ABC_SYM_%s,ABC_SYM_%s,%d)'):format(effect.from,effect.to,effect.consume and 1 or 0)
-  elseif effect.kind=='cget' then return ('abc_symbolic_machine_cget(m,ABC_SYM_%s,%s)'):format(effect.stack,effect.depth=='immediate' and 'p[1]' or effect.depth)
-  elseif effect.kind=='cget_range' then return ('abc_symbolic_machine_cget_range(m,ABC_SYM_%s,p[1],p[2])'):format(effect.stack)
-  elseif effect.kind=='cset' then return ('abc_symbolic_machine_cset(m,ABC_SYM_%s,%s)'):format(effect.stack,effect.depth=='immediate' and 'p[1]' or effect.depth)
-  elseif effect.kind=='binary' then return ('abc_symbolic_machine_binary(m,OP_%s_A,ABC_SYM_%s)'):format(effect.operation,effect.destination)
-  elseif effect.kind=='unary' then return ('abc_symbolic_machine_unary(m,OP_%s_A,ABC_SYM_%s)'):format(effect.operation,effect.stack)
-  elseif effect.kind=='float_binary' then return ('abc_symbolic_machine_float_binary(m,OP_%s_A,ABC_SYM_%s)'):format(effect.operation,effect.destination)
-  elseif effect.kind=='immediate' then return ('abc_symbolic_machine_immediate(m,OP_%sI_A,ABC_SYM_%s,abc_imm8(p[1]))'):format(effect.operation,effect.stack)
-  elseif effect.kind=='c_operand' then return ('abc_symbolic_machine_c_operand(m,OP_%sC_A,ABC_SYM_%s,p[1])'):format(effect.operation,effect.stack)
-  elseif effect.kind=='float_unary' then return ('abc_symbolic_machine_float_unary(m,OP_%s)'):format(effect.operation)
-  elseif effect.kind=='mask' then return ('abc_symbolic_machine_immediate(m,OP_ANDI_A,ABC_SYM_A,%d)'):format(effect.immediate)
-  elseif effect.kind=='pow' then return ('abc_symbolic_machine_pow(m,OP_%s)'):format(op.name)
-  elseif effect.kind=='check' then return ('abc_symbolic_machine_check(m,OP_%s)'):format(op.name)
-  elseif effect.kind=='jump' then
-    local offset=effect.width==16 and 'abc_i16(p+1)' or 'abc_i32(p+1)'
-    return ('abc_symbolic_machine_control(m,ABC_SYM_CONTROL_JUMP,OP_%s,0,0,0,(uint32_t)((int64_t)(m->pc+%d)+%s),m->pc+%d,0)'):format(op.name,op.len,offset,op.len)
-  elseif effect.kind=='zero_branch' then return ('abc_symbolic_machine_control(m,ABC_SYM_CONTROL_ZERO,OP_%s,%d,0,ABC_SYM_%s,(uint32_t)((int64_t)(m->pc+%d)+abc_i16(p+1)),m->pc+%d,0)'):format(op.name,effect.relation,effect.stack,op.len,op.len)
-  elseif effect.kind=='branch' then return ('abc_symbolic_machine_control(m,ABC_SYM_CONTROL_INTEGER,OP_%s,%d,0,0,(uint32_t)((int64_t)(m->pc+%d)+abc_i16(p+1)),m->pc+%d,0)'):format(op.name,effect.relation,op.len,op.len)
-  elseif effect.kind=='float_branch' then return ('abc_symbolic_machine_control(m,ABC_SYM_CONTROL_FLOAT,OP_%s,%d,0,0,(uint32_t)((int64_t)(m->pc+%d)+abc_i16(p+1)),m->pc+%d,0)'):format(op.name,effect.relation,op.len,op.len)
-  elseif effect.kind=='immediate_branch' then return ('abc_symbolic_machine_control(m,ABC_SYM_CONTROL_IMMEDIATE,OP_%s,%d,%d,ABC_SYM_A,(uint32_t)((int64_t)(m->pc+%d)+abc_i16(p+2)),m->pc+%d,abc_imm8(p[1]))'):format(op.name,effect.relation,effect.reverse and 1 or 0,op.len,op.len)
-  elseif effect.kind=='abort' then return 'abc_symbolic_machine_abort(m,p[1])'
-  elseif effect.kind=='switch' then return 'abc_symbolic_machine_switch(m,abc_u16(p+1),m->pc+3+4*abc_u16(p+1))'
-  elseif effect.kind=='halt' then return 'abc_symbolic_machine_halt(m)'
-  elseif effect.kind=='memory' then return ('abc_symbolic_machine_memory(m,OP_%s)'):format(op.name)
-  elseif effect.kind=='return' then return 'abc_symbolic_machine_return(m,p[1],p[2])'
-  elseif effect.kind=='call' then return ('abc_symbolic_machine_call(m,(uint32_t)((int64_t)(m->pc+%d)+abc_i32(p+1)),p[5],ABC_SYM_%s,m->pc+%d)'):format(op.len,effect.destination,op.len)
-  elseif effect.kind=='indirect' then return ('abc_symbolic_machine_indirect(m,0,p[1],ABC_SYM_%s,0)'):format(effect.destination)
-  elseif effect.kind=='indirect_tail' then return 'abc_symbolic_machine_indirect(m,p[1],p[2],ABC_SYM_A,1)'
-  elseif effect.kind=='tail' then return ('abc_symbolic_machine_tail(m,(uint32_t)((int64_t)(m->pc+%d)+abc_i32(p+1)),p[5],p[6])'):format(op.len)
-  elseif effect.kind=='dynamic' then return 'abc_symbolic_machine_dynamic(m)'
-  elseif effect.kind=='foreign' then return 'abc_symbolic_machine_foreign(m)'
-  elseif effect.kind=='effect' then return ('abc_symbolic_machine_effect(m,OP_%s)'):format(op.name)
-  end
-  error('unknown symbolic effect '..effect.kind)
+local core,extended_a,extended_b={},{},{}
+for _,instruction in ipairs(manifest.ops) do core[instruction.opcode]=generate(instruction) end
+for _,instruction in ipairs(manifest.ext_ops) do
+ extended_a[instruction.selector]=generate(instruction,0,true)
+ extended_b[instruction.selector]=generate(instruction,1,true)
 end
-
-for _,op in ipairs(manifest.ops) do
-  local lower=op.name:lower()
-  local a=action(op)
-  if a then
-    local effect=transfer(op)
-    local control=effect.kind=='jump' or effect.kind=='zero_branch' or effect.kind=='branch' or effect.kind=='float_branch' or effect.kind=='immediate_branch' or effect.kind=='abort' or effect.kind=='switch' or effect.kind=='halt'
-    local value=effect.kind=='binary' or effect.kind=='unary' or effect.kind=='float_binary' or effect.kind=='immediate' or effect.kind=='c_operand' or effect.kind=='float_unary' or effect.kind=='mask' or effect.kind=='pow' or effect.kind=='check'
-    local effects=effect.kind=='effect' or effect.kind=='memory' or effect.kind=='return' or effect.kind=='call' or effect.kind=='indirect' or effect.kind=='indirect_tail' or effect.kind=='tail' or effect.kind=='dynamic' or effect.kind=='foreign'
-    local mask=control and 'ABC_SYM_TRANSFER_CONTROL' or effects and 'ABC_SYM_TRANSFER_EFFECT' or value and 'ABC_SYM_TRANSFER_VALUE' or 'ABC_SYM_TRANSFER_STACK'
-    local length=op.name=='EXT' and 'abc_instruction_length(p)' or tostring(op.len)
-    emit(('static abc_symbolic_exit h_%s(abc_symbolic_machine *m){const uint8_t*p=m->code+m->pc;(void)p;if(m->transfer_mask&&!(m->transfer_mask&%s))return boundary(m);if(!(%s))return m->exit;SYM_NEXT(%s);}'):format(lower,mask,a,length))
-  else error('symbolic transfer has no generator action: '..op.name)
-  end
+local function table_definition(name,entries,size)
+ emit(('static const abc_symbolic_handler %s[%d]={'):format(name,size))
+ for index=0,size-1 do if entries[index] then emit((' [%d]=h_%s,'):format(index,entries[index])) end end
+ emit('};')
 end
-emit('static const abc_symbolic_handler handlers[OP_COUNT]={')
-for _,op in ipairs(manifest.ops) do emit((' [OP_%s]=h_%s,'):format(op.name,op.name:lower())) end
-emit('};')
+table_definition('handlers',core,256);table_definition('extended_a',extended_a,256);table_definition('extended_b',extended_b,256)
 emit('abc_symbolic_exit abc_symbolic_dispatch(abc_symbolic_machine*m){if(!m||!m->context||!m->code||m->pc>=m->end)return ABC_SYM_EXIT_FAILURE;abc_clear(m->error);m->exit=ABC_SYM_EXIT_BLOCK;ABC_MUSTTAIL return handlers[m->code[m->pc]](m);}')
 emit('#undef SYM_NEXT')
-assert(out:close())
-assert(os.rename(path,dir..'/symbolic_dispatch.c'))
-io.stderr:write(('generated %d symbolic opcode handlers\n'):format(#manifest.ops))
-
+assert(output:close());assert(os.rename(directory..'/symbolic_dispatch.c.tmp',directory..'/symbolic_dispatch.c'))

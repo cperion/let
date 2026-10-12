@@ -1,0 +1,45 @@
+ M Makefile
+ M docs/architecture.md
+ M docs/dynamic-profile.md
+ M docs/symbolic-vm.md
+ M frontend/tests/optimize.lua
+ M gen/banked.lua
+ M gen/semantics.lua
+ M gen/stencils.lua
+ M gen/symbolic.lua
+ M research/experiments/engines/README.md
+ M research/experiments/engines/dynamic-types.md
+ M research/experiments/type-versions/README.md
+ M research/experiments/type-versions/inspect.py
+ M src/dynamic.c
+ M src/dynamic.h
+ M src/residualize.c
+ M src/symbolic.c
+ M src/symbolic.h
+ M src/vm.c
+ M src/vm_internal.h
+ M tools/validate_api.c
+ M tools/validate_dynamic.lua
+ M tools/validate_symbolic.c
+ M tools/validate_type_versions.lua
+?? AGENTS.md
+?? gen/scalar.lua
+?? gen/scalar_banked.lua
+?? gen/scalar_semantics.lua
+?? gen/scalar_symbolic.lua
+?? research/archive/dynamic-layer-before-typed-teardown/
+?? research/archive/native-only-scalar-wip/
+?? research/archive/split-scalar-orchestration-wip/
+?? research/experiments/engines/check-first.md
+?? research/experiments/engines/compare_dynamic.lua
+?? research/experiments/engines/scalar-dispatch-pairs.txt
+?? research/experiments/engines/scalar-runtime-audit.md
+?? research/experiments/engines/shared-scalar-engines.txt
+?? research/experiments/engines/shared-scalar-pairs.txt
+?? src/any_repr.h
+?? src/native_scalar.inc
+?? src/scalar_rules.h
+?? src/symbolic_scalar.inc
+?? tools/validate_scalar_flow.lua
+?? tools/validate_scalar_gc.abcasm
+?? tools/validate_scalar_native.c

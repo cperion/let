@@ -1,0 +1,1 @@
+Native generated source, stencil order, extracted bytes and stripped residualizer object: identical.

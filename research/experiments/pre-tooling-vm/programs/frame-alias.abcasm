@@ -1,0 +1,23 @@
+.profile memory
+ .function main 0 1 - i
+ CALLOC 8
+ PUSH.A 500000
+ CPUSH.A
+ PUSH.A 0
+ loop:
+ PUSH.A 9
+ FST64.A 16
+ FADDR.A 16
+ PUSH.B 5
+ ST64.A 0
+ FADDR.B 16
+ LD64.B 0
+ ADD.A
+ CGET.B 0
+ ADDI.B -1
+ CSET.B 0
+ CGET.B 0
+ JNZ.B loop
+ CPOP
+ CFREE 8
+ RET.A 0 1

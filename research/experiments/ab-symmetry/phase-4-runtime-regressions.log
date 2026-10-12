@@ -1,0 +1,2 @@
+validated residual arena, IDs, whole-program invariants, and readable dumps (263 checks)
+validated 495 continuation executions: A/B routing, live caller state, register/home arguments, result arities and stack exhaustion

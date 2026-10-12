@@ -14,21 +14,11 @@ int abc_residual_analysis_direct_target(const abc_module *module, uint32_t pc,
     uint32_t *target)
 {
     const uint8_t *p = module->code + pc;
-    unsigned kind = op_kind[p[0]];
+    unsigned kind = abc_instruction_info(p)->kind;
     if (kind != K_CALL && kind != K_TCALL) return 0;
     uint32_t length = abc_instruction_length(p);
     *target = (uint32_t)((int64_t)(pc + length) + abc_i32(p + 1));
     return 1;
-}
-
-int abc_residual_analysis_dynamic_target(const abc_module *module, uint32_t pc,
-    uint32_t *target)
-{
-    const uint8_t *p = module->code + pc;
-    if (p[0] != OP_EXT || (p[1] != EXT_WORD_DIRECT && p[1] != EXT_CLOSURE_NEW))
-        return 0;
-    *target = abc_u32(p + 2);
-    return *target < module->function_count;
 }
 
 int abc_residual_analysis_build_call_graph(const abc_module *module,
@@ -170,7 +160,7 @@ int abc_residual_analysis_build_call_graph(const abc_module *module,
 
             if (abc_residual_analysis_direct_target(
                     module, pc, &target) &&
-                op_kind[module->code[pc]] == K_CALL) {
+                abc_instruction_info(module->code + pc)->kind == K_CALL) {
                 int to = abc_find_function(module, target);
 
                 if (to >= 0 &&

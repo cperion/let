@@ -1,0 +1,2 @@
+native selected-first primitives: 27 contracts, other registers preserved
+revision-6 assembly/verifier/interpreter: 16 original/mirrored contracts passed

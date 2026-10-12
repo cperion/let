@@ -32,7 +32,6 @@ typedef struct {
 
 void abc_residual_analysis_call_graph_free(abc_residual_call_graph *graph);
 int abc_residual_analysis_direct_target(const abc_module *module, uint32_t pc, uint32_t *target);
-int abc_residual_analysis_dynamic_target(const abc_module *module, uint32_t pc, uint32_t *target);
 int abc_residual_analysis_build_call_graph(const abc_module *module, abc_residual_call_graph *graph);
 
 abc_residual_argument_fact abc_residual_analysis_argument_fact(abc_symbolic_value value);

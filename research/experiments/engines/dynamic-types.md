@@ -1,5 +1,9 @@
 # Dynamic numeric benchmarks
 
+The initial measurements below describe the helper-based implementation at
+`4d3e1fd`. See [check-first lowering](check-first.md) for the replacement,
+structural validation and paired before/after results.
+
 Run both the original scalar suite and this suite:
 
 ```sh

@@ -1,0 +1,6 @@
+arity=0 old: inline=5.289 ns/iteration call=9.768 ns/iteration increment=4.479 ns/iteration
+arity=0 new: inline=4.102 ns/iteration call=9.557 ns/iteration increment=5.455 ns/iteration
+arity=1 old: inline=6.486 ns/iteration call=11.275 ns/iteration increment=4.789 ns/iteration
+arity=1 new: inline=4.593 ns/iteration call=12.378 ns/iteration increment=7.785 ns/iteration
+arity=2 old: inline=8.601 ns/iteration call=12.308 ns/iteration increment=3.707 ns/iteration
+arity=2 new: inline=4.792 ns/iteration call=15.641 ns/iteration increment=10.849 ns/iteration

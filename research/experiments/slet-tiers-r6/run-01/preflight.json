@@ -1,0 +1,1742 @@
+[
+  {
+    "workload": "loop",
+    "engine": "interpreter",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "loop",
+    "engine": "eager",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "loop",
+    "engine": "lazy",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "loop",
+    "engine": "aot",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "loop",
+    "engine": "c",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-off",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-jit",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "loop",
+    "engine": "interpreter",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "loop",
+    "engine": "eager",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "loop",
+    "engine": "lazy",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "loop",
+    "engine": "aot",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "loop",
+    "engine": "c",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-off",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-jit",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "loop",
+    "engine": "interpreter",
+    "n": 2,
+    "result": 540739
+  },
+  {
+    "workload": "loop",
+    "engine": "eager",
+    "n": 2,
+    "result": 540739
+  },
+  {
+    "workload": "loop",
+    "engine": "lazy",
+    "n": 2,
+    "result": 540739
+  },
+  {
+    "workload": "loop",
+    "engine": "aot",
+    "n": 2,
+    "result": 540739
+  },
+  {
+    "workload": "loop",
+    "engine": "c",
+    "n": 2,
+    "result": 540739
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-off",
+    "n": 2,
+    "result": 540739
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-jit",
+    "n": 2,
+    "result": 540739
+  },
+  {
+    "workload": "loop",
+    "engine": "interpreter",
+    "n": 7,
+    "result": 3549079229
+  },
+  {
+    "workload": "loop",
+    "engine": "eager",
+    "n": 7,
+    "result": 3549079229
+  },
+  {
+    "workload": "loop",
+    "engine": "lazy",
+    "n": 7,
+    "result": 3549079229
+  },
+  {
+    "workload": "loop",
+    "engine": "aot",
+    "n": 7,
+    "result": 3549079229
+  },
+  {
+    "workload": "loop",
+    "engine": "c",
+    "n": 7,
+    "result": 3549079229
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-off",
+    "n": 7,
+    "result": 3549079229
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-jit",
+    "n": 7,
+    "result": 3549079229
+  },
+  {
+    "workload": "loop",
+    "engine": "interpreter",
+    "n": 31,
+    "result": 894596500
+  },
+  {
+    "workload": "loop",
+    "engine": "eager",
+    "n": 31,
+    "result": 894596500
+  },
+  {
+    "workload": "loop",
+    "engine": "lazy",
+    "n": 31,
+    "result": 894596500
+  },
+  {
+    "workload": "loop",
+    "engine": "aot",
+    "n": 31,
+    "result": 894596500
+  },
+  {
+    "workload": "loop",
+    "engine": "c",
+    "n": 31,
+    "result": 894596500
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-off",
+    "n": 31,
+    "result": 894596500
+  },
+  {
+    "workload": "loop",
+    "engine": "lua-jit",
+    "n": 31,
+    "result": 894596500
+  },
+  {
+    "workload": "skip",
+    "engine": "interpreter",
+    "n": 0,
+    "result": 2463534242
+  },
+  {
+    "workload": "skip",
+    "engine": "eager",
+    "n": 0,
+    "result": 2463534242
+  },
+  {
+    "workload": "skip",
+    "engine": "lazy",
+    "n": 0,
+    "result": 2463534242
+  },
+  {
+    "workload": "skip",
+    "engine": "aot",
+    "n": 0,
+    "result": 2463534242
+  },
+  {
+    "workload": "skip",
+    "engine": "c",
+    "n": 0,
+    "result": 2463534242
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-off",
+    "n": 0,
+    "result": 2463534242
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-jit",
+    "n": 0,
+    "result": 2463534242
+  },
+  {
+    "workload": "skip",
+    "engine": "interpreter",
+    "n": 1,
+    "result": 723471715
+  },
+  {
+    "workload": "skip",
+    "engine": "eager",
+    "n": 1,
+    "result": 723471715
+  },
+  {
+    "workload": "skip",
+    "engine": "lazy",
+    "n": 1,
+    "result": 723471715
+  },
+  {
+    "workload": "skip",
+    "engine": "aot",
+    "n": 1,
+    "result": 723471715
+  },
+  {
+    "workload": "skip",
+    "engine": "c",
+    "n": 1,
+    "result": 723471715
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-off",
+    "n": 1,
+    "result": 723471715
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-jit",
+    "n": 1,
+    "result": 723471715
+  },
+  {
+    "workload": "skip",
+    "engine": "interpreter",
+    "n": 2,
+    "result": 2497366906
+  },
+  {
+    "workload": "skip",
+    "engine": "eager",
+    "n": 2,
+    "result": 2497366906
+  },
+  {
+    "workload": "skip",
+    "engine": "lazy",
+    "n": 2,
+    "result": 2497366906
+  },
+  {
+    "workload": "skip",
+    "engine": "aot",
+    "n": 2,
+    "result": 2497366906
+  },
+  {
+    "workload": "skip",
+    "engine": "c",
+    "n": 2,
+    "result": 2497366906
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-off",
+    "n": 2,
+    "result": 2497366906
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-jit",
+    "n": 2,
+    "result": 2497366906
+  },
+  {
+    "workload": "skip",
+    "engine": "interpreter",
+    "n": 7,
+    "result": 1350636274
+  },
+  {
+    "workload": "skip",
+    "engine": "eager",
+    "n": 7,
+    "result": 1350636274
+  },
+  {
+    "workload": "skip",
+    "engine": "lazy",
+    "n": 7,
+    "result": 1350636274
+  },
+  {
+    "workload": "skip",
+    "engine": "aot",
+    "n": 7,
+    "result": 1350636274
+  },
+  {
+    "workload": "skip",
+    "engine": "c",
+    "n": 7,
+    "result": 1350636274
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-off",
+    "n": 7,
+    "result": 1350636274
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-jit",
+    "n": 7,
+    "result": 1350636274
+  },
+  {
+    "workload": "skip",
+    "engine": "interpreter",
+    "n": 31,
+    "result": 1541647304
+  },
+  {
+    "workload": "skip",
+    "engine": "eager",
+    "n": 31,
+    "result": 1541647304
+  },
+  {
+    "workload": "skip",
+    "engine": "lazy",
+    "n": 31,
+    "result": 1541647304
+  },
+  {
+    "workload": "skip",
+    "engine": "aot",
+    "n": 31,
+    "result": 1541647304
+  },
+  {
+    "workload": "skip",
+    "engine": "c",
+    "n": 31,
+    "result": 1541647304
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-off",
+    "n": 31,
+    "result": 1541647304
+  },
+  {
+    "workload": "skip",
+    "engine": "lua-jit",
+    "n": 31,
+    "result": 1541647304
+  },
+  {
+    "workload": "branch",
+    "engine": "interpreter",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "branch",
+    "engine": "eager",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "branch",
+    "engine": "lazy",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "branch",
+    "engine": "aot",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "branch",
+    "engine": "c",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-off",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-jit",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "branch",
+    "engine": "interpreter",
+    "n": 1,
+    "result": 60
+  },
+  {
+    "workload": "branch",
+    "engine": "eager",
+    "n": 1,
+    "result": 60
+  },
+  {
+    "workload": "branch",
+    "engine": "lazy",
+    "n": 1,
+    "result": 60
+  },
+  {
+    "workload": "branch",
+    "engine": "aot",
+    "n": 1,
+    "result": 60
+  },
+  {
+    "workload": "branch",
+    "engine": "c",
+    "n": 1,
+    "result": 60
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-off",
+    "n": 1,
+    "result": 60
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-jit",
+    "n": 1,
+    "result": 60
+  },
+  {
+    "workload": "branch",
+    "engine": "interpreter",
+    "n": 2,
+    "result": 218
+  },
+  {
+    "workload": "branch",
+    "engine": "eager",
+    "n": 2,
+    "result": 218
+  },
+  {
+    "workload": "branch",
+    "engine": "lazy",
+    "n": 2,
+    "result": 218
+  },
+  {
+    "workload": "branch",
+    "engine": "aot",
+    "n": 2,
+    "result": 218
+  },
+  {
+    "workload": "branch",
+    "engine": "c",
+    "n": 2,
+    "result": 218
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-off",
+    "n": 2,
+    "result": 218
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-jit",
+    "n": 2,
+    "result": 218
+  },
+  {
+    "workload": "branch",
+    "engine": "interpreter",
+    "n": 7,
+    "result": 839
+  },
+  {
+    "workload": "branch",
+    "engine": "eager",
+    "n": 7,
+    "result": 839
+  },
+  {
+    "workload": "branch",
+    "engine": "lazy",
+    "n": 7,
+    "result": 839
+  },
+  {
+    "workload": "branch",
+    "engine": "aot",
+    "n": 7,
+    "result": 839
+  },
+  {
+    "workload": "branch",
+    "engine": "c",
+    "n": 7,
+    "result": 839
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-off",
+    "n": 7,
+    "result": 839
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-jit",
+    "n": 7,
+    "result": 839
+  },
+  {
+    "workload": "branch",
+    "engine": "interpreter",
+    "n": 31,
+    "result": 4183
+  },
+  {
+    "workload": "branch",
+    "engine": "eager",
+    "n": 31,
+    "result": 4183
+  },
+  {
+    "workload": "branch",
+    "engine": "lazy",
+    "n": 31,
+    "result": 4183
+  },
+  {
+    "workload": "branch",
+    "engine": "aot",
+    "n": 31,
+    "result": 4183
+  },
+  {
+    "workload": "branch",
+    "engine": "c",
+    "n": 31,
+    "result": 4183
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-off",
+    "n": 31,
+    "result": 4183
+  },
+  {
+    "workload": "branch",
+    "engine": "lua-jit",
+    "n": 31,
+    "result": 4183
+  },
+  {
+    "workload": "sum2",
+    "engine": "interpreter",
+    "n": 0,
+    "result": 2349019073
+  },
+  {
+    "workload": "sum2",
+    "engine": "eager",
+    "n": 0,
+    "result": 2349019073
+  },
+  {
+    "workload": "sum2",
+    "engine": "lazy",
+    "n": 0,
+    "result": 2349019073
+  },
+  {
+    "workload": "sum2",
+    "engine": "aot",
+    "n": 0,
+    "result": 2349019073
+  },
+  {
+    "workload": "sum2",
+    "engine": "c",
+    "n": 0,
+    "result": 2349019073
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-off",
+    "n": 0,
+    "result": 2349019073
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-jit",
+    "n": 0,
+    "result": 2349019073
+  },
+  {
+    "workload": "sum2",
+    "engine": "interpreter",
+    "n": 1,
+    "result": 3600030908
+  },
+  {
+    "workload": "sum2",
+    "engine": "eager",
+    "n": 1,
+    "result": 3600030908
+  },
+  {
+    "workload": "sum2",
+    "engine": "lazy",
+    "n": 1,
+    "result": 3600030908
+  },
+  {
+    "workload": "sum2",
+    "engine": "aot",
+    "n": 1,
+    "result": 3600030908
+  },
+  {
+    "workload": "sum2",
+    "engine": "c",
+    "n": 1,
+    "result": 3600030908
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-off",
+    "n": 1,
+    "result": 3600030908
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-jit",
+    "n": 1,
+    "result": 3600030908
+  },
+  {
+    "workload": "sum2",
+    "engine": "interpreter",
+    "n": 2,
+    "result": 4118114717
+  },
+  {
+    "workload": "sum2",
+    "engine": "eager",
+    "n": 2,
+    "result": 4118114717
+  },
+  {
+    "workload": "sum2",
+    "engine": "lazy",
+    "n": 2,
+    "result": 4118114717
+  },
+  {
+    "workload": "sum2",
+    "engine": "aot",
+    "n": 2,
+    "result": 4118114717
+  },
+  {
+    "workload": "sum2",
+    "engine": "c",
+    "n": 2,
+    "result": 4118114717
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-off",
+    "n": 2,
+    "result": 4118114717
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-jit",
+    "n": 2,
+    "result": 4118114717
+  },
+  {
+    "workload": "sum2",
+    "engine": "interpreter",
+    "n": 7,
+    "result": 871327437
+  },
+  {
+    "workload": "sum2",
+    "engine": "eager",
+    "n": 7,
+    "result": 871327437
+  },
+  {
+    "workload": "sum2",
+    "engine": "lazy",
+    "n": 7,
+    "result": 871327437
+  },
+  {
+    "workload": "sum2",
+    "engine": "aot",
+    "n": 7,
+    "result": 871327437
+  },
+  {
+    "workload": "sum2",
+    "engine": "c",
+    "n": 7,
+    "result": 871327437
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-off",
+    "n": 7,
+    "result": 871327437
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-jit",
+    "n": 7,
+    "result": 871327437
+  },
+  {
+    "workload": "sum2",
+    "engine": "interpreter",
+    "n": 31,
+    "result": 2743046492
+  },
+  {
+    "workload": "sum2",
+    "engine": "eager",
+    "n": 31,
+    "result": 2743046492
+  },
+  {
+    "workload": "sum2",
+    "engine": "lazy",
+    "n": 31,
+    "result": 2743046492
+  },
+  {
+    "workload": "sum2",
+    "engine": "aot",
+    "n": 31,
+    "result": 2743046492
+  },
+  {
+    "workload": "sum2",
+    "engine": "c",
+    "n": 31,
+    "result": 2743046492
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-off",
+    "n": 31,
+    "result": 2743046492
+  },
+  {
+    "workload": "sum2",
+    "engine": "lua-jit",
+    "n": 31,
+    "result": 2743046492
+  },
+  {
+    "workload": "mul",
+    "engine": "interpreter",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mul",
+    "engine": "eager",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mul",
+    "engine": "lazy",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mul",
+    "engine": "aot",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mul",
+    "engine": "c",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-off",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-jit",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mul",
+    "engine": "interpreter",
+    "n": 1,
+    "result": 9609
+  },
+  {
+    "workload": "mul",
+    "engine": "eager",
+    "n": 1,
+    "result": 9609
+  },
+  {
+    "workload": "mul",
+    "engine": "lazy",
+    "n": 1,
+    "result": 9609
+  },
+  {
+    "workload": "mul",
+    "engine": "aot",
+    "n": 1,
+    "result": 9609
+  },
+  {
+    "workload": "mul",
+    "engine": "c",
+    "n": 1,
+    "result": 9609
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-off",
+    "n": 1,
+    "result": 9609
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-jit",
+    "n": 1,
+    "result": 9609
+  },
+  {
+    "workload": "mul",
+    "engine": "interpreter",
+    "n": 2,
+    "result": 64579
+  },
+  {
+    "workload": "mul",
+    "engine": "eager",
+    "n": 2,
+    "result": 64579
+  },
+  {
+    "workload": "mul",
+    "engine": "lazy",
+    "n": 2,
+    "result": 64579
+  },
+  {
+    "workload": "mul",
+    "engine": "aot",
+    "n": 2,
+    "result": 64579
+  },
+  {
+    "workload": "mul",
+    "engine": "c",
+    "n": 2,
+    "result": 64579
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-off",
+    "n": 2,
+    "result": 64579
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-jit",
+    "n": 2,
+    "result": 64579
+  },
+  {
+    "workload": "mul",
+    "engine": "interpreter",
+    "n": 7,
+    "result": 201252
+  },
+  {
+    "workload": "mul",
+    "engine": "eager",
+    "n": 7,
+    "result": 201252
+  },
+  {
+    "workload": "mul",
+    "engine": "lazy",
+    "n": 7,
+    "result": 201252
+  },
+  {
+    "workload": "mul",
+    "engine": "aot",
+    "n": 7,
+    "result": 201252
+  },
+  {
+    "workload": "mul",
+    "engine": "c",
+    "n": 7,
+    "result": 201252
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-off",
+    "n": 7,
+    "result": 201252
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-jit",
+    "n": 7,
+    "result": 201252
+  },
+  {
+    "workload": "mul",
+    "engine": "interpreter",
+    "n": 31,
+    "result": 898424
+  },
+  {
+    "workload": "mul",
+    "engine": "eager",
+    "n": 31,
+    "result": 898424
+  },
+  {
+    "workload": "mul",
+    "engine": "lazy",
+    "n": 31,
+    "result": 898424
+  },
+  {
+    "workload": "mul",
+    "engine": "aot",
+    "n": 31,
+    "result": 898424
+  },
+  {
+    "workload": "mul",
+    "engine": "c",
+    "n": 31,
+    "result": 898424
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-off",
+    "n": 31,
+    "result": 898424
+  },
+  {
+    "workload": "mul",
+    "engine": "lua-jit",
+    "n": 31,
+    "result": 898424
+  },
+  {
+    "workload": "divide",
+    "engine": "interpreter",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "divide",
+    "engine": "eager",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "divide",
+    "engine": "lazy",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "divide",
+    "engine": "aot",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "divide",
+    "engine": "c",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-off",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-jit",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "divide",
+    "engine": "interpreter",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "divide",
+    "engine": "eager",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "divide",
+    "engine": "lazy",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "divide",
+    "engine": "aot",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "divide",
+    "engine": "c",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-off",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-jit",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "divide",
+    "engine": "interpreter",
+    "n": 2,
+    "result": 2
+  },
+  {
+    "workload": "divide",
+    "engine": "eager",
+    "n": 2,
+    "result": 2
+  },
+  {
+    "workload": "divide",
+    "engine": "lazy",
+    "n": 2,
+    "result": 2
+  },
+  {
+    "workload": "divide",
+    "engine": "aot",
+    "n": 2,
+    "result": 2
+  },
+  {
+    "workload": "divide",
+    "engine": "c",
+    "n": 2,
+    "result": 2
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-off",
+    "n": 2,
+    "result": 2
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-jit",
+    "n": 2,
+    "result": 2
+  },
+  {
+    "workload": "divide",
+    "engine": "interpreter",
+    "n": 7,
+    "result": 8
+  },
+  {
+    "workload": "divide",
+    "engine": "eager",
+    "n": 7,
+    "result": 8
+  },
+  {
+    "workload": "divide",
+    "engine": "lazy",
+    "n": 7,
+    "result": 8
+  },
+  {
+    "workload": "divide",
+    "engine": "aot",
+    "n": 7,
+    "result": 8
+  },
+  {
+    "workload": "divide",
+    "engine": "c",
+    "n": 7,
+    "result": 8
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-off",
+    "n": 7,
+    "result": 8
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-jit",
+    "n": 7,
+    "result": 8
+  },
+  {
+    "workload": "divide",
+    "engine": "interpreter",
+    "n": 31,
+    "result": 32
+  },
+  {
+    "workload": "divide",
+    "engine": "eager",
+    "n": 31,
+    "result": 32
+  },
+  {
+    "workload": "divide",
+    "engine": "lazy",
+    "n": 31,
+    "result": 32
+  },
+  {
+    "workload": "divide",
+    "engine": "aot",
+    "n": 31,
+    "result": 32
+  },
+  {
+    "workload": "divide",
+    "engine": "c",
+    "n": 31,
+    "result": 32
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-off",
+    "n": 31,
+    "result": 32
+  },
+  {
+    "workload": "divide",
+    "engine": "lua-jit",
+    "n": 31,
+    "result": 32
+  },
+  {
+    "workload": "mix",
+    "engine": "interpreter",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mix",
+    "engine": "eager",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mix",
+    "engine": "lazy",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mix",
+    "engine": "aot",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mix",
+    "engine": "c",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-off",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-jit",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "mix",
+    "engine": "interpreter",
+    "n": 1,
+    "result": 549
+  },
+  {
+    "workload": "mix",
+    "engine": "eager",
+    "n": 1,
+    "result": 549
+  },
+  {
+    "workload": "mix",
+    "engine": "lazy",
+    "n": 1,
+    "result": 549
+  },
+  {
+    "workload": "mix",
+    "engine": "aot",
+    "n": 1,
+    "result": 549
+  },
+  {
+    "workload": "mix",
+    "engine": "c",
+    "n": 1,
+    "result": 549
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-off",
+    "n": 1,
+    "result": 549
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-jit",
+    "n": 1,
+    "result": 549
+  },
+  {
+    "workload": "mix",
+    "engine": "interpreter",
+    "n": 2,
+    "result": 955
+  },
+  {
+    "workload": "mix",
+    "engine": "eager",
+    "n": 2,
+    "result": 955
+  },
+  {
+    "workload": "mix",
+    "engine": "lazy",
+    "n": 2,
+    "result": 955
+  },
+  {
+    "workload": "mix",
+    "engine": "aot",
+    "n": 2,
+    "result": 955
+  },
+  {
+    "workload": "mix",
+    "engine": "c",
+    "n": 2,
+    "result": 955
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-off",
+    "n": 2,
+    "result": 955
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-jit",
+    "n": 2,
+    "result": 955
+  },
+  {
+    "workload": "mix",
+    "engine": "interpreter",
+    "n": 7,
+    "result": 4462
+  },
+  {
+    "workload": "mix",
+    "engine": "eager",
+    "n": 7,
+    "result": 4462
+  },
+  {
+    "workload": "mix",
+    "engine": "lazy",
+    "n": 7,
+    "result": 4462
+  },
+  {
+    "workload": "mix",
+    "engine": "aot",
+    "n": 7,
+    "result": 4462
+  },
+  {
+    "workload": "mix",
+    "engine": "c",
+    "n": 7,
+    "result": 4462
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-off",
+    "n": 7,
+    "result": 4462
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-jit",
+    "n": 7,
+    "result": 4462
+  },
+  {
+    "workload": "mix",
+    "engine": "interpreter",
+    "n": 31,
+    "result": 13693
+  },
+  {
+    "workload": "mix",
+    "engine": "eager",
+    "n": 31,
+    "result": 13693
+  },
+  {
+    "workload": "mix",
+    "engine": "lazy",
+    "n": 31,
+    "result": 13693
+  },
+  {
+    "workload": "mix",
+    "engine": "aot",
+    "n": 31,
+    "result": 13693
+  },
+  {
+    "workload": "mix",
+    "engine": "c",
+    "n": 31,
+    "result": 13693
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-off",
+    "n": 31,
+    "result": 13693
+  },
+  {
+    "workload": "mix",
+    "engine": "lua-jit",
+    "n": 31,
+    "result": 13693
+  },
+  {
+    "workload": "fib",
+    "engine": "interpreter",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "eager",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "lazy",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "aot",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "c",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-off",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-jit",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "aot-no-tco",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "c-no-tco",
+    "n": 0,
+    "result": 0
+  },
+  {
+    "workload": "fib",
+    "engine": "interpreter",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "eager",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "lazy",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "aot",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "c",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-off",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-jit",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "aot-no-tco",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "c-no-tco",
+    "n": 1,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "interpreter",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "eager",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "lazy",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "aot",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "c",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-off",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-jit",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "aot-no-tco",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "c-no-tco",
+    "n": 2,
+    "result": 1
+  },
+  {
+    "workload": "fib",
+    "engine": "interpreter",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "eager",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "lazy",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "aot",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "c",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-off",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-jit",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "aot-no-tco",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "c-no-tco",
+    "n": 7,
+    "result": 13
+  },
+  {
+    "workload": "fib",
+    "engine": "interpreter",
+    "n": 10,
+    "result": 55
+  },
+  {
+    "workload": "fib",
+    "engine": "eager",
+    "n": 10,
+    "result": 55
+  },
+  {
+    "workload": "fib",
+    "engine": "lazy",
+    "n": 10,
+    "result": 55
+  },
+  {
+    "workload": "fib",
+    "engine": "aot",
+    "n": 10,
+    "result": 55
+  },
+  {
+    "workload": "fib",
+    "engine": "c",
+    "n": 10,
+    "result": 55
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-off",
+    "n": 10,
+    "result": 55
+  },
+  {
+    "workload": "fib",
+    "engine": "lua-jit",
+    "n": 10,
+    "result": 55
+  },
+  {
+    "workload": "fib",
+    "engine": "aot-no-tco",
+    "n": 10,
+    "result": 55
+  },
+  {
+    "workload": "fib",
+    "engine": "c-no-tco",
+    "n": 10,
+    "result": 55
+  }
+]

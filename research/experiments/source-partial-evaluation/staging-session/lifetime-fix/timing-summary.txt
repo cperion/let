@@ -1,0 +1,10 @@
+Bridge microseconds/call; median [min,max] of seven five-call batches.
+interpreted subprocess           11551.299 [8983.116, 13822.637]
+interpreted in-process-one-shot  646.463 [286.737, 1523.959]
+interpreted prepared-session     53.214 [10.430, 106.547]
+eager       subprocess           10191.627 [8744.997, 11429.287]
+eager       in-process-one-shot  614.007 [354.910, 1210.090]
+eager       prepared-session     11.656 [8.777, 18.803]
+lazy        subprocess           11590.659 [9069.636, 12969.598]
+lazy        in-process-one-shot  876.952 [507.537, 1086.347]
+lazy        prepared-session     14.891 [12.370, 20.620]

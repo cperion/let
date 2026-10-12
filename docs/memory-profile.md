@@ -1,128 +1,120 @@
-# Milestone 2: memory (checked runtime)
+# Typed memory profile — revision 6, profile 2
 
-The public C runtime implements all 54 integer/address memory instructions
-from `spec.md`. The optimized engines in `research/vm-prototypes/` are separate; their
-integer-only opcode buffers are not serialized public modules. The production Let/SLet
-frontend lowers local records, arrays, sums, references, slices and strings through
-checked frame or managed storage. Module storage, raw-pointer source forms and complete
-deep ownership/provenance analysis remain frontend work. See
-[callable-profile.md](callable-profile.md).
+Profile 2 adds typed memory/address/binary64 operations to the integer profile.
+Profiles 3–4 include it. Format revision is **6**, independent of profile number;
+old revision-2 files are not accepted. Interpreted, threaded and eager/lazy native
+execution are bindings of the runtime, not separate prototype engines.
+
+**Source design versus runtime:** [owners-references-ids.md](owners-references-ids.md)
+adds a collector-free target with counted roots, stores/ids, COW value buffers and
+immutable sharing. It replaces the proposed GC memory model, not these implemented
+raw memory instructions. Safe source storage needs producer proofs and lowering;
+profile 2 does not itself enforce reference ownership or make unsafe pointers safe.
 
 ```sh
-make test
 build/abc asm examples/memory.abcasm -o build/memory.abc
 build/abc check build/memory.abc
-build/abc run build/memory.abc          # 99 1 72
-build/abc dis build/memory.abc
+build/abc run build/memory.abc   # 99 1 72
 ```
 
 ## Instruction contracts
 
-- `CALLOC n16` reserves `ceil(n/8)` C cells for a byte block; `CFREE n16`
-  releases exactly the top live block, with the original requested byte count.
-  Zero counts are no-ops. The generated VM semantics zero allocated bytes.
-  Allocation is charged against the C stack limit; return tokens count too.
+X is the selected operand stack; Y is the opposite stack. C0 is the top C cell.
+Exact encodings belong to [symmetric-isa.md](symmetric-isa.md).
+
+- `CALLOC n16` reserves `ceil(n/8)` zero-initialized C cells for a byte block.
+  `CFREE n16` releases exactly the top live block with its original requested
+  byte count. Zero counts are no-ops. Continuations consume capacity too.
 - `FLD8/16/32/32S/64.X d16`, `FST8/16/32/64.X d16`, and `FADDR.X d16`
-  address backward from C's **end byte pointer**, not from the last cell's start.
-  Accesses must lie wholly within one live block's requested bytes, not its
-  padding, scalar bindings, return address or caller frame. For a 16-byte block
-  with no cells above it, offsets 16 and 8 identify its first and second u64.
+  address backward from C's **end byte pointer**, not its last cell's start.
+  An access must fit inside one live block's requested bytes, not padding,
+  scalar bindings or the protected continuation/caller frame. For a 16-byte
+  top block, offsets 16 and 8 identify its first and second u64 cells.
 - C cell operations cannot reinterpret, split or pop byte blocks. Scalar cells
-  above blocks shift frame offsets normally. `RET`/`TCALL` may release a complete
-  frame including blocks when its encoded cell count matches the verifier.
-- `GLD8/16/32/32S/64 off32` reads the full image; `GST8/16/32/64 off32` writes
-  only its writable prefix; `GADDR.X off32` returns an interior image address.
-  Every encoded image access is checked, including unreachable instructions.
-- `LD8/16/32/32S/64.X off16` replaces an address on X with its loaded value.
-  `ST8/16/32/64 off16` consumes the address on A and value on B.
-- `LDX8/16/32/32S/64` consumes base A and index B and leaves the value on A,
-  using the load width as its scale. `IDX k16` consumes index B and changes
-  address A by `index*k`; address arithmetic uses raw modular 64-bit bits.
-- `MEMCPY n32` consumes destination A and source B. The reference engine uses
-  `memmove`, so overlapping copies are safe; zero-byte copies do not dereference.
-- Loads/stores handle unaligned addresses and exact little-endian widths.
-  `32S` sign-extends; other narrow loads zero-extend; stores truncate low bits.
-  Full 64-bit stores can carry integer or address bits; narrow stores need integers.
+  above a block shift its frame offsets. RET.X/TCALL.X may release a whole frame
+  including blocks when their frame count matches the verified layout.
+- `GLD8/16/32/32S/64.X off32` loads onto X; `GST8/16/32/64.X off32`
+  consumes X0. Direct loads access the image; stores access only its writable
+  prefix. `GADDR.X off32` produces an interior image address. Encoded image
+  accesses are checked even in unreachable instructions.
+- `LD8/16/32/32S/64.X off16` replaces address X0 with its loaded value.
+  `ST8/16/32/64.X off16` consumes **address X0 and value Y0**.
+- `LDX8/16/32/32S/64.X` consumes base X0 and index Y0, leaving the loaded
+  value on X; the scale is the load width. `IDX.X k16` consumes index Y0 and
+  replaces address X0 with `X0 + Y0*k`, using raw modular address bits.
+- `MEMCPY.X n32` consumes destination X0 and source Y0. Overlap is safe;
+  zero-byte copies do not dereference either pointer. Its semantic contract is
+  not the host C `memcpy` restriction on overlap.
+- Accesses support unaligned little-endian widths. `32S` sign-extends; other
+  narrow loads zero-extend. Stores truncate low bits. Full-width stores accept
+  integer/address/float bits; narrow stores require integers.
 
-## Kinds and verifier
+## Kinds, signatures and verification
 
-A/B and scalar C cells have explicit `integer`, `address`, or `float` kinds. Memory blocks are opaque byte regions, not scalar cells. Arithmetic and integer checks reject addresses and floats; pointer instructions require addresses; float instructions require floats. Integer `EQ`/`NE` and `BEQ`/`BNE` support address identity only when both operands are addresses. Float equality uses `FEQ`/`FBEQ`, preserving IEEE-754 NaN behavior. Calls, tail calls and returns must match the function table's kinds and counts. All joins must agree on A/B kinds and the complete scalar/block C layout, including requested block sizes.
-Canonical persistent stacks make join comparison constant-time. The verifier
-limits interned states to 1,048,576 nodes and rejects excessive complexity.
+Scalar kinds are integer, address and binary64. Frame blocks are opaque byte
+regions, not scalar cells. Integer arithmetic/checks reject addresses and floats;
+pointer operations require addresses; float operations require floats. Integer
+EQ/NE and BEQ/BNE permit address identity when both operands are addresses.
+Float equality uses FEQ/FBEQ with IEEE-754 NaN behavior.
 
-Memory loads default to integer kind. `.loadkind addr` before a 64-bit memory load declares that the field contains address bits; `.loadkind float` declares IEEE-754 binary64 bits; `.loadkind int` is also valid.
-These are type assertions by the producer, not pointer validation or dynamic tags.
-Annotations on other instructions, duplicates or non-instruction offsets reject.
+Joins agree on both operand stacks and the scalar/block C layout, including
+requested block sizes. Call/tail/return counts and kinds must match signatures.
+The verifier interns persistent stack states and limits complexity to 1,048,576
+nodes. This implementation limit is not an extra language stack rule.
 
+Loads default to integer kind. `.loadkind addr` or `.loadkind float` before a
+64-bit load supplies a producer assertion about the stored bits, not pointer
+validation or a dynamic tag. `.loadkind int` is also valid; invalid annotations,
+duplicates and non-instruction offsets reject.
 
-## Experimental version-2 encoding
+## Format and assembly
 
-The 16-byte header is `ABC2`, u16 version **2**, u8 pointer size **8**, u8 profile
-**2**, u32 section count **6**, u32 reserved **0**. Section framing, 16 MiB file
-limit and export encoding are unchanged from [version 1](module-format.md).
-Exactly one of each tag is required, in arbitrary order, including empty images:
-
-1. **Functions:** u32 count, then variable records: four u32 fields (entry,
-   argument count, result count, hidden aggregate-result bytes), followed by
-   one u8 kind per argument and then per result (`0=integer`, `1=address`, `2=float`).
-   Counts remain 0–255. Entries strictly increase; the first is zero.
-2. **Code:** public integer, float, branch, call, and memory-profile opcodes.
-   Original integer opcode values are unchanged; internal quickened values remain
-   forbidden. `tools/gen_opcodes.lua` extends seed metadata for the public runtime
-   without changing optimized-engine generation. `abc opcodes` exposes metadata.
-3. **Exports:** unchanged u32 count and function-index/name records.
-4. **Writable data:** raw initial snapshot bytes, including zero-filled space.
-5. **Rodata:** raw bytes appended immediately after writable data.
-6. **Load kinds:** u32 count; each record is u32 code offset and u8 kind.
-
-A nonzero hidden-result byte count requires argument zero to be an address; it
-is the conventional caller-owned aggregate destination. The producer/caller must
-supply enough valid storage. It is part of the argument count, not a scalar return.
-No native addresses are serialized automatically; image addresses are materialized
-at execution time and may be stored into the private writable image.
-
-Assembly begins with `.profile memory`, before functions. `.data HEX` and
-.rodata HEX` append hexadecimal byte pairs; `.datazero n` appends writable zeros.
-Image offsets are byte offsets into data followed by rodata, regardless of directive
-order. Extended function syntax is:
+The revision-6/profile-2 module has sections 1–6: typed functions, code, exports,
+writable bytes, rodata and load-kind annotations. See
+[module-format.md](module-format.md) for exact records and limits; it is the
+single serialization reference.
 
 ```text
-.function pair 1 0 a - 16       ; address argument, no scalar results, 16 hidden bytes
-.function greet 0 2 - ai        ; no arguments, address + integer results
-.function example 2 1 ia i      ; integer/address arguments, integer result
+.profile memory
+; Typed signatures (i=integer, a=address, f=binary64; -=zero cells):
+; .function pair 1 0 a - 16
+; .function greet 0 2 - ai
 ```
 
-Kind strings contain one `i`/`a`/`f` per cell; `-` denotes zero cells. Omitting kind strings defaults every cell to integer.
-
+`.data HEX`, `.rodata HEX` and `.datazero n` construct initial image bytes.
+The runtime concatenates writable bytes then rodata, regardless of directive
+order. A nonzero hidden-result size requires argument zero to be an address; that
+argument is included in the count. The caller supplies adequate live storage.
+There is no automatic serialization of native addresses or aggregate staging
+snapshots. Omitted kind strings default to integer cells.
 
 ## Embedding, persistence and safety
 
-Each VM lazily creates a **private snapshot per module** on its first valid call.
-Snapshots survive subsequent calls, stack/resource errors and language aborts. Image writes
-are not transactional; result publication still is. Separate modules within a VM
-have separate images; separate VMs never share image mutations. Images retain the
-immutable module metadata until VM destruction, preventing dangling image keys.
-Only operand/control stacks reset between calls. There is no global mutable state.
+Each VM/module pair owns a separate initialized image. Use `abc_vm_load` before
+native execution; interpreted calls may initialize their image on first use.
+Images retain their module and survive subsequent calls, resource failures and
+language aborts. Writes are not transactional; operand/control stacks reset
+between calls and result outputs remain untouched on failure. Separate VM
+instances never share mutable images.
 
-`abc_module_export_signature` copies counts, integer/address/float kinds and hidden result size into caller-owned `abc_signature`; version-1 kinds are all integers.
-result size into caller-owned `abc_signature`; version-1 kinds are all integers.
-The embedding API passes raw uint64_t cells. Address arguments are native pointer
-bits, not handles; address results are valid only for their actual backing storage's
-lifetime. Image addresses stay stable until that VM is freed; frame addresses must
-not escape their live block/frame. Callers must keep native buffers live and large
-enough for every access. The profile requires a 64-bit little-endian host.
+`abc_module_export_signature` copies the cell kinds/counts and hidden-result size
+into caller-owned storage. Host arguments/results are raw uint64_t cells. Address
+bits are not handles: frame addresses must not outlive their frame/block, image
+addresses remain valid only while the owning VM image lives, and native buffers
+must remain live and large enough for all accesses.
 
-**This is not a sandbox.** LD/ST, indexed access, IDX and MEMCPY deliberately do
-not check pointer bounds, ownership or lifetime. Bytecode can corrupt or crash the
-host through invalid addresses, including producer-declared address loads. Rodata
-is enforced for direct GST accesses and is read-only by producer/native-caller
-contract; the private snapshot is not hardware write-protected against unchecked
-pointer stores. Never execute untrusted pointer bytecode. Compiler-generated view
-bounds/tag/null guards will use branches and `ABORT`; there is no implicit runtime
-object model, GC, string representation or array descriptor.
+**This is not a sandbox.** Pointer loads/stores, indexing and copies do not check
+native bounds, ownership or lifetime. Direct GST enforces the writable prefix;
+unchecked pointer stores are not stopped by hardware image protection. Invalid
+pointer bytecode can corrupt or crash the host. Bounds/null/tag checks required by
+a source language must be emitted explicitly.
 
-`tests/memory_api.c` checks snapshot isolation, persistence, module retention,
-native unaligned access, failure recovery and 1,000 loader mutations. Mutated memory
-modules are **loaded, not executed**, because pointer operations are unchecked.
-`tests/test_memory.lua` covers every new opcode and 100 random bounded programs.
+The current typed `.slet` path uses supported frame/borrowed storage. Counted
+source owners, growable value containers and unified Let lowering are not
+implemented by profile 2 or the current runtime. Tracing GC is no longer the target. See
+[slet-subset.md](slet-subset.md) for source limitations.
 
+Active general, continuation, API, capture and frontend suites cover selected
+forms, overlapping/partial writes, escaped caller-frame accesses while live,
+persistence, return sources and stack limits. Full validation passes; exact
+counts/evidence are in `REFACTOR.md`, not the removed historical `tests/` suite.

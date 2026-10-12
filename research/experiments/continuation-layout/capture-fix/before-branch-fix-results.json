@@ -1,0 +1,4634 @@
+[
+  {
+    "case": "replace-C-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 89,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 89,
+    "status": 0,
+    "stdout": "900 901 902 903 904 905 906 907 908 909 910 911\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": false
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 89,
+    "status": 0,
+    "stdout": "900 901 902 903 904 905 906 907 908 909 910 911\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": false
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 89,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 89,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 89,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 92,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 92,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 203 220 237 -1 271 288\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 92,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 92,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 92,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 92,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 4,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 13,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 4,
+    "status": 0,
+    "stdout": "901 901\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 13,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 4,
+    "status": 0,
+    "stdout": "901 901\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 13,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 4,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 13,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 4,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 13,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 4,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 13,
+    "status": 0,
+    "stdout": "901 101\n",
+    "stderr": "",
+    "expected": [
+      901,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 221,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 221,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 221,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 221,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 221,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-A",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 221,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      297
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 89,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 89,
+    "status": 0,
+    "stdout": "911 910 909 908 907 906 905 904 903 902 901 900\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 89,
+    "status": 0,
+    "stdout": "911 910 909 908 907 906 905 904 903 902 901 900\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 89,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 89,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "replace-C-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 89,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 92,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 92,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 92,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 92,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 92,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "cset-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 92,
+    "status": 0,
+    "stdout": "288 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      288,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "move-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 15,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "copy-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 16,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 6,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "dup-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 17,
+    "status": 0,
+    "stdout": "288\n",
+    "stderr": "",
+    "expected": [
+      288
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 4,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 13,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 4,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 13,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 4,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 13,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 4,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 13,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 4,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 13,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 4,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "cpush-memory-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 13,
+    "status": 0,
+    "stdout": "101 901\n",
+    "stderr": "",
+    "expected": [
+      101,
+      901
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 221,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 221,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 203 220 237 -1 271 297\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": false
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 221,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 221,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 221,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-calls-B",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 221,
+    "status": 0,
+    "stdout": "297 271 -1 237 220 203 186 -8690466096909433497 152 135 118 101\n",
+    "stderr": "",
+    "expected": [
+      297,
+      271,
+      18446744073709551615,
+      237,
+      220,
+      203,
+      186,
+      9756277976800118119,
+      152,
+      135,
+      118,
+      101
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 16,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 16,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 16,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 16,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 16,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-9",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 16,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 18,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 18,
+    "status": 0,
+    "stdout": "123 123 123 123 123 123 123 123 123 123 123 123 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": false
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 18,
+    "status": 0,
+    "stdout": "123 123 123 123 123 123 123 123 123 123 123 123 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": false
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 18,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 18,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "wide-tail-13",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 18,
+    "status": 0,
+    "stdout": "101 118 135 152 -8690466096909433497 186 203 220 237 -1 271 288 123\n",
+    "stderr": "",
+    "expected": [
+      101,
+      118,
+      135,
+      152,
+      9756277976800118119,
+      186,
+      203,
+      220,
+      237,
+      18446744073709551615,
+      271,
+      288,
+      123
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "42\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "before-runtime",
+    "mode": "interpreted",
+    "target": 13,
+    "status": 0,
+    "stdout": "42\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "42\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "before-runtime",
+    "mode": "compiled",
+    "target": 13,
+    "status": 0,
+    "stdout": "42\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "42\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "before-runtime",
+    "mode": "lazy",
+    "target": 13,
+    "status": 0,
+    "stdout": "42\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": null,
+    "status": 0,
+    "stdout": "42\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "build/abc-runtime",
+    "mode": "interpreted",
+    "target": 13,
+    "status": 0,
+    "stdout": "42\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": true
+  },
+  {
+    "case": "branch-capture",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": null,
+    "status": 0,
+    "stdout": "99\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": false
+  },
+  {
+    "case": "branch-capture",
+    "engine": "build/abc-runtime",
+    "mode": "compiled",
+    "target": 13,
+    "status": 0,
+    "stdout": "99\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": false
+  },
+  {
+    "case": "branch-capture",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": null,
+    "status": 0,
+    "stdout": "99\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": false
+  },
+  {
+    "case": "branch-capture",
+    "engine": "build/abc-runtime",
+    "mode": "lazy",
+    "target": 13,
+    "status": 0,
+    "stdout": "99\n",
+    "stderr": "",
+    "expected": [
+      42
+    ],
+    "ok": false
+  }
+]

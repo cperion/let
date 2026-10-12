@@ -1,0 +1,10 @@
+error: <unknown>:0:0: ran out of registers during register allocation in function 'const_r2'
+error: <unknown>:0:0: ran out of registers during register allocation in function 'add_r2_r5'
+error: <unknown>:0:0: ran out of registers during register allocation in function 'addi_r2'
+error: <unknown>:0:0: ran out of registers during register allocation in function 'load_C_r5'
+error: <unknown>:0:0: ran out of registers during register allocation in function 'load_A_r3'
+error: <unknown>:0:0: ran out of registers during register allocation in function 'store_A_r2'
+error: <unknown>:0:0: ran out of registers during register allocation in function 'bne_r2_r3'
+error: <unknown>:0:0: ran out of registers during register allocation in function 'jump'
+8 errors generated.
+compiler_exit_status=1

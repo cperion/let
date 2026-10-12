@@ -1,0 +1,8 @@
+{
+  "branch-aot.dis": "6b5bb8fed687c1e703b56a9bc84322ea32c26c7b8c1b89b30264f4814d8398a8",
+  "native-no-tco.dis": "634dd274a63ebbac61f061e9165bfbff9b4470fd4e64423ef4c63fbd4173c61f",
+  "fib-aot.dis": "5b383816f0d2d31f53d2be75dcece3fb58bbc9aa1959a577964c58fdf53fbbd5",
+  "mul-aot.dis": "b480bd6c7a420ea96af621390f80233e091feccc157b4f18f62e48d2e936b13b",
+  "native.dis": "e4cff6b7dbb1aeba8ae139e44a5cd21ac34307e5b7e9ebb3f94891cc0f16fd24",
+  "fib-aot-no-tco.dis": "3dbfdff22f2e090d3904972f1afc276881b7c970dfe86181ba1ce09924a1ac9d"
+}

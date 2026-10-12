@@ -1,0 +1,941 @@
+
+research/experiments/slet-tiers-r6/run-01/native:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+0000000000001000 <_init>:
+    1000:	f3 0f 1e fa          	endbr64
+    1004:	48 83 ec 08          	sub    $0x8,%rsp
+    1008:	48 8b 05 c1 2f 00 00 	mov    0x2fc1(%rip),%rax        # 3fd0 <__gmon_start__@Base>
+    100f:	48 85 c0             	test   %rax,%rax
+    1012:	74 02                	je     1016 <_init+0x16>
+    1014:	ff d0                	call   *%rax
+    1016:	48 83 c4 08          	add    $0x8,%rsp
+    101a:	c3                   	ret
+
+Disassembly of section .plt:
+
+0000000000001020 <free@plt-0x10>:
+    1020:	ff 35 ca 2f 00 00    	push   0x2fca(%rip)        # 3ff0 <_GLOBAL_OFFSET_TABLE_+0x8>
+    1026:	ff 25 cc 2f 00 00    	jmp    *0x2fcc(%rip)        # 3ff8 <_GLOBAL_OFFSET_TABLE_+0x10>
+    102c:	0f 1f 40 00          	nopl   0x0(%rax)
+
+0000000000001030 <free@plt>:
+    1030:	ff 25 ca 2f 00 00    	jmp    *0x2fca(%rip)        # 4000 <free@GLIBC_2.2.5>
+    1036:	68 00 00 00 00       	push   $0x0
+    103b:	e9 e0 ff ff ff       	jmp    1020 <_init+0x20>
+
+0000000000001040 <__isoc23_strtoull@plt>:
+    1040:	ff 25 c2 2f 00 00    	jmp    *0x2fc2(%rip)        # 4008 <__isoc23_strtoull@GLIBC_2.38>
+    1046:	68 01 00 00 00       	push   $0x1
+    104b:	e9 d0 ff ff ff       	jmp    1020 <_init+0x20>
+
+0000000000001050 <puts@plt>:
+    1050:	ff 25 ba 2f 00 00    	jmp    *0x2fba(%rip)        # 4010 <puts@GLIBC_2.2.5>
+    1056:	68 02 00 00 00       	push   $0x2
+    105b:	e9 c0 ff ff ff       	jmp    1020 <_init+0x20>
+
+0000000000001060 <clock_gettime@plt>:
+    1060:	ff 25 b2 2f 00 00    	jmp    *0x2fb2(%rip)        # 4018 <clock_gettime@GLIBC_2.17>
+    1066:	68 03 00 00 00       	push   $0x3
+    106b:	e9 b0 ff ff ff       	jmp    1020 <_init+0x20>
+
+0000000000001070 <printf@plt>:
+    1070:	ff 25 aa 2f 00 00    	jmp    *0x2faa(%rip)        # 4020 <printf@GLIBC_2.2.5>
+    1076:	68 04 00 00 00       	push   $0x4
+    107b:	e9 a0 ff ff ff       	jmp    1020 <_init+0x20>
+
+0000000000001080 <calloc@plt>:
+    1080:	ff 25 a2 2f 00 00    	jmp    *0x2fa2(%rip)        # 4028 <calloc@GLIBC_2.2.5>
+    1086:	68 05 00 00 00       	push   $0x5
+    108b:	e9 90 ff ff ff       	jmp    1020 <_init+0x20>
+
+0000000000001090 <strcmp@plt>:
+    1090:	ff 25 9a 2f 00 00    	jmp    *0x2f9a(%rip)        # 4030 <strcmp@GLIBC_2.2.5>
+    1096:	68 06 00 00 00       	push   $0x6
+    109b:	e9 80 ff ff ff       	jmp    1020 <_init+0x20>
+
+00000000000010a0 <__isoc23_strtol@plt>:
+    10a0:	ff 25 92 2f 00 00    	jmp    *0x2f92(%rip)        # 4038 <__isoc23_strtol@GLIBC_2.38>
+    10a6:	68 07 00 00 00       	push   $0x7
+    10ab:	e9 70 ff ff ff       	jmp    1020 <_init+0x20>
+
+Disassembly of section .plt.got:
+
+00000000000010b0 <__cxa_finalize@plt>:
+    10b0:	ff 25 2a 2f 00 00    	jmp    *0x2f2a(%rip)        # 3fe0 <__cxa_finalize@GLIBC_2.2.5>
+    10b6:	66 90                	xchg   %ax,%ax
+
+Disassembly of section .text:
+
+00000000000010c0 <_start>:
+    10c0:	f3 0f 1e fa          	endbr64
+    10c4:	31 ed                	xor    %ebp,%ebp
+    10c6:	49 89 d1             	mov    %rdx,%r9
+    10c9:	5e                   	pop    %rsi
+    10ca:	48 89 e2             	mov    %rsp,%rdx
+    10cd:	48 83 e4 f0          	and    $0xfffffffffffffff0,%rsp
+    10d1:	50                   	push   %rax
+    10d2:	54                   	push   %rsp
+    10d3:	45 31 c0             	xor    %r8d,%r8d
+    10d6:	31 c9                	xor    %ecx,%ecx
+    10d8:	48 8d 3d d1 00 00 00 	lea    0xd1(%rip),%rdi        # 11b0 <main>
+    10df:	ff 15 db 2e 00 00    	call   *0x2edb(%rip)        # 3fc0 <__libc_start_main@GLIBC_2.34>
+    10e5:	f4                   	hlt
+    10e6:	66 2e 0f 1f 84 00 00 	cs nopw 0x0(%rax,%rax,1)
+    10ed:	00 00 00 
+
+00000000000010f0 <deregister_tm_clones>:
+    10f0:	48 8d 3d 59 2f 00 00 	lea    0x2f59(%rip),%rdi        # 4050 <__TMC_END__>
+    10f7:	48 8d 05 52 2f 00 00 	lea    0x2f52(%rip),%rax        # 4050 <__TMC_END__>
+    10fe:	48 39 f8             	cmp    %rdi,%rax
+    1101:	74 15                	je     1118 <deregister_tm_clones+0x28>
+    1103:	48 8b 05 be 2e 00 00 	mov    0x2ebe(%rip),%rax        # 3fc8 <_ITM_deregisterTMCloneTable@Base>
+    110a:	48 85 c0             	test   %rax,%rax
+    110d:	74 09                	je     1118 <deregister_tm_clones+0x28>
+    110f:	ff e0                	jmp    *%rax
+    1111:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+    1118:	c3                   	ret
+    1119:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+
+0000000000001120 <register_tm_clones>:
+    1120:	48 8d 3d 29 2f 00 00 	lea    0x2f29(%rip),%rdi        # 4050 <__TMC_END__>
+    1127:	48 8d 35 22 2f 00 00 	lea    0x2f22(%rip),%rsi        # 4050 <__TMC_END__>
+    112e:	48 29 fe             	sub    %rdi,%rsi
+    1131:	48 89 f0             	mov    %rsi,%rax
+    1134:	48 c1 ee 3f          	shr    $0x3f,%rsi
+    1138:	48 c1 f8 03          	sar    $0x3,%rax
+    113c:	48 01 c6             	add    %rax,%rsi
+    113f:	48 d1 fe             	sar    $1,%rsi
+    1142:	74 14                	je     1158 <register_tm_clones+0x38>
+    1144:	48 8b 05 8d 2e 00 00 	mov    0x2e8d(%rip),%rax        # 3fd8 <_ITM_registerTMCloneTable@Base>
+    114b:	48 85 c0             	test   %rax,%rax
+    114e:	74 08                	je     1158 <register_tm_clones+0x38>
+    1150:	ff e0                	jmp    *%rax
+    1152:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+    1158:	c3                   	ret
+    1159:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+
+0000000000001160 <__do_global_dtors_aux>:
+    1160:	f3 0f 1e fa          	endbr64
+    1164:	80 3d e5 2e 00 00 00 	cmpb   $0x0,0x2ee5(%rip)        # 4050 <__TMC_END__>
+    116b:	75 2b                	jne    1198 <__do_global_dtors_aux+0x38>
+    116d:	55                   	push   %rbp
+    116e:	48 83 3d 6a 2e 00 00 	cmpq   $0x0,0x2e6a(%rip)        # 3fe0 <__cxa_finalize@GLIBC_2.2.5>
+    1175:	00 
+    1176:	48 89 e5             	mov    %rsp,%rbp
+    1179:	74 0c                	je     1187 <__do_global_dtors_aux+0x27>
+    117b:	48 8b 3d c6 2e 00 00 	mov    0x2ec6(%rip),%rdi        # 4048 <__dso_handle>
+    1182:	e8 29 ff ff ff       	call   10b0 <__cxa_finalize@plt>
+    1187:	e8 64 ff ff ff       	call   10f0 <deregister_tm_clones>
+    118c:	c6 05 bd 2e 00 00 01 	movb   $0x1,0x2ebd(%rip)        # 4050 <__TMC_END__>
+    1193:	5d                   	pop    %rbp
+    1194:	c3                   	ret
+    1195:	0f 1f 00             	nopl   (%rax)
+    1198:	c3                   	ret
+    1199:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+
+00000000000011a0 <frame_dummy>:
+    11a0:	f3 0f 1e fa          	endbr64
+    11a4:	e9 77 ff ff ff       	jmp    1120 <register_tm_clones>
+    11a9:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+
+00000000000011b0 <main>:
+    11b0:	55                   	push   %rbp
+    11b1:	41 57                	push   %r15
+    11b3:	41 56                	push   %r14
+    11b5:	41 55                	push   %r13
+    11b7:	41 54                	push   %r12
+    11b9:	53                   	push   %rbx
+    11ba:	48 83 ec 38          	sub    $0x38,%rsp
+    11be:	bd 02 00 00 00       	mov    $0x2,%ebp
+    11c3:	83 ff 04             	cmp    $0x4,%edi
+    11c6:	0f 85 13 02 00 00    	jne    13df <main+0x22f>
+    11cc:	49 89 f7             	mov    %rsi,%r15
+    11cf:	48 8b 7e 18          	mov    0x18(%rsi),%rdi
+    11d3:	31 f6                	xor    %esi,%esi
+    11d5:	ba 0a 00 00 00       	mov    $0xa,%edx
+    11da:	e8 c1 fe ff ff       	call   10a0 <__isoc23_strtol@plt>
+    11df:	48 89 c3             	mov    %rax,%rbx
+    11e2:	05 17 fc ff ff       	add    $0xfffffc17,%eax
+    11e7:	3d 18 fc ff ff       	cmp    $0xfffffc18,%eax
+    11ec:	0f 82 ed 01 00 00    	jb     13df <main+0x22f>
+    11f2:	49 8b 7f 10          	mov    0x10(%r15),%rdi
+    11f6:	31 f6                	xor    %esi,%esi
+    11f8:	ba 0a 00 00 00       	mov    $0xa,%edx
+    11fd:	e8 3e fe ff ff       	call   1040 <__isoc23_strtoull@plt>
+    1202:	48 89 44 24 20       	mov    %rax,0x20(%rsp)
+    1207:	89 df                	mov    %ebx,%edi
+    1209:	be 08 00 00 00       	mov    $0x8,%esi
+    120e:	e8 6d fe ff ff       	call   1080 <calloc@plt>
+    1213:	48 85 c0             	test   %rax,%rax
+    1216:	0f 84 b7 01 00 00    	je     13d3 <main+0x223>
+    121c:	49 89 c6             	mov    %rax,%r14
+    121f:	4c 8d 64 24 08       	lea    0x8(%rsp),%r12
+    1224:	bf 04 00 00 00       	mov    $0x4,%edi
+    1229:	4c 89 e6             	mov    %r12,%rsi
+    122c:	e8 2f fe ff ff       	call   1060 <clock_gettime@plt>
+    1231:	c4 e1 fb 2a 44 24 08 	vcvtsi2sdq 0x8(%rsp),%xmm0,%xmm0
+    1238:	c4 e1 f3 2a 4c 24 10 	vcvtsi2sdq 0x10(%rsp),%xmm1,%xmm1
+    123f:	c4 e2 f9 99 0d c0 0d 	vfmadd132sd 0xdc0(%rip),%xmm0,%xmm1        # 2008 <_IO_stdin_used+0x8>
+    1246:	00 00 
+    1248:	c5 fb 11 4c 24 18    	vmovsd %xmm1,0x18(%rsp)
+    124e:	49 8b 7f 08          	mov    0x8(%r15),%rdi
+    1252:	48 8b 74 24 20       	mov    0x20(%rsp),%rsi
+    1257:	e8 94 01 00 00       	call   13f0 <run>
+    125c:	48 89 05 f5 2d 00 00 	mov    %rax,0x2df5(%rip)        # 4058 <sink>
+    1263:	48 8d 74 24 08       	lea    0x8(%rsp),%rsi
+    1268:	bf 04 00 00 00       	mov    $0x4,%edi
+    126d:	e8 ee fd ff ff       	call   1060 <clock_gettime@plt>
+    1272:	c4 e1 eb 2a 44 24 08 	vcvtsi2sdq 0x8(%rsp),%xmm2,%xmm0
+    1279:	c4 e1 eb 2a 4c 24 10 	vcvtsi2sdq 0x10(%rsp),%xmm2,%xmm1
+    1280:	c4 e2 f9 99 0d 7f 0d 	vfmadd132sd 0xd7f(%rip),%xmm0,%xmm1        # 2008 <_IO_stdin_used+0x8>
+    1287:	00 00 
+    1289:	c5 f3 5c 44 24 18    	vsubsd 0x18(%rsp),%xmm1,%xmm0
+    128f:	c5 fb 11 44 24 28    	vmovsd %xmm0,0x28(%rsp)
+    1295:	4c 8b 2d bc 2d 00 00 	mov    0x2dbc(%rip),%r13        # 4058 <sink>
+    129c:	48 89 5c 24 30       	mov    %rbx,0x30(%rsp)
+    12a1:	89 dd                	mov    %ebx,%ebp
+    12a3:	81 e5 ff ff ff 7f    	and    $0x7fffffff,%ebp
+    12a9:	31 db                	xor    %ebx,%ebx
+    12ab:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    12b0:	bf 04 00 00 00       	mov    $0x4,%edi
+    12b5:	4c 89 e6             	mov    %r12,%rsi
+    12b8:	e8 a3 fd ff ff       	call   1060 <clock_gettime@plt>
+    12bd:	c4 e1 e3 2a 44 24 08 	vcvtsi2sdq 0x8(%rsp),%xmm3,%xmm0
+    12c4:	c4 e1 e3 2a 54 24 10 	vcvtsi2sdq 0x10(%rsp),%xmm3,%xmm2
+    12cb:	c5 fb 10 0d 35 0d 00 	vmovsd 0xd35(%rip),%xmm1        # 2008 <_IO_stdin_used+0x8>
+    12d2:	00 
+    12d3:	c4 e2 f1 a9 d0       	vfmadd213sd %xmm0,%xmm1,%xmm2
+    12d8:	c5 fb 11 54 24 18    	vmovsd %xmm2,0x18(%rsp)
+    12de:	49 8b 7f 08          	mov    0x8(%r15),%rdi
+    12e2:	48 8b 74 24 20       	mov    0x20(%rsp),%rsi
+    12e7:	e8 04 01 00 00       	call   13f0 <run>
+    12ec:	48 89 05 65 2d 00 00 	mov    %rax,0x2d65(%rip)        # 4058 <sink>
+    12f3:	bf 04 00 00 00       	mov    $0x4,%edi
+    12f8:	4c 89 e6             	mov    %r12,%rsi
+    12fb:	e8 60 fd ff ff       	call   1060 <clock_gettime@plt>
+    1300:	c4 e1 e3 2a 44 24 08 	vcvtsi2sdq 0x8(%rsp),%xmm3,%xmm0
+    1307:	c4 e1 e3 2a 4c 24 10 	vcvtsi2sdq 0x10(%rsp),%xmm3,%xmm1
+    130e:	c4 e2 f9 99 0d f1 0c 	vfmadd132sd 0xcf1(%rip),%xmm0,%xmm1        # 2008 <_IO_stdin_used+0x8>
+    1315:	00 00 
+    1317:	c5 f3 5c 44 24 18    	vsubsd 0x18(%rsp),%xmm1,%xmm0
+    131d:	c4 c1 7b 11 04 de    	vmovsd %xmm0,(%r14,%rbx,8)
+    1323:	48 8b 05 2e 2d 00 00 	mov    0x2d2e(%rip),%rax        # 4058 <sink>
+    132a:	4c 39 e8             	cmp    %r13,%rax
+    132d:	0f 85 a7 00 00 00    	jne    13da <main+0x22a>
+    1333:	48 ff c3             	inc    %rbx
+    1336:	48 39 dd             	cmp    %rbx,%rbp
+    1339:	0f 85 71 ff ff ff    	jne    12b0 <main+0x100>
+    133f:	48 8b 35 12 2d 00 00 	mov    0x2d12(%rip),%rsi        # 4058 <sink>
+    1346:	48 8d 3d d3 0c 00 00 	lea    0xcd3(%rip),%rdi        # 2020 <_IO_stdin_used+0x20>
+    134d:	c5 fb 10 44 24 28    	vmovsd 0x28(%rsp),%xmm0
+    1353:	b0 01                	mov    $0x1,%al
+    1355:	e8 16 fd ff ff       	call   1070 <printf@plt>
+    135a:	4c 8b 6c 24 30       	mov    0x30(%rsp),%r13
+    135f:	41 81 e5 ff ff ff 7f 	and    $0x7fffffff,%r13d
+    1366:	c4 c1 7b 10 06       	vmovsd (%r14),%xmm0
+    136b:	48 8d 3d d6 0c 00 00 	lea    0xcd6(%rip),%rdi        # 2048 <_IO_stdin_used+0x48>
+    1372:	48 8d 35 d7 0c 00 00 	lea    0xcd7(%rip),%rsi        # 2050 <_IO_stdin_used+0x50>
+    1379:	b0 01                	mov    $0x1,%al
+    137b:	e8 f0 fc ff ff       	call   1070 <printf@plt>
+    1380:	49 83 fd 01          	cmp    $0x1,%r13
+    1384:	74 35                	je     13bb <main+0x20b>
+    1386:	bb 01 00 00 00       	mov    $0x1,%ebx
+    138b:	4c 8d 3d b6 0c 00 00 	lea    0xcb6(%rip),%r15        # 2048 <_IO_stdin_used+0x48>
+    1392:	4c 8d 25 b6 0c 00 00 	lea    0xcb6(%rip),%r12        # 204f <_IO_stdin_used+0x4f>
+    1399:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+    13a0:	c4 c1 7b 10 04 de    	vmovsd (%r14,%rbx,8),%xmm0
+    13a6:	4c 89 ff             	mov    %r15,%rdi
+    13a9:	4c 89 e6             	mov    %r12,%rsi
+    13ac:	b0 01                	mov    $0x1,%al
+    13ae:	e8 bd fc ff ff       	call   1070 <printf@plt>
+    13b3:	48 ff c3             	inc    %rbx
+    13b6:	49 39 dd             	cmp    %rbx,%r13
+    13b9:	75 e5                	jne    13a0 <main+0x1f0>
+    13bb:	48 8d 3d 8f 0c 00 00 	lea    0xc8f(%rip),%rdi        # 2051 <_IO_stdin_used+0x51>
+    13c2:	e8 89 fc ff ff       	call   1050 <puts@plt>
+    13c7:	4c 89 f7             	mov    %r14,%rdi
+    13ca:	e8 61 fc ff ff       	call   1030 <free@plt>
+    13cf:	31 ed                	xor    %ebp,%ebp
+    13d1:	eb 0c                	jmp    13df <main+0x22f>
+    13d3:	bd 02 00 00 00       	mov    $0x2,%ebp
+    13d8:	eb 05                	jmp    13df <main+0x22f>
+    13da:	bd 03 00 00 00       	mov    $0x3,%ebp
+    13df:	89 e8                	mov    %ebp,%eax
+    13e1:	48 83 c4 38          	add    $0x38,%rsp
+    13e5:	5b                   	pop    %rbx
+    13e6:	41 5c                	pop    %r12
+    13e8:	41 5d                	pop    %r13
+    13ea:	41 5e                	pop    %r14
+    13ec:	41 5f                	pop    %r15
+    13ee:	5d                   	pop    %rbp
+    13ef:	c3                   	ret
+
+00000000000013f0 <run>:
+    13f0:	55                   	push   %rbp
+    13f1:	41 57                	push   %r15
+    13f3:	41 56                	push   %r14
+    13f5:	53                   	push   %rbx
+    13f6:	50                   	push   %rax
+    13f7:	48 89 f3             	mov    %rsi,%rbx
+    13fa:	49 89 fe             	mov    %rdi,%r14
+    13fd:	48 8d 35 50 0c 00 00 	lea    0xc50(%rip),%rsi        # 2054 <_IO_stdin_used+0x54>
+    1404:	e8 87 fc ff ff       	call   1090 <strcmp@plt>
+    1409:	85 c0                	test   %eax,%eax
+    140b:	0f 84 96 00 00 00    	je     14a7 <run+0xb7>
+    1411:	48 8d 35 41 0c 00 00 	lea    0xc41(%rip),%rsi        # 2059 <_IO_stdin_used+0x59>
+    1418:	4c 89 f7             	mov    %r14,%rdi
+    141b:	e8 70 fc ff ff       	call   1090 <strcmp@plt>
+    1420:	85 c0                	test   %eax,%eax
+    1422:	0f 84 a7 00 00 00    	je     14cf <run+0xdf>
+    1428:	48 8d 35 2f 0c 00 00 	lea    0xc2f(%rip),%rsi        # 205e <_IO_stdin_used+0x5e>
+    142f:	4c 89 f7             	mov    %r14,%rdi
+    1432:	e8 59 fc ff ff       	call   1090 <strcmp@plt>
+    1437:	85 c0                	test   %eax,%eax
+    1439:	0f 84 b6 00 00 00    	je     14f5 <run+0x105>
+    143f:	48 8d 35 1f 0c 00 00 	lea    0xc1f(%rip),%rsi        # 2065 <_IO_stdin_used+0x65>
+    1446:	4c 89 f7             	mov    %r14,%rdi
+    1449:	e8 42 fc ff ff       	call   1090 <strcmp@plt>
+    144e:	85 c0                	test   %eax,%eax
+    1450:	0f 84 0d 02 00 00    	je     1663 <run+0x273>
+    1456:	48 8d 35 0d 0c 00 00 	lea    0xc0d(%rip),%rsi        # 206a <_IO_stdin_used+0x6a>
+    145d:	4c 89 f7             	mov    %r14,%rdi
+    1460:	e8 2b fc ff ff       	call   1090 <strcmp@plt>
+    1465:	85 c0                	test   %eax,%eax
+    1467:	0f 84 42 04 00 00    	je     18af <run+0x4bf>
+    146d:	48 8d 35 fa 0b 00 00 	lea    0xbfa(%rip),%rsi        # 206e <_IO_stdin_used+0x6e>
+    1474:	4c 89 f7             	mov    %r14,%rdi
+    1477:	e8 14 fc ff ff       	call   1090 <strcmp@plt>
+    147c:	85 c0                	test   %eax,%eax
+    147e:	0f 84 e6 04 00 00    	je     196a <run+0x57a>
+    1484:	48 8d 35 ea 0b 00 00 	lea    0xbea(%rip),%rsi        # 2075 <_IO_stdin_used+0x75>
+    148b:	4c 89 f7             	mov    %r14,%rdi
+    148e:	e8 fd fb ff ff       	call   1090 <strcmp@plt>
+    1493:	85 c0                	test   %eax,%eax
+    1495:	0f 84 fa 04 00 00    	je     1995 <run+0x5a5>
+    149b:	89 df                	mov    %ebx,%edi
+    149d:	e8 9e 07 00 00       	call   1c40 <fib>
+    14a2:	e9 14 05 00 00       	jmp    19bb <run+0x5cb>
+    14a7:	48 85 db             	test   %rbx,%rbx
+    14aa:	0f 84 09 05 00 00    	je     19b9 <run+0x5c9>
+    14b0:	48 8d 43 ff          	lea    -0x1(%rbx),%rax
+    14b4:	89 d9                	mov    %ebx,%ecx
+    14b6:	83 e1 07             	and    $0x7,%ecx
+    14b9:	48 83 f8 07          	cmp    $0x7,%rax
+    14bd:	73 5e                	jae    151d <run+0x12d>
+    14bf:	31 c0                	xor    %eax,%eax
+    14c1:	48 85 c9             	test   %rcx,%rcx
+    14c4:	0f 85 76 01 00 00    	jne    1640 <run+0x250>
+    14ca:	e9 ec 04 00 00       	jmp    19bb <run+0x5cb>
+    14cf:	48 85 db             	test   %rbx,%rbx
+    14d2:	0f 84 dc 02 00 00    	je     17b4 <run+0x3c4>
+    14d8:	48 8d 43 ff          	lea    -0x1(%rbx),%rax
+    14dc:	89 d9                	mov    %ebx,%ecx
+    14de:	83 e1 07             	and    $0x7,%ecx
+    14e1:	48 83 f8 07          	cmp    $0x7,%rax
+    14e5:	0f 83 d3 02 00 00    	jae    17be <run+0x3ce>
+    14eb:	b8 a2 8c d6 92       	mov    $0x92d68ca2,%eax
+    14f0:	e9 8d 03 00 00       	jmp    1882 <run+0x492>
+    14f5:	48 85 db             	test   %rbx,%rbx
+    14f8:	0f 84 bb 04 00 00    	je     19b9 <run+0x5c9>
+    14fe:	48 8d 43 ff          	lea    -0x1(%rbx),%rax
+    1502:	89 d9                	mov    %ebx,%ecx
+    1504:	83 e1 03             	and    $0x3,%ecx
+    1507:	48 83 f8 03          	cmp    $0x3,%rax
+    150b:	0f 83 c6 03 00 00    	jae    18d7 <run+0x4e7>
+    1511:	ba 78 56 34 12       	mov    $0x12345678,%edx
+    1516:	31 c0                	xor    %eax,%eax
+    1518:	e9 26 04 00 00       	jmp    1943 <run+0x553>
+    151d:	8d 53 f9             	lea    -0x7(%rbx),%edx
+    1520:	8d 73 fa             	lea    -0x6(%rbx),%esi
+    1523:	8d 7b fb             	lea    -0x5(%rbx),%edi
+    1526:	44 8d 43 fc          	lea    -0x4(%rbx),%r8d
+    152a:	44 8d 4b fd          	lea    -0x3(%rbx),%r9d
+    152e:	44 8d 53 fe          	lea    -0x2(%rbx),%r10d
+    1532:	44 8d 5b ff          	lea    -0x1(%rbx),%r11d
+    1536:	49 89 de             	mov    %rbx,%r14
+    1539:	49 83 e6 f8          	and    $0xfffffffffffffff8,%r14
+    153d:	49 f7 de             	neg    %r14
+    1540:	45 31 ff             	xor    %r15d,%r15d
+    1543:	31 c0                	xor    %eax,%eax
+    1545:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+    154c:	00 00 00 00 
+    1550:	89 c5                	mov    %eax,%ebp
+    1552:	c1 e5 0d             	shl    $0xd,%ebp
+    1555:	31 c5                	xor    %eax,%ebp
+    1557:	89 e8                	mov    %ebp,%eax
+    1559:	c1 e8 11             	shr    $0x11,%eax
+    155c:	31 e8                	xor    %ebp,%eax
+    155e:	42 8d 2c 3b          	lea    (%rbx,%r15,1),%ebp
+    1562:	31 c5                	xor    %eax,%ebp
+    1564:	c1 e0 05             	shl    $0x5,%eax
+    1567:	31 e8                	xor    %ebp,%eax
+    1569:	89 c5                	mov    %eax,%ebp
+    156b:	c1 e5 0d             	shl    $0xd,%ebp
+    156e:	31 c5                	xor    %eax,%ebp
+    1570:	89 e8                	mov    %ebp,%eax
+    1572:	c1 e8 11             	shr    $0x11,%eax
+    1575:	31 e8                	xor    %ebp,%eax
+    1577:	43 8d 2c 3b          	lea    (%r11,%r15,1),%ebp
+    157b:	31 c5                	xor    %eax,%ebp
+    157d:	c1 e0 05             	shl    $0x5,%eax
+    1580:	31 e8                	xor    %ebp,%eax
+    1582:	89 c5                	mov    %eax,%ebp
+    1584:	c1 e5 0d             	shl    $0xd,%ebp
+    1587:	31 c5                	xor    %eax,%ebp
+    1589:	89 e8                	mov    %ebp,%eax
+    158b:	c1 e8 11             	shr    $0x11,%eax
+    158e:	31 e8                	xor    %ebp,%eax
+    1590:	43 8d 2c 3a          	lea    (%r10,%r15,1),%ebp
+    1594:	31 c5                	xor    %eax,%ebp
+    1596:	c1 e0 05             	shl    $0x5,%eax
+    1599:	31 e8                	xor    %ebp,%eax
+    159b:	89 c5                	mov    %eax,%ebp
+    159d:	c1 e5 0d             	shl    $0xd,%ebp
+    15a0:	31 c5                	xor    %eax,%ebp
+    15a2:	89 e8                	mov    %ebp,%eax
+    15a4:	c1 e8 11             	shr    $0x11,%eax
+    15a7:	31 e8                	xor    %ebp,%eax
+    15a9:	43 8d 2c 39          	lea    (%r9,%r15,1),%ebp
+    15ad:	31 c5                	xor    %eax,%ebp
+    15af:	c1 e0 05             	shl    $0x5,%eax
+    15b2:	31 e8                	xor    %ebp,%eax
+    15b4:	89 c5                	mov    %eax,%ebp
+    15b6:	c1 e5 0d             	shl    $0xd,%ebp
+    15b9:	31 c5                	xor    %eax,%ebp
+    15bb:	89 e8                	mov    %ebp,%eax
+    15bd:	c1 e8 11             	shr    $0x11,%eax
+    15c0:	31 e8                	xor    %ebp,%eax
+    15c2:	43 8d 2c 38          	lea    (%r8,%r15,1),%ebp
+    15c6:	31 c5                	xor    %eax,%ebp
+    15c8:	c1 e0 05             	shl    $0x5,%eax
+    15cb:	31 e8                	xor    %ebp,%eax
+    15cd:	89 c5                	mov    %eax,%ebp
+    15cf:	c1 e5 0d             	shl    $0xd,%ebp
+    15d2:	31 c5                	xor    %eax,%ebp
+    15d4:	89 e8                	mov    %ebp,%eax
+    15d6:	c1 e8 11             	shr    $0x11,%eax
+    15d9:	31 e8                	xor    %ebp,%eax
+    15db:	42 8d 2c 3f          	lea    (%rdi,%r15,1),%ebp
+    15df:	31 c5                	xor    %eax,%ebp
+    15e1:	c1 e0 05             	shl    $0x5,%eax
+    15e4:	31 e8                	xor    %ebp,%eax
+    15e6:	89 c5                	mov    %eax,%ebp
+    15e8:	c1 e5 0d             	shl    $0xd,%ebp
+    15eb:	31 c5                	xor    %eax,%ebp
+    15ed:	89 e8                	mov    %ebp,%eax
+    15ef:	c1 e8 11             	shr    $0x11,%eax
+    15f2:	31 e8                	xor    %ebp,%eax
+    15f4:	42 8d 2c 3e          	lea    (%rsi,%r15,1),%ebp
+    15f8:	31 c5                	xor    %eax,%ebp
+    15fa:	c1 e0 05             	shl    $0x5,%eax
+    15fd:	31 e8                	xor    %ebp,%eax
+    15ff:	89 c5                	mov    %eax,%ebp
+    1601:	c1 e5 0d             	shl    $0xd,%ebp
+    1604:	31 c5                	xor    %eax,%ebp
+    1606:	89 e8                	mov    %ebp,%eax
+    1608:	c1 e8 11             	shr    $0x11,%eax
+    160b:	31 e8                	xor    %ebp,%eax
+    160d:	42 8d 2c 3a          	lea    (%rdx,%r15,1),%ebp
+    1611:	31 c5                	xor    %eax,%ebp
+    1613:	c1 e0 05             	shl    $0x5,%eax
+    1616:	31 e8                	xor    %ebp,%eax
+    1618:	49 83 c7 f8          	add    $0xfffffffffffffff8,%r15
+    161c:	4d 39 fe             	cmp    %r15,%r14
+    161f:	0f 85 2b ff ff ff    	jne    1550 <run+0x160>
+    1625:	4c 01 fb             	add    %r15,%rbx
+    1628:	48 85 c9             	test   %rcx,%rcx
+    162b:	0f 84 8a 03 00 00    	je     19bb <run+0x5cb>
+    1631:	66 66 66 66 66 66 2e 	data16 data16 data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    1638:	0f 1f 84 00 00 00 00 
+    163f:	00 
+    1640:	89 c2                	mov    %eax,%edx
+    1642:	c1 e2 0d             	shl    $0xd,%edx
+    1645:	31 c2                	xor    %eax,%edx
+    1647:	89 d0                	mov    %edx,%eax
+    1649:	c1 e8 11             	shr    $0x11,%eax
+    164c:	31 d0                	xor    %edx,%eax
+    164e:	89 da                	mov    %ebx,%edx
+    1650:	31 c2                	xor    %eax,%edx
+    1652:	c1 e0 05             	shl    $0x5,%eax
+    1655:	31 d0                	xor    %edx,%eax
+    1657:	ff cb                	dec    %ebx
+    1659:	48 ff c9             	dec    %rcx
+    165c:	75 e2                	jne    1640 <run+0x250>
+    165e:	e9 58 03 00 00       	jmp    19bb <run+0x5cb>
+    1663:	48 85 db             	test   %rbx,%rbx
+    1666:	0f 84 22 03 00 00    	je     198e <run+0x59e>
+    166c:	48 8d 43 ff          	lea    -0x1(%rbx),%rax
+    1670:	48 89 d9             	mov    %rbx,%rcx
+    1673:	c5 fa 7e 05 95 09 00 	vmovq  0x995(%rip),%xmm0        # 2010 <_IO_stdin_used+0x10>
+    167a:	00 
+    167b:	48 83 e1 07          	and    $0x7,%rcx
+    167f:	74 35                	je     16b6 <run+0x2c6>
+    1681:	31 d2                	xor    %edx,%edx
+    1683:	66 66 66 66 2e 0f 1f 	data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    168a:	84 00 00 00 00 00 
+    1690:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    1695:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1699:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    169e:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16a2:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    16a7:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16ab:	48 ff c2             	inc    %rdx
+    16ae:	48 39 d1             	cmp    %rdx,%rcx
+    16b1:	75 dd                	jne    1690 <run+0x2a0>
+    16b3:	48 29 d3             	sub    %rdx,%rbx
+    16b6:	48 83 f8 07          	cmp    $0x7,%rax
+    16ba:	0f 82 e2 00 00 00    	jb     17a2 <run+0x3b2>
+    16c0:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    16c5:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16c9:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    16ce:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16d2:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    16d7:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16db:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    16e0:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16e4:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    16e9:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16ed:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    16f2:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16f6:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    16fb:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    16ff:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    1704:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1708:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    170d:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1711:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    1716:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    171a:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    171f:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1723:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    1728:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    172c:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    1731:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1735:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    173a:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    173e:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    1743:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1747:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    174c:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1750:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    1755:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1759:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    175e:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1762:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    1767:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    176b:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    1770:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1774:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    1779:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    177d:	c5 f1 72 f0 0d       	vpslld $0xd,%xmm0,%xmm1
+    1782:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1786:	c5 f1 72 d0 11       	vpsrld $0x11,%xmm0,%xmm1
+    178b:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    178f:	c5 f1 72 f0 05       	vpslld $0x5,%xmm0,%xmm1
+    1794:	c5 f1 ef c0          	vpxor  %xmm0,%xmm1,%xmm0
+    1798:	48 83 c3 f8          	add    $0xfffffffffffffff8,%rbx
+    179c:	0f 85 1e ff ff ff    	jne    16c0 <run+0x2d0>
+    17a2:	c5 f9 70 c8 55       	vpshufd $0x55,%xmm0,%xmm1
+    17a7:	c5 f9 ef c1          	vpxor  %xmm1,%xmm0,%xmm0
+    17ab:	c5 f9 7e c0          	vmovd  %xmm0,%eax
+    17af:	e9 07 02 00 00       	jmp    19bb <run+0x5cb>
+    17b4:	b8 a2 8c d6 92       	mov    $0x92d68ca2,%eax
+    17b9:	e9 fd 01 00 00       	jmp    19bb <run+0x5cb>
+    17be:	48 83 e3 f8          	and    $0xfffffffffffffff8,%rbx
+    17c2:	b8 a2 8c d6 92       	mov    $0x92d68ca2,%eax
+    17c7:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+    17ce:	00 00 
+    17d0:	89 c2                	mov    %eax,%edx
+    17d2:	c1 e2 0d             	shl    $0xd,%edx
+    17d5:	31 c2                	xor    %eax,%edx
+    17d7:	89 d0                	mov    %edx,%eax
+    17d9:	c1 e8 11             	shr    $0x11,%eax
+    17dc:	31 d0                	xor    %edx,%eax
+    17de:	89 c2                	mov    %eax,%edx
+    17e0:	c1 e2 05             	shl    $0x5,%edx
+    17e3:	31 c2                	xor    %eax,%edx
+    17e5:	89 d0                	mov    %edx,%eax
+    17e7:	c1 e0 0d             	shl    $0xd,%eax
+    17ea:	31 d0                	xor    %edx,%eax
+    17ec:	89 c2                	mov    %eax,%edx
+    17ee:	c1 ea 11             	shr    $0x11,%edx
+    17f1:	31 c2                	xor    %eax,%edx
+    17f3:	89 d0                	mov    %edx,%eax
+    17f5:	c1 e0 05             	shl    $0x5,%eax
+    17f8:	31 d0                	xor    %edx,%eax
+    17fa:	89 c2                	mov    %eax,%edx
+    17fc:	c1 e2 0d             	shl    $0xd,%edx
+    17ff:	31 c2                	xor    %eax,%edx
+    1801:	89 d0                	mov    %edx,%eax
+    1803:	c1 e8 11             	shr    $0x11,%eax
+    1806:	31 d0                	xor    %edx,%eax
+    1808:	89 c2                	mov    %eax,%edx
+    180a:	c1 e2 05             	shl    $0x5,%edx
+    180d:	31 c2                	xor    %eax,%edx
+    180f:	89 d0                	mov    %edx,%eax
+    1811:	c1 e0 0d             	shl    $0xd,%eax
+    1814:	31 d0                	xor    %edx,%eax
+    1816:	89 c2                	mov    %eax,%edx
+    1818:	c1 ea 11             	shr    $0x11,%edx
+    181b:	31 c2                	xor    %eax,%edx
+    181d:	89 d0                	mov    %edx,%eax
+    181f:	c1 e0 05             	shl    $0x5,%eax
+    1822:	31 d0                	xor    %edx,%eax
+    1824:	89 c2                	mov    %eax,%edx
+    1826:	c1 e2 0d             	shl    $0xd,%edx
+    1829:	31 c2                	xor    %eax,%edx
+    182b:	89 d0                	mov    %edx,%eax
+    182d:	c1 e8 11             	shr    $0x11,%eax
+    1830:	31 d0                	xor    %edx,%eax
+    1832:	89 c2                	mov    %eax,%edx
+    1834:	c1 e2 05             	shl    $0x5,%edx
+    1837:	31 c2                	xor    %eax,%edx
+    1839:	89 d0                	mov    %edx,%eax
+    183b:	c1 e0 0d             	shl    $0xd,%eax
+    183e:	31 d0                	xor    %edx,%eax
+    1840:	89 c2                	mov    %eax,%edx
+    1842:	c1 ea 11             	shr    $0x11,%edx
+    1845:	31 c2                	xor    %eax,%edx
+    1847:	89 d0                	mov    %edx,%eax
+    1849:	c1 e0 05             	shl    $0x5,%eax
+    184c:	31 d0                	xor    %edx,%eax
+    184e:	89 c2                	mov    %eax,%edx
+    1850:	c1 e2 0d             	shl    $0xd,%edx
+    1853:	31 c2                	xor    %eax,%edx
+    1855:	89 d0                	mov    %edx,%eax
+    1857:	c1 e8 11             	shr    $0x11,%eax
+    185a:	31 d0                	xor    %edx,%eax
+    185c:	89 c2                	mov    %eax,%edx
+    185e:	c1 e2 05             	shl    $0x5,%edx
+    1861:	31 c2                	xor    %eax,%edx
+    1863:	89 d0                	mov    %edx,%eax
+    1865:	c1 e0 0d             	shl    $0xd,%eax
+    1868:	31 d0                	xor    %edx,%eax
+    186a:	89 c2                	mov    %eax,%edx
+    186c:	c1 ea 11             	shr    $0x11,%edx
+    186f:	31 c2                	xor    %eax,%edx
+    1871:	89 d0                	mov    %edx,%eax
+    1873:	c1 e0 05             	shl    $0x5,%eax
+    1876:	31 d0                	xor    %edx,%eax
+    1878:	48 83 c3 f8          	add    $0xfffffffffffffff8,%rbx
+    187c:	0f 85 4e ff ff ff    	jne    17d0 <run+0x3e0>
+    1882:	48 85 c9             	test   %rcx,%rcx
+    1885:	0f 84 30 01 00 00    	je     19bb <run+0x5cb>
+    188b:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+    1890:	89 c2                	mov    %eax,%edx
+    1892:	c1 e2 0d             	shl    $0xd,%edx
+    1895:	31 c2                	xor    %eax,%edx
+    1897:	89 d6                	mov    %edx,%esi
+    1899:	c1 ee 11             	shr    $0x11,%esi
+    189c:	31 d6                	xor    %edx,%esi
+    189e:	89 f0                	mov    %esi,%eax
+    18a0:	c1 e0 05             	shl    $0x5,%eax
+    18a3:	31 f0                	xor    %esi,%eax
+    18a5:	48 ff c9             	dec    %rcx
+    18a8:	75 e6                	jne    1890 <run+0x4a0>
+    18aa:	e9 0c 01 00 00       	jmp    19bb <run+0x5cb>
+    18af:	48 85 db             	test   %rbx,%rbx
+    18b2:	0f 84 01 01 00 00    	je     19b9 <run+0x5c9>
+    18b8:	48 8d 43 ff          	lea    -0x1(%rbx),%rax
+    18bc:	89 d9                	mov    %ebx,%ecx
+    18be:	83 e1 07             	and    $0x7,%ecx
+    18c1:	48 83 f8 07          	cmp    $0x7,%rax
+    18c5:	0f 83 fd 00 00 00    	jae    19c8 <run+0x5d8>
+    18cb:	ba 78 56 34 12       	mov    $0x12345678,%edx
+    18d0:	31 c0                	xor    %eax,%eax
+    18d2:	e9 9a 01 00 00       	jmp    1a71 <run+0x681>
+    18d7:	48 83 e3 fc          	and    $0xfffffffffffffffc,%rbx
+    18db:	ba 78 56 34 12       	mov    $0x12345678,%edx
+    18e0:	31 c0                	xor    %eax,%eax
+    18e2:	66 66 66 66 66 2e 0f 	data16 data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    18e9:	1f 84 00 00 00 00 00 
+    18f0:	89 d6                	mov    %edx,%esi
+    18f2:	d1 ee                	shr    $1,%esi
+    18f4:	f6 c2 01             	test   $0x1,%dl
+    18f7:	8d 54 52 01          	lea    0x1(%rdx,%rdx,2),%edx
+    18fb:	0f 44 d6             	cmove  %esi,%edx
+    18fe:	0f b6 f2             	movzbl %dl,%esi
+    1901:	01 f0                	add    %esi,%eax
+    1903:	8d 3c 52             	lea    (%rdx,%rdx,2),%edi
+    1906:	ff c7                	inc    %edi
+    1908:	d1 ea                	shr    $1,%edx
+    190a:	40 f6 c6 01          	test   $0x1,%sil
+    190e:	0f 44 fa             	cmove  %edx,%edi
+    1911:	40 0f b6 d7          	movzbl %dil,%edx
+    1915:	01 d0                	add    %edx,%eax
+    1917:	8d 34 7f             	lea    (%rdi,%rdi,2),%esi
+    191a:	ff c6                	inc    %esi
+    191c:	d1 ef                	shr    $1,%edi
+    191e:	f6 c2 01             	test   $0x1,%dl
+    1921:	0f 44 f7             	cmove  %edi,%esi
+    1924:	40 0f b6 fe          	movzbl %sil,%edi
+    1928:	01 f8                	add    %edi,%eax
+    192a:	8d 14 76             	lea    (%rsi,%rsi,2),%edx
+    192d:	ff c2                	inc    %edx
+    192f:	d1 ee                	shr    $1,%esi
+    1931:	40 f6 c7 01          	test   $0x1,%dil
+    1935:	0f 44 d6             	cmove  %esi,%edx
+    1938:	0f b6 f2             	movzbl %dl,%esi
+    193b:	01 f0                	add    %esi,%eax
+    193d:	48 83 c3 fc          	add    $0xfffffffffffffffc,%rbx
+    1941:	75 ad                	jne    18f0 <run+0x500>
+    1943:	48 85 c9             	test   %rcx,%rcx
+    1946:	74 73                	je     19bb <run+0x5cb>
+    1948:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+    194f:	00 
+    1950:	89 d6                	mov    %edx,%esi
+    1952:	d1 ee                	shr    $1,%esi
+    1954:	f6 c2 01             	test   $0x1,%dl
+    1957:	8d 54 52 01          	lea    0x1(%rdx,%rdx,2),%edx
+    195b:	0f 44 d6             	cmove  %esi,%edx
+    195e:	0f b6 f2             	movzbl %dl,%esi
+    1961:	01 f0                	add    %esi,%eax
+    1963:	48 ff c9             	dec    %rcx
+    1966:	75 e8                	jne    1950 <run+0x560>
+    1968:	eb 51                	jmp    19bb <run+0x5cb>
+    196a:	48 85 db             	test   %rbx,%rbx
+    196d:	74 4a                	je     19b9 <run+0x5c9>
+    196f:	48 8d 43 ff          	lea    -0x1(%rbx),%rax
+    1973:	89 d9                	mov    %ebx,%ecx
+    1975:	83 e1 03             	and    $0x3,%ecx
+    1978:	48 83 f8 03          	cmp    $0x3,%rax
+    197c:	0f 83 17 01 00 00    	jae    1a99 <run+0x6a9>
+    1982:	be 10 32 54 76       	mov    $0x76543210,%esi
+    1987:	31 c0                	xor    %eax,%eax
+    1989:	e9 91 01 00 00       	jmp    1b1f <run+0x72f>
+    198e:	b8 c1 2f 03 8c       	mov    $0x8c032fc1,%eax
+    1993:	eb 26                	jmp    19bb <run+0x5cb>
+    1995:	48 85 db             	test   %rbx,%rbx
+    1998:	74 1f                	je     19b9 <run+0x5c9>
+    199a:	48 8d 43 ff          	lea    -0x1(%rbx),%rax
+    199e:	89 d9                	mov    %ebx,%ecx
+    19a0:	83 e1 07             	and    $0x7,%ecx
+    19a3:	48 83 f8 07          	cmp    $0x7,%rax
+    19a7:	0f 83 a4 01 00 00    	jae    1b51 <run+0x761>
+    19ad:	ba 78 56 34 12       	mov    $0x12345678,%edx
+    19b2:	31 c0                	xor    %eax,%eax
+    19b4:	e9 51 02 00 00       	jmp    1c0a <run+0x81a>
+    19b9:	31 c0                	xor    %eax,%eax
+    19bb:	89 c0                	mov    %eax,%eax
+    19bd:	48 83 c4 08          	add    $0x8,%rsp
+    19c1:	5b                   	pop    %rbx
+    19c2:	41 5e                	pop    %r14
+    19c4:	41 5f                	pop    %r15
+    19c6:	5d                   	pop    %rbp
+    19c7:	c3                   	ret
+    19c8:	48 83 e3 f8          	and    $0xfffffffffffffff8,%rbx
+    19cc:	ba 78 56 34 12       	mov    $0x12345678,%edx
+    19d1:	31 c0                	xor    %eax,%eax
+    19d3:	66 66 66 66 2e 0f 1f 	data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    19da:	84 00 00 00 00 00 
+    19e0:	89 d6                	mov    %edx,%esi
+    19e2:	c1 e6 05             	shl    $0x5,%esi
+    19e5:	01 d6                	add    %edx,%esi
+    19e7:	83 c6 11             	add    $0x11,%esi
+    19ea:	0f b7 f6             	movzwl %si,%esi
+    19ed:	01 c6                	add    %eax,%esi
+    19ef:	69 c2 41 04 00 00    	imul   $0x441,%edx,%eax
+    19f5:	05 42 02 00 00       	add    $0x242,%eax
+    19fa:	0f b7 c0             	movzwl %ax,%eax
+    19fd:	01 f0                	add    %esi,%eax
+    19ff:	69 f2 61 8c 00 00    	imul   $0x8c61,%edx,%esi
+    1a05:	81 c6 93 4a 00 00    	add    $0x4a93,%esi
+    1a0b:	0f b7 f6             	movzwl %si,%esi
+    1a0e:	69 fa 81 18 12 00    	imul   $0x121881,%edx,%edi
+    1a14:	81 c7 04 9d 09 00    	add    $0x99d04,%edi
+    1a1a:	0f b7 ff             	movzwl %di,%edi
+    1a1d:	01 f7                	add    %esi,%edi
+    1a1f:	01 c7                	add    %eax,%edi
+    1a21:	69 c2 a1 28 55 02    	imul   $0x25528a1,%edx,%eax
+    1a27:	05 95 3d 3d 01       	add    $0x13d3d95,%eax
+    1a2c:	0f b7 c0             	movzwl %ax,%eax
+    1a2f:	69 f2 c1 3c fa 4c    	imul   $0x4cfa3cc1,%edx,%esi
+    1a35:	81 c6 46 f0 e4 28    	add    $0x28e4f046,%esi
+    1a3b:	0f b7 f6             	movzwl %si,%esi
+    1a3e:	01 c6                	add    %eax,%esi
+    1a40:	69 c2 e1 d4 41 ec    	imul   $0xec41d4e1,%edx,%eax
+    1a46:	05 17 f9 82 45       	add    $0x4582f917,%eax
+    1a4b:	44 0f b7 c0          	movzwl %ax,%r8d
+    1a4f:	41 01 f0             	add    %esi,%r8d
+    1a52:	41 01 f8             	add    %edi,%r8d
+    1a55:	69 d2 01 71 7c 74    	imul   $0x747c7101,%edx,%edx
+    1a5b:	81 c2 08 1c e2 f5    	add    $0xf5e21c08,%edx
+    1a61:	0f b7 c2             	movzwl %dx,%eax
+    1a64:	44 01 c0             	add    %r8d,%eax
+    1a67:	48 83 c3 f8          	add    $0xfffffffffffffff8,%rbx
+    1a6b:	0f 85 6f ff ff ff    	jne    19e0 <run+0x5f0>
+    1a71:	48 85 c9             	test   %rcx,%rcx
+    1a74:	0f 84 41 ff ff ff    	je     19bb <run+0x5cb>
+    1a7a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+    1a80:	89 d6                	mov    %edx,%esi
+    1a82:	c1 e6 05             	shl    $0x5,%esi
+    1a85:	01 f2                	add    %esi,%edx
+    1a87:	83 c2 11             	add    $0x11,%edx
+    1a8a:	0f b7 f2             	movzwl %dx,%esi
+    1a8d:	01 f0                	add    %esi,%eax
+    1a8f:	48 ff c9             	dec    %rcx
+    1a92:	75 ec                	jne    1a80 <run+0x690>
+    1a94:	e9 22 ff ff ff       	jmp    19bb <run+0x5cb>
+    1a99:	48 83 e3 fc          	and    $0xfffffffffffffffc,%rbx
+    1a9d:	be 10 32 54 76       	mov    $0x76543210,%esi
+    1aa2:	31 c0                	xor    %eax,%eax
+    1aa4:	ba ab aa aa aa       	mov    $0xaaaaaaab,%edx
+    1aa9:	0f 1f 80 00 00 00 00 	nopl   0x0(%rax)
+    1ab0:	89 f7                	mov    %esi,%edi
+    1ab2:	48 0f af fa          	imul   %rdx,%rdi
+    1ab6:	48 c1 ef 21          	shr    $0x21,%rdi
+    1aba:	44 8d 04 7f          	lea    (%rdi,%rdi,2),%r8d
+    1abe:	01 f0                	add    %esi,%eax
+    1ac0:	44 29 c0             	sub    %r8d,%eax
+    1ac3:	01 f8                	add    %edi,%eax
+    1ac5:	05 b9 79 37 9e       	add    $0x9e3779b9,%eax
+    1aca:	81 c7 b9 79 37 9e    	add    $0x9e3779b9,%edi
+    1ad0:	48 0f af fa          	imul   %rdx,%rdi
+    1ad4:	48 c1 ef 21          	shr    $0x21,%rdi
+    1ad8:	8d 34 7f             	lea    (%rdi,%rdi,2),%esi
+    1adb:	29 f0                	sub    %esi,%eax
+    1add:	01 f8                	add    %edi,%eax
+    1adf:	05 b9 79 37 9e       	add    $0x9e3779b9,%eax
+    1ae4:	81 c7 b9 79 37 9e    	add    $0x9e3779b9,%edi
+    1aea:	48 0f af fa          	imul   %rdx,%rdi
+    1aee:	48 c1 ef 21          	shr    $0x21,%rdi
+    1af2:	8d 34 7f             	lea    (%rdi,%rdi,2),%esi
+    1af5:	29 f0                	sub    %esi,%eax
+    1af7:	01 f8                	add    %edi,%eax
+    1af9:	05 b9 79 37 9e       	add    $0x9e3779b9,%eax
+    1afe:	89 fe                	mov    %edi,%esi
+    1b00:	81 c6 b9 79 37 9e    	add    $0x9e3779b9,%esi
+    1b06:	48 0f af f2          	imul   %rdx,%rsi
+    1b0a:	48 c1 ee 21          	shr    $0x21,%rsi
+    1b0e:	8d 3c 76             	lea    (%rsi,%rsi,2),%edi
+    1b11:	29 f8                	sub    %edi,%eax
+    1b13:	81 c6 b9 79 37 9e    	add    $0x9e3779b9,%esi
+    1b19:	48 83 c3 fc          	add    $0xfffffffffffffffc,%rbx
+    1b1d:	75 91                	jne    1ab0 <run+0x6c0>
+    1b1f:	48 85 c9             	test   %rcx,%rcx
+    1b22:	0f 84 93 fe ff ff    	je     19bb <run+0x5cb>
+    1b28:	ba ab aa aa aa       	mov    $0xaaaaaaab,%edx
+    1b2d:	0f 1f 00             	nopl   (%rax)
+    1b30:	01 f0                	add    %esi,%eax
+    1b32:	89 f6                	mov    %esi,%esi
+    1b34:	48 0f af f2          	imul   %rdx,%rsi
+    1b38:	48 c1 ee 21          	shr    $0x21,%rsi
+    1b3c:	8d 3c 76             	lea    (%rsi,%rsi,2),%edi
+    1b3f:	29 f8                	sub    %edi,%eax
+    1b41:	81 c6 b9 79 37 9e    	add    $0x9e3779b9,%esi
+    1b47:	48 ff c9             	dec    %rcx
+    1b4a:	75 e4                	jne    1b30 <run+0x740>
+    1b4c:	e9 6a fe ff ff       	jmp    19bb <run+0x5cb>
+    1b51:	48 83 e3 f8          	and    $0xfffffffffffffff8,%rbx
+    1b55:	ba 78 56 34 12       	mov    $0x12345678,%edx
+    1b5a:	31 c0                	xor    %eax,%eax
+    1b5c:	0f 1f 40 00          	nopl   0x0(%rax)
+    1b60:	89 d6                	mov    %edx,%esi
+    1b62:	c1 ee 07             	shr    $0x7,%esi
+    1b65:	31 d6                	xor    %edx,%esi
+    1b67:	8d 14 b6             	lea    (%rsi,%rsi,4),%edx
+    1b6a:	ff c2                	inc    %edx
+    1b6c:	89 d6                	mov    %edx,%esi
+    1b6e:	c1 ee 07             	shr    $0x7,%esi
+    1b71:	31 d6                	xor    %edx,%esi
+    1b73:	81 e2 ff 03 00 00    	and    $0x3ff,%edx
+    1b79:	01 c2                	add    %eax,%edx
+    1b7b:	8d 04 b6             	lea    (%rsi,%rsi,4),%eax
+    1b7e:	ff c0                	inc    %eax
+    1b80:	89 c6                	mov    %eax,%esi
+    1b82:	c1 ee 07             	shr    $0x7,%esi
+    1b85:	31 c6                	xor    %eax,%esi
+    1b87:	25 ff 03 00 00       	and    $0x3ff,%eax
+    1b8c:	01 d0                	add    %edx,%eax
+    1b8e:	8d 14 b6             	lea    (%rsi,%rsi,4),%edx
+    1b91:	ff c2                	inc    %edx
+    1b93:	89 d6                	mov    %edx,%esi
+    1b95:	c1 ee 07             	shr    $0x7,%esi
+    1b98:	31 d6                	xor    %edx,%esi
+    1b9a:	81 e2 ff 03 00 00    	and    $0x3ff,%edx
+    1ba0:	01 c2                	add    %eax,%edx
+    1ba2:	8d 04 b6             	lea    (%rsi,%rsi,4),%eax
+    1ba5:	ff c0                	inc    %eax
+    1ba7:	89 c6                	mov    %eax,%esi
+    1ba9:	c1 ee 07             	shr    $0x7,%esi
+    1bac:	31 c6                	xor    %eax,%esi
+    1bae:	25 ff 03 00 00       	and    $0x3ff,%eax
+    1bb3:	01 d0                	add    %edx,%eax
+    1bb5:	8d 14 b6             	lea    (%rsi,%rsi,4),%edx
+    1bb8:	ff c2                	inc    %edx
+    1bba:	89 d6                	mov    %edx,%esi
+    1bbc:	c1 ee 07             	shr    $0x7,%esi
+    1bbf:	31 d6                	xor    %edx,%esi
+    1bc1:	81 e2 ff 03 00 00    	and    $0x3ff,%edx
+    1bc7:	01 c2                	add    %eax,%edx
+    1bc9:	8d 04 b6             	lea    (%rsi,%rsi,4),%eax
+    1bcc:	ff c0                	inc    %eax
+    1bce:	89 c6                	mov    %eax,%esi
+    1bd0:	c1 ee 07             	shr    $0x7,%esi
+    1bd3:	31 c6                	xor    %eax,%esi
+    1bd5:	25 ff 03 00 00       	and    $0x3ff,%eax
+    1bda:	01 d0                	add    %edx,%eax
+    1bdc:	8d 14 b6             	lea    (%rsi,%rsi,4),%edx
+    1bdf:	ff c2                	inc    %edx
+    1be1:	89 d6                	mov    %edx,%esi
+    1be3:	c1 ee 07             	shr    $0x7,%esi
+    1be6:	31 d6                	xor    %edx,%esi
+    1be8:	89 d7                	mov    %edx,%edi
+    1bea:	81 e7 ff 03 00 00    	and    $0x3ff,%edi
+    1bf0:	01 c7                	add    %eax,%edi
+    1bf2:	8d 14 b6             	lea    (%rsi,%rsi,4),%edx
+    1bf5:	ff c2                	inc    %edx
+    1bf7:	89 d0                	mov    %edx,%eax
+    1bf9:	25 ff 03 00 00       	and    $0x3ff,%eax
+    1bfe:	01 f8                	add    %edi,%eax
+    1c00:	48 83 c3 f8          	add    $0xfffffffffffffff8,%rbx
+    1c04:	0f 85 56 ff ff ff    	jne    1b60 <run+0x770>
+    1c0a:	48 85 c9             	test   %rcx,%rcx
+    1c0d:	0f 84 a8 fd ff ff    	je     19bb <run+0x5cb>
+    1c13:	66 66 66 66 2e 0f 1f 	data16 data16 data16 cs nopw 0x0(%rax,%rax,1)
+    1c1a:	84 00 00 00 00 00 
+    1c20:	89 d6                	mov    %edx,%esi
+    1c22:	c1 ee 07             	shr    $0x7,%esi
+    1c25:	31 d6                	xor    %edx,%esi
+    1c27:	8d 14 b6             	lea    (%rsi,%rsi,4),%edx
+    1c2a:	ff c2                	inc    %edx
+    1c2c:	89 d6                	mov    %edx,%esi
+    1c2e:	81 e6 ff 03 00 00    	and    $0x3ff,%esi
+    1c34:	01 f0                	add    %esi,%eax
+    1c36:	48 ff c9             	dec    %rcx
+    1c39:	75 e5                	jne    1c20 <run+0x830>
+    1c3b:	e9 7b fd ff ff       	jmp    19bb <run+0x5cb>
+
+0000000000001c40 <fib>:
+    1c40:	55                   	push   %rbp
+    1c41:	53                   	push   %rbx
+    1c42:	50                   	push   %rax
+    1c43:	89 fb                	mov    %edi,%ebx
+    1c45:	31 ed                	xor    %ebp,%ebp
+    1c47:	83 ff 02             	cmp    $0x2,%edi
+    1c4a:	72 16                	jb     1c62 <fib+0x22>
+    1c4c:	31 ed                	xor    %ebp,%ebp
+    1c4e:	66 90                	xchg   %ax,%ax
+    1c50:	8d 7b ff             	lea    -0x1(%rbx),%edi
+    1c53:	e8 e8 ff ff ff       	call   1c40 <fib>
+    1c58:	83 c3 fe             	add    $0xfffffffe,%ebx
+    1c5b:	01 c5                	add    %eax,%ebp
+    1c5d:	83 fb 01             	cmp    $0x1,%ebx
+    1c60:	77 ee                	ja     1c50 <fib+0x10>
+    1c62:	01 dd                	add    %ebx,%ebp
+    1c64:	89 e8                	mov    %ebp,%eax
+    1c66:	48 83 c4 08          	add    $0x8,%rsp
+    1c6a:	5b                   	pop    %rbx
+    1c6b:	5d                   	pop    %rbp
+    1c6c:	c3                   	ret
+
+Disassembly of section .fini:
+
+0000000000001c70 <_fini>:
+    1c70:	f3 0f 1e fa          	endbr64
+    1c74:	48 83 ec 08          	sub    $0x8,%rsp
+    1c78:	48 83 c4 08          	add    $0x8,%rsp
+    1c7c:	c3                   	ret

@@ -1,4 +1,10 @@
-# Production SLet source subset
+# Production SLet source subset — implementation checkpoint
+
+The approved target is [one collector-free Let](owners-references-ids.md), with
+independent count/allocation/type facts rather than a language-level SLet/Let split.
+This page records the still-current typed implementation, not the target ownership
+rules. No extension compatibility or dynamic execution is implemented by changing
+the design docs.
 
 `build/abc compile file.slet -o file.abc` parses ordinary SLet source, constructs checked
 ASDL `Ir.Fn`, lowers it to verified ABC, and emits a module. `build/abc run file.slet` uses
@@ -6,7 +12,9 @@ the same frontend and optimizer before execution. The filename selects the sourc
 interpreted, eager, and lazy VM execution remain host policy.
 
 The production path is `frontend/let/compiler.lua` and `frontend/let/semantic.lua`.
-`tools/slet_frontend.lua` remains a bootstrap validation oracle and is not a fallback.
+The separate bootstrap parser/typechecker/emitter has been
+[retired and archived](../research/archive/bootstrap-slet-before-retirement/README.md),
+not updated or wrapped as a fallback. Active source execution tests use only the production pipeline.
 No source computation executes in Lua.
 
 ## Supported source paths
@@ -24,8 +32,10 @@ No source computation executes in Lua.
 - `ref(place)`, `slice(array)`, slice/string indexing, and `.length`. References and views use
   the checked address-then-length ABI where applicable.
 - Sum constructors and exhaustive keyed matching with expression-lambda handlers.
-- Capture-free typed lambdas. They lower to exact callable views and can be called indirectly
-  without managed allocation.
+- Capture-free typed lambdas. Parameter types can come from an expected signature,
+  or be written on the lambda with results inferred from its body; repeating both
+  annotations is unnecessary. They lower to exact callable views and can be called
+  indirectly without managed allocation. An untyped standalone lambda still rejects.
 - Deterministic profile-checked imports. SLet can import only `.slet`; Let can import SLet.
 - Interpreted, eager, and lazy staging produce equal results and byte-identical optimized modules
   for the covered scalar, aggregate, sum, slice, reference, and callable fixtures.
@@ -37,6 +47,11 @@ invocation storage rejects with `borrow-return`; the corresponding Let source pr
 record or array into managed storage.
 
 ## Deliberate limits
+
+Top-level computed partial initializers (the historical `partial.slet`) and runtime
+partial application (the historical `closures.slet`) are not currently supported by
+production SLet. Tests require their explicit `semantic-todo` and `static-required`
+diagnostics respectively; archived bootstrap success is not production support.
 
 This subset is not an implicit partial evaluator. Ordinary saturated calls remain residual.
 `Compiler.stage` is an explicit host-selected static boundary. Automatic evaluation requires a

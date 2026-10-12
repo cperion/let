@@ -1,0 +1,93 @@
+make: Entering directory '/home/cperion_ext/dev/let/research/experiments/engines'
+luajit run_bench.lua
+host core=0 trials=9
+Ubuntu clang version 20.1.2 (0ubuntu1~24.04.3)
+LuaJIT 2.1.1703358377 -- Copyright (C) 2005-2023 Mike Pall. https://luajit.org/
+
+steady state: median ns per iteration/call (lower is better)
+bench        ABC-I     ABC-E     ABC-L     ABC-C    LJ-off    LuaJIT  native C
+loop        28.351     1.984     1.918     1.736    68.736     2.019     1.653
+skip        24.928     1.622     1.664     1.661    63.433     1.730     1.611
+branch      26.945     1.368     1.392     1.097    51.584     5.488     1.348
+sum2        44.485     1.629     1.608     2.600   118.110     1.793     1.596
+mul         18.699     1.097     1.113     0.462    30.436     4.691     0.373
+divide      22.555     4.555     4.032     1.304    43.784    10.595     1.355
+mix         22.894     1.960     1.935     1.390    43.722     5.172     1.411
+fib         10.645     2.788     3.845     0.818    12.970     2.875     0.764
+
+ratios: runtime / baseline (lower is better), except I/E speedup
+bench      E/ABC-C   ABC-C/C       E/C       L/E      E/LJ       I/E
+loop          1.14      1.05      1.20      0.97      0.98     14.29
+skip          0.98      1.03      1.01      1.03      0.94     15.37
+branch        1.25      0.81      1.02      1.02      0.25     19.69
+sum2          0.63      1.63      1.02      0.99      0.91     27.31
+mul           2.37      1.24      2.94      1.02      0.23     17.05
+divide        3.49      0.96      3.36      0.89      0.43      4.95
+mix           1.41      0.99      1.39      0.99      0.38     11.68
+fib           3.41      1.07      3.65      1.38      0.97      3.82
+
+VM fixed costs: median frontend/read/load; lazy first-arrival premium and native image bytes
+bench    frontend ms   read us    I load    E load    L load   L first us   native B
+loop          30.145      3.02     17.93     67.45     35.50      1707.70        356
+skip          26.815      2.92     13.38     58.64     37.07         0.00        337
+branch        29.942      3.35     14.55    307.50     40.29       141.16       1193
+sum2          29.558      3.22     13.91     62.44     46.95       335.07        556
+mul           27.858      2.94     13.05     61.44     41.31       247.20        254
+divide        27.026      2.79     17.33     71.47     44.21       159.39        430
+mix           25.452      4.12     12.75     92.85     43.11       318.42        289
+fib           26.003      2.49     16.07     66.21     54.80         0.00        715
+
+portable C pipeline costs: abc c emission, Clang compilation, executable size
+bench        emit ms   compile ms binary bytes
+loop          13.566      221.004        16680
+skip          15.114      217.443        16680
+branch        12.324      218.620        16680
+sum2          12.673      226.772        16680
+mul           22.435      221.426        16680
+divide        23.742      221.184        16680
+mix           13.027      224.725        16680
+fib           15.212      240.345        16720
+
+recursive fib control-flow accounting: ns per source invocation
+bench                ABC-E     ABC-L  ABC-C no-TCO native no-TCO
+fib                  2.788     3.845         1.477         1.237
+
+Notes: ABC-C is portable C emitted from semantic residue produced by the shared symbolic executor and compiled separately with Clang -O3 -march=native. Native C is a handwritten baseline. Eager preparation residualizes all load-time-reachable contexts; lazy load publishes activation stubs. Frontend and C-pipeline costs include process launch. Recursive fib units are source-level function invocations; other units are loop iterations. The ordinary Clang columns fold one recursive fib arm into an accumulator loop. The no-TCO row disables sibling-call optimization so recursive control transfer is compared without that call-count mismatch.
+luajit run_dynamic.lua
+dynamic suite: core=0 trials=9; no abc-opt, no portable C AOT
+Ubuntu clang version 20.1.2 (0ubuntu1~24.04.3)
+LuaJIT 2.1.1703358377 -- Copyright (C) 2005-2023 Mike Pall. https://luajit.org/
+validated 315 small-case results
+
+median ns/iteration: T=typed ABC, D=dynamic ABC; I/E/L=interpreted/eager/lazy
+workload             T-I      D-I      T-E      D-E      T-L      D-L   LJ-off   LuaJIT        C
+u32-known         15.395   53.391    2.328    3.636    2.244    3.571   25.045    5.535    1.838
+u32-carried       15.980   54.358    2.264    3.666    2.347    3.605   25.473    5.347    2.008
+u32-checked       15.528   61.147    2.319    3.773    2.369    7.688   25.951    5.350    2.044
+u32-unproven      14.282   53.329    2.334    3.844    2.438    3.729   24.927    5.281    1.856
+u32-reload        18.460   56.382    3.834    8.030    3.705    9.552   24.596    5.136    1.885
+width-alternate   21.948   68.314    3.837   14.426    4.007   15.831   24.249    5.321    1.860
+f64-carried       13.554   22.635    2.154    2.064    1.960    1.941    3.063    0.536    0.549
+
+dynamic / typed ratio; >1 means dynamic is slower
+workload        interpreted       eager        lazy
+u32-known              3.47        1.56        1.59
+u32-carried            3.40        1.62        1.54
+u32-checked            3.94        1.63        3.25
+u32-unproven           3.73        1.65        1.53
+u32-reload             3.05        2.09        2.58
+width-alternate        3.11        3.76        3.95
+f64-carried            1.67        0.96        0.99
+
+dynamic native setup (single VM creation/load) and emitted body bytes; excludes activation stubs
+workload          E load us   L load us     E bytes     L bytes
+u32-known             83.07       48.62        9653        9139
+u32-carried           84.65       45.49       14424        7584
+u32-checked           81.07       61.01        8369        8101
+u32-unproven          90.70       91.79       14398        7571
+u32-reload           114.66       47.15       20327        9988
+width-alternate      198.28       45.81       37727       24223
+f64-carried          110.18       45.72        4195        3279
+
+LuaJIT and C are algorithm baselines, not emulations of ABC tags/checks/memory traffic. Only paired ABC columns isolate representation costs. No aggregate, allocation-heavy or dynamic-call claim follows from these numeric cases.
+make: Leaving directory '/home/cperion_ext/dev/let/research/experiments/engines'

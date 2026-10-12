@@ -1,0 +1,11 @@
+--- src/residualize.c	2026-10-12 00:56:04.898015345 +0200
++++ /tmp/abc-native-emitter-before/seven-register-residualize.c	2026-10-12 00:57:56.234675407 +0200
+@@ -810,7 +810,7 @@
+ abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const abc_vm *vm,unsigned lazy,abc_native_image **out,abc_error *e) {
+     abc_clear(e); if(out) *out=NULL; if(!m||!vm||!out) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid residualizer input");
+     Compiler c={0}; c.module=m; c.vm=vm; c.image_base=image_base; c.error=e; c.status=ABC_OK;c.lazy=lazy;
+-    c.register_count=ABC_NATIVE_VALUE_REGISTERS;
++    c.register_count=ABC_THREADED_VALUE_REGISTERS; /* isolated allocator validation; native execution ABI unchanged */
+     c.stack_end[JS_A]=vm->a+vm->capacity; c.stack_end[JS_B]=vm->b+vm->capacity; c.stack_end[JS_C]=vm->c+vm->capacity;
+     c.block=calloc(m->code_size,1); c.versions=calloc(m->code_size,sizeof *c.versions); c.function_entries=calloc(m->function_count,sizeof *c.function_entries); c.recursive=calloc(m->function_count,1);
+     size_t pages=(size_t)sysconf(_SC_PAGESIZE), wanted=m->code_size*4096+pages; wanted=(wanted+pages-1)&~(pages-1);

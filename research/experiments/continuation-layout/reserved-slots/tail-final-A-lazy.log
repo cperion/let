@@ -1,0 +1,39 @@
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 1 roots=1,6,13
+GENERAL_ENTRY 1 roots_stable=3 A=555 B=666 cbase=13 bias=0
+MATERIALIZED_RETURN 1
+MATERIALIZED_RETURN 2
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 2 roots=1,6,13
+GENERAL_ENTRY 2 roots_stable=3 A=555 B=666 cbase=13 bias=0
+MATERIALIZED_RETURN 3
+MATERIALIZED_RETURN 4
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 3 roots=1,6,13
+GENERAL_ENTRY 3 roots_stable=3 A=555 B=666 cbase=13 bias=0
+MATERIALIZED_RETURN 5
+MATERIALIZED_RETURN 6
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 4 roots=1,6,13
+GENERAL_ENTRY 4 roots_stable=3 A=555 B=666 cbase=13 bias=0
+MATERIALIZED_RETURN 7
+MATERIALIZED_RETURN 8
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 5 roots=1,6,13
+GENERAL_ENTRY 5 roots_stable=3 A=555 B=666 cbase=13 bias=0
+MATERIALIZED_RETURN 9
+MATERIALIZED_RETURN 10
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 6 roots=1,6,13
+GENERAL_ENTRY 6 roots_stable=3 A=555 B=666 cbase=13 bias=0
+MATERIALIZED_RETURN 11
+MATERIALIZED_RETURN 12
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 7 roots=1,6,13
+GENERAL_ENTRY 7 roots_stable=3 A=555 B=666 cbase=13 bias=0
+MATERIALIZED_RETURN 13
+MATERIALIZED_RETURN 14
+LEGACY_GENERAL pc=806 bias=1 versions_at_pc=2
+ACTIVATION 8 roots=1,6,13
+GENERAL_ENTRY 8 roots_stable=3 A=555 B=666 cbase=12 bias=1
+abc: abort at byte 0x33d: language abort 12

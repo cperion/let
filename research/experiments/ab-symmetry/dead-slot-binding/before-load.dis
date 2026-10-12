@@ -1,0 +1,28 @@
+
+research/experiments/ab-symmetry/final-comparison/runlet:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+00000000000cca40 <handler_a0b0c1_GLD64_A>:
+   cca40:	48 c7 c0 f8 ff ff ff 	mov    $0xfffffffffffffff8,%rax
+   cca47:	64 48 8b 38          	mov    %fs:(%rax),%rdi
+   cca4b:	49 8d 44 24 05       	lea    0x5(%r12),%rax
+   cca50:	48 8b 7f 10          	mov    0x10(%rdi),%rdi
+   cca54:	48 8b 7f 08          	mov    0x8(%rdi),%rdi
+   cca58:	45 8b 54 24 01       	mov    0x1(%r12),%r10d
+   cca5d:	4a 8b 3c 17          	mov    (%rdi,%r10,1),%rdi
+   cca61:	45 0f b6 54 24 05    	movzbl 0x5(%r12),%r10d
+   cca67:	48 8d 1d 82 2f 25 00 	lea    0x252f82(%rip),%rbx        # 31f9f0 <T_a1b0c1>
+   cca6e:	4e 8b 14 d3          	mov    (%rbx,%r10,8),%r10
+   cca72:	49 89 c4             	mov    %rax,%r12
+   cca75:	4c 89 d0             	mov    %r10,%rax
+   cca78:	ff e0                	jmp    *%rax
+
+Disassembly of section .fini:

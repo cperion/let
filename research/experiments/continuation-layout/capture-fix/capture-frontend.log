@@ -1,0 +1,4 @@
+PASS: Let compiler source ingestion and semantic IR (276 checks)
+PASS: checked ASDL Ir -> ABC lowering (100 checks)
+PASS: shared C residual-DAG optimizer and LuaJIT FFI (128 checks)
+PASS: VM-backed compile-time execution (24 checks)

@@ -1,18 +1,23 @@
 # Design documents
 
-- **`syntax.md`:** the unified Let language contract for SLet `.slet` files and progressively typed Let `.let` files.
-- **`spec.md`:** the authoritative VM specification, decisions and measurements.
-- **`architecture.md`:** target repository structure and ownership boundaries for the Lua-generated C VM.
-- **`module-format.md`:** the implemented versioned wire formats and verifier constraints.
-- **`memory-profile.md`:** Milestone 2 frame/image/pointer instructions, memory-profile encoding and native-pointer obligations.
-- **`callable-profile.md`:** Milestone 3 checked-core ABI, indirect site signatures, bounded rewriting and lexical closures.
-- **`foreign-profile.md`:** typed named extern tables, VM-local binding, generated C-ABI bridges, and `FCALL`.
-- **`dynamic-profile.md`:** one-cell `any`, generic operations, collected open-word maps and layout tokens, Let managed references/views, module trace metadata, GC, and eager/lazy obligations.
+- **`owners-references-ids.md`:** approved collector-free ownership target, actual-owner proof, containers/ids, capability facts, explicit remaining gates and required tests. Not implemented.
+- **`spread.md`:** static supply expansion, second-class packs, record updates, name binding and `use ...module` sugar; target semantics and tests, not implemented.
+- **`tasks.md`:** approved structured-task/channel/select design, scoped capabilities, cancellation and work stealing; concrete suspension/concurrency ABIs remain pending. Not implemented.
+- **`syntax.md`:** one progressively typed, collector-free Let target; current implementation restrictions are identified separately.
+- **`spec.md`:** machine contracts and stable decisions, with implemented behavior separated from architectural targets and known conformance gaps.
+- **`symmetric-isa.md`:** authoritative revision-6 selected-stack semantics and instruction encoding.
+- **`architecture.md`:** current repository responsibilities, execution/tooling boundaries and remaining architectural gaps.
+- **`threaded-execution.md`:** four execution modes, exact threaded records, shared residualization/backend ownership, validation and measured caveats.
+- **`module-format.md`:** implemented revision-6 profiles 1–4 and verifier/ownership constraints; no old-format compatibility.
+- **`memory-profile.md`:** selected frame/image/pointer operations and native-pointer obligations.
+- **`callable-profile.md`:** checked indirect ABI, immutable signatures, shared observations and source-support limits; no bytecode rewriting.
+- **`foreign-profile.md`:** typed externs, VM-local binding, C-ABI bridges and selected `FCALL.X`.
+- **`dynamic-profile.md`:** collector-free dynamic-value/counting obligations and encoding gates; supersedes tracing profile 5 without making it loadable.
 - **`slet-subset.md`:** the production Let/SLet frontend's supported source paths and deliberate limits.
 - **`frontend-completion-plan.md`:** active specification-driven frontend backlog, audit probes, dependencies, detailed acceptance tests and performance gates.
 - **`remaining-work.md`:** concise restart index into the active frontend completion plan.
-- **`frontend-gap-analysis.md`:** implementation audit of the reused ASDL frontend, required compilation boundaries, completed foundation, and detailed source roadmap.
+- **`frontend-gap-analysis.md`:** historical implementation audit; its source-profile/GC roadmap is superseded by the current ownership and completion plans.
 - **`compiler-continuations.md`:** continuation-directed production lowering, local `CALL`/`TCALL` selection, defunctionalization, recursion as cyclic control flow, and the restricted tail-call-modulo-accumulation optimization.
 - **`symbolic-vm.md`:** generated musttail abstract ABC execution shared by the native, canonical-ABC, and portable-C peer sinks.
 - **`abc-opt.md`:** the standalone C ABC-to-ABC symbolic optimizer, canonical stack re-projection, frontend-fact contract, provenance, fixpoint and differential guarantees.
-- **`four_lane_fork_v3.md`:** the four-lane stack-register design, an alternative that was compiled, measured and not adopted. The specification's section "Status and measurements" records the comparison.
+- **`four_lane_fork_v3.md`:** the four-lane stack-register design, an alternative that was compiled, measured and not adopted. The pre-alignment specification archive preserves the historical comparison.

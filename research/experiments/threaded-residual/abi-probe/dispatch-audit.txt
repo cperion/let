@@ -1,0 +1,70 @@
+00000000000011b0 <const_r2>:
+    11b0:	49 8d 44 24 10       	lea    0x10(%r12),%rax
+    11b5:	49 8b 54 24 08       	mov    0x8(%r12),%rdx
+    11ba:	4d 8b 54 24 10       	mov    0x10(%r12),%r10
+    11bf:	49 89 c4             	mov    %rax,%r12
+    11c2:	4c 89 d0             	mov    %r10,%rax
+    11c5:	ff e0                	jmp    *%rax
+    11c7:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+    11ce:	00 00 
+
+00000000000011d0 <add_r2_r5>:
+    11d0:	4c 01 ca             	add    %r9,%rdx
+    11d3:	49 8b 44 24 08       	mov    0x8(%r12),%rax
+    11d8:	49 83 c4 08          	add    $0x8,%r12
+    11dc:	ff e0                	jmp    *%rax
+    11de:	66 90                	xchg   %ax,%ax
+
+00000000000011e0 <addi_r2>:
+    11e0:	49 03 54 24 08       	add    0x8(%r12),%rdx
+    11e5:	49 8b 44 24 10       	mov    0x10(%r12),%rax
+    11ea:	49 83 c4 10          	add    $0x10,%r12
+    11ee:	ff e0                	jmp    *%rax
+
+00000000000011f0 <load_C_r5>:
+    11f0:	49 8b 44 24 08       	mov    0x8(%r12),%rax
+    11f5:	4d 8b 54 24 10       	mov    0x10(%r12),%r10
+    11fa:	4d 8b 0c 07          	mov    (%r15,%rax,1),%r9
+    11fe:	49 83 c4 10          	add    $0x10,%r12
+    1202:	4c 89 d0             	mov    %r10,%rax
+    1205:	ff e0                	jmp    *%rax
+    1207:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+    120e:	00 00 
+
+0000000000001210 <load_A_r3>:
+    1210:	49 8b 44 24 08       	mov    0x8(%r12),%rax
+    1215:	4d 8b 54 24 10       	mov    0x10(%r12),%r10
+    121a:	49 8b 4c 05 00       	mov    0x0(%r13,%rax,1),%rcx
+    121f:	49 83 c4 10          	add    $0x10,%r12
+    1223:	4c 89 d0             	mov    %r10,%rax
+    1226:	ff e0                	jmp    *%rax
+    1228:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+    122f:	00 
+
+0000000000001230 <store_A_r2>:
+    1230:	49 8b 44 24 08       	mov    0x8(%r12),%rax
+    1235:	49 89 54 05 00       	mov    %rdx,0x0(%r13,%rax,1)
+    123a:	49 8b 44 24 10       	mov    0x10(%r12),%rax
+    123f:	49 83 c4 10          	add    $0x10,%r12
+    1243:	ff e0                	jmp    *%rax
+    1245:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+    124c:	00 00 00 00 
+
+0000000000001250 <bne_r2_r3>:
+    1250:	48 39 ca             	cmp    %rcx,%rdx
+    1253:	75 0a                	jne    125f <bne_r2_r3+0xf>
+    1255:	49 83 c4 10          	add    $0x10,%r12
+    1259:	49 8b 04 24          	mov    (%r12),%rax
+    125d:	ff e0                	jmp    *%rax
+    125f:	4d 8b 64 24 08       	mov    0x8(%r12),%r12
+    1264:	49 8b 04 24          	mov    (%r12),%rax
+    1268:	ff e0                	jmp    *%rax
+    126a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+
+0000000000001270 <jump>:
+    1270:	4d 8b 64 24 08       	mov    0x8(%r12),%r12
+    1275:	49 8b 04 24          	mov    (%r12),%rax
+    1279:	ff e0                	jmp    *%rax
+    127b:	0f 1f 44 00 00       	nopl   0x0(%rax,%rax,1)
+
+PASS: eight dispatching handlers have indirect jumps, no calls, pushes, pops or rsp/rbp references.

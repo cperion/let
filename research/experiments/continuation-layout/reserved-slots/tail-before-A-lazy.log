@@ -1,0 +1,5 @@
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 1 roots=1,6,13
+GENERAL_ENTRY 1 roots_stable=3 A=555 B=666 cbase=13
+MATERIALIZED_RETURN 1
+abc: abort at byte 0x2e6: language abort 8

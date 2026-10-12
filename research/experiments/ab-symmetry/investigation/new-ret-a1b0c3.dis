@@ -1,0 +1,163 @@
+
+research/experiments/ab-symmetry/final-comparison/runlet:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+00000000001fc000 <handler_a1b0c3_RET_A>:
+  1fc000:	55                   	push   %rbp
+  1fc001:	4c 89 5c 24 e0       	mov    %r11,-0x20(%rsp)
+  1fc006:	4c 89 4c 24 d8       	mov    %r9,-0x28(%rsp)
+  1fc00b:	4c 89 44 24 d0       	mov    %r8,-0x30(%rsp)
+  1fc010:	49 89 cb             	mov    %rcx,%r11
+  1fc013:	41 0f b6 4c 24 01    	movzbl 0x1(%r12),%ecx
+  1fc019:	bb 02 00 00 00       	mov    $0x2,%ebx
+  1fc01e:	29 cb                	sub    %ecx,%ebx
+  1fc020:	44 8d 41 fe          	lea    -0x2(%rcx),%r8d
+  1fc024:	49 f7 d8             	neg    %r8
+  1fc027:	31 c0                	xor    %eax,%eax
+  1fc029:	83 f9 03             	cmp    $0x3,%ecx
+  1fc02c:	b9 00 00 00 00       	mov    $0x0,%ecx
+  1fc031:	49 0f 43 c8          	cmovae %r8,%rcx
+  1fc035:	49 c7 c0 f8 ff ff ff 	mov    $0xfffffffffffffff8,%r8
+  1fc03c:	64 4d 8b 10          	mov    %fs:(%r8),%r10
+  1fc040:	4d 8d 3c cf          	lea    (%r15,%rcx,8),%r15
+  1fc044:	49 8b 2a             	mov    (%r10),%rbp
+  1fc047:	0f 43 d8             	cmovae %eax,%ebx
+  1fc04a:	45 0f b6 64 24 02    	movzbl 0x2(%r12),%r12d
+  1fc050:	4c 8b 45 38          	mov    0x38(%rbp),%r8
+  1fc054:	4c 8b 8d 88 00 00 00 	mov    0x88(%rbp),%r9
+  1fc05b:	49 8d 48 ff          	lea    -0x1(%r8),%rcx
+  1fc05f:	48 89 4d 38          	mov    %rcx,0x38(%rbp)
+  1fc063:	43 83 7c c1 fc 00    	cmpl   $0x0,-0x4(%r9,%r8,8)
+  1fc069:	47 8b 4c c1 f8       	mov    -0x8(%r9,%r8,8),%r9d
+  1fc06e:	74 52                	je     1fc0c2 <handler_a1b0c3_RET_A+0xc2>
+  1fc070:	49 89 7d 00          	mov    %rdi,0x0(%r13)
+  1fc074:	49 83 c5 08          	add    $0x8,%r13
+  1fc078:	42 8d 0c e5 00 00 00 	lea    0x0(,%r12,8),%ecx
+  1fc07f:	00 
+  1fc080:	4d 85 e4             	test   %r12,%r12
+  1fc083:	0f 84 08 01 00 00    	je     1fc191 <handler_a1b0c3_RET_A+0x191>
+  1fc089:	48 89 4c 24 e8       	mov    %rcx,-0x18(%rsp)
+  1fc08e:	4c 89 4c 24 f0       	mov    %r9,-0x10(%rsp)
+  1fc093:	4c 89 7c 24 f8       	mov    %r15,-0x8(%rsp)
+  1fc098:	49 f7 dc             	neg    %r12
+  1fc09b:	45 31 c0             	xor    %r8d,%r8d
+  1fc09e:	4b 8b 4c e5 00       	mov    0x0(%r13,%r12,8),%rcx
+  1fc0a3:	b8 01 00 00 00       	mov    $0x1,%eax
+  1fc0a8:	45 89 c0             	mov    %r8d,%r8d
+  1fc0ab:	4c 8d 0d 0e 28 05 00 	lea    0x5280e(%rip),%r9        # 24e8c0 <native_emit_c_operand.opc32+0x1400>
+  1fc0b2:	4f 63 3c 81          	movslq (%r9,%r8,4),%r15
+  1fc0b6:	4d 01 cf             	add    %r9,%r15
+  1fc0b9:	4d 89 d8             	mov    %r11,%r8
+  1fc0bc:	49 89 cb             	mov    %rcx,%r11
+  1fc0bf:	41 ff e7             	jmp    *%r15
+  1fc0c2:	48 85 c9             	test   %rcx,%rcx
+  1fc0c5:	74 27                	je     1fc0ee <handler_a1b0c3_RET_A+0xee>
+  1fc0c7:	49 8b 42 18          	mov    0x18(%r10),%rax
+  1fc0cb:	4e 8d 24 08          	lea    (%rax,%r9,1),%r12
+  1fc0cf:	89 d9                	mov    %ebx,%ecx
+  1fc0d1:	4c 8d 05 d8 0b 11 00 	lea    0x110bd8(%rip),%r8        # 30ccb0 <abc_tables>
+  1fc0d8:	49 8b 8c c8 a0 00 00 	mov    0xa0(%r8,%rcx,8),%rcx
+  1fc0df:	00 
+  1fc0e0:	42 0f b6 04 08       	movzbl (%rax,%r9,1),%eax
+  1fc0e5:	48 8b 04 c1          	mov    (%rcx,%rax,8),%rax
+  1fc0e9:	e9 8e 00 00 00       	jmp    1fc17c <handler_a1b0c3_RET_A+0x17c>
+  1fc0ee:	31 c0                	xor    %eax,%eax
+  1fc0f0:	b9 01 00 00 00       	mov    $0x1,%ecx
+  1fc0f5:	89 4d 78             	mov    %ecx,0x78(%rbp)
+  1fc0f8:	89 45 7c             	mov    %eax,0x7c(%rbp)
+  1fc0fb:	89 9d 80 00 00 00    	mov    %ebx,0x80(%rbp)
+  1fc101:	4c 2b 6d 00          	sub    0x0(%rbp),%r13
+  1fc105:	49 c1 fd 03          	sar    $0x3,%r13
+  1fc109:	4c 89 6d 18          	mov    %r13,0x18(%rbp)
+  1fc10d:	66 49 0f 6e c7       	movq   %r15,%xmm0
+  1fc112:	66 49 0f 6e ce       	movq   %r14,%xmm1
+  1fc117:	66 0f 6c c8          	punpcklqdq %xmm0,%xmm1
+  1fc11b:	f3 0f 6f 45 08       	movdqu 0x8(%rbp),%xmm0
+  1fc120:	66 0f fb c8          	psubq  %xmm0,%xmm1
+  1fc124:	66 0f 70 c1 ed       	pshufd $0xed,%xmm1,%xmm0
+  1fc129:	66 0f 72 e0 03       	psrad  $0x3,%xmm0
+  1fc12e:	66 0f 73 d1 03       	psrlq  $0x3,%xmm1
+  1fc133:	66 0f 70 c9 e8       	pshufd $0xe8,%xmm1,%xmm1
+  1fc138:	66 0f 62 c8          	punpckldq %xmm0,%xmm1
+  1fc13c:	f3 0f 7f 4d 20       	movdqu %xmm1,0x20(%rbp)
+  1fc141:	48 89 7d 40          	mov    %rdi,0x40(%rbp)
+  1fc145:	48 89 75 48          	mov    %rsi,0x48(%rbp)
+  1fc149:	48 89 55 50          	mov    %rdx,0x50(%rbp)
+  1fc14d:	4c 89 5d 58          	mov    %r11,0x58(%rbp)
+  1fc151:	48 8b 44 24 d0       	mov    -0x30(%rsp),%rax
+  1fc156:	48 89 45 60          	mov    %rax,0x60(%rbp)
+  1fc15a:	48 8b 44 24 d8       	mov    -0x28(%rsp),%rax
+  1fc15f:	48 89 45 68          	mov    %rax,0x68(%rbp)
+  1fc163:	48 8b 44 24 e0       	mov    -0x20(%rsp),%rax
+  1fc168:	48 89 45 70          	mov    %rax,0x70(%rbp)
+  1fc16c:	45 89 4a 28          	mov    %r9d,0x28(%r10)
+  1fc170:	41 c7 42 2c 01 00 00 	movl   $0x1,0x2c(%r10)
+  1fc177:	00 
+  1fc178:	31 c0                	xor    %eax,%eax
+  1fc17a:	5d                   	pop    %rbp
+  1fc17b:	c3                   	ret
+  1fc17c:	4c 89 d9             	mov    %r11,%rcx
+  1fc17f:	4c 8b 44 24 d0       	mov    -0x30(%rsp),%r8
+  1fc184:	4c 8b 4c 24 d8       	mov    -0x28(%rsp),%r9
+  1fc189:	4c 8b 5c 24 e0       	mov    -0x20(%rsp),%r11
+  1fc18e:	5d                   	pop    %rbp
+  1fc18f:	ff e0                	jmp    *%rax
+  1fc191:	49 29 cd             	sub    %rcx,%r13
+  1fc194:	48 83 7d 38 00       	cmpq   $0x0,0x38(%rbp)
+  1fc199:	74 23                	je     1fc1be <handler_a1b0c3_RET_A+0x1be>
+  1fc19b:	4d 8b 62 18          	mov    0x18(%r10),%r12
+  1fc19f:	c1 e0 05             	shl    $0x5,%eax
+  1fc1a2:	8d 04 d8             	lea    (%rax,%rbx,8),%eax
+  1fc1a5:	48 8d 0d 04 0b 11 00 	lea    0x110b04(%rip),%rcx        # 30ccb0 <abc_tables>
+  1fc1ac:	48 8b 04 01          	mov    (%rcx,%rax,1),%rax
+  1fc1b0:	43 0f b6 0c 0c       	movzbl (%r12,%r9,1),%ecx
+  1fc1b5:	4d 01 cc             	add    %r9,%r12
+  1fc1b8:	48 8b 04 c8          	mov    (%rax,%rcx,8),%rax
+  1fc1bc:	eb be                	jmp    1fc17c <handler_a1b0c3_RET_A+0x17c>
+  1fc1be:	31 c9                	xor    %ecx,%ecx
+  1fc1c0:	e9 30 ff ff ff       	jmp    1fc0f5 <handler_a1b0c3_RET_A+0xf5>
+  1fc1c5:	66 66 2e 0f 1f 84 00 	data16 cs nopw 0x0(%rax,%rax,1)
+  1fc1cc:	00 00 00 00 
+  1fc1d0:	49 ff c4             	inc    %r12
+  1fc1d3:	74 5a                	je     1fc22f <handler_a1b0c3_RET_A+0x22f>
+  1fc1d5:	4b 8b 4c e5 00       	mov    0x0(%r13,%r12,8),%rcx
+  1fc1da:	89 c0                	mov    %eax,%eax
+  1fc1dc:	4d 63 3c 81          	movslq (%r9,%rax,4),%r15
+  1fc1e0:	4d 01 cf             	add    %r9,%r15
+  1fc1e3:	4d 89 d8             	mov    %r11,%r8
+  1fc1e6:	49 89 cb             	mov    %rcx,%r11
+  1fc1e9:	b8 01 00 00 00       	mov    $0x1,%eax
+  1fc1ee:	41 ff e7             	jmp    *%r15
+  1fc1f1:	b8 02 00 00 00       	mov    $0x2,%eax
+  1fc1f6:	4d 89 c3             	mov    %r8,%r11
+  1fc1f9:	48 89 ca             	mov    %rcx,%rdx
+  1fc1fc:	eb d2                	jmp    1fc1d0 <handler_a1b0c3_RET_A+0x1d0>
+  1fc1fe:	b8 04 00 00 00       	mov    $0x4,%eax
+  1fc203:	4d 89 c3             	mov    %r8,%r11
+  1fc206:	eb 15                	jmp    1fc21d <handler_a1b0c3_RET_A+0x21d>
+  1fc208:	4d 89 06             	mov    %r8,(%r14)
+  1fc20b:	49 83 c6 08          	add    $0x8,%r14
+  1fc20f:	b8 04 00 00 00       	mov    $0x4,%eax
+  1fc214:	49 89 d3             	mov    %rdx,%r11
+  1fc217:	48 89 f2             	mov    %rsi,%rdx
+  1fc21a:	48 89 fe             	mov    %rdi,%rsi
+  1fc21d:	48 89 cf             	mov    %rcx,%rdi
+  1fc220:	eb ae                	jmp    1fc1d0 <handler_a1b0c3_RET_A+0x1d0>
+  1fc222:	b8 03 00 00 00       	mov    $0x3,%eax
+  1fc227:	4d 89 c3             	mov    %r8,%r11
+  1fc22a:	48 89 ce             	mov    %rcx,%rsi
+  1fc22d:	eb a1                	jmp    1fc1d0 <handler_a1b0c3_RET_A+0x1d0>
+  1fc22f:	4c 8b 7c 24 f8       	mov    -0x8(%rsp),%r15
+  1fc234:	4c 8b 4c 24 f0       	mov    -0x10(%rsp),%r9
+  1fc239:	48 8b 4c 24 e8       	mov    -0x18(%rsp),%rcx
+  1fc23e:	e9 4e ff ff ff       	jmp    1fc191 <handler_a1b0c3_RET_A+0x191>
+
+Disassembly of section .fini:

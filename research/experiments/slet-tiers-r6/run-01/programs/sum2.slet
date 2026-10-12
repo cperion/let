@@ -1,0 +1,10 @@
+let loop(n: u32, a: u32, b: u32): u32 = do
+    if n == 0 then return a ~ b end
+    let ax = a ~ (a << 13)
+    let ay = ax ~ (ax >> 17)
+    let bx = b ~ (b << 13)
+    let by = bx ~ (bx >> 17)
+    return loop(n - 1, ay ~ (ay << 5), by ~ (by << 5))
+end
+let main(n: u32): u32 = loop(n, 305419896, 2654435769)
+

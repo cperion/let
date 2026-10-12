@@ -1,0 +1,6 @@
+research/archive/phase-5-documentation-before-alignment/architecture.md: OK
+research/archive/phase-5-documentation-before-alignment/callable-profile.md: OK
+research/archive/phase-5-documentation-before-alignment/foreign-profile.md: OK
+research/archive/phase-5-documentation-before-alignment/memory-profile.md: OK
+research/archive/phase-5-documentation-before-alignment/module-format.md: OK
+research/archive/phase-5-documentation-before-alignment/spec.md: OK

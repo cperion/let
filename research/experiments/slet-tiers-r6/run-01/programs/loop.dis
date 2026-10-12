@@ -1,0 +1,42 @@
+function 0: 2 arguments, 1 results
+  00000000  CGET1_B       
+  00000001  SHLI_B         13
+  00000003  ZX32_B        
+  00000004  CGET1_A       
+  00000005  XOR_A         
+  00000006  ZX32_A        
+  00000007  CPUSH_A       
+  00000008  CGET0_A       
+  00000009  CGET0_B       
+  0000000a  SHRI_B         17
+  0000000c  ZX32_B        
+  0000000d  XOR_A         
+  0000000e  ZX32_A        
+  0000000f  CPUSH_A       
+  00000010  CGETN_A        2
+  00000012  BNEI_A         0 0x0000001c
+  00000017  CGETN_A        3
+  00000019  RET_A          4 1
+  0000001c  CGET0_A       
+  0000001d  CGET0_B       
+  0000001e  SHLI_B         5
+  00000020  ZX32_B        
+  00000021  XOR_A         
+  00000022  ZX32_A        
+  00000023  XORC_A         2
+  00000026  ZX32_A        
+  00000027  CGETN_A        2
+  00000029  SUBI_A         1
+  0000002b  ZX32_A        
+  0000002c  CSETN_A        2
+  0000002e  CSETN_A        3
+  00000030  CPOP          
+  00000031  CPOP          
+  00000032  JMP            0x00000000
+function 1: 1 arguments, 1 results
+  00000035  PUSH8_A        0
+  00000037  CPUSH_A       
+  00000038  CGET1_A       
+  00000039  PUSH8_A        0
+  0000003b  TCALL_A        0x00000000 2 2
+export main = function 1

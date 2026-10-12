@@ -1,0 +1,16 @@
+.profile memory
+.function main 12 2 iiiiiiiiiiii ii
+CGET.B 0
+JMP homes
+homes:
+CPUSH.B
+PUSH.B 901
+JMP reused
+reused:
+CGET.B 0
+CPOP
+MOVE.BA
+MOVE.BA
+RET 12 2
+
+.export main

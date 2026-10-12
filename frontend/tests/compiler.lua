@@ -1,4 +1,7 @@
 -- Source-profile and source-ingestion checks for the real ASDL-based compiler.
+-- Both frontends are checked; only SLet executes on the typed-only runtime.
+-- Profile-5 execution cases are preserved in
+-- research/archive/dynamic-layer-before-typed-teardown/mixed-frontend-tests/compiler.lua.
 local source = debug.getinfo(1, "S").source:sub(2)
 local here = source:match("^(.*[/\\])") or "./"
 package.path = here .. "../?.lua;" .. here .. "../?/init.lua;" .. here .. "../../build/?.lua;" .. package.path
@@ -6,7 +9,36 @@ package.path = here .. "../?.lua;" .. here .. "../?/init.lua;" .. here .. "../..
 local Compiler = require("let.compiler")
 local D = require("let.diag")
 local checks = 0
+local runtimeModes = {slet = {"interpreted", "eager", "lazy"}, let = {}}
 local function check(ok, message) assert(ok, message); checks = checks + 1 end
+
+-- Let is checked through real semantic IR, not an invented assembly artifact.
+local function checkedLet(options)
+  local unit=Compiler.typed(options)
+  check(unit.phase=='typed-ir' and #unit.functions>0,'Let source constructs semantic IR: '..options.name)
+  local accepted,error=pcall(Compiler.compile,options)
+  check(not accepted and D.is(error) and error.code=='dynamic-lowering',
+    'Let executable lowering is explicitly unavailable: '..options.name)
+  return unit
+end
+local function checkedSource(options)
+  if options.profile=='let' then return checkedLet(options) end
+  return Compiler.compile(options)
+end
+local function hasIR(unit,kind,operation)
+  local found=false
+  for _,fn in ipairs(unit.functions) do require('let.walk').walk(fn,{enter=function(node)
+    if node.kind==kind and (not operation or node.operation and node.operation.kind==operation) then found=true end
+  end}) end
+  return found
+end
+local function checkedLetFile(path)
+  local graph=Compiler.typedFile(path)
+  check(graph.phase=='typed-ir' and #graph.functions>0,'Let imports construct verified IR')
+  local accepted,error=pcall(Compiler.compileFile,path)
+  check(not accepted and D.is(error) and error.code=='dynamic-lowering','Let file lowering rejects unavailable runtime')
+  return graph
+end
 
 local function compile(profile, text)
     return Compiler.source { profile = profile, source = text, name = "test." .. profile }
@@ -36,12 +68,18 @@ let add(a: u32, b: u32): u32 = host_add(a, b)
 return { functions = { add } }
 ]]
 for _,profile in ipairs({"slet","let"}) do
-  local foreign=Compiler.compile{profile=profile,source=foreignSource,name="foreign."..profile}
+  local foreign=checkedSource{profile=profile,source=foreignSource,name="foreign."..profile}
+  if profile=='slet' then
   check(#foreign.sourceUnit.foreigns==1 and foreign.assembly:match("%.extern host_add ii i"),
     profile.." source extern declarations lower to a verified foreign ABI")
-  check(foreign.assembly:match("FCALL host_add"),profile.." source foreign calls lower to FCALL")
+  check(foreign.assembly:match("FCALL%.A host_add"),profile.." source foreign calls lower to FCALL")
   local stageOk,stageError=pcall(Compiler.stage,foreign.functions,{profile=profile,entry="add",exports={"add"},mode="interpreted",foreigns=foreign.sourceUnit.foreigns})
   check(not stageOk and D.is(stageError) and stageError.code=="static-foreign",profile.." source foreign effects reject compile-time execution")
+  else
+    check(#foreign.foreigns==1,'Let retains foreign signature IR without code generation')
+    local stageOK,stageError=pcall(Compiler.stage,foreign.functions,{profile='let',entry='add',mode='interpreted',foreigns=foreign.foreigns})
+    check(not stageOK and D.is(stageError) and stageError.code=='dynamic-lowering','staging cannot bypass the Let lowering boundary')
+  end
 end
 
 ok, err = pcall(compile, "slet",
@@ -79,7 +117,7 @@ check(typed.functions[1].id == "add" and typed.functions[6].id == "main", "seman
 local lowered = Compiler.compile { profile = "slet", source = sourceProgram, name = "source-ir.slet" }
 check(lowered.phase == "lowered" and lowered.assembly:match("%.export main"), "source compilation reaches checked ABC lowering")
 local modules = {}
-for _, mode in ipairs({"interpreted", "eager", "lazy"}) do
+for _, mode in ipairs({"interpreted", "eager", "lazy", "threaded"}) do
   local result = Compiler.stage(lowered.functions, { profile = "slet", entry = "main", exports = {"main"}, mode = mode })
   check(tonumber(result.cells[1]) == 42, "source-built IR executes in " .. mode .. " mode")
   for _, case in ipairs({{"choose", 0, 10}, {"choose", 5, 6}, {"select", 0, 20}, {"select", 5, 7}, {"safe", 0, 1}, {"safe", 10, 0}, {"via", 20, 42}}) do
@@ -111,17 +149,19 @@ return { functions = { main } }
 ]]
 local aggregateModules = {}
 for _, profile in ipairs({"slet", "let"}) do
-  local aggregate = Compiler.compile { profile=profile, source=aggregateSource, name="aggregate."..profile }
-  check(aggregate.assembly:match("ST32") and aggregate.assembly:match("LD32"),
-    profile.." source aggregates lower through checked frame storage")
-  for _, mode in ipairs({"interpreted", "eager", "lazy"}) do
+  local aggregate = checkedSource { profile=profile, source=aggregateSource, name="aggregate."..profile }
+  if profile=='slet' then
+    check(aggregate.assembly:match("ST32") and aggregate.assembly:match("LD32"),
+      'SLet source aggregates lower through checked frame storage')
+  else check(hasIR(aggregate,'Store') and hasIR(aggregate,'Read'),'Let aggregate storage remains in IR') end
+  for _, mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(aggregate.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==141,profile.." records, arrays, slices, strings, and stores execute in "..mode)
     aggregateModules[#aggregateModules+1]=result.module
   end
 end
-check(aggregateModules[1]==aggregateModules[2] and aggregateModules[2]==aggregateModules[3] and aggregateModules[4]==aggregateModules[5] and aggregateModules[5]==aggregateModules[6],
-  "aggregate source optimized modules are policy-independent in each profile")
+check(#aggregateModules==3 and aggregateModules[1]==aggregateModules[2] and aggregateModules[2]==aggregateModules[3],
+  "SLet aggregate source optimized modules are policy-independent")
 local recursiveTypeSource=[[
 let node = { value: u32, next: link }
 let link = oneof { none: unit, some: ref(node) }
@@ -133,8 +173,10 @@ end
 return { functions = { value }, types = { node, link } }
 ]]
 for _,profile in ipairs({"slet","let"}) do
-  local recursive=Compiler.compile{profile=profile,source=recursiveTypeSource,name="recursive-type."..profile}
-  check(recursive.sourceUnit.typeCells["type:node"]~=nil and recursive.assembly:match("FCALL root"),profile.." seals mutually recursive types through an indirection")
+  local recursive=checkedSource{profile=profile,source=recursiveTypeSource,name="recursive-type."..profile}
+  local unit=profile=='slet' and recursive.sourceUnit or recursive
+  check(unit.typeCells['type:node']~=nil,profile..' seals mutually recursive types through an indirection')
+  if profile=='slet' then check(recursive.assembly:match('FCALL%.A root'),'SLet recursive-type foreign call emits selected ABI') end
 end
 for _,source in ipairs({
   "let bad = { child: bad }\nreturn { types = { bad } }",
@@ -157,8 +199,8 @@ end
 return { functions = { main } }
 ]]
 for _,profile in ipairs({"slet","let"}) do
-  local pointerProgram=Compiler.compile{profile=profile,source=pointerSource,name="pointer."..profile}
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local pointerProgram=checkedSource{profile=profile,source=pointerSource,name="pointer."..profile}
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(pointerProgram.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==42,profile.." raw pointer construction, indexing, null, and stores execute in "..mode.." mode")
   end
@@ -175,11 +217,7 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]]
-local aggregateAny=Compiler.compile{profile="let",source=aggregateAnySource,name="aggregate-any.let"}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(aggregateAny.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"Let boxes, tests, and casts managed aggregates through any in "..mode.." mode")
-end
+local aggregateAny=checkedLet{profile="let",source=aggregateAnySource,name="aggregate-any.let"}
 
 local methodSource=[[
 let counter = {
@@ -199,8 +237,8 @@ end
 return { functions = { main } }
 ]]
 for _,profile in ipairs({"slet","let"}) do
-  local methods=Compiler.compile{profile=profile,source=methodSource,name="methods."..profile}
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local methods=checkedSource{profile=profile,source=methodSource,name="methods."..profile}
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(methods.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==170,profile.." methods retain interfaces on actual value, reference, and nested-field receivers in "..mode.." mode")
   end
@@ -221,13 +259,8 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]=]
-local retainedMethod=Compiler.compile{profile="let",source=retainedMethodSource,name="retained-method.let"}
-check(retainedMethod.assembly:match("MANAGED_COPY") and retainedMethod.assembly:match("_let_adapter_"),
-  "retained method values capture their actual managed receiver")
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(retainedMethod.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"retained method values execute in "..mode.." mode")
-end
+local retainedMethod=checkedLet{profile="let",source=retainedMethodSource,name="retained-method.let"}
+check(hasIR(retainedMethod,'View'),'retained method values preserve callable capture IR')
 ok,err=pcall(Compiler.typed,{profile="slet",source=retainedMethodSource,name="retained-method.slet"})
 check(not ok and err.code=="slet-forbidden","SLet rejects retained method receivers")
 
@@ -240,8 +273,8 @@ end
 return { functions = { main } }
 ]]
 for _,profile in ipairs({"slet","let"}) do
-  local keyed=Compiler.compile{profile=profile,source=keyedSource,name="keyed."..profile}
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local keyed=checkedSource{profile=profile,source=keyedSource,name="keyed."..profile}
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(keyed.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==50,profile.." keyed requirements canonicalize full and static partial supplies in "..mode.." mode")
   end
@@ -252,13 +285,13 @@ let bad(n: u32): (u32): u32 = add { x = n }
 return { functions = { bad } }
 ]]})
 check(not keyedOk and D.is(keyedError) and keyedError.code=="slet-forbidden","SLet rejects runtime keyed callable retention")
-local partialRuntime=Compiler.compile{profile="let",name="partial-runtime.let",source=[[
+local partialRuntime=checkedLet{profile="let",name="partial-runtime.let",source=[[
 let add(a, b: u32): u32 = a + b
 let partial(n: u32): any = add(n)
 return { functions = { partial } }
 ]]}
-check(partialRuntime.assembly:match("WORD_DIRECT") and partialRuntime.assembly:match("DCALL"),
-  "Let run-time ordered partial supply opens a word instead of claiming static evidence")
+check(hasIR(partialRuntime,'View') and hasIR(partialRuntime,'Indirect'),
+  'Let ordered partial supply remains a runtime operation in IR')
 
 local deferSource=[[
 let push(p: ptr(u32), digit: u32): unit = do
@@ -289,8 +322,8 @@ end
 return { functions = { main } }
 ]]
 for _,profile in ipairs({"slet","let"}) do
-  local deferred=Compiler.compile{profile=profile,source=deferSource,name="defer."..profile}
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local deferred=checkedSource{profile=profile,source=deferSource,name="defer."..profile}
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(deferred.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==121,profile.." deferred calls snapshot arguments and leave nested blocks in LIFO order in "..mode.." mode")
   end
@@ -310,8 +343,8 @@ end
 return { functions = { main } }
 ]]
 for _,profile in ipairs({"slet","let"}) do
-  local nested=Compiler.compile{profile=profile,source=nestedWordSource,name="nested-word."..profile}
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local nested=checkedSource{profile=profile,source=nestedWordSource,name="nested-word."..profile}
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(nested.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==8,profile.." nested words retain lexical values and places through self recursion in "..mode.." mode")
   end
@@ -341,18 +374,20 @@ return { functions = { main } }
 ]]
 local aggregateAbiModules={}
 for _,profile in ipairs({"slet","let"}) do
-  local program=Compiler.compile{profile=profile,source=aggregateAbiSource,name="aggregate-abi."..profile}
-  check(program.assembly:match("%.function make_pair 0 2") and program.assembly:match("%.function make_array 0 3"),
-    profile.." source aggregate results flatten into deterministic ABC cells")
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local program=checkedSource{profile=profile,source=aggregateAbiSource,name="aggregate-abi."..profile}
+  if profile=='slet' then
+    check(program.assembly:match('%.function make_pair 0 2') and program.assembly:match('%.function make_array 0 3'),
+      'SLet aggregate results flatten into deterministic ABC cells')
+  end
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(program.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==42,profile.." aggregate arguments, results, and sum payloads execute in "..mode)
     check(Compiler.optimize(result.module)==result.module,profile.." aggregate ABI optimization is a fixpoint in "..mode)
     aggregateAbiModules[#aggregateAbiModules+1]=result.module
   end
 end
-check(aggregateAbiModules[1]==aggregateAbiModules[2] and aggregateAbiModules[2]==aggregateAbiModules[3] and aggregateAbiModules[4]==aggregateAbiModules[5] and aggregateAbiModules[5]==aggregateAbiModules[6],
-  "aggregate ABI residual modules are policy-independent in each profile")
+check(#aggregateAbiModules==3 and aggregateAbiModules[1]==aggregateAbiModules[2] and aggregateAbiModules[2]==aggregateAbiModules[3],
+  "SLet aggregate ABI residual modules are policy-independent")
 
 local inferredBlockMatchSource=[=[
 let option = oneof { none: unit, some: u32 }
@@ -367,8 +402,8 @@ end
 return { functions = { main } }
 ]=]
 for _,profile in ipairs({"slet","let"}) do
-  local program=Compiler.compile{profile=profile,source=inferredBlockMatchSource,name="inferred-block-match."..profile}
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local program=checkedSource{profile=profile,source=inferredBlockMatchSource,name="inferred-block-match."..profile}
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(program.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==42,profile.." infers block-bodied sum handler results in "..mode.." mode")
   end
@@ -396,15 +431,15 @@ return { functions = { main } }
 ]]
 local sumModules={}
 for _,profile in ipairs({"slet","let"}) do
-  local sumProgram=Compiler.compile{profile=profile,source=sumSource,name="sum."..profile}
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local sumProgram=checkedSource{profile=profile,source=sumSource,name="sum."..profile}
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(sumProgram.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==42,profile.." sum construction and matching execute in "..mode)
     sumModules[#sumModules+1]=result.module
   end
 end
-check(sumModules[1]==sumModules[2] and sumModules[2]==sumModules[3] and sumModules[4]==sumModules[5] and sumModules[5]==sumModules[6],
-  "sum source optimized modules are policy-independent in each profile")
+check(#sumModules==3 and sumModules[1]==sumModules[2] and sumModules[2]==sumModules[3],
+  "SLet sum source optimized modules are policy-independent")
 local blockMatchSource=[[
 let option = oneof { none: unit, some: u32 }
 let unwrap(value: option): u32 = value {
@@ -421,8 +456,8 @@ let main(): u32 = unwrap(option.some(40))
 return { functions = { main } }
 ]]
 for _,profile in ipairs({"slet","let"}) do
-  local program=Compiler.compile{profile=profile,source=blockMatchSource,name="block-match."..profile}
-  for _,mode in ipairs({"interpreted","eager","lazy"}) do
+  local program=checkedSource{profile=profile,source=blockMatchSource,name="block-match."..profile}
+  for _,mode in ipairs(runtimeModes[profile]) do
     local result=Compiler.stage(program.functions,{profile=profile,entry="main",exports={"main"},mode=mode})
     check(tonumber(result.cells[1])==42,profile.." block-bodied sum handlers execute in "..mode.." mode")
   end
@@ -440,17 +475,8 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]]
-local closureProgram=Compiler.compile{profile="let",source=closureSource,name="closure.let"}
-check(closureProgram.assembly:match("MANAGED_NEW") and closureProgram.assembly:match("_let_adapter_"),
-  "capturing source lambdas lower through managed checked adapters")
-local closureModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(closureProgram.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"escaping managed source capture executes in "..mode)
-  closureModules[#closureModules+1]=result.module
-end
-check(closureModules[1]==closureModules[2] and closureModules[2]==closureModules[3],
-  "managed source closure modules are policy-independent")
+local closureProgram=checkedLet{profile="let",source=closureSource,name="closure.let"}
+check(hasIR(closureProgram,'View'),'capturing source lambdas preserve callable IR')
 
 local indirectPartialSource=[=[
 let add(a, b: u32): u32 = a + b
@@ -460,19 +486,9 @@ let main(): u32 = bind(add, 2)(40)
 let managed(): u32 = bind(make(1), 2)(39)
 return { functions = { main, managed } }
 ]=]
-local indirectPartial=Compiler.compile{profile="let",name="indirect-partial.let",source=indirectPartialSource}
-check(indirectPartial.assembly:match("MANAGED_COPY") and indirectPartial.assembly:match("CALLI"),
-  "indirect partial application retains the callable and supplied arguments")
-local indirectPartialModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(indirectPartial.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"indirect partial application executes in "..mode)
-  local managed=Compiler.stage(indirectPartial.functions,{profile="let",entry="managed",exports={"managed"},mode=mode})
-  check(tonumber(managed.cells[1])==42,"indirect partial application retains a managed callable in "..mode)
-  indirectPartialModules[#indirectPartialModules+1]=result.module
-end
-check(indirectPartialModules[1]==indirectPartialModules[2] and indirectPartialModules[2]==indirectPartialModules[3],
-  "indirect partial application modules are policy-independent")
+local indirectPartial=checkedLet{profile="let",name="indirect-partial.let",source=indirectPartialSource}
+check(hasIR(indirectPartial,'View') and hasIR(indirectPartial,'Indirect'),
+  'indirect partial application retains callable and argument IR')
 ok,err=pcall(Compiler.typed,{profile="slet",name="indirect-partial.slet",source=indirectPartialSource})
 check(not ok and err.code=="slet-forbidden","SLet rejects retained indirect partial application")
 
@@ -494,13 +510,9 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]=]
-local openWords=Compiler.compile{profile="let",name="open-words.let",source=openWordSource}
-check(openWords.assembly:match("WORD_NEW") and openWords.assembly:match("WORD_SET") and openWords.assembly:match("WORD_GET"),
-  "Let bare supplies lower to profile-5 open-word operations")
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(openWords.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"open-word fields, aliases, keys, stores, and removal execute in "..mode)
-end
+local openWords=checkedLet{profile="let",name="open-words.let",source=openWordSource}
+check(hasIR(openWords,'Dynamic','WordNew') and hasIR(openWords,'Dynamic','WordSet') and hasIR(openWords,'Dynamic','WordGet'),
+  'Let bare supplies construct explicit open-word IR operations')
 ok,err=pcall(Compiler.typed,{profile="slet",name="open-words.slet",source=openWordSource})
 check(not ok and err.code=="slet-forbidden","SLet rejects bare open-word supplies")
 local openMethodSource=[=[
@@ -521,16 +533,12 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]=]
-local openMethods=Compiler.compile{profile="let",name="open-methods.let",source=openMethodSource}
-check(openMethods.assembly:match("WORD_METHOD"),"open-word methods preserve receiver-binding metadata")
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(openMethods.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"open-word methods bind the selected receiver in "..mode)
-end
+local openMethods=checkedLet{profile="let",name="open-methods.let",source=openMethodSource}
+check(hasIR(openMethods,'Dynamic','WordMethod'),'open-word methods preserve receiver-binding IR')
 ok,err=pcall(Compiler.typed,{profile="slet",name="open-methods.slet",source=openMethodSource})
 check(not ok and err.code=="slet-forbidden","SLet rejects open-word methods")
 
-local runtimeSupply=Compiler.compile{profile="let",name="runtime-supply.let",source=[=[
+local runtimeSupply=checkedLet{profile="let",name="runtime-supply.let",source=[=[
 let add(a, b: u32): u32 = a + b
 let main(): u32 = do
   let supplied: u32 = 2
@@ -540,11 +548,7 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]=]}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(runtimeSupply.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"run-time positional supply opens and invokes a word in "..mode)
-end
-local keyedRuntimeSupply=Compiler.compile{profile="let",name="keyed-runtime-supply.let",source=[=[
+local keyedRuntimeSupply=checkedLet{profile="let",name="keyed-runtime-supply.let",source=[=[
 let add { a: u32, b: u32 }: u32 = a + b
 let digits { a: u32, b: u32, c: u32 }: u32 = a * 100 + b * 10 + c
 let main(): u32 = do
@@ -568,20 +572,8 @@ let bookkeeping(): u32 = do
 end
 return { functions = { main, bookkeeping } }
 ]=]}
-local keyedRuntimeModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(keyedRuntimeSupply.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==124,"run-time keyed supply exposes mutable named requirements in "..mode)
-  local bookkeeping=Compiler.stage(keyedRuntimeSupply.functions,{profile="let",entry="bookkeeping",exports={"bookkeeping"},mode=mode})
-  check(tonumber(bookkeeping.cells[1])==123,"keyed requirement slots survive copying, replacement, removal, and positional filling in "..mode)
-  keyedRuntimeModules[#keyedRuntimeModules+1]=result.module
-end
-check(keyedRuntimeModules[1]==keyedRuntimeModules[2] and keyedRuntimeModules[2]==keyedRuntimeModules[3],
-  "run-time keyed supply modules are policy-independent")
-local noTerminal=Compiler.compile{profile="let",name="no-terminal.let",source="let main(): u32 = do open()() return 0 end\nreturn { functions = { main } }\n"}
-ok,err=pcall(Compiler.stage,noTerminal.functions,{profile="let",entry="main",exports={"main"},mode="interpreted"})
-check(not ok and err.code=="static-no-terminal","calling an open word without a terminal uses the specified no-terminal abort")
-local frozenWords=Compiler.compile{profile="let",name="frozen-word.let",source=[=[
+local noTerminal=checkedLet{profile="let",name="no-terminal.let",source="let main(): u32 = do open()() return 0 end\nreturn { functions = { main } }\n"}
+local frozenWords=checkedLet{profile="let",name="frozen-word.let",source=[=[
 let main(): unit = do
   let word = freeze { value = 1 }
   word.value = 2
@@ -589,8 +581,6 @@ let main(): unit = do
 end
 return { functions = { main } }
 ]=]}
-ok,err=pcall(Compiler.stage,frozenWords.functions,{profile="let",entry="main",exports={"main"},mode="interpreted"})
-check(not ok and err.code=="static-frozen-store","stores through frozen words use the specified frozen-store abort")
 
 local exactLambda=Compiler.compile{profile="slet",name="lambda.slet",source=[[
 let noop(): unit = do return end
@@ -601,7 +591,7 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]]}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
+for _,mode in ipairs({"interpreted","eager","lazy","threaded"}) do
   local result=Compiler.stage(exactLambda.functions,{profile="slet",entry="main",exports={"main"},mode=mode})
   check(tonumber(result.cells[1])==42,"capture-free SLet lambda executes in "..mode)
 end
@@ -655,7 +645,7 @@ return { functions = { bad } }]],
   ok,err=pcall(Compiler.typed,{profile="slet",name="nested-borrow.slet",source=source})
   check(not ok and D.is(err) and err.code=="borrow-return","SLet rejects local borrows hidden by control or aggregates")
 end
-local escapingViews=Compiler.compile{profile="let",name="escaping-views.let",source=[[
+local escapingViews=checkedLet{profile="let",name="escaping-views.let",source=[[
 let pair = { x: u32, y: u32 }
 let make_ref(): ref(pair) = do
   let p = pair { x = 40, y = 2 }
@@ -672,18 +662,8 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]]}
-check(escapingViews.assembly:match("MANAGED_NEW"),"escaping Let references and slices promote lexical backing storage")
-local escapingViewModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(escapingViews.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"escaping Let references and slices execute in "..mode)
-  escapingViewModules[#escapingViewModules+1]=result.module
-end
-check(escapingViewModules[1]==escapingViewModules[2] and escapingViewModules[2]==escapingViewModules[3],
-  "escaping Let reference and slice modules are policy-independent")
-check(Compiler.optimize(escapingViewModules[1])==escapingViewModules[1],
-  "escaping Let reference and slice optimization reaches a fixpoint")
-local retainedCaptures=Compiler.compile{profile="let",name="retained-captures.let",source=[[
+check(hasIR(escapingViews,'Addr'),'escaping Let references and slices retain address IR without claiming runtime allocation')
+local retainedCaptures=checkedLet{profile="let",name="retained-captures.let",source=[[
 let pair = { x: u32 }
 let make_ref_reader(): (u32): u32 = do
   let p = pair { x = 40 }
@@ -702,19 +682,8 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]]}
-check(retainedCaptures.assembly:match("MANAGED_COPY"),
-  "managed callable environments copy captures with owner metadata")
-local retainedCaptureModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(retainedCaptures.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"managed reference and slice captures retain their owners in "..mode)
-  retainedCaptureModules[#retainedCaptureModules+1]=result.module
-end
-check(retainedCaptureModules[1]==retainedCaptureModules[2] and retainedCaptureModules[2]==retainedCaptureModules[3],
-  "managed reference and slice capture modules are policy-independent")
-check(Compiler.optimize(retainedCaptureModules[1])==retainedCaptureModules[1],
-  "managed capture optimization reaches a fixpoint")
-local retainedAggregate=Compiler.compile{profile="let",name="retained-aggregate.let",source=[[
+check(hasIR(retainedCaptures,'View'),'retained captures preserve callable IR without claiming a managed ABI')
+local retainedAggregate=checkedLet{profile="let",name="retained-aggregate.let",source=[[
 let target = { value: u32 }
 let holder = { r: ref(target), s: slice(u32) }
 let make(): holder = do
@@ -728,16 +697,6 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]]}
-local retainedAggregateModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(retainedAggregate.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"managed aggregate reference and slice owners survive the call ABI in "..mode)
-  retainedAggregateModules[#retainedAggregateModules+1]=result.module
-end
-check(retainedAggregateModules[1]==retainedAggregateModules[2] and retainedAggregateModules[2]==retainedAggregateModules[3],
-  "managed aggregate owner modules are policy-independent")
-check(Compiler.optimize(retainedAggregateModules[1])==retainedAggregateModules[1],
-  "managed aggregate owner optimization reaches a fixpoint")
 
 local anySource=[[
 let dynamic_add(a, b): any = a + b
@@ -750,18 +709,9 @@ return { functions = { main } }
 local anyTyped=Compiler.typed{profile="let",source=anySource,name="dynamic.let"}
 check(anyTyped.functions[1].inputs[1].type==require("let.schema").any,
   "unannotated Let parameters default to any in production semantic IR")
-local anyLowered=Compiler.compile{profile="let",source=anySource,name="dynamic.let"}
-check(anyLowered.assembly:match("ANY_BOX") and anyLowered.assembly:match("DADD") and anyLowered.assembly:match("ANY_CAST") and anyLowered.assembly:match("ANY_IS"),
-  "production Let source lowers boxing, generic arithmetic, casts, and type tests")
-local anyModules={}
-for _,mode in ipairs{"interpreted","eager","lazy"} do
-  local result=Compiler.stage(anyLowered.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42 and tonumber(result.cells[2])==1,
-    "generic any source execution agrees in "..mode.." mode")
-  anyModules[#anyModules+1]=result.module
-end
-check(anyModules[1]==anyModules[2] and anyModules[2]==anyModules[3],
-  "generic any staging produces policy-independent optimized modules")
+local anyLowered=checkedLet{profile="let",source=anySource,name="dynamic.let"}
+check(hasIR(anyLowered,'Convert') and hasIR(anyLowered,'Bin') and hasIR(anyLowered,'Is'),
+  'Let semantic IR retains conversions, arithmetic and type tests')
 local dynamicCallSource=[[
 let add(a: u32, b: u32): u32 = a + b
 let apply(callable, a, b): any = callable(a, b)
@@ -772,17 +722,9 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]]
-local dynamicCall=Compiler.compile{profile="let",source=dynamicCallSource,name="dynamic-call.let"}
-check(dynamicCall.assembly:match("WORD_DIRECT add") and dynamicCall.assembly:match("DCALL 2 1"),
-  "ordinary Let source lowers boxed words and dynamic calls")
-local dynamicCallModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(dynamicCall.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==42,"source dynamic callable dispatch executes in "..mode)
-  dynamicCallModules[#dynamicCallModules+1]=result.module
-end
-check(dynamicCallModules[1]==dynamicCallModules[2] and dynamicCallModules[2]==dynamicCallModules[3],
-  "dynamic callable source modules are policy-independent")
+local dynamicCall=checkedLet{profile="let",source=dynamicCallSource,name="dynamic-call.let"}
+check(hasIR(dynamicCall,'View') and hasIR(dynamicCall,'Indirect'),
+  'Let semantic IR retains boxed callables and dynamic calls')
 local counterSource = [[
 let loop(value: u32, steps: u32, limit: u32, by: u32): (u32, u32) = do
   if value >= limit then return value, steps end
@@ -793,7 +735,7 @@ return { functions = { main } }
 ]]
 local counter = Compiler.compile { profile = "slet", source = counterSource, name = "counter.slet" }
 local counterModules = {}
-for _, mode in ipairs({"interpreted", "eager", "lazy"}) do
+for _, mode in ipairs({"interpreted", "eager", "lazy", "threaded"}) do
   local result = Compiler.stage(counter.functions, { profile = "slet", entry = "main", exports = {"main"}, mode = mode })
   check(tonumber(result.cells[1]) == 56 and tonumber(result.cells[2]) == 8,
     "source-built recursive control executes in " .. mode .. " mode")
@@ -804,7 +746,7 @@ check(counterModules[1] == counterModules[2] and counterModules[2] == counterMod
 local prefix = os.tmpname()
 local counterPath=prefix..".specialized.abc";local counterFile=assert(io.open(counterPath,"wb"));assert(counterFile:write(counterModules[1]));assert(counterFile:close())
 local counterDis=assert(io.popen(string.format("%q dis %q",here.."../../build/abc",counterPath),"r"));local counterListing=counterDis:read("*a")
-check(counterDis:close() and counterListing:match("BLTUI%s+50") and counterListing:match("ADDI_A%s+7") and not counterListing:match("CALL"),
+check(counterDis:close() and counterListing:match("BLTUI_A%s+50") and counterListing:match("ADDI_A%s+7") and not counterListing:match("CALL"),
   "source recursive loop specializes invariants into one call-free residual loop")
 check(Compiler.optimize(counterModules[1])==counterModules[1],"source recursive specialization is a byte-identical fixpoint")
 os.remove(counterPath)
@@ -816,25 +758,11 @@ let f(n: u32, acc: u32): u32 = do
 end
 let main(): u32 = f(3, 0)
 ]] }
-for _, mode in ipairs({"interpreted", "eager", "lazy"}) do
+for _, mode in ipairs({"interpreted", "eager", "lazy", "threaded"}) do
   local result = Compiler.stage(sharedLoop.functions, { profile = "slet", entry = "main", exports = {"main"}, mode = mode })
   check(tonumber(result.cells[1]) == 14, "nested recursive loop refreshes multi-use carried values in " .. mode .. " mode")
 end
-local dynamicLoop = Compiler.compile { profile = "let", name = "dynamic-loop.let", source = [[
-let f(n: u32, acc: u32): u32 = do
-  if n == 0 then return acc end
-  let a = acc + 1
-  return f(n - 1, a + a)
-end
-let main(): u32 = f(3, 0)
-]] }
-local dynamicResult=Compiler.stage(dynamicLoop.functions,{profile="let",entry="main",exports={"main"},mode="interpreted"})
-local dynamicPath=prefix..".dynamic-loop.abc";local dynamicFile=assert(io.open(dynamicPath,"wb"));assert(dynamicFile:write(dynamicResult.module));assert(dynamicFile:close())
-local dynamicDis=assert(io.popen(string.format("%q dis %q",here.."../../build/abc",dynamicPath),"r"));local dynamicListing=dynamicDis:read("*a");local _,dynamicFunctions=dynamicListing:gsub("function %d+:","")
-check(dynamicDis:close() and tonumber(dynamicResult.cells[1])==14 and dynamicFunctions==1 and not dynamicListing:match("CALL"),
-  "dynamic-profile symbolic reachability emits only the call-free exported residual loop")
-os.remove(dynamicPath)
-local nonTail = Compiler.compile { profile = "let", name = "non-tail.let", source = [[
+local nonTail = Compiler.compile { profile = "slet", name = "non-tail.slet", source = [[
 let f(n: u32, by: u32): u32 = do
   if n == 0 then return by end
   let rest = f(n - 1, by)
@@ -843,12 +771,12 @@ end
 let main(): u32 = f(3, 7)
 ]] }
 local nonTailModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do local result=Compiler.stage(nonTail.functions,{profile="let",entry="main",exports={"main"},mode=mode});check(tonumber(result.cells[1])==28,"non-tail recursive SCC executes in "..mode.." mode");nonTailModules[#nonTailModules+1]=result.module end
+for _,mode in ipairs({"interpreted","eager","lazy","threaded"}) do local result=Compiler.stage(nonTail.functions,{profile="slet",entry="main",exports={"main"},mode=mode});check(tonumber(result.cells[1])==28,"non-tail recursive SCC executes in "..mode.." mode");nonTailModules[#nonTailModules+1]=result.module end
 check(nonTailModules[1]==nonTailModules[2] and nonTailModules[2]==nonTailModules[3],"non-tail SCC specialization is policy-independent")
 local nonTailPath=prefix..".non-tail.abc";local nonTailFile=assert(io.open(nonTailPath,"wb"));assert(nonTailFile:write(nonTailModules[1]));assert(nonTailFile:close());local nonTailDis=assert(io.popen(string.format("%q dis %q",here.."../../build/abc",nonTailPath),"r"));local nonTailListing=nonTailDis:read("*a")
 check(nonTailDis:close() and nonTailListing:match("CALL_A") and nonTailListing:match("ADDI_A%s+7"),"non-tail SCC keeps calls while specializing its invariant argument")
 check(Compiler.optimize(nonTailModules[1])==nonTailModules[1],"non-tail SCC specialization is a byte-identical fixpoint");os.remove(nonTailPath)
-local publicRecursive=Compiler.compile {profile="let",name="public-recursive.let",source=[[
+local publicRecursive=Compiler.compile {profile="slet",name="public-recursive.slet",source=[[
 let f(n: u32, by: u32): u32 = do
   if n == 0 then return by end
   let rest = f(n - 1, by)
@@ -857,9 +785,9 @@ end
 let main(): u32 = f(3, 7)
 return { functions = { f, main } }
 ]]}
-local publicResult=Compiler.stage(publicRecursive.functions,{profile="let",entry="main",exports={"f","main"},mode="interpreted"});local publicPath=prefix..".public-recursive.abc";local publicFile=assert(io.open(publicPath,"wb"));assert(publicFile:write(publicResult.module));assert(publicFile:close())
+local publicResult=Compiler.stage(publicRecursive.functions,{profile="slet",entry="main",exports={"f","main"},mode="interpreted"});local publicPath=prefix..".public-recursive.abc";local publicFile=assert(io.open(publicPath,"wb"));assert(publicFile:write(publicResult.module));assert(publicFile:close())
 local publicRun=assert(io.popen(string.format("%q run %q f 2 5 --interpreted",here.."../../build/abc",publicPath),"r"));check(publicRun:read("*a"):match("15") and publicRun:close(),"ABI-visible recursive entries begin with unknown facts");os.remove(publicPath)
-local mutual = Compiler.compile { profile = "let", name = "mutual.let", source = [[
+local mutual = Compiler.compile { profile = "slet", name = "mutual.slet", source = [[
 let even(n: u32, marker: u32): u32 = do
   if n == 0 then return marker end
   return odd(n - 1, marker)
@@ -870,11 +798,11 @@ let odd(n: u32, marker: u32): u32 = do
 end
 let main(): u32 = even(4, 9)
 ]] }
-local mutualResult=Compiler.stage(mutual.functions,{profile="let",entry="main",exports={"main"},mode="lazy"});check(tonumber(mutualResult.cells[1])==9,"mutual recursive SCC executes through residual tail calls")
+local mutualResult=Compiler.stage(mutual.functions,{profile="slet",entry="main",exports={"main"},mode="lazy"});check(tonumber(mutualResult.cells[1])==9,"mutual recursive SCC executes through residual tail calls")
 local mutualPath=prefix..".mutual.abc";local mutualFile=assert(io.open(mutualPath,"wb"));assert(mutualFile:write(mutualResult.module));assert(mutualFile:close());local mutualDis=assert(io.popen(string.format("%q dis %q",here.."../../build/abc",mutualPath),"r"));local mutualListing=mutualDis:read("*a");local _,mutualFunctions=mutualListing:gsub("function %d+:","")
 check(mutualDis:close() and mutualFunctions==3 and mutualListing:match("TCALL") and mutualListing:match("PUSH8_A%s+9") and mutualListing:match("PUSH8_A%s+10"),"mutual SCC fixed point retains carried n and specializes invariant marker")
 check(Compiler.optimize(mutualResult.module)==mutualResult.module,"mutual SCC specialization is a byte-identical fixpoint");os.remove(mutualPath)
-local ackermann=Compiler.compile {profile="let",name="ackermann.let",source=[[
+local ackermann=Compiler.compile {profile="slet",name="ackermann.slet",source=[[
 let ack(m: u32, n: u32): u32 = do
   if m == 0 then return n + 1 end
   if n == 0 then return ack(m - 1, 1) end
@@ -883,12 +811,12 @@ end
 let main(): u32 = ack(2, 3)
 ]]}
 local ackModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do local result=Compiler.stage(ackermann.functions,{profile="let",entry="main",exports={"main"},mode=mode});check(tonumber(result.cells[1])==9,"nested non-tail recursion preserves real returns in "..mode.." mode");ackModules[#ackModules+1]=result.module end
+for _,mode in ipairs({"interpreted","eager","lazy","threaded"}) do local result=Compiler.stage(ackermann.functions,{profile="slet",entry="main",exports={"main"},mode=mode});check(tonumber(result.cells[1])==9,"nested non-tail recursion preserves real returns in "..mode.." mode");ackModules[#ackModules+1]=result.module end
 check(ackModules[1]==ackModules[2] and ackModules[2]==ackModules[3],"nested recursive SCC output is policy-independent")
 local ackPath=prefix..".ackermann.abc";local ackFile=assert(io.open(ackPath,"wb"));assert(ackFile:write(ackModules[1]));assert(ackFile:close());local ackDis=assert(io.popen(string.format("%q dis %q",here.."../../build/abc",ackPath),"r"));local ackListing=ackDis:read("*a")
 check(ackDis:close() and ackListing:match("CALL_A") and ackListing:match("RET") and ackListing:match("JMP"),"multiple self-tail edges do not conflate a nested call or return leaf")
 check(Compiler.optimize(ackModules[1])==ackModules[1],"nested recursive SCC specialization is a byte-identical fixpoint");os.remove(ackPath)
-for _, extension in ipairs({"slet", "let"}) do
+for _, extension in ipairs({"slet"}) do
   local path, module = prefix .. "." .. extension, prefix .. "." .. extension .. ".abc"
   local file = assert(io.open(path, "wb")); assert(file:write(counterSource)); assert(file:close())
   check(os.execute(string.format("%q compile %q -o %q", here .. "../../build/abc", path, module)) == 0,
@@ -897,6 +825,20 @@ for _, extension in ipairs({"slet", "let"}) do
   local output = process:read("*a")
   check(process:close() and output:match("56 8"), "abc run compiles ." .. extension .. " through verified IR")
   os.remove(path); os.remove(module)
+end
+
+-- The CLI must reject Let lowering without overwriting an existing output.
+do
+  local path,module,diagnostic=prefix..'.let',prefix..'.let.abc',prefix..'.let.error'
+  local file=assert(io.open(path,'wb'));assert(file:write(counterSource));assert(file:close())
+  file=assert(io.open(module,'wb'));assert(file:write('preserved output'));assert(file:close())
+  local status=os.execute(string.format('%q compile %q -o %q 2>%q',here..'../../build/abc',path,module,diagnostic))
+  check(status~=0,'CLI rejects unavailable Let ABC lowering')
+  file=assert(io.open(diagnostic,'rb'));local message=file:read('*a');file:close()
+  check(message:find('dynamic-lowering',1,true),'CLI reports the explicit lowering boundary')
+  file=assert(io.open(module,'rb'));local retained=file:read('*a');file:close()
+  check(retained=='preserved output','failed Let compilation preserves existing output')
+  os.remove(path);os.remove(module);os.remove(diagnostic)
 end
 
 local importDir = prefix .. "-imports"
@@ -909,7 +851,7 @@ local imported = Compiler.compileFile(importDir .. "/main.slet")
 local importedResult = Compiler.stage(imported.functions, {profile="slet",entry="main",exports={"main"},mode="lazy"})
 check(tonumber(importedResult.cells[1]) == 42, "SLet file imports resolve exported SLet words")
 write(importDir .. "/main.let", importedSource)
-check(Compiler.compileFile(importDir .. "/main.let").phase == "lowered", "Let files may import SLet files")
+check(checkedLetFile(importDir .. "/main.let").phase == "typed-ir", "Let files may import SLet IR")
 write(importDir .. "/math.let", "let inc(x: u32): u32 = x + 2\nreturn { functions = { inc } }\n")
 ok, err = pcall(Compiler.compileFile, importDir .. "/main.let")
 check(not ok and D.is(err) and err.code == "import-ambiguous", "Let imports reject ambiguous .let/.slet modules")
@@ -934,6 +876,27 @@ let make_choice(): pair_option = pair_option.some { x = 19, y = 23 }
 let choice_total(value: pair_option): u32 = value { none = || -> 0, some = |p| -> p.x + p.y }
 return { functions = { compute, make_pair, pair_total, make_choice, choice_total } }
 ]])
+-- Keep the typed half of the former mixed-profile import execution test.
+write(importDir .. "/typed-app.slet", [[
+use strict
+let main(): u32 = do
+  let p = strict.make_pair()
+  let selected = strict.make_choice()
+  return strict.compute() + strict.pair_total(p) + strict.choice_total(selected)
+end
+return { functions = { main } }
+]])
+local typedImports=Compiler.compileFile(importDir.."/typed-app.slet")
+local typedImportModules={}
+for _,mode in ipairs(runtimeModes.slet) do
+  local result=Compiler.stage(typedImports.functions,{profile="slet",entry="main",exports={"main"},mode=mode})
+  check(tonumber(result.cells[1])==105,"cross-module typed aggregates and sum ABI execute in "..mode)
+  check(Compiler.optimize(result.module)==result.module,"cross-module typed optimization reaches a fixpoint in "..mode)
+  typedImportModules[#typedImportModules+1]=result.module
+end
+check(#typedImportModules==3 and typedImportModules[1]==typedImportModules[2] and typedImportModules[2]==typedImportModules[3],
+  "cross-module typed residual modules are policy-independent")
+os.remove(importDir.."/typed-app.slet")
 write(importDir .. "/dynamic.let", [[
 let capture = { base: u32 }
 let make(): (u32): u32 = do
@@ -970,18 +933,10 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]])
-local importedFeatures=Compiler.compileFile(importDir.."/app.let")
-local importedAgain=Compiler.compileFile(importDir.."/app.let")
-check(importedFeatures.assembly==importedAgain.assembly,"cross-profile aggregate, closure, and any imports compile deterministically")
-local importedFeatureModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(importedFeatures.functions,{profile="let",entry="main",exports={"main"},mode=mode})
-  check(tonumber(result.cells[1])==160,"cross-module source features, managed views, and aggregate ABI execute in "..mode)
-  check(Compiler.optimize(result.module)==result.module,"cross-module optimized source reaches a fixpoint in "..mode)
-  importedFeatureModules[#importedFeatureModules+1]=result.module
-end
-check(importedFeatureModules[1]==importedFeatureModules[2] and importedFeatureModules[2]==importedFeatureModules[3],
-  "cross-module residual modules are policy-independent")
+local importedFeatures=checkedLetFile(importDir.."/app.let")
+local importedAgain=checkedLetFile(importDir.."/app.let")
+check(#importedFeatures.functions==#importedAgain.functions,'cross-profile IR import graph is stable')
+for index,fn in ipairs(importedFeatures.functions) do check(fn.id==importedAgain.functions[index].id,'imported IR identities are deterministic') end
 os.remove(importDir.."/strict.slet");os.remove(importDir.."/dynamic.let");os.remove(importDir.."/app.let");os.execute(string.format("rmdir %q", importDir))
 
 local correctnessSource=[[
@@ -991,10 +946,27 @@ let main(): u32 = if wider(1, 300) then selected() else 0
 return { functions = { main } }
 ]]
 local correctness=Compiler.compile{profile="slet",name="correctness.slet",source=correctnessSource}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
+for _,mode in ipairs({"interpreted","eager","lazy","threaded"}) do
   local result=Compiler.stage(correctness.functions,{profile="slet",entry="main",mode=mode})
   check(tonumber(result.cells[1])==42,"integer widening and selected-arm construction execute in "..mode)
 end
+-- Preserve typed conversion execution independently of the archived any-call path.
+local typedConversions=Compiler.compile{profile="slet",name="numeric-conversions.slet",source=[=[
+let static_value(): u32 = u32(f64(i64(41)))
+let main(): u32 = do
+  if static_value() != 41 or i32(-1.9) != i32(-1) then return 0 end
+  return u32(42.9)
+end
+return { functions = { main } }
+]=]}
+local typedConversionModules={}
+for _,mode in ipairs(runtimeModes.slet) do
+  local result=Compiler.stage(typedConversions.functions,{profile="slet",entry="main",mode=mode})
+  check(tonumber(result.cells[1])==42,"typed integer/f64 conversions execute in "..mode)
+  typedConversionModules[#typedConversionModules+1]=result.module
+end
+check(#typedConversionModules==3 and typedConversionModules[1]==typedConversionModules[2] and typedConversionModules[2]==typedConversionModules[3],
+  "typed numeric conversion modules are policy-independent")
 local numericConversionSource=[=[
 let accept(x: u32): u32 = x
 let apply(callable, value): any = callable(value)
@@ -1005,20 +977,8 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]=]
-local numericConversions=Compiler.compile{profile="let",name="numeric-conversions.let",source=numericConversionSource}
-local numericConversionModules={}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(numericConversions.functions,{profile="let",entry="main",mode=mode})
-  check(tonumber(result.cells[1])==42,"static and dynamic integer/f64 conversions execute in "..mode)
-  numericConversionModules[#numericConversionModules+1]=result.module
-end
-check(numericConversionModules[1]==numericConversionModules[2] and numericConversionModules[2]==numericConversionModules[3],
-  "numeric conversion modules are policy-independent")
-local numericRange=Compiler.compile{profile="let",name="numeric-range.let",source="let main(): u8 = u8(any(256.0))\nreturn { functions = { main } }\n"}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  ok,err=pcall(Compiler.stage,numericRange.functions,{profile="let",entry="main",mode=mode})
-  check(not ok and D.is(err) and err.code=="static-numeric-range","dynamic numeric range failures agree in "..mode)
-end
+local numericConversions=checkedLet{profile="let",name="numeric-conversions.let",source=numericConversionSource}
+local numericRange=checkedLet{profile="let",name="numeric-range.let",source="let main(): u8 = u8(any(256.0))\nreturn { functions = { main } }\n"}
 for _,case in ipairs({
   {"let f(x: u32, x: u32): u32 = x", "duplicate-name"},
   {"let f(): u8 = 300", "numeric-range"},
@@ -1044,7 +1004,7 @@ end
 return { functions = { main } }
 ]]
 local vectors=Compiler.compile{profile="slet",name="vectors.slet",source=vectorSource}
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
+for _,mode in ipairs({"interpreted","eager","lazy","threaded"}) do
   local result=Compiler.stage(vectors.functions,{profile="slet",entry="main",mode=mode})
   check(tonumber(result.cells[1])==68,"partial/direct-indirect calls, block lambdas, and result-vector binding execute in "..mode)
 end
@@ -1065,7 +1025,7 @@ end
 return { functions = { main } }
 ]])
 local interfaces=Compiler.compileFile(interfaceDir.."/main.slet")
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
+for _,mode in ipairs({"interpreted","eager","lazy","threaded"}) do
   local result=Compiler.stage(interfaces.functions,{profile="slet",entry="main",mode=mode})
   check(tonumber(result.cells[1])==42,"export aliases, exported schema methods/types, and results contracts execute in "..mode)
 end
@@ -1078,11 +1038,7 @@ let main(): u32 = do
 end
 return { functions = { main } }
 ]])
-local retainedInterface=Compiler.compileFile(interfaceDir.."/main.let")
-for _,mode in ipairs({"interpreted","eager","lazy"}) do
-  local result=Compiler.stage(retainedInterface.functions,{profile="let",entry="main",mode=mode})
-  check(tonumber(result.cells[1])==42,"imported schema interfaces support retained method values in "..mode)
-end
+local retainedInterface=checkedLetFile(interfaceDir.."/main.let")
 os.remove(interfaceDir.."/types.slet");os.remove(interfaceDir.."/main.slet");os.remove(interfaceDir.."/main.let");os.execute(string.format("rmdir %q",interfaceDir))
 
 print(("PASS: Let compiler source ingestion and semantic IR (%d checks)"):format(checks))

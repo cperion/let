@@ -115,7 +115,7 @@ local functions = {add, sum, main, tail, narrow, ops, wrap, trap, virtualMain, v
 local artifact = Compiler.lower(functions, {profile = "slet",
     exports = {"main", "tail", "narrow", "ops", "wrap", "trap", "virtual_main", "virtual_record"}})
 check(artifact.phase == "lowered" and artifact.profile == "integer", "scalar SLet lowers to profile 1")
-check(artifact.assembly:match("TCALL add"), "identity call-return lowers to TCALL")
+check(artifact.assembly:match("TCALL%.A add"), "identity call-return lowers to TCALL")
 check(not artifact.assembly:match("CALLI"), "exact nonescaping empty callable views re-project to direct calls")
 check(not artifact.assembly:match("CALLOC"), "exact nonescaping immutable records scalarize without storage")
 check(not artifact.assembly:match("instruction%-budget"), "lowering emits no fuel mechanism")
@@ -134,7 +134,7 @@ local function capture(command)
     return output
 end
 check(capture(("%q asm %q -o %q"):format(abc, asm, module)) == "", "lowered assembly verifies")
-for _, mode in ipairs{"interpreted", "compiled", "lazy"} do
+for _, mode in ipairs{"interpreted", "compiled", "lazy", "jit=threaded"} do
     check(capture(("%q run %q main --%s"):format(abc, module, mode)) == "97",
         "main agrees in " .. mode .. " mode")
     check(capture(("%q run %q tail --%s"):format(abc, module, mode)) == "42",
@@ -260,35 +260,31 @@ local anyStringMain=I.Fn("any_string_main",I.Entry,0,L{},L{S.u32},L{},L{
     I.Let(castString,S.string,I.Convert(ref(boxedString,S.any),S.string)),
     I.Let(stringAnyLength,S.u32,I.SliceLength(ref(castString,S.string),S.u32)),
     I.Return(L{ref(stringAnyLength,S.u32)})})
-local managedArtifact=Compiler.lower({add,captureTarget,makeAdder,captureMain,anyMain,anyStringMain},{profile="let",exports={"capture_main","any_main","any_string_main"}})
+local managedFunctions={add,captureTarget,makeAdder,captureMain,anyMain,anyStringMain}
+require('let.check').program(managedFunctions)
+local managedOK,managedError=pcall(Compiler.lower,managedFunctions,{profile="let",exports={"capture_main","any_main","any_string_main"}})
+check(not managedOK and D.is(managedError) and managedError.code=='dynamic-lowering',
+    'verified managed IR does not produce obsolete dynamic ABC')
 local memoryArtifact=Compiler.lower({addressable,takeBorrow,borrowMain,arrayRead,sumMain,sliceGet,sliceMain,stringMain},{profile="slet",exports={"addressable","borrow_main","array_read","sum_main","slice_main","string_main"}})
 check(memoryArtifact.profile=="memory" and memoryArtifact.assembly:match("CALLOC 8"),
     "addressable records select frame-backed memory lowering")
-check(memoryArtifact.assembly:match("ST16 4") and memoryArtifact.assembly:match("LD16%.A 4"),
+check(memoryArtifact.assembly:match("ST16%.B 4") and memoryArtifact.assembly:match("LD16%.A 4"),
     "record fields use C-aligned offsets and typed accesses")
-check(memoryArtifact.assembly:match("CALL%.A take_borrow 1") and not memoryArtifact.assembly:match("TCALL take_borrow"),
+check(memoryArtifact.assembly:match("CALL%.A take_borrow 1") and not memoryArtifact.assembly:match("TCALL%.A take_borrow"),
     "a local borrow preserves its backing frame across the call")
-check(memoryArtifact.assembly:match("IDX 2") and memoryArtifact.assembly:match("ABORT 2"),
+check(memoryArtifact.assembly:match("IDX%.[AB] 2") and memoryArtifact.assembly:match("ABORT 2"),
     "fixed arrays use scaled addresses with an explicit bounds guard")
-check(memoryArtifact.assembly:match("ST32 0") and memoryArtifact.assembly:match("LD32%.A 0"),
+check(memoryArtifact.assembly:match("ST32%.B 0") and memoryArtifact.assembly:match("LD32%.A 0"),
     "sum construction and dispatch preserve the explicit tag layout")
 check(memoryArtifact.assembly:match("%.function slice_get 3 1 aii i") and memoryArtifact.assembly:match("CALL%.A slice_get 3"),
     "slice values flatten to address and length cells across the call ABI")
-check(memoryArtifact.assembly:match("ST32 8") and memoryArtifact.assembly:match("ST64 0") and memoryArtifact.assembly:match("LD64%.A 0") and memoryArtifact.assembly:match("LD32%.A 8"),
+check(memoryArtifact.assembly:match("ST32%.B 8") and memoryArtifact.assembly:match("ST64%.B 0") and memoryArtifact.assembly:match("LD64%.A 0") and memoryArtifact.assembly:match("LD32%.A 8"),
     "slice storage uses the target address-plus-length layout")
 check(memoryArtifact.assembly:match("%.rodata 412a") and memoryArtifact.assembly:match("GADDR%.A 8"),
     "byte-slice literals use deterministic read-only module storage")
-check(managedArtifact.profile=="dynamic" and managedArtifact.assembly:match("MANAGED_NEW") and managedArtifact.assembly:match("%.descriptor pointer .* managed"),
-    "escaping Let captures allocate descriptor-traced managed storage")
-check(managedArtifact.assembly:match("%.codeaddr .* _let_adapter_") and managedArtifact.assembly:match("CALLI%.A 2 _let_sig"),
-    "captured callable views lower through a checked generated adapter")
-check(managedArtifact.assembly:match("WORD_DIRECT add") and managedArtifact.assembly:match("DCALL 2 1 adjust"),
-    "any callables lower through descriptor-checked generic calls")
-check(managedArtifact.assembly:match("%.descriptor primitive .* string"),
-    "string-to-any lowering uses the copying and owner-retaining string descriptor")
 file=assert(io.open(asm,"wb"));assert(file:write(memoryArtifact.assembly));assert(file:close())
 check(capture(("%q asm %q -o %q"):format(abc,asm,module))=="","addressable aggregate assembly verifies")
-for _,mode in ipairs{"interpreted","compiled","lazy"} do
+for _,mode in ipairs{"interpreted","compiled","lazy","jit=threaded"} do
     check(capture(("%q run %q addressable --%s"):format(abc,module,mode))=="42",
         "addressable aggregate agrees in "..mode.." mode")
     check(capture(("%q run %q borrow_main --%s"):format(abc,module,mode))=="42",
@@ -306,28 +302,33 @@ for _,mode in ipairs{"interpreted","compiled","lazy"} do
     check(capture(("%q run %q string_main --%s"):format(abc,module,mode))=="42 2",
         "slice literal, index, and length agree in "..mode.." mode")
 end
-asm,module=base.."-managed.abcasm",base.."-managed.abc"
-file=assert(io.open(asm,"wb"));assert(file:write(managedArtifact.assembly));assert(file:close())
-check(capture(("%q asm %q -o %q"):format(abc,asm,module))=="","managed captured-callable assembly verifies")
-local optimized,optimizedTwice=base.."-managed-opt.abc",base.."-managed-opt2.abc"
-check(capture(("%q opt %q -o %q"):format(abc,module,optimized))=="","managed captured-callable module optimizes")
-check(capture(("%q opt %q -o %q"):format(abc,optimized,optimizedTwice))=="","managed captured-callable module re-optimizes")
-check(capture(("cmp -s %q %q && printf same"):format(optimized,optimizedTwice))=="same","managed captured-callable optimization reaches a byte-identical fixpoint")
-for _,mode in ipairs{"interpreted","compiled","lazy"} do
-    check(capture(("%q run %q capture_main --%s"):format(abc,module,mode))=="42",
-        "escaped managed capture and aggregate root agree in "..mode.." mode")
-    check(capture(("%q run %q capture_main --%s"):format(abc,optimized,mode))=="42",
-        "optimized managed capture agrees in "..mode.." mode")
-    check(capture(("%q run %q any_main --%s"):format(abc,module,mode))=="42 1",
-        "generic any call and type test agree in "..mode.." mode")
-    check(capture(("%q run %q any_main --%s"):format(abc,optimized,mode))=="42 1",
-        "optimized generic any call agrees in "..mode.." mode")
-    check(capture(("%q run %q any_string_main --%s"):format(abc,module,mode))=="3",
-        "string any boxing and casting agree in "..mode.." mode")
-    check(capture(("%q run %q any_string_main --%s"):format(abc,optimized,mode))=="3",
-        "optimized string any boxing agrees in "..mode.." mode")
+os.remove(asm);os.remove(module)
+-- Profile-5 execution/fixpoint checks are preserved in
+-- research/archive/dynamic-layer-before-typed-teardown/mixed-frontend-tests/lowering.lua.
+-- Managed IR remains verified above; obsolete profile-5 emission is rejected.
+
+-- Typed SLet callable transport must survive removal of managed Let emission.
+-- The capture-free view is passed as a real code/environment pair to a callee.
+local typedView=S.view(S.sig({input(S.u32),input(S.u32)},{S.u32}))
+local callable,callLeft,callRight,callResult=I.Value(60),I.Value(61),I.Value(62),I.Value(63)
+local applyTyped=I.Fn('apply_typed',I.Body,0,L{input(typedView),input(S.u32),input(S.u32)},L{S.u32},
+ L{I.ValueParam(0,callable,typedView),I.ValueParam(1,callLeft,S.u32),I.ValueParam(2,callRight,S.u32)},
+ L{I.Indirect(L{callResult},ref(callable,typedView),L{I.ValueArg(ref(callLeft,S.u32)),I.ValueArg(ref(callRight,S.u32))}),I.Return(L{ref(callResult,S.u32)})})
+local codeValue,typedResult=I.Value(64),I.Value(65)
+local typedMain=I.Fn('typed_main',I.Entry,0,L{},L{S.u32},L{},L{
+ I.View(codeValue,typedView,'add',L{},nil),
+ I.Call(L{typedResult},'apply_typed',L{I.ValueArg(ref(codeValue,typedView)),I.ValueArg(uint(20)),I.ValueArg(uint(22))}),
+ I.Return(L{ref(typedResult,S.u32)})})
+local typedArtifact=Compiler.lower({add,applyTyped,typedMain},{profile='slet',exports={'typed_main'}})
+check(typedArtifact.profile=='callables','SLet retains the typed callable profile')
+check(typedArtifact.assembly:match('CALLI%.A 3 _let_sig') and typedArtifact.assembly:match('TCALL%.A add 3 2'),
+ 'typed adapters retain checked indirect signatures and explicit tail argument transport')
+file=assert(io.open(asm,'wb'));assert(file:write(typedArtifact.assembly));assert(file:close())
+check(capture(('%q asm %q -o %q'):format(abc,asm,module))=='','typed callable assembly verifies')
+for _,mode in ipairs{'interpreted','compiled','lazy','jit=threaded'} do
+ check(capture(('%q run %q typed_main --%s'):format(abc,module,mode))=='42','SLet typed indirect call executes in '..mode)
 end
-os.remove(asm);os.remove(module);os.remove(optimized);os.remove(optimizedTwice)
+os.remove(asm);os.remove(module)
 
 local floatArtifact = Compiler.lower({floatMain}, {profile = "slet", exports = {"float_main"}})
 check(floatArtifact.profile == "memory" and floatArtifact.assembly:match("%.profile memory"),
@@ -335,23 +336,23 @@ check(floatArtifact.profile == "memory" and floatArtifact.assembly:match("%.prof
 asm, module = base .. "-float.abcasm", base .. "-float.abc"
 file = assert(io.open(asm, "wb")); assert(file:write(floatArtifact.assembly)); assert(file:close())
 check(capture(("%q asm %q -o %q"):format(abc, asm, module)) == "", "f64 lowering verifies")
-for _, mode in ipairs{"interpreted", "compiled", "lazy"} do
+for _, mode in ipairs{"interpreted", "compiled", "lazy", "jit=threaded"} do
     check(capture(("%q run %q float_main --%s"):format(abc, module, mode)) ==
         "4 -1 3 0 -1 1 1 0 0 0 1 0 1 0 0",
         "f64 lowering agrees in " .. mode .. " mode")
 end
 os.remove(asm); os.remove(module)
 
-local letArtifact = Compiler.lower({main, add, sum}, {profile = "let", exports = {"main"}})
-check(letArtifact.profile == "dynamic" and letArtifact.assembly:match("%.profile dynamic"),
-    "Let scalar lowering retains profile-5 capability metadata")
+local letOK,letError = pcall(Compiler.lower,{main, add, sum}, {profile = "let", exports = {"main"}})
+check(not letOK and D.is(letError) and letError.code=='dynamic-lowering',
+    "Let is not silently reinterpreted as SLet, even for scalar functions")
 
 local record = S.record {x = S.u32}
 local badValue = I.Value(1)
 local unsupportedFn = I.Fn("unsupported", I.Body, 0, L{input(record)}, L{record},
     L{I.ValueParam(0, badValue, record)}, L{I.Return(L{ref(badValue, record)})})
 local aggregateArtifact=Compiler.lower({unsupportedFn},{profile="slet",exports={"unsupported"}})
-check(aggregateArtifact.assembly:match("%.function unsupported 1 1") and aggregateArtifact.assembly:match("RET 1 1"),
+check(aggregateArtifact.assembly:match("%.function unsupported 1 1") and aggregateArtifact.assembly:match("RET%.A 1 1"),
     "record inputs and results use the checked aggregate call ABI")
 
 print(("PASS: checked ASDL Ir -> ABC lowering (%d checks)"):format(checks))

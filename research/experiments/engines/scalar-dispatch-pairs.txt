@@ -1,0 +1,16 @@
+core=0 pairs=9 samples=3; alternating process order; ns/iteration
+workload form mode before after median_after/before before_bytes after_bytes
+u32-known typed interpreted 14.186 14.176 0.980 0 0
+u32-known dynamic interpreted 61.477 47.597 0.773 0 0
+u32-carried typed interpreted 13.960 13.953 0.991 0 0
+u32-carried dynamic interpreted 62.381 48.706 0.790 0 0
+u32-checked typed interpreted 14.396 14.013 0.984 0 0
+u32-checked dynamic interpreted 81.546 60.388 0.734 0 0
+u32-unproven typed interpreted 15.952 14.914 0.934 0 0
+u32-unproven dynamic interpreted 66.314 52.970 0.802 0 0
+u32-reload typed interpreted 18.362 17.453 0.974 0 0
+u32-reload dynamic interpreted 70.341 53.856 0.763 0 0
+width-alternate typed interpreted 20.312 20.282 1.017 0 0
+width-alternate dynamic interpreted 85.753 67.562 0.793 0 0
+f64-carried typed interpreted 13.903 12.959 0.920 0 0
+f64-carried dynamic interpreted 25.799 22.008 0.858 0 0

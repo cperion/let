@@ -1,0 +1,150 @@
+{
+  "Makefile": {
+    "baseline": "e979664bf50c9fba8580d5619531d71ab3a432188797c248688d6535f9bd48a4",
+    "current": "a9f94a08ecb3ba3ca8761050873577c371f0a42461a5f33e4c920fe0c63aac62"
+  },
+  "gen/banked.lua": {
+    "baseline": "58444a558cd513205734e4b99182925bcea042019b2e90ea0e2b2254aca29b56",
+    "current": "58444a558cd513205734e4b99182925bcea042019b2e90ea0e2b2254aca29b56"
+  },
+  "gen/cache.lua": {
+    "baseline": "0163a64620667f1f0195990567479ee2757a2c8adbae78e0b63867ebdfc8fa73",
+    "current": "0163a64620667f1f0195990567479ee2757a2c8adbae78e0b63867ebdfc8fa73"
+  },
+  "gen/cold.lua": {
+    "baseline": "73ea9a0d607c2940651804e6b860436aa4a5e4347f0b872fe0656210572f9a61",
+    "current": "73ea9a0d607c2940651804e6b860436aa4a5e4347f0b872fe0656210572f9a61"
+  },
+  "gen/fold.lua": {
+    "baseline": "6186082acf6b1fbed5590e9190837255f50721acf647cc8bf975e7593da49b8b",
+    "current": "6186082acf6b1fbed5590e9190837255f50721acf647cc8bf975e7593da49b8b"
+  },
+  "gen/foreign.lua": {
+    "baseline": "b32a60b8cb6971b8f866b873b32773e28256e8806afe02a86248844b07c18d53",
+    "current": "b32a60b8cb6971b8f866b873b32773e28256e8806afe02a86248844b07c18d53"
+  },
+  "gen/semantics.lua": {
+    "baseline": "d0b797237e735e1f77131469039bf87b986925633fddcea6010823dce1455928",
+    "current": "d0b797237e735e1f77131469039bf87b986925633fddcea6010823dce1455928"
+  },
+  "gen/stencils.lua": {
+    "baseline": "5ccbcf3f9115d74334fda3d7a5774e2f228046e8ee9d5a7c8c4ca1a7e8d60338",
+    "current": "5ccbcf3f9115d74334fda3d7a5774e2f228046e8ee9d5a7c8c4ca1a7e8d60338"
+  },
+  "gen/symbolic.lua": {
+    "baseline": "d6d9ff6199bf2d711c907b5c478e2bead1db29ce46874f2173f5c07d726affd9",
+    "current": "d6d9ff6199bf2d711c907b5c478e2bead1db29ce46874f2173f5c07d726affd9"
+  },
+  "include/abc.h": {
+    "baseline": "ce7b8066f4974f0a2372217340c58868b4388ab4d84b63f3617d9424e8df5734",
+    "current": "ce7b8066f4974f0a2372217340c58868b4388ab4d84b63f3617d9424e8df5734"
+  },
+  "include/abc_tool.h": {
+    "baseline": "c0bc2e146f92d76b3283e64ba9ea1c279469577287f2613ef8057e293cd19f48",
+    "current": "c0bc2e146f92d76b3283e64ba9ea1c279469577287f2613ef8057e293cd19f48"
+  },
+  "src/cli.c": {
+    "baseline": "d2633b247f0ea010f4da9970a07697d845b21d4ecbdbdcaf74efce65897718c3",
+    "current": "d2633b247f0ea010f4da9970a07697d845b21d4ecbdbdcaf74efce65897718c3"
+  },
+  "src/handler_abi.h": {
+    "baseline": "2f32cf6ec4ff60b845c12d833472e22977d6e3916af19dbc773aa5ad2afbce2d",
+    "current": "2f32cf6ec4ff60b845c12d833472e22977d6e3916af19dbc773aa5ad2afbce2d"
+  },
+  "src/internal.h": {
+    "baseline": "e792f034836c0c170c21482cb42abb419bded26fe9eec50f6a57a5fe316f725a",
+    "current": "e792f034836c0c170c21482cb42abb419bded26fe9eec50f6a57a5fe316f725a"
+  },
+  "src/memory_module.c": {
+    "baseline": "90780e4f1c5c13a7c959ea290f209277e8bf031a08298a3e005e443c9e0ef263",
+    "current": "90780e4f1c5c13a7c959ea290f209277e8bf031a08298a3e005e443c9e0ef263"
+  },
+  "src/module.c": {
+    "baseline": "997bd7ff0445ead5cdf57b8957ed32a0537a634eb07b582aa70db5b20e5c8857",
+    "current": "997bd7ff0445ead5cdf57b8957ed32a0537a634eb07b582aa70db5b20e5c8857"
+  },
+  "src/optimize.c": {
+    "baseline": "aab3b0aebc2345ea4e03e3e45f534a0701ee45e1782fc639cbf515ea9f5fd062",
+    "current": "ea60338dda9d8f33ff9f79f1811faa080a8ed39bba764e074b33febef4772055"
+  },
+  "src/residual_analysis.c": {
+    "baseline": "f556c68f4dc6f692a9e79b9a7069ed31f50e5288e14ae7c819fe32ef048bac6a",
+    "current": "f556c68f4dc6f692a9e79b9a7069ed31f50e5288e14ae7c819fe32ef048bac6a"
+  },
+  "src/residual_analysis.h": {
+    "baseline": "53c31dbdd8888d83b0271576576adf2b48b435b5eb7c60029e9fdf4f1ca204cc",
+    "current": "53c31dbdd8888d83b0271576576adf2b48b435b5eb7c60029e9fdf4f1ca204cc"
+  },
+  "src/residual_builder.c": {
+    "baseline": "53ed171102782d9e044bc0dc800ade68d5902045f5915e73048e3e9f41fa413a",
+    "current": "d902388440f92d2dd5beeefb80d6904d5dc20d7980c23953b77cd5b687cdd421"
+  },
+  "src/residual_builder.h": {
+    "baseline": "4095f501dfba7545969ec2f6637eb2a62082ec35ff1134cf8a2a82a3fca95d2e",
+    "current": "4095f501dfba7545969ec2f6637eb2a62082ec35ff1134cf8a2a82a3fca95d2e"
+  },
+  "src/residual_c.c": {
+    "baseline": "2522da291e0ab3ee3b1a30add50cfba680d587e1bc568a8b3e7051d2f8e3d547",
+    "current": "e86734d39a4959868a34abfa47f5ea065b7cb16d717816935fccc215f87ee02b"
+  },
+  "src/residual_dump.c": {
+    "baseline": "c802aabf33c0a20b1e705440f253f9764ae7b39688d8d065c156762d692890ac",
+    "current": "c802aabf33c0a20b1e705440f253f9764ae7b39688d8d065c156762d692890ac"
+  },
+  "src/residual_ir.c": {
+    "baseline": "4ebf2f9af60256f4b022a0dc7f127aeae5f4a3c1f9e1bddb8890b1e583941828",
+    "current": "4ebf2f9af60256f4b022a0dc7f127aeae5f4a3c1f9e1bddb8890b1e583941828"
+  },
+  "src/residual_ir.h": {
+    "baseline": "f185a7cf524e2943894b9c0bf539d3ff559dc616751d929542e5bf056bf8e890",
+    "current": "f185a7cf524e2943894b9c0bf539d3ff559dc616751d929542e5bf056bf8e890"
+  },
+  "src/residual_validate.c": {
+    "baseline": "3b092d93430eb3021121b3f672cc0598eca564921b188a7288e4c27f7e9d5942",
+    "current": "3b092d93430eb3021121b3f672cc0598eca564921b188a7288e4c27f7e9d5942"
+  },
+  "src/residualize.c": {
+    "baseline": "6982aae522b60247eec69173e325ba358b2fcce446cd8f414b8ae3372b307f37",
+    "current": "6982aae522b60247eec69173e325ba358b2fcce446cd8f414b8ae3372b307f37"
+  },
+  "src/residualize.h": {
+    "baseline": "d6459f3638e7656d58a66da9d3737b6f49256a5c198bee40d4007434ae0edb91",
+    "current": "d6459f3638e7656d58a66da9d3737b6f49256a5c198bee40d4007434ae0edb91"
+  },
+  "src/semantics.c": {
+    "baseline": "cf11ba96a956339df1110cdeea4ae059411158d9f2b55902bf10fd51d663142a",
+    "current": "cf11ba96a956339df1110cdeea4ae059411158d9f2b55902bf10fd51d663142a"
+  },
+  "src/symbolic.c": {
+    "baseline": "1709d1e5183ca196b09a91b4e392e3ff22a7ab9c6b4c07df36879f39ba6bf812",
+    "current": "1709d1e5183ca196b09a91b4e392e3ff22a7ab9c6b4c07df36879f39ba6bf812"
+  },
+  "src/symbolic.h": {
+    "baseline": "967a625395c3e5ff72194e8b8bb6ee9af176f4b70c78280e7ff9fd2b2cbf3716",
+    "current": "967a625395c3e5ff72194e8b8bb6ee9af176f4b70c78280e7ff9fd2b2cbf3716"
+  },
+  "src/verify.c": {
+    "baseline": "3b779e0125b6af07824f0a746340d1b9b63abb54fe6b1e003ccf7ba187209d49",
+    "current": "3b779e0125b6af07824f0a746340d1b9b63abb54fe6b1e003ccf7ba187209d49"
+  },
+  "src/vm.c": {
+    "baseline": "397559f53df935b03afa078f4487c33c451a7b02af5723d9ee67852f242b2f99",
+    "current": "397559f53df935b03afa078f4487c33c451a7b02af5723d9ee67852f242b2f99"
+  },
+  "src/vm_internal.h": {
+    "baseline": "eeefab8f31dc9d913846079b2b122ab920cc0dba341a9425198c9da355a61f1c",
+    "current": "eeefab8f31dc9d913846079b2b122ab920cc0dba341a9425198c9da355a61f1c"
+  },
+  "tools/assembler.lua": {
+    "baseline": "170cf69da02d763f22f7e2bf3593e573bd81b7d60a61942f1b41e7620ebb81f5",
+    "current": "170cf69da02d763f22f7e2bf3593e573bd81b7d60a61942f1b41e7620ebb81f5"
+  },
+  "tools/gen_opcodes.lua": {
+    "baseline": "e365db77603fabe605ade732311590fd12a2857b000a82cd25341bb059667002",
+    "current": "e365db77603fabe605ade732311590fd12a2857b000a82cd25341bb059667002"
+  },
+  "tools/opcodes.lua": {
+    "baseline": "e3e785c5c6c1620540ce693f211647062c8f4947968eacf56f897d4736f9d363",
+    "current": "e3e785c5c6c1620540ce693f211647062c8f4947968eacf56f897d4736f9d363"
+  }
+}

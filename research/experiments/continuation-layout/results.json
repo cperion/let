@@ -1,0 +1,1676 @@
+{
+  "baseline": [
+    {
+      "destination": "A",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "destination": "A",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "destination": "A",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "destination": "B",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "destination": "B",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "destination": "B",
+      "mode": "lazy",
+      "result": 101
+    }
+  ],
+  "instrumented": [
+    {
+      "destination": "A",
+      "mode": "compiled",
+      "runtime_snapshots": 10,
+      "nested_virtual_snapshots": 6,
+      "snapshots_with_moved_roots": 9,
+      "max_moved_roots": 2
+    },
+    {
+      "destination": "A",
+      "mode": "lazy",
+      "runtime_snapshots": 10,
+      "nested_virtual_snapshots": 7,
+      "snapshots_with_moved_roots": 7,
+      "max_moved_roots": 2
+    },
+    {
+      "destination": "B",
+      "mode": "compiled",
+      "runtime_snapshots": 10,
+      "nested_virtual_snapshots": 6,
+      "snapshots_with_moved_roots": 9,
+      "max_moved_roots": 2
+    },
+    {
+      "destination": "B",
+      "mode": "lazy",
+      "runtime_snapshots": 10,
+      "nested_virtual_snapshots": 7,
+      "snapshots_with_moved_roots": 7,
+      "max_moved_roots": 2
+    }
+  ],
+  "stack_sweep": [
+    {
+      "destination": "A",
+      "stack": 1,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 2,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 3,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 4,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 5,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 6,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 7,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 8,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 9,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 10,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 11,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 12,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 13,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 14,
+      "status_agreement": false,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 15,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 16,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 17,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 18,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 19,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 20,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 21,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 22,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 23,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 24,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 25,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 26,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 27,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 28,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 29,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 30,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 31,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "A",
+      "stack": 32,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 1,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 2,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 3,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 4,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 5,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 6,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 7,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 8,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 9,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 10,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 11,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 12,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 13,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 14,
+      "status_agreement": false,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "stack",
+          "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached",
+          "output": ""
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 15,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 16,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 17,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 18,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 19,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 20,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 21,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 22,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 23,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 24,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 25,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 26,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 27,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 28,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 29,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 30,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 31,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    },
+    {
+      "destination": "B",
+      "stack": 32,
+      "status_agreement": true,
+      "outcomes": [
+        {
+          "mode": "interpreted",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "compiled",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        },
+        {
+          "mode": "lazy",
+          "status": "ok",
+          "diagnostic": "",
+          "output": "101"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "No new saturation policy or actual virtual-to-general transfer is implemented.",
+    "Continuation insertion is tested on copied real native stack contents; live VM memory is not moved.",
+    "Instrumentation canonicalizes values within the existing continuation family before capture.",
+    "No performance inference is valid from the instrumented build."
+  ]
+}

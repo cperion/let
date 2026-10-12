@@ -1,0 +1,20 @@
+; Public integer cells: arguments and results are in source order.
+; The caller chooses whether a callee's result vector lands on A or B.
+.function main 0 2
+  PUSH.A 17
+  PUSH.A 5
+  CALL.A divmod 2
+  RET 0 2
+
+.function divmod 2 2
+  CGET.A 0
+  CGET.B 1
+  DIVU.A
+  CGET.A 0
+  CGET.B 1
+  REMU.A
+  RET 2 2
+
+.export main
+.export divmod
+

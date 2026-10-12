@@ -1,0 +1,5 @@
+src/residualize.c: OK
+src/symbolic.h: OK
+Makefile: OK
+build/libabc.a: OK
+build/libabc.so: OK

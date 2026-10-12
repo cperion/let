@@ -1,0 +1,22 @@
+function 0: 1 arguments, 1 results
+  00000000  PUSH8_A        2
+  00000002  CGET0_B       
+  00000003  BLEU           0x0000000a
+  00000006  CGET0_A       
+  00000007  RET            1 1
+  0000000a  CGET0_A       
+  0000000b  SUBI_A         1
+  0000000d  ZX32_A        
+  0000000e  CALL_A         0x00000000 1
+  00000014  CGET0_A       
+  00000015  SUBI_A         2
+  00000017  ZX32_A        
+  00000018  CALL_A         0x00000000 1
+  0000001e  MOVE_AB       
+  0000001f  ADD_A         
+  00000020  ZX32_A        
+  00000021  RET            1 1
+function 1: 0 arguments, 1 results
+  00000024  PUSH8_A        30
+  00000026  TCALL          0x00000000 0 1
+export main = function 1

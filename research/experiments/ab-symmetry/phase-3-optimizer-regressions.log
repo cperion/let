@@ -1,0 +1,7 @@
+revision-6 ISA metadata: byte map, mirror contracts, layouts and decoding passed
+revision-6 banked/call contracts: 36 cases, including foreign transport and indirect history in all modes
+validated revision-6 symbolic dispatch: 28 selected-bank contracts, narrow folds, existing control/context/fusion regressions
+validated residual arena, IDs, whole-program invariants, and readable dumps (235 checks)
+native return transport: 120 interpreter/eager/lazy checks passed
+revision-6 assembly/verifier/interpreter: 16 original/mirrored contracts passed
+validated 14 capture contracts (ordering, failure/PC preservation, register/constant renaming)

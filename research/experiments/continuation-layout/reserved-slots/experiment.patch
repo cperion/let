@@ -1,0 +1,116 @@
+--- a/src/symbolic.h
++++ b/src/symbolic.h
+@@ -34,6 +34,8 @@
+     uint8_t generic, reg_return; abc_symbolic_continuation *cont;
+ } abc_symbolic_context;
+ 
++/* Experiment: logical C excludes reserved continuation holes. */
++int32_t abc_symbolic_c_home(const abc_symbolic_context *context, uint32_t index);
+ void abc_symbolic_context_free(abc_symbolic_context *context);
+ int abc_symbolic_context_copy(abc_symbolic_context *to, const abc_symbolic_context *from);
+ int abc_symbolic_vcont_equal(const abc_symbolic_continuation *a, const abc_symbolic_continuation *b);
+@@ -107,7 +109,7 @@
+ typedef struct { unsigned frame_cells, results, terminal; } abc_symbolic_return;
+ typedef int (*abc_symbolic_emit_return_fn)(void *sink, uint32_t origin, const abc_symbolic_return *result);
+ typedef struct {
+-    uint32_t target; unsigned arguments, results, destination, virtualize;
++    uint32_t target; unsigned arguments, results, destination, virtualize, reserve_return;
+     abc_symbolic_continuation continuation; abc_symbolic_value result[255];
+ } abc_symbolic_call;
+ typedef int (*abc_symbolic_emit_call_fn)(void *sink, uint32_t origin, abc_symbolic_call *call);
+--- a/src/symbolic.c
++++ b/src/symbolic.c
+@@ -63,10 +63,20 @@
+     return 1;
+ }
+ 
++int32_t abc_symbolic_c_home(const abc_symbolic_context *x,uint32_t index) {
++    int32_t bias=x->c_bias-x->c_origin;
++    for(uint32_t n=x->ncont;n;n--) {
++        const abc_symbolic_continuation *f=&x->cont[n-1];
++        if(index>=f->cbase)break;
++        bias=f->old_bias-f->old_origin;
++    }
++    return bias+(int32_t)index;
++}
++
+ static int canonical_generic_context(const abc_symbolic_context *x) {
+     if(!x->generic)return 0;
+     for(unsigned s=0;s<3;s++)for(uint32_t i=0;i<x->n[s];i++) {
+-        int32_t home=s==ABC_SYM_C?x->c_bias+(int32_t)i-x->c_origin:(int32_t)i;
++        int32_t home=s==ABC_SYM_C?abc_symbolic_c_home(x,i):(int32_t)i;
+         abc_symbolic_value expected=abc_symbolic_home(s,home);
+         if(!value_equal(&x->s[s][i],&expected))return 0;
+     }
+@@ -488,6 +498,7 @@
+         .continuation={return_pc,target,abase,x->n[ABC_SYM_B],cbase,x->c_origin,x->c_bias,(uint8_t)destination}};
+     if(!m->emit_call(m->sink,m->pc,&effect)){if(m->exit==ABC_SYM_EXIT_BOUNDARY)return 0;m->exit=ABC_SYM_EXIT_FAILURE;return 0;}
+     if(effect.virtualize) {
++        new_bias+=(int32_t)effect.reserve_return;
+         abc_symbolic_value args[255];for(unsigned i=0;i<arguments;i++)args[i]=x->s[ABC_SYM_A][abase+i];x->n[ABC_SYM_A]=abase;
+         for(unsigned i=arguments;i;i--){unsigned index=i-1;abc_symbolic_value q=args[index];q.dst_stack=ABC_SYM_C;q.dst_home=new_bias-1-(int32_t)index;if(!abc_symbolic_push(x,ABC_SYM_C,q))return machine_fail(m,"symbolic call argument allocation failed");}
+         x->c_origin=(int32_t)x->n[ABC_SYM_C];x->c_bias=new_bias;if(!abc_symbolic_push_continuation(x,effect.continuation))return machine_fail(m,"symbolic continuation allocation failed");
+--- a/src/residualize.c
++++ b/src/residualize.c
+@@ -343,7 +343,7 @@
+ }
+ static int conform_context(Compiler *c,Context *x,int forget) {
+     for(int s=2;s>=0;s--) for(uint32_t i=0;i<x->n[s];i++) { JValue *v=&x->s[s][i];
+-        int32_t home=s==JS_C?x->c_bias+(int32_t)i-x->c_origin:(int32_t)i;
++        int32_t home=s==JS_C?abc_symbolic_c_home(x,i):(int32_t)i;
+         v->dst_stack=(uint8_t)s; v->dst_home=home;
+         if(!materialize_dynamic(c,x,v)||!save_value(c,x,v)) return 0;
+         if(forget)abc_symbolic_forget_dynamic(v); *v=rehome_value(*v,s,home);
+@@ -588,7 +588,11 @@
+     v->next=c->versions[pc]; c->versions[pc]=v;
+     if(!c->lazy){if(!grow((void **)&c->queue,&c->qcap,c->nq+1,sizeof *c->queue)) { c->status=abc_fail(c->error,ABC_NOMEM,pc,"compiler queue allocation failed"); return NULL; }c->queue[c->nq++]=v;} return v;
+ }
++static int local_reference(Compiler *c,unsigned stencil,uint64_t immediate,Fixup *fix);
++#include "reserved_probe.inc"
+ static Version *edge(Compiler *c,uint32_t from,uint32_t target,Context *x) {
++    const char *probe_pc=getenv("ABC_RESERVED_PROBE_PC");
++    if(probe_pc&&target==(uint32_t)strtoul(probe_pc,NULL,0))return reserved_probe_edge(c,target,x);
+     if(target<=from) for(unsigned s=0;s<3;s++) for(uint32_t i=0;i<x->n[s];i++) {
+         JValue *v=&x->s[s][i]; if(v->kind==VK_CONST) { if(materialize(c,x,v)<0 || !save_value(c,x,v)) return NULL; *v=rehome_value(*v,v->dst_stack,v->dst_home); }
+     }
+@@ -633,7 +637,7 @@
+    changes, constants and parallel home copies must wait for the decision. */
+ static int edge_spills_only(const Context *x) {
+     for(unsigned s=0;s<3;s++)for(uint32_t i=0;i<x->n[s];i++){
+-        const JValue *v=&x->s[s][i];int32_t home=s==JS_C?x->c_bias+(int32_t)i-x->c_origin:(int32_t)i;
++        const JValue *v=&x->s[s][i];int32_t home=s==JS_C?abc_symbolic_c_home(x,i):(int32_t)i;
+         if(v->kind==VK_CONST||v->dynamic_repr==ABC_SYM_REPR_RAW)return 0;
+         if(v->kind==VK_HOME&&(v->stack!=s||v->home!=home))return 0;
+     }
+@@ -915,8 +919,8 @@
+     if(fi<0){c->status=abc_fail(c->error,ABC_INVALID,pc,"native direct-call sink rejected target");return 0;}const abc_function *callee_function=&c->module->functions[fi];
+     uint64_t error=(uint64_t)ABC_STACK|((uint64_t)pc<<16);
+     if(inline_candidate(c,x,pc,effect->target,&effect->continuation)) {
+-        if(!ensure_capacity(c,x,JS_A,abase+callee_function->max_a,error)||!ensure_capacity(c,x,JS_B,x->n[JS_B]+callee_function->max_b,error)||!ensure_capacity(c,x,JS_C,(uint32_t)(ctop+(int32_t)callee_function->max_c),error))return 0;
+-        effect->virtualize=1;c->virtual_calls++;return 1;
++        if(!ensure_capacity(c,x,JS_A,abase+callee_function->max_a,error)||!ensure_capacity(c,x,JS_B,x->n[JS_B]+callee_function->max_b,error)||!ensure_capacity(c,x,JS_C,(uint32_t)(ctop+1+(int32_t)callee_function->max_c),error))return 0;
++        effect->virtualize=1;effect->reserve_return=1;c->virtual_calls++;return 1;
+     }
+     if(!ensure_capacity(c,x,JS_A,abase+callee_function->max_a,error)||!ensure_capacity(c,x,JS_B,x->n[JS_B]+callee_function->max_b,error)||!ensure_capacity(c,x,JS_C,(uint32_t)(ctop+1+(int32_t)callee_function->max_c),error))return 0;
+     Version *callee=NULL;
+@@ -988,6 +992,8 @@
+ 
+ static int compile_version(Compiler *c,Version *v) {
+     Context x; if(!context_copy(&x,&v->in)) return 0;v->body=c->pos;if(!c->lazy)v->address=v->body;v->compiling=1;
++    const char *probe_pc=getenv("ABC_RESERVED_PROBE_PC");
++    if(probe_pc&&v->pc==(uint32_t)strtoul(probe_pc,NULL,0)&&!x.ncont&&!emit_reserved_event(c,2|((uint64_t)(uint32_t)x.c_bias<<8)))goto failed;
+     const uint8_t *code=c->module->code; uint32_t pc=v->pc; int live=1;
+     while(live && pc<c->module->code_size) {
+         if(pc!=v->pc && c->block[pc]) { Version *to=edge(c,pc-1,pc,&x); if(!emit_jump(c,to)) goto failed; break; }
+--- a/gen/stencils.lua
++++ b/gen/stencils.lua
+@@ -291,6 +291,9 @@
+     abc_value roots[8]={r0,r1,r2,r3,r4,r5,r6,r7};
+     ((abc_gc_poll_fn)(uintptr_t)jit_final())(asp+(int32_t)(intptr_t)HOLE_IMM,bsp+(int32_t)(intptr_t)HOLE_IMM2,csp+(int32_t)(intptr_t)HOLE_BIAS,roots);
+   }NEXT]])
++emit('typedef void (*abc_reserved_event_fn)(abc_value *,abc_value *,abc_value *,abc_value);')
++layout:write(('#define ABC_STENCIL_RESERVED_EVENT %d\n'):format(n))
++stencil('reserved_event','((abc_reserved_event_fn)(uintptr_t)jit_final())(asp,bsp,csp,(abc_value)(uintptr_t)HOLE_IMM);NEXT')
+ layout:write('#endif\n')
+ names:write(('#define ABC_STENCIL_COUNT %d\n'):format(n))
+ assert(c:close()); assert(order:close()); assert(names:close()); assert(layout:close())

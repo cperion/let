@@ -1,20 +1,13 @@
 -- LuaJIT binding for the shared C residual-DAG optimizer.
 -- This file contains no ABC semantics: CLI and frontend callers invoke abc_optimize.
-local ffi = require("ffi")
+local ffi = require("let.abi")
 local D = require("let.diag")
 
 ffi.cdef [[
-typedef struct {
-    int status;
-    uint32_t offset;
-    uint8_t reason;
-    char message[192];
-} abc_error;
 typedef struct { uint32_t output_offset, input_offset; } abc_provenance;
 int abc_optimize(const void *bytes, size_t size, void **output, size_t *output_size, abc_error *error);
 int abc_optimize_mapped(const void *bytes, size_t size, void **output, size_t *output_size, abc_provenance **provenance, size_t *provenance_count, abc_error *error);
 void abc_optimized_free(void *bytes);
-const char *abc_status_name(int status);
 ]]
 
 local source = debug.getinfo(1, "S").source:gsub("^@", "")

@@ -1,0 +1,355 @@
+.profile memory
+.datazero 24
+.function main 0 1 - i
+CALLOC 8
+PUSH.A 101
+FST64.A 8
+FADDR.A 8
+GST64 0
+PUSH.A 777
+CPUSH.A
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 0
+CALL.A middle 2
+PUSH.B 10
+BEQ result2_0
+ABORT 1
+result2_0:
+PUSH.B 606
+BEQ result1_0
+ABORT 2
+result1_0:
+PUSH.A 222
+BEQ live_b_0
+ABORT 3
+live_b_0:
+PUSH.B 111
+BEQ live_a_0
+ABORT 4
+live_a_0:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_0
+ABORT 5
+live_c_0:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 1
+CALL.A middle 2
+PUSH.B 11
+BEQ result2_1
+ABORT 1
+result2_1:
+PUSH.B 606
+BEQ result1_1
+ABORT 2
+result1_1:
+PUSH.A 222
+BEQ live_b_1
+ABORT 3
+live_b_1:
+PUSH.B 111
+BEQ live_a_1
+ABORT 4
+live_a_1:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_1
+ABORT 5
+live_c_1:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 2
+CALL.A middle 2
+PUSH.B 12
+BEQ result2_2
+ABORT 1
+result2_2:
+PUSH.B 606
+BEQ result1_2
+ABORT 2
+result1_2:
+PUSH.A 222
+BEQ live_b_2
+ABORT 3
+live_b_2:
+PUSH.B 111
+BEQ live_a_2
+ABORT 4
+live_a_2:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_2
+ABORT 5
+live_c_2:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 3
+CALL.A middle 2
+PUSH.B 13
+BEQ result2_3
+ABORT 1
+result2_3:
+PUSH.B 606
+BEQ result1_3
+ABORT 2
+result1_3:
+PUSH.A 222
+BEQ live_b_3
+ABORT 3
+live_b_3:
+PUSH.B 111
+BEQ live_a_3
+ABORT 4
+live_a_3:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_3
+ABORT 5
+live_c_3:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 4
+CALL.A middle 2
+PUSH.B 14
+BEQ result2_4
+ABORT 1
+result2_4:
+PUSH.B 606
+BEQ result1_4
+ABORT 2
+result1_4:
+PUSH.A 222
+BEQ live_b_4
+ABORT 3
+live_b_4:
+PUSH.B 111
+BEQ live_a_4
+ABORT 4
+live_a_4:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_4
+ABORT 5
+live_c_4:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 5
+CALL.A middle 2
+PUSH.B 15
+BEQ result2_5
+ABORT 1
+result2_5:
+PUSH.B 606
+BEQ result1_5
+ABORT 2
+result1_5:
+PUSH.A 222
+BEQ live_b_5
+ABORT 3
+live_b_5:
+PUSH.B 111
+BEQ live_a_5
+ABORT 4
+live_a_5:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_5
+ABORT 5
+live_c_5:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 6
+CALL.A middle 2
+PUSH.B 16
+BEQ result2_6
+ABORT 1
+result2_6:
+PUSH.B 606
+BEQ result1_6
+ABORT 2
+result1_6:
+PUSH.A 222
+BEQ live_b_6
+ABORT 3
+live_b_6:
+PUSH.B 111
+BEQ live_a_6
+ABORT 4
+live_a_6:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_6
+ABORT 5
+live_c_6:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 7
+CALL.A middle 2
+PUSH.B 17
+BEQ result2_7
+ABORT 1
+result2_7:
+PUSH.B 606
+BEQ result1_7
+ABORT 2
+result1_7:
+PUSH.A 222
+BEQ live_b_7
+ABORT 3
+live_b_7:
+PUSH.B 111
+BEQ live_a_7
+ABORT 4
+live_a_7:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_7
+ABORT 5
+live_c_7:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 8
+CALL.A middle 2
+PUSH.B 18
+BEQ result2_8
+ABORT 1
+result2_8:
+PUSH.B 606
+BEQ result1_8
+ABORT 2
+result1_8:
+PUSH.A 222
+BEQ live_b_8
+ABORT 3
+live_b_8:
+PUSH.B 111
+BEQ live_a_8
+ABORT 4
+live_a_8:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_8
+ABORT 5
+live_c_8:
+PUSH.A 111
+PUSH.B 222
+FADDR.A 16
+PUSH.A 9
+CALL.A middle 2
+PUSH.B 19
+BEQ result2_9
+ABORT 1
+result2_9:
+PUSH.B 606
+BEQ result1_9
+ABORT 2
+result1_9:
+PUSH.A 222
+BEQ live_b_9
+ABORT 3
+live_b_9:
+PUSH.B 111
+BEQ live_a_9
+ABORT 4
+live_a_9:
+CGET.A 0
+PUSH.B 777
+BEQ live_c_9
+ABORT 5
+live_c_9:
+.loadkind int
+FLD64.A 16
+CPOP
+CFREE 8
+RET 0 1
+.function middle 2 2 ai ii
+CALLOC 8
+PUSH.A 202
+FST64.A 8
+FADDR.A 8
+GST64 8
+PUSH.A 888
+CPUSH.A
+PUSH.A 333
+PUSH.B 444
+CGET.A 2
+FADDR.A 16
+CGET.A 3
+CALL.A leaf 3
+CPUSH.A
+CPUSH.A
+PUSH.A 444
+BEQ mid_b
+ABORT 6
+mid_b:
+PUSH.B 333
+BEQ mid_a
+ABORT 7
+mid_a:
+CGET.A 2
+PUSH.B 888
+BEQ mid_c
+ABORT 8
+mid_c:
+CGET.A 0
+CGET.A 1
+CPOP
+CPOP
+CPOP
+CFREE 8
+RET 2 2
+.function leaf 3 2 aai ii
+CALLOC 8
+PUSH.A 303
+FST64.A 8
+FADDR.A 8
+GST64 16
+PUSH.A 999
+CPUSH.A
+PUSH.A 555
+PUSH.B 666
+JMP probe
+probe:
+CGET.A 2
+.loadkind int
+LD64.A 0
+CGET.B 3
+.loadkind int
+LD64.B 0
+ADD.A
+.loadkind int
+FLD64.B 16
+ADD.A
+CPUSH.A
+PUSH.A 666
+BEQ leaf_b
+ABORT 9
+leaf_b:
+PUSH.B 555
+BEQ leaf_a
+ABORT 10
+leaf_a:
+CGET.A 1
+PUSH.B 999
+BEQ leaf_c
+ABORT 11
+leaf_c:
+CGET.A 0
+CGET.A 5
+ADDI.A 10
+CPOP
+CPOP
+CFREE 8
+RET 3 2
+.export main

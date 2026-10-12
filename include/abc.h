@@ -10,7 +10,7 @@
 typedef struct abc_module abc_module;
 typedef struct abc_vm abc_vm;
 typedef void (*abc_foreign_address)(void);
-typedef enum { ABC_INTEGER, ABC_ADDRESS, ABC_FLOAT, ABC_ANY } abc_cell_kind;
+typedef enum { ABC_INTEGER, ABC_ADDRESS, ABC_FLOAT } abc_cell_kind;
 typedef struct {
     uint32_t arguments, results, hidden_result_bytes;
     uint8_t argument_kinds[255], result_kinds[255]; /* abc_cell_kind values */
@@ -49,10 +49,10 @@ typedef struct {
     abc_aot_entry entry;
 } abc_aot_export;
 #endif
-typedef enum { ABC_EXEC_INTERPRETED, ABC_EXEC_COMPILED, ABC_EXEC_LAZY } abc_execution_mode;
+typedef enum { ABC_EXEC_INTERPRETED, ABC_EXEC_COMPILED, ABC_EXEC_LAZY, ABC_EXEC_THREADED } abc_execution_mode;
 typedef struct {
     size_t stack_cells;          /* limit per stack; zero selects 65,536 */
-    abc_execution_mode mode;     /* interpreted by default; compiled is eager, lazy compiles on first context arrival */
+    abc_execution_mode mode;     /* interpreted default; threaded/compiled prepare eagerly; lazy prepares native contexts on arrival */
 } abc_limits;
 
 abc_status abc_module_load(const void *bytes, size_t size, abc_module **out, abc_error *error);
@@ -77,8 +77,6 @@ abc_status abc_vm_bind_foreign(abc_vm *vm, const char *name,
 /* Associate a module with a VM. Eager compiled VMs residualize the module here.
  * Lazy VMs install stable entry stubs and compile reached contexts during calls. */
 abc_status abc_vm_load(abc_vm *vm, const abc_module *module, abc_error *error);
-/* Request collection at the next profile-5 allocating or generic safepoint. */
-abc_status abc_vm_request_collection(abc_vm *vm, abc_error *error);
 void abc_vm_free(abc_vm *vm);
 /* Results are copied in source order. A call resets stacks, even after failure;
  * memory image writes persist. Output capacity is checked before execution.

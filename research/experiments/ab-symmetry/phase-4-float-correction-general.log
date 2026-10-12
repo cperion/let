@@ -1,0 +1,8 @@
+validated 92 oracle cases / 552 mirrored three-mode executions; assembled all 282 public core/EXT forms
+luajit: tools/validate.lua:57: bootstrap-fibonacci: abc: line 3: unknown instruction BGEUI; selected forms require .A or .B
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate.lua:57: in function 'assemble'
+	tools/validate.lua:64: in function 'bootstrap_example'
+	tools/validate.lua:711: in main chunk
+	[C]: at 0x555a2edfc120

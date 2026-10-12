@@ -16,14 +16,9 @@
 _Static_assert(sizeof(void *) == 8, "ABC2 requires a 64-bit host");
 enum { ABC_MAX_FILE = 16 * 1024 * 1024, ABC_MAX_FUNCTIONS = 65536 };
 /* Serialized kinds retain INT=0, ADDR=1 and FLOAT=2 compatibility. */
-enum { ABC_KIND_INT, ABC_KIND_ADDR, ABC_KIND_FLOAT, ABC_KIND_ANY, ABC_KIND_BLOCK };
-enum { ABC_DESC_PRIMITIVE, ABC_DESC_POINTER, ABC_DESC_SLICE, ABC_DESC_SIGNATURE, ABC_DESC_RECORD, ABC_DESC_ARRAY, ABC_DESC_SUM, ABC_DESC_CLOSURE };
-enum { ABC_PRIM_UNIT, ABC_PRIM_BOOL, ABC_PRIM_U8, ABC_PRIM_U16, ABC_PRIM_U32, ABC_PRIM_U64, ABC_PRIM_I32, ABC_PRIM_I64, ABC_PRIM_F64, ABC_PRIM_STRING, ABC_PRIM_ANY, ABC_PRIM_WORD };
-typedef struct { uint8_t tag, flags; uint16_t length; uint8_t *payload; } abc_descriptor;
-typedef struct { uint32_t offset, descriptor; } abc_gc_root;
-typedef struct { uint8_t kind, flags; uint16_t length; uint8_t *payload; } abc_dynamic_constant;
+enum { ABC_KIND_INT, ABC_KIND_ADDR, ABC_KIND_FLOAT, ABC_KIND_BLOCK = 4 };
 typedef struct {
-    uint32_t entry, end, arguments, results, hidden_bytes, max_a, max_b, max_c; unsigned has_halt, allocation_free;
+    uint32_t entry, end, arguments, results, hidden_bytes, max_a, max_b, max_c; unsigned has_halt;
     uint8_t argument_kinds[255], result_kinds[255];
 } abc_function;
 typedef struct { char *name; uint32_t function; } abc_export;
@@ -35,16 +30,21 @@ struct abc_module {
     abc_function *functions; uint32_t function_count;
     abc_export *exports; uint32_t export_count;
     uint8_t *image, *load_kinds; uint32_t data_size, image_size;
-    unsigned memory_profile, callable_profile, foreign_profile, dynamic_profile; atomic_uint references;
+    unsigned memory_profile, callable_profile, foreign_profile; atomic_uint references;
     abc_function *sites; uint32_t site_count;
     abc_code_reloc *relocs; uint32_t reloc_count;
     abc_extern *externs; uint32_t extern_count;
-    abc_descriptor *descriptors; uint32_t descriptor_count;
-    abc_dynamic_constant *dynamic_constants; uint32_t dynamic_constant_count;
-    abc_gc_root *gc_roots; uint32_t gc_root_count;
 };
 static inline uint16_t abc_u16(const uint8_t *p) { return (uint16_t)(p[0] | (uint16_t)p[1] << 8); }
-static inline uint32_t abc_instruction_length(const uint8_t *p) { return p[0]==OP_SWITCH ? 3u+4u*abc_u16(p+1) : p[0]==OP_EXT ? ext_len[p[1]] : op_len[p[0]]; }
+/* Trusted-code access after bounded module decoding has established instruction boundaries. */
+static inline const abc_instruction_metadata *abc_instruction_info(const uint8_t *code) {
+    const abc_instruction_metadata *metadata = &abc_core_instructions[code[0]];
+    return metadata->kind == K_EXT ? &abc_extended_instructions[code[1]] : metadata;
+}
+static inline uint32_t abc_instruction_length(const uint8_t *code) {
+    const abc_instruction_metadata *metadata = abc_instruction_info(code);
+    return metadata->kind == K_SWITCH ? 3u + 4u * abc_u16(code + 1) : metadata->encoded_length;
+}
 static inline uint32_t abc_u32(const uint8_t *p) {
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
@@ -74,6 +74,7 @@ static inline int abc_same_signature(const abc_function *a,const abc_function *b
     return a->arguments==b->arguments && a->results==b->results && a->hidden_bytes==b->hidden_bytes &&
         !memcmp(a->argument_kinds,b->argument_kinds,a->arguments) && !memcmp(a->result_kinds,b->result_kinds,a->results);
 }
+abc_status abc_verify_module(abc_module *module, abc_error *error);
 abc_status abc_load_memory(const void *bytes, size_t size, abc_module **out, abc_error *error);
 abc_foreign_bridge_fn abc_foreign_select(const abc_extern *ext);
 abc_status abc_foreign_invoke(const abc_extern *ext,abc_foreign_address fn,const uint64_t *args,uint64_t *out);

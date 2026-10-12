@@ -1,0 +1,25 @@
+.function main 0 1
+PUSH.A 1000000
+CPUSH.A
+loop:
+CGET.A 0
+BEQI.A 0 done
+PUSH.A 41
+CALL.A leaf 1
+PUSH.B 42
+BNE.A fail
+CGET.A 0
+SUBI.A 1
+CSET.A 0
+JMP loop
+fail:
+ABORT 5
+done:
+CPOP
+PUSH.A 42
+RET.A 0 1
+.function leaf 1 1
+CGET.A 0
+ADDI.A 1
+RET.A 1 1
+.export main

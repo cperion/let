@@ -1,0 +1,13 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residualize.c -o build/residualize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/native_emit.c -o build/native_emit.o
+rm -f build/libabc-tool.a
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residualize.c -o build/pic/residualize.o
+ar rcs build/libabc-tool.a build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/native_emit.c -o build/pic/native_emit.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+rm -f build/libabc.a
+ar rcs build/libabc.a build/module.o build/memory_module.o build/verify.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/banked_0.o build/banked_1.o build/banked_2.o build/banked_3.o build/banked_4.o build/banked_5.o build/banked_6.o build/banked_7.o build/residualize.o build/native_emit.o
+/tmp/clang20 -shared -O2 -g -Wl,-z,defs build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/banked_0.o build/pic/banked_1.o build/pic/banked_2.o build/pic/banked_3.o build/pic/banked_4.o build/pic/banked_5.o build/pic/banked_6.o build/pic/banked_7.o build/pic/residualize.o build/pic/native_emit.o -lm -o build/libabc.so
+/tmp/clang20 -O2 -g build/cli.o build/libabc.a -o build/abc-runtime
+cp tools/abc build/abc
+chmod +x build/abc

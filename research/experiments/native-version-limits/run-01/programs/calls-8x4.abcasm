@@ -1,0 +1,31 @@
+.function main 0 1
+PUSH.A 0
+PUSH.B 100000
+CPUSH.B
+loop:
+CALL.A middle 1
+CALL.A middle 1
+CALL.A middle 1
+CALL.A middle 1
+CALL.A middle 1
+CALL.A middle 1
+CALL.A middle 1
+CALL.A middle 1
+CGET.B 0
+SUBI.B 1
+CSET.B 0
+CGET.B 0
+BNEI.B 0 loop
+RET.A 1 1
+.function middle 1 1
+CGET.A 0
+CALL.A helper 1
+CALL.A helper 1
+CALL.A helper 1
+CALL.A helper 1
+RET.A 1 1
+.function helper 1 1
+CGET.B 0
+ADDI.B 1
+RET.B 1 1
+.export main

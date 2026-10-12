@@ -1,0 +1,55 @@
+ M Makefile
+ M README.md
+ M docs/architecture.md
+ M docs/callable-profile.md
+ M docs/dynamic-profile.md
+ M docs/spec.md
+ M docs/symbolic-vm.md
+ D examples/dynamic_gc.abcasm
+ M frontend/tests/compiler.lua
+ M frontend/tests/lowering.lua
+ M frontend/tests/optimize.lua
+ M gen/banked.lua
+ M gen/stencils.lua
+ M gen/symbolic.lua
+ M include/abc.h
+ M research/experiments/engines/README.md
+ M research/experiments/engines/dynamic-types.md
+ M research/experiments/type-versions/README.md
+ M research/experiments/type-versions/inspect.py
+ D src/dynamic.c
+ D src/dynamic.h
+ M src/internal.h
+ M src/memory_module.c
+ M src/module.c
+ M src/optimize.c
+ M src/residual_analysis.c
+ M src/residual_analysis.h
+ M src/residual_builder.c
+ M src/residualize.c
+ M src/symbolic.c
+ M src/symbolic.h
+ M src/vm.c
+ M src/vm_internal.h
+ D src/whippet_embedder.h
+ D src/whippet_types.h
+ M tools/validate.lua
+ M tools/validate_api.c
+ M tools/validate_continuations.lua
+ D tools/validate_dynamic.lua
+ M tools/validate_symbolic.c
+ D tools/validate_type_versions.lua
+?? AGENTS.md
+?? REFACTOR.md
+?? docs/symmetric-isa.md
+?? research/archive/dynamic-layer-before-typed-teardown/
+?? research/archive/native-only-scalar-wip/
+?? research/archive/split-scalar-orchestration-wip/
+?? research/experiments/continuation-layout/
+?? research/experiments/engines/check-first.md
+?? research/experiments/engines/compare_dynamic.lua
+?? research/experiments/engines/scalar-dispatch-pairs.txt
+?? research/experiments/engines/scalar-runtime-audit.md
+?? research/experiments/engines/shared-scalar-engines.txt
+?? research/experiments/engines/shared-scalar-pairs.txt
+?? tools/validate_capture.c

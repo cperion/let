@@ -3,14 +3,15 @@
 #include "internal.h"
 #include <math.h>
 
-typedef struct { uint32_t return_pc; unsigned to_b; } abc_frame;
+typedef struct { uint32_t return_pc; unsigned result_destination_stack; } abc_frame;
 typedef struct { uint32_t entry,max_a,max_b,max_c; } abc_call_info;
 typedef struct abc_foreign_binding { char *name; abc_foreign_address address; struct abc_foreign_binding *next; } abc_foreign_binding;
-typedef struct abc_dynamic_heap abc_dynamic_heap;
 typedef struct abc_image {
-    const abc_module *module; uint8_t *bytes, *code; uint32_t *direct_callees; abc_call_info *call_info; size_t bytes_mapping_size; uint64_t transitions;
+    const abc_module *module; uint8_t *bytes;
+    uint32_t *direct_callees, *indirect_site_states;
+    abc_call_info *call_info; size_t bytes_mapping_size; uint64_t transitions;
     abc_foreign_address *foreign; abc_foreign_bridge_fn *foreign_bridges;
-    struct abc_native_image *native;
+    struct abc_execution_image *execution;
     struct abc_image *next;
 } abc_image;
 struct abc_vm {
@@ -18,7 +19,6 @@ struct abc_vm {
     uint64_t h[4], cr[3]; unsigned ca, cb, cc;
     abc_frame *frames; abc_execution_mode mode; abc_image *images;
     abc_foreign_binding *foreign_bindings;
-    abc_dynamic_heap *dynamic;
 };
 typedef struct {
     abc_vm *v; const abc_module *m; abc_image *image; const uint8_t *code;
@@ -26,21 +26,14 @@ typedef struct {
 } abc_run;
 
 extern _Thread_local abc_run *abc_active_run;
-abc_status vm_resolve_indirect(abc_run *r,const uint8_t *p,uint32_t pc,uint64_t target,unsigned form,int *callee);
-abc_status vm_foreign(abc_run *r,const uint8_t *p,uint32_t pc);
-uint64_t vm_dynamic_native(uint64_t **asp,uint64_t **bsp,uint64_t **csp,const uint8_t *p,uint32_t pc);
-void vm_dynamic_write_native(uint64_t address,uint32_t bytes);
-abc_status vm_dynamic(abc_run *r,const uint8_t *p,uint32_t pc);
-void abc_dynamic_destroy(abc_vm *v);
+abc_status vm_resolve_indirect(abc_run *run, uint32_t pc, uint64_t target, uint32_t *callee_index);
+abc_status vm_foreign(abc_run *run, unsigned extern_index, unsigned selected_stack, uint32_t pc);
 abc_foreign_address abc_foreign_lookup(const abc_vm *vm,const char *name);
 size_t vm_depth(const abc_vm *v,char stack);
 uint64_t *vm_at(abc_vm *v,char stack,size_t depth);
 void vm_push(abc_vm *v,char stack,uint64_t value);
 uint64_t vm_pop(abc_vm *v,char stack);
 void vm_publish_all(abc_vm *v);
-abc_status vm_enter(abc_vm *v,const abc_function *callee,uint32_t ret,unsigned to_b,unsigned n,uint32_t pc,abc_error *e);
-abc_status vm_dynamic_invoke(abc_run *parent,uint32_t function,unsigned arguments,uint32_t pc);
-abc_status vm_tail_require(abc_vm *v,const abc_function *callee,uint32_t pc,abc_error *e);
 uint64_t vm_sar(uint64_t x,uint64_t n);
 uint64_t vm_pow(uint64_t x,uint64_t n);
 int32_t abc_i32_from_u64(uint64_t x);

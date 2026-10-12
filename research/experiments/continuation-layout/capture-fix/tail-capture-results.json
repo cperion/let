@@ -1,0 +1,4820 @@
+[
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 1,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 1,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 1,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 2,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 2,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 2,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 3,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 3,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 3,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 4,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 4,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 4,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 5,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 5,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 5,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 6,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 6,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 6,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 7,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 7,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 7,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 8,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 8,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 8,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 9,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 9,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 9,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 10,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 10,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 10,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 11,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 11,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 11,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 12,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 12,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 12,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 13,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 13,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 13,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 14,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 14,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 14,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 15,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 15,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 15,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 16,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 16,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 16,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 17,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 17,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 17,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 18,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 18,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 18,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 19,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 19,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 19,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 20,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 20,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 20,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 21,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 21,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 21,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 22,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 22,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 22,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 23,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 23,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 23,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 24,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 24,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 24,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 25,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 25,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 25,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 26,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 26,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 26,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 27,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 27,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 27,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 28,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 28,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 28,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 29,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 29,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 29,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 30,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 30,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 30,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 31,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 31,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 31,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 32,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 32,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 32,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 1024,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 1024,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "capacity": 1024,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 1,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 1,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 1,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 2,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 2,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 2,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 3,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 3,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 3,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 4,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 4,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 4,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 5,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 5,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 5,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 6,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 6,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 6,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 7,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 7,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 7,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 8,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 8,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 8,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 9,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 9,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 9,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 10,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 10,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 10,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 11,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 11,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 11,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 12,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 12,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 12,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 13,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 13,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 13,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 14,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 14,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 14,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 15,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 15,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 15,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 16,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 16,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 16,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 17,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 17,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 17,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 18,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 18,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 18,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 19,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 19,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 19,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 20,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 20,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 20,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 21,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 21,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 21,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 22,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 22,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 22,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 23,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 23,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 23,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 24,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 24,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 24,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 25,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 25,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 25,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 26,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 26,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 26,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 27,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 27,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 27,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 28,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 28,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 28,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 29,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 29,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 29,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 30,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 30,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 30,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 31,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 31,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 31,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 32,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 32,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 32,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 1024,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 1024,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "capacity": 1024,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 1,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 1,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 1,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 2,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 2,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 2,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 3,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 3,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 3,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 4,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 4,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 4,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 5,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 5,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 5,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 6,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 6,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 6,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 7,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 7,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 7,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 8,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 8,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 8,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 9,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 9,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 9,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 10,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 10,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 10,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 11,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 11,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 11,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 12,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 12,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 12,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 13,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 13,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 13,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 14,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 14,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 14,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 15,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 15,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 15,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 16,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 16,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 16,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 17,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 17,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 17,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 18,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 18,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 18,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 19,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 19,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 19,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 20,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 20,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 20,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 21,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 21,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 21,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 22,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 22,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 22,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 23,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 23,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 23,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 24,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 24,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 24,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 25,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 25,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 25,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 26,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 26,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 26,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 27,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 27,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 27,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 28,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 28,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 28,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 29,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 29,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 29,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 30,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 30,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 30,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 31,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 31,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 31,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 32,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 32,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 32,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 1024,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 1024,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 10,
+    "materialized_returns": 15,
+    "general_version_counts": [
+      1,
+      2
+    ]
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "capacity": 1024,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 10,
+    "materialized_returns": 14,
+    "general_version_counts": [
+      1,
+      2
+    ]
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 1,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 1,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 1,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 2,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 2,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 2,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 3,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 3,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 3,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 4,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 4,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 4,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 5,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 5,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 5,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 6,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 6,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 6,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 7,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 7,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 7,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 8,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 8,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 8,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 9,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 9,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 9,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 10,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 10,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 10,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 11,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 11,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 11,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 12,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 12,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 12,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 13,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 13,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 13,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 14,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 14,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 14,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 15,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 15,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 15,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 16,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 16,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 16,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 17,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 17,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 17,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 18,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 18,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 18,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 19,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 19,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 19,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 20,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 20,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 20,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 21,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 21,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 21,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 22,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 22,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 22,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 23,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 23,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 23,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 24,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 24,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 24,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 25,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 25,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 25,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 26,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 26,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 26,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 27,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 27,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 27,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 28,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 28,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 28,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 29,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 29,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 29,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 30,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 30,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 30,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 31,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 31,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 31,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 32,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 32,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 32,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 1024,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 1024,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "capacity": 1024,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 1,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 1,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 1,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 2,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 2,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 2,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 3,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 3,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 3,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 4,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 4,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 4,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 5,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 5,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 5,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 6,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 6,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 6,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 7,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 7,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 7,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 8,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 8,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 8,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 9,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 9,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 9,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 10,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 10,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 10,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 11,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 11,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 11,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 12,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 12,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 12,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 13,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 13,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 13,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 14,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 14,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 14,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 15,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 15,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 15,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 16,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 16,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 16,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 17,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 17,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 17,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 18,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 18,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 18,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 19,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 19,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 19,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 20,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 20,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 20,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 21,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 21,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 21,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 22,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 22,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 22,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 23,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 23,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 23,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 24,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 24,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 24,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 25,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 25,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 25,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 26,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 26,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 26,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 27,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 27,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 27,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 28,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 28,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 28,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 29,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 29,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 29,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 30,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 30,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 30,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 31,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 31,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 31,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 32,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 32,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 32,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 1024,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 1024,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "capacity": 1024,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 1,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 1,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 1,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 2,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 2,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 2,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 3,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 3,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 3,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 4,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 4,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 4,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 5,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 5,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 5,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 6,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 6,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 6,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 7,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 7,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 7,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 8,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 8,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 8,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 9,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 9,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 9,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 10,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 10,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 10,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 11,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 11,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 11,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 12,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 12,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 12,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 13,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 13,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 13,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 14,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 14,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 14,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 15,
+    "mode": "interpreted",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 15,
+    "mode": "compiled",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 15,
+    "mode": "lazy",
+    "status": "stack",
+    "diagnostic": "abc: stack-limit at byte 0x2f9: stack limit reached"
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 16,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 16,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 16,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 17,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 17,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 17,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 18,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 18,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 18,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 19,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 19,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 19,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 20,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 20,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 20,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 21,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 21,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 21,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 22,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 22,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 22,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 23,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 23,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 23,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 24,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 24,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 24,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 25,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 25,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 25,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 26,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 26,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 26,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 27,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 27,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 27,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 28,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 28,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 28,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 29,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 29,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 29,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 30,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 30,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 30,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 31,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 31,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 31,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 32,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 32,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 32,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": ""
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 1024,
+    "mode": "interpreted",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 0,
+    "materialized_returns": 0,
+    "general_version_counts": []
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 1024,
+    "mode": "compiled",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 10,
+    "materialized_returns": 15,
+    "general_version_counts": [
+      1,
+      2
+    ]
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "capacity": 1024,
+    "mode": "lazy",
+    "status": "ok",
+    "diagnostic": "",
+    "general_entries": 10,
+    "materialized_returns": 14,
+    "general_version_counts": [
+      1,
+      2
+    ]
+  }
+]

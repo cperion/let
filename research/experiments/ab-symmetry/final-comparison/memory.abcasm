@@ -1,0 +1,23 @@
+; Revision-6 spelling of the frozen phase-0 memory workload; same work/order.
+.profile memory
+.datazero 8
+.function main 0 1 - i
+    PUSH.A 0
+    GST64.A 0
+    PUSH.A 1000000
+    CPUSH.A
+loop:
+    CGET.A 0
+    BEQI.A 0 done
+    GLD64.A 0
+    ADDI.A 1
+    GST64.A 0
+    CGET.A 0
+    SUBI.A 1
+    CSET.A 0
+    JMP loop
+done:
+    CPOP
+    GLD64.A 0
+    RET.A 0 1
+.export main

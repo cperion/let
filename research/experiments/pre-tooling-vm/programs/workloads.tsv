@@ -1,0 +1,12 @@
+warm-top	104000000	bench
+post-call-top	104000000	bench
+post-call-mixed	84000000	bench
+post-call-deep	44000000	bench
+post-free-top	104000000	bench
+ab-control	0	bench
+fib28	317811	bench
+frame-alias	2500000	bench
+global-memory	1000000	bench
+escaped-caller-block	41	check
+partial-frame-write	287462724	check
+frame-copy-overlap	22	check

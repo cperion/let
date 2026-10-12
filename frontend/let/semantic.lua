@@ -295,7 +295,19 @@ function Function:sumMatch(node, expected)
     local value=self.builder:read(parentBody,resultType,I.Local(resultStorage));local result=self.builder:ref(value,resultType);result.borrowedLocal=resultBorrow;return result
 end
 function Function:lambda(node, expected, inferResults)
-    if not expected or not expected:isView() then reject("type-required","A lambda needs a callable signature annotation",node) end
+    local ownSignature=not expected
+    if ownSignature then
+        -- Explicit parameter types suffice without a repeated binding signature.
+        -- This temporary checking context is not emitted as a callable contract;
+        -- returnValues establishes the results before the View is constructed.
+        local inputs={}
+        for _,param in ipairs(node.params) do
+            if not param.annotation then reject("type-required","Lambda parameter `"..param.name.text.."` needs a type annotation or an expected callable signature",param) end
+            inputs[#inputs+1]=S.inValue(typeExpr(param.annotation,self.types))
+        end
+        expected=S.view(S.sig(inputs,{}));inferResults=true
+    end
+    if not expected:isView() then reject("type-required","A lambda needs a callable signature annotation",node) end
     if not inferResults and #expected.visible.results<1 then reject("semantic-todo","Zero-result source lambdas are not implemented",node) end
     if #node.params~=#expected.visible.inputs then reject("arity","Lambda parameter count does not match its signature",node) end
     local parameterNames={} for _,param in ipairs(node.params) do
@@ -330,7 +342,7 @@ function Function:lambda(node, expected, inferResults)
     end
     for index,param in ipairs(node.params) do
         local inputType=expected.visible.inputs[index].type
-        if param.annotation and typeExpr(param.annotation,self.types)~=inputType then reject("type-mismatch","Lambda parameter annotation does not match its signature",param) end
+        if param.annotation and not ownSignature and typeExpr(param.annotation,self.types)~=inputType then reject("type-mismatch","Lambda parameter annotation does not match its signature",param) end
         local input=#child.inputs;child.inputs[#child.inputs+1]=S.inValue(inputType);local value=child.builder:valueId();child.params[#child.params+1]=I.ValueParam(input,value,inputType);child.scope[param.name.text]={value=value,type=inputType,callable=inputType:isView() or inputType:isOwned()}
     end
     if node.body.kind=="Expression" then child:returnValues({node.body.value},node.body.value)

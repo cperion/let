@@ -1,0 +1,40 @@
+-- Threaded dispatch with the hot state as the loop's parameters, so a step copies no aggregate.
+-- A handler returns the transition -- next pc, next sp, done -- and `run` destructures it and
+-- tail-calls itself outside the match. The only self-call is `run`'s own body, so it lowers to a
+-- back edge (`for (;;) { ... continue; }`) rather than a call.
+--
+-- Compare examples/dispatch.slet, where the machine is a record passed by value; there a step copies
+-- the code and stack arrays. Here the code and stack are one pointer each and never move.
+--
+-- The program is [push 3, push 4, add, halt].
+--
+-- Expected: main() = 7
+
+let op = oneof { push: u32, add: unit, halt: unit }
+
+let run(code: ptr(op), pc: u32, stack: ptr(u32), sp: u32): u32 = do
+  let op = code[pc]
+  let npc, nsp, done = op {
+    push = |value: u32| -> do
+      stack[sp] = value
+      return pc + 1, sp + 1, false
+    end,
+    add = |u: unit| -> do
+      let right = stack[sp - 1]
+      let left = stack[sp - 2]
+      stack[sp - 2] = left + right
+      return pc + 1, sp - 1, false
+    end,
+    halt = |u: unit| -> do return pc, sp, true end,
+  }
+  if done then return stack[sp - 1] end
+  return run(code, npc, stack, nsp)
+end
+
+let main(): u32 = do
+  let code = [op.push(3), op.push(4), op.add(), op.halt()]
+  let stack = [0, 0, 0, 0]
+  return run(ptr(code[0]), 0, ptr(stack[0]), 0)
+end
+
+return { functions = { main } }

@@ -1,0 +1,2 @@
+PASS: unoptimized staging uses only the in-process VM in all three modes
+PASS: owned staging sessions (211 checks)

@@ -1,0 +1,8 @@
+loop compiled: before [627] after [581]
+loop lazy: before [446] after [404]
+branch compiled: before [1818] after [1790]
+branch lazy: before [1172] after [1126]
+fib compiled: before [1040] after [1024]
+fib lazy: before [798] after [789]
+memory compiled: before [450] after [309]
+memory lazy: before [324] after [246]

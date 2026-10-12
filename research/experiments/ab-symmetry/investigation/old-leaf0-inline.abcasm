@@ -1,0 +1,21 @@
+.function main 0 1
+PUSH.A 1000000
+CPUSH.A
+loop:
+CGET.A 0
+BEQI 0 done
+
+PUSH.A 42
+PUSH.B 42
+BNE fail
+CGET.A 0
+SUBI.A 1
+CSET.A 0
+JMP loop
+fail:
+ABORT 5
+done:
+CPOP
+PUSH.A 42
+RET 0 1
+.export main

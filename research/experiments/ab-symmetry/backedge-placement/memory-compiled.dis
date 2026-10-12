@@ -1,0 +1,68 @@
+
+research/experiments/ab-symmetry/backedge-placement/memory-compiled.bin:     file format binary
+
+
+Disassembly of section .data:
+
+0000000000000000 <.data>:
+   0:	49 bf 00 00 00 00 00 	movabs $0x0,%r15
+   7:	00 00 00 
+   a:	4c 89 3d ef ef 9d ff 	mov    %r15,-0x621011(%rip)        # 0xffffffffff9df000
+  11:	e9 00 00 00 00       	jmp    0x16
+  16:	e9 00 00 00 00       	jmp    0x1b
+  1b:	4c 8b 3d de ef 9d ff 	mov    -0x621022(%rip),%r15        # 0xffffffffff9df000
+  22:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+  29:	4c 89 3d d0 ef 9d ff 	mov    %r15,-0x621030(%rip)        # 0xffffffffff9df000
+  30:	49 bf 3f 42 0f 00 00 	movabs $0xf423f,%r15
+  37:	00 00 00 
+  3a:	e9 00 00 00 00       	jmp    0x3f
+  3f:	48 bf 00 00 00 00 00 	movabs $0x0,%rdi
+  46:	00 00 00 
+  49:	49 39 ff             	cmp    %rdi,%r15
+  4c:	0f 84 05 00 00 00    	je     0x57
+  52:	e9 3f 00 00 00       	jmp    0x96
+  57:	4c 8b 3d a2 ef 9d ff 	mov    -0x62105e(%rip),%r15        # 0xffffffffff9df000
+  5e:	49 8b be f8 ff ff ff 	mov    -0x8(%r14),%rdi
+  65:	48 be ff ff ff ff 00 	movabs $0xffffffff,%rsi
+  6c:	00 00 00 
+  6f:	48 39 f7             	cmp    %rsi,%rdi
+  72:	0f 84 13 00 00 00    	je     0x8b
+  78:	4d 8d b6 f8 ff ff ff 	lea    -0x8(%r14),%r14
+  7f:	48 be 00 00 00 00 00 	movabs $0x0,%rsi
+  86:	00 00 00 
+  89:	ff e7                	jmp    *%rdi
+  8b:	4d 89 bc 24 00 00 00 	mov    %r15,0x0(%r12)
+  92:	00 
+  93:	31 c0                	xor    %eax,%eax
+  95:	c3                   	ret
+  96:	48 8b 3d 63 ef 9d ff 	mov    -0x62109d(%rip),%rdi        # 0xffffffffff9df000
+  9d:	48 81 c7 01 00 00 00 	add    $0x1,%rdi
+  a4:	48 89 3d 55 ef 9d ff 	mov    %rdi,-0x6210ab(%rip)        # 0xffffffffff9df000
+  ab:	4c 89 ff             	mov    %r15,%rdi
+  ae:	48 81 ef 01 00 00 00 	sub    $0x1,%rdi
+  b5:	e9 00 00 00 00       	jmp    0xba
+  ba:	49 bf 00 00 00 00 00 	movabs $0x0,%r15
+  c1:	00 00 00 
+  c4:	4c 39 ff             	cmp    %r15,%rdi
+  c7:	0f 84 05 00 00 00    	je     0xd2
+  cd:	e9 3f 00 00 00       	jmp    0x111
+  d2:	4c 8b 3d 27 ef 9d ff 	mov    -0x6210d9(%rip),%r15        # 0xffffffffff9df000
+  d9:	49 8b be f8 ff ff ff 	mov    -0x8(%r14),%rdi
+  e0:	48 be ff ff ff ff 00 	movabs $0xffffffff,%rsi
+  e7:	00 00 00 
+  ea:	48 39 f7             	cmp    %rsi,%rdi
+  ed:	0f 84 13 00 00 00    	je     0x106
+  f3:	4d 8d b6 f8 ff ff ff 	lea    -0x8(%r14),%r14
+  fa:	48 be 00 00 00 00 00 	movabs $0x0,%rsi
+ 101:	00 00 00 
+ 104:	ff e7                	jmp    *%rdi
+ 106:	4d 89 bc 24 00 00 00 	mov    %r15,0x0(%r12)
+ 10d:	00 
+ 10e:	31 c0                	xor    %eax,%eax
+ 110:	c3                   	ret
+ 111:	4c 8b 3d e8 ee 9d ff 	mov    -0x621118(%rip),%r15        # 0xffffffffff9df000
+ 118:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+ 11f:	4c 89 3d da ee 9d ff 	mov    %r15,-0x621126(%rip)        # 0xffffffffff9df000
+ 126:	49 89 ff             	mov    %rdi,%r15
+ 129:	49 81 ef 01 00 00 00 	sub    $0x1,%r15
+ 130:	e9 0a ff ff ff       	jmp    0x3f

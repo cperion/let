@@ -1,0 +1,10 @@
+.profile memory
+.function main 2 1 ff i
+ CGET.A 0
+ CGET.B 1
+ FBLE.A yes
+ PUSH.A 0
+ RET.A 2 1
+yes: PUSH.A 1
+ RET.A 2 1
+.export main

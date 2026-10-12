@@ -1,0 +1,8 @@
+let loop(n: u32, s: u32): u32 = do
+    if n == 0 then return s end
+    let x = s ~ (s << 13)
+    let y = x ~ (x >> 17)
+    return loop(n - 1, y ~ (y << 5))
+end
+let main(n: u32): u32 = loop(n, 2463534242)
+ 

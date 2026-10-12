@@ -1,0 +1,7 @@
+.function main 0 1
+ PUSH.A 3000000
+ loop:
+ ADDI.A -1
+ DUP.A
+ JNZ.A loop
+ RET.A 0 1

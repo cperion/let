@@ -1,0 +1,246 @@
+[
+  {
+    "name": "loop",
+    "measurements": {
+      "off": {
+        "read": 4.2061e-05,
+        "prepare": 1.1302499999999999e-05,
+        "first": 0.110660221,
+        "steady": 0.10911549300000001,
+        "body_bytes": 0.0,
+        "storage_bytes": 0.0,
+        "versions": 0.0,
+        "ratio_to_off": 1.0,
+        "ratio_range": [
+          1.0,
+          1.0
+        ]
+      },
+      "threaded": {
+        "read": 4.1306e-05,
+        "prepare": 3.81865e-05,
+        "first": 0.048211976000000004,
+        "steady": 0.0465415015,
+        "body_bytes": 1424.0,
+        "storage_bytes": 2048.0,
+        "versions": 15.0,
+        "ratio_to_off": 0.4272536253179813,
+        "ratio_range": [
+          0.42425494856347534,
+          0.42802681765172507
+        ]
+      },
+      "lazy": {
+        "read": 4.3513e-05,
+        "prepare": 3.59715e-05,
+        "first": 0.008218762000000001,
+        "steady": 0.0080954645,
+        "body_bytes": 404.0,
+        "storage_bytes": 258048.0,
+        "versions": 12.0,
+        "ratio_to_off": 0.07419195438912965,
+        "ratio_range": [
+          0.0732034283090524,
+          0.07645594607620412
+        ]
+      },
+      "eager": {
+        "read": 4.13945e-05,
+        "prepare": 4.96875e-05,
+        "first": 0.008147081,
+        "steady": 0.008102159500000001,
+        "body_bytes": 581.0,
+        "storage_bytes": 258048.0,
+        "versions": 15.0,
+        "ratio_to_off": 0.07437589337518082,
+        "ratio_range": [
+          0.07345813647720291,
+          0.07475550257264296
+        ]
+      }
+    }
+  },
+  {
+    "name": "branch",
+    "measurements": {
+      "off": {
+        "read": 5.2020999999999995e-05,
+        "prepare": 1.3195e-05,
+        "first": 0.071040172,
+        "steady": 0.07104488349999999,
+        "body_bytes": 0.0,
+        "storage_bytes": 0.0,
+        "versions": 0.0,
+        "ratio_to_off": 1.0,
+        "ratio_range": [
+          1.0,
+          1.0
+        ]
+      },
+      "threaded": {
+        "read": 4.4742499999999994e-05,
+        "prepare": 7.0787e-05,
+        "first": 0.032376776499999996,
+        "steady": 0.0320885875,
+        "body_bytes": 6352.0,
+        "storage_bytes": 8192.0,
+        "versions": 69.0,
+        "ratio_to_off": 0.4530970595185524,
+        "ratio_range": [
+          0.4380686043077632,
+          0.4555826381759168
+        ]
+      },
+      "lazy": {
+        "read": 4.4718e-05,
+        "prepare": 3.6430499999999996e-05,
+        "first": 0.006510536,
+        "steady": 0.0065346994999999995,
+        "body_bytes": 1321.0,
+        "storage_bytes": 450560.0,
+        "versions": 37.0,
+        "ratio_to_off": 0.09238531262303556,
+        "ratio_range": [
+          0.09054164307684263,
+          0.09488542935359665
+        ]
+      },
+      "eager": {
+        "read": 4.6357000000000004e-05,
+        "prepare": 7.66955e-05,
+        "first": 0.002328394,
+        "steady": 0.0023111255,
+        "body_bytes": 2779.0,
+        "storage_bytes": 450560.0,
+        "versions": 69.0,
+        "ratio_to_off": 0.03263643386307004,
+        "ratio_range": [
+          0.03203831953274385,
+          0.033258537301443035
+        ]
+      }
+    }
+  },
+  {
+    "name": "fib",
+    "measurements": {
+      "off": {
+        "read": 4.5968000000000004e-05,
+        "prepare": 1.37895e-05,
+        "first": 0.0294138305,
+        "steady": 0.02783424,
+        "body_bytes": 0.0,
+        "storage_bytes": 0.0,
+        "versions": 0.0,
+        "ratio_to_off": 1.0,
+        "ratio_range": [
+          1.0,
+          1.0
+        ]
+      },
+      "threaded": {
+        "read": 5.1555e-05,
+        "prepare": 4.3753e-05,
+        "first": 0.032846573000000004,
+        "steady": 0.032889905,
+        "body_bytes": 1784.0,
+        "storage_bytes": 2048.0,
+        "versions": 14.0,
+        "ratio_to_off": 1.1721035944947604,
+        "ratio_range": [
+          1.1623160764310585,
+          1.2454895516889082
+        ]
+      },
+      "lazy": {
+        "read": 4.26905e-05,
+        "prepare": 3.4666500000000004e-05,
+        "first": 0.008620256,
+        "steady": 0.008930618500000001,
+        "body_bytes": 789.0,
+        "storage_bytes": 188416.0,
+        "versions": 10.0,
+        "ratio_to_off": 0.32130076675546987,
+        "ratio_range": [
+          0.31224132587278053,
+          0.3262406764977408
+        ]
+      },
+      "eager": {
+        "read": 4.8692e-05,
+        "prepare": 5.4915500000000006e-05,
+        "first": 0.005422056,
+        "steady": 0.0054391895,
+        "body_bytes": 1024.0,
+        "storage_bytes": 188416.0,
+        "versions": 14.0,
+        "ratio_to_off": 0.1940879018918309,
+        "ratio_range": [
+          0.1903532083044063,
+          0.1978805165701369
+        ]
+      }
+    }
+  },
+  {
+    "name": "memory",
+    "measurements": {
+      "off": {
+        "read": 4.22885e-05,
+        "prepare": 1.143e-05,
+        "first": 0.003976255,
+        "steady": 0.003923888,
+        "body_bytes": 0.0,
+        "storage_bytes": 0.0,
+        "versions": 0.0,
+        "ratio_to_off": 1.0,
+        "ratio_range": [
+          1.0,
+          1.0
+        ]
+      },
+      "threaded": {
+        "read": 4.08095e-05,
+        "prepare": 3.4481500000000005e-05,
+        "first": 0.0032654414999999997,
+        "steady": 0.0032804495,
+        "body_bytes": 672.0,
+        "storage_bytes": 1024.0,
+        "versions": 9.0,
+        "ratio_to_off": 0.8420333244753702,
+        "ratio_range": [
+          0.8081839727523153,
+          0.9039197434589388
+        ]
+      },
+      "lazy": {
+        "read": 4.1301e-05,
+        "prepare": 3.57475e-05,
+        "first": 0.0016672104999999999,
+        "steady": 0.0015629175,
+        "body_bytes": 246.0,
+        "storage_bytes": 196608.0,
+        "versions": 8.0,
+        "ratio_to_off": 0.3998787737327709,
+        "ratio_range": [
+          0.39687174680901083,
+          0.4011157719181743
+        ]
+      },
+      "eager": {
+        "read": 4.0509499999999996e-05,
+        "prepare": 5.4813000000000005e-05,
+        "first": 0.001507768,
+        "steady": 0.0015294240000000001,
+        "body_bytes": 309.0,
+        "storage_bytes": 196608.0,
+        "versions": 9.0,
+        "ratio_to_off": 0.3926450927198965,
+        "ratio_range": [
+          0.36026373602414374,
+          0.40554234350847523
+        ]
+      }
+    }
+  }
+]

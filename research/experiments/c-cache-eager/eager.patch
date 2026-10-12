@@ -1,0 +1,331 @@
+--- a/gen/cache.lua
++++ b/gen/cache.lua
+@@ -15,7 +15,7 @@
+   assert(c_registers == M.interpreter_c_registers or c_registers == M.jit_c_registers, 'invalid C bank size')
+   check_depth(a, M.operand_registers)
+   check_depth(b, M.operand_registers - a)
+-  check_depth(c, c_registers)
++  assert(c == 0, 'eager C has no occupancy state')
+   return { a = a, b = b, c = c, c_registers = c_registers }
+ end
+ 
+@@ -29,7 +29,7 @@
+   elseif stack == 'B' then
+     if depth < s.b then return 'h' .. (M.operand_registers - s.b + depth) end
+   elseif stack == 'C' then
+-    if depth < s.c then return 'c' .. (s.c - depth - 1) end
++    if depth < M.interpreter_c_registers then return 'c' .. depth end
+   else error('invalid stack') end
+ end
+ 
+@@ -39,10 +39,7 @@
+ function M.push(s, stack)
+   local t = copy(s)
+   local spill
+-  if stack == 'C' then
+-    if t.c == t.c_registers then spill = 'C'; t.c = t.c - 1 end
+-    t.c = t.c + 1
+-  elseif stack == 'A' or stack == 'B' then
++  if stack == 'A' or stack == 'B' then
+     if t.a + t.b == M.operand_registers then
+       spill = t[stack:lower()] > 0 and stack or (stack == 'A' and 'B' or 'A')
+       t[spill:lower()] = t[spill:lower()] - 1
+@@ -67,10 +64,10 @@
+ -- Ordered physical actions for spilling the deepest cached cell. Perform
+ -- these after capturing any instruction inputs and before writing the push.
+ function M.spill_steps(s, stack)
+-  local count = s[assert(({ A = 'a', B = 'b', C = 'c' })[stack], 'invalid stack')]
++  local count = s[assert(({ A = 'a', B = 'b' })[stack], 'eager C maintenance belongs to its fixed-window binding')]
+   assert(count > 0, 'cannot spill an empty cache')
+   local steps = {}
+-  local bank = stack == 'C' and 'c' or 'h'
++  local bank = 'h'
+   local anchor = stack == 'B' and M.operand_registers - 1 or 0
+   steps[1] = { kind = 'store', stack = stack, source = bank .. anchor }
+   if stack == 'B' then
+@@ -95,7 +92,7 @@
+ -- A pop never refills from memory.
+ function M.pop(s, stack)
+   local t = copy(s)
+-  local key = ({ A = 'a', B = 'b', C = 'c' })[stack]
++  local key = ({ A = 'a', B = 'b' })[stack]
+   assert(key, 'invalid stack')
+   if t[key] > 0 then t[key] = t[key] - 1 end
+   return t
+@@ -106,9 +103,7 @@
+   local states = {}
+   for a = 0, M.operand_registers do
+     for b = 0, M.operand_registers - a do
+-      for c = 0, c_registers do
+-        states[#states + 1] = M.state(a, b, c, c_registers)
+-      end
++      states[#states + 1] = M.state(a, b, 0, c_registers)
+     end
+   end
+   return states
+--- a/gen/banked.lua
++++ b/gen/banked.lua
+@@ -10,6 +10,10 @@
+ local out
+ local function emit(text) assert(out:write(text,'\n')) end
+ local keys={A='a',B='b',C='c'}
++-- Experimental fixed top-three C window. csp is the logical end; memory
++-- contains real homes for every cell, with the three cached homes possibly dirty.
++local flush_context=[[do { size_t depth=(size_t)(csp-v->c); if(depth>=3){csp[-1]=c0;csp[-2]=c1;csp[-3]=c2;}else{if(depth)csp[-1]=c0;if(depth>=2)csp[-2]=c1;} } while(0);]]
++local refill_context=[[do { size_t depth=(size_t)(csp-v->c); if(depth>=3){c0=csp[-1];c1=csp[-2];c2=csp[-3];}else{c0=depth?csp[-1]:0;c1=depth>=2?csp[-2]:0;c2=0;} } while(0);]]
+ local function opposite(stack) return stack=='A' and 'B' or 'A' end
+ local Builder={};Builder.__index=Builder
+ local function builder(state)
+@@ -29,22 +33,30 @@
+  return ('%ssp[%d]'):format(keys[stack],self.state[keys[stack]]-depth-1)
+ end
+ function Builder:cvalue(depth)
+- local expression=('csp[-1-((int)(%s)-%d)]'):format(depth,self.state.c)
+- for index=self.state.c-1,0,-1 do expression=('((%s)==%d?c%d:%s)'):format(depth,self.state.c-1-index,index,expression) end
++ local expression=('csp[-1-(int)(%s)]'):format(depth)
++ for index=0,2 do expression=('((%s)==%d?c%d:%s)'):format(depth,index,index,expression) end
+  return expression
+ end
+ function Builder:cset(depth,value)
+- for index=self.state.c-1,0,-1 do self:line(('if((%s)==%d)c%d=%s;else '):format(depth,self.state.c-1-index,index,value)) end
+- self:line(('csp[-1-((int)(%s)-%d)]=%s;'):format(depth,self.state.c,value))
++ for index=0,2 do self:line(('if((%s)==%d)c%d=%s;else '):format(depth,index,index,value)) end
++ self:line(('csp[-1-(int)(%s)]=%s;'):format(depth,value))
+ end
+ function Builder:pop(stack,discard)
+  local captured=not discard and self:temp(self:peek(stack)) or nil
++ if stack=='C' then
++  self:line('--csp;c0=c1;c1=c2;c2=(size_t)(csp-v->c)>=3?csp[-3]:0;')
++  return captured
++ end
+  if self.state[keys[stack]]==0 then self:line('--'..keys[stack]..'sp;') end
+  self.state=cache.pop(self.state,stack)
+  return captured
+ end
+ function Builder:push(stack,value)
+  local captured=self:temp(value)
++ if stack=='C' then
++  self:line('if((size_t)(csp-v->c)>=3)csp[-3]=c2;c2=c1;c1=c0;c0='..captured..';++csp;')
++  return
++ end
+  local next_state,spill=cache.push(self.state,stack)
+  if spill then
+   for _,step in ipairs(cache.spill_steps(self.state,spill)) do
+@@ -56,6 +68,7 @@
+  self:line(self:peek(stack)..'='..captured..';')
+ end
+ local function flush_stack(state,stack)
++ if stack=='C' then emit(flush_context);return end
+  for depth=state[keys[stack]]-1,0,-1 do
+   emit(('*%ssp++=%s;'):format(keys[stack],cache.register(state,stack,depth)))
+  end
+@@ -64,10 +77,11 @@
+  emit(('ip=next;ABC_HANDLER_TAIL return T_a%db%dc%d[*ip](ABC_HANDLER_PASS);'):format(state.a,state.b,state.c))
+ end
+ local function dynamic_dispatch(a,b,c)
+- emit(('ABC_HANDLER_TAIL return abc_tables[((%s)*5+(%s))*4+(%s)][*ip](ABC_HANDLER_PASS);'):format(a,b,c))
++ emit(('ABC_HANDLER_TAIL return abc_tables[(%s)*5+(%s)][*ip](ABC_HANDLER_PASS);'):format(a,b))
+ end
+ local function publish(a,b,c,pc)
+- emit(('v->ca=%s;v->cb=%s;v->cc=%s;'):format(a,b,c))
++ emit(flush_context)
++ emit(('v->ca=%s;v->cb=%s;v->cc=0;'):format(a,b))
+  emit('v->na=(size_t)(asp-v->a);v->nb=(size_t)(bsp-v->b);v->nc=(size_t)(csp-v->c);')
+  emit('v->h[0]=h0;v->h[1]=h1;v->h[2]=h2;v->h[3]=h3;v->cr[0]=c0;v->cr[1]=c1;v->cr[2]=c2;')
+  emit(('r->pc=%s;r->done=1;return ABC_OK;'):format(pc))
+@@ -82,7 +96,8 @@
+  emit(('default:__builtin_unreachable();}%s--;}else value=*--%ssp;'):format(count,keys[stack]))
+ end
+ local function push_dynamic(stack,count,value)
+- local maximum=stack=='C' and 3 or 4
++ if stack=='C' then emit('*csp++='..value..';');return end
++ local maximum=4
+  emit(('switch(%s){'):format(count))
+  for cells=0,maximum do
+   local state=cache.state(stack=='A' and cells or 0,stack=='B' and cells or 0,stack=='C' and cells or 0)
+@@ -91,8 +106,14 @@
+  end
+  emit('default:__builtin_unreachable();}')
+ end
+-local function drop_context(count)
+- emit(('if((%s)<=cached_context)cached_context-=(%s);else{csp-=(%s)-cached_context;cached_context=0;}'):format(count,count,count))
++local function drop_context(count,refill)
++ if refill then
++  emit(('csp-=(%s);if((%s)>=3){'):format(count,count));emit(refill_context)
++  emit(('}else if((%s)==2){c0=c2;c1=(size_t)(csp-v->c)>=2?csp[-2]:0;c2=(size_t)(csp-v->c)>=3?csp[-3]:0;}else if((%s)==1){c0=c1;c1=c2;c2=(size_t)(csp-v->c)>=3?csp[-3]:0;}'):format(count,count))
++ else
++  -- A replacement burst needs only surviving cached homes, not dead frame cells.
++  emit(('if((%s)==0&&(size_t)(csp-v->c)>=1)csp[-1]=c0;if((%s)<=1&&(size_t)(csp-v->c)>=2)csp[-2]=c1;if((%s)<=2&&(size_t)(csp-v->c)>=3)csp[-3]=c2;csp-=(%s);'):format(count,count,count,count))
++ end
+ end
+ local function scalar_transfer(binding,transfer,me,other,instruction)
+  local kind=transfer.kind
+@@ -143,6 +164,9 @@
+  elseif kind=='memory' then
+   local memory,action=instruction.mem,manifest.memory_action
+   local offset=instruction.layout_name=='U32' and 'abc_u32(operand)' or instruction.layout_name=='U16' and 'abc_u16(operand)' or '0'
++  local aliases_context=memory.action==action.FLOAD or memory.action==action.FSTORE or memory.action==action.PLOAD or memory.action==action.PSTORE or memory.action==action.XLOAD or memory.action==action.COPY
++  local writes_context=memory.action==action.FSTORE or memory.action==action.PSTORE or memory.action==action.COPY
++  if aliases_context then binding:line(flush_context) end
+   local function load(address) return ('banked_load((const uint8_t *)(%s),%d,%d)'):format(address,memory.width,memory.sign) end
+   if memory.action==action.FLOAD then binding:push(me,load(('(uint8_t *)csp+8*%d-(%s)'):format(binding.state.c,offset)))
+   elseif memory.action==action.FSTORE then local value=binding:pop(me);binding:line(('banked_store((uint8_t *)csp+8*%d-(%s),%d,%s);'):format(binding.state.c,offset,memory.width,value))
+@@ -156,6 +180,7 @@
+   elseif memory.action==action.INDEX then local index=binding:pop(other);binding:line(binding:peek(me)..'+='..index..'*('..offset..');')
+   elseif memory.action==action.COPY then local destination,source=binding:pop(me),binding:pop(other);binding:line(('if(%s)memmove((void *)(uintptr_t)%s,(const void *)(uintptr_t)%s,%s);'):format(offset,destination,source,offset))
+   else error('unbound memory action') end
++  if writes_context then binding:line(refill_context) end
+  else return false end
+  return true
+ end
+@@ -163,7 +188,7 @@
+ local header=assert(io.open(output..'/banked.h.tmp','wb'))
+ header:write('#pragma once\n#include "vm_internal.h"\n#include "handler_abi.h"\n')
+ for _,state in ipairs(states) do header:write(('extern const abc_handler T_a%db%dc%d[256];\n'):format(state.a,state.b,state.c)) end
+-header:write('extern const abc_handler *const abc_tables[100];\n')
++header:write('extern const abc_handler *const abc_tables[25];\n')
+ for index=0,7 do
+  out=files[index]
+  emit('#include "banked.h"')
+@@ -188,16 +213,20 @@
+   emit(('ABC_HANDLER_TAIL return extended_%s_%s[ip[1]](ABC_HANDLER_PASS);'):format(suffix,me))
+  elseif kind=='abort' then emit('ABORT(operand[0]);')
+  elseif kind=='allocate' or kind=='free' then
+-  flush_stack(state,'C')
+   emit('size_t cells=(abc_u16(operand)+7u)/8u;')
+-  if kind=='allocate' then emit('if(cells>(size_t)(v->c+v->capacity-csp))return abc_fail(e,ABC_STACK,pc,"frame block stack limit reached");memset(csp,0,cells*8);csp+=cells;')
+-  else emit('csp-=cells;') end
++  if kind=='allocate' then
++   flush_stack(state,'C')
++   emit('if(cells>(size_t)(v->c+v->capacity-csp))return abc_fail(e,ABC_STACK,pc,"frame block stack limit reached");memset(csp,0,cells*8);csp+=cells;')
++   emit(refill_context)
++  else drop_context('cells',true) end
+   dispatch(cache.state(state.a,state.b,0))
+  elseif kind=='cpushn' then
+-  emit(('unsigned cached_selected=%d,cached_context=%d;'):format(state[keys[me]],state.c))
++  emit(('unsigned cached_selected=%d;'):format(state[keys[me]]))
++  emit(flush_context)
+   emit('for(unsigned index=0;index<operand[0];index++){')
+   pop_dynamic(me,'cached_selected',state[keys[me]])
+   push_dynamic('C','cached_context','value');emit('}')
++  emit(refill_context)
+   emit('ip=next;');dynamic_dispatch(me=='A' and 'cached_selected' or tostring(state.a),me=='B' and 'cached_selected' or tostring(state.b),'cached_context')
+  elseif kind=='cgetr' then
+   -- Keep the existing range-transfer boundary: publish only its destination and C.
+@@ -209,9 +238,10 @@
+   emit('v->ca=v->cb=v->cc=0;v->na=(size_t)(asp-v->a);v->nb=(size_t)(bsp-v->b);v->nc=(size_t)(csp-v->c);')
+   emit(('abc_status status=vm_foreign(r,abc_u16(operand),%d,pc);if(status!=ABC_OK)return status;'):format(me=='A' and 0 or 1))
+   emit('asp=v->a+v->na;bsp=v->b+v->nb;csp=v->c+v->nc;')
++  emit(refill_context)
+   dispatch(cache.state(0,0,0))
+  elseif kind=='halt' then
+-  flush_stack(state,'A');flush_stack(state,'B');flush_stack(state,'C')
++  flush_stack(state,'A');flush_stack(state,'B')
+   if me=='B' then emit('size_t results=(size_t)(bsp-v->b);memcpy(asp,v->b,results*8);asp+=results;bsp=v->b;') end
+   publish('0','0','0','(uint32_t)(next-r->code)')
+  elseif kind=='call' or kind=='tcall' or kind=='calli' or kind=='tcalli' then
+@@ -223,21 +253,23 @@
+   else emit('uint32_t callee_index=r->image->direct_callees[pc];') end
+   local remaining=binding.state
+   emit('const abc_call_info *callee=&r->image->call_info[callee_index];')
+-  emit(('unsigned arguments=operand[%d],frame_cells=%s,cached_selected=%d,cached_context=%d;'):format(indirect and (tail and 1 or 0) or (tail and 5 or 4),tail and (indirect and 'operand[0]' or 'operand[4]') or '0',remaining[keys[me]],remaining.c))
++  emit(('unsigned arguments=operand[%d],frame_cells=%s,cached_selected=%d;'):format(indirect and (tail and 1 or 0) or (tail and 5 or 4),tail and (indirect and 'operand[0]' or 'operand[4]') or '0',remaining[keys[me]]))
+   emit(('size_t depth_a=(size_t)(asp-v->a)+%d,depth_b=(size_t)(bsp-v->b)+%d,depth_c=(size_t)(csp-v->c)+%d;'):format(remaining.a,remaining.b,remaining.c))
+   emit(('if(%sdepth_a-%s+callee->max_a>v->capacity||depth_b-%s+callee->max_b>v->capacity||depth_c%s+callee->max_c>v->capacity)return abc_fail(e,ABC_STACK,pc,"stack limit reached");'):format(tail and '' or 'v->nf==v->capacity||',me=='A' and 'arguments' or '0',me=='B' and 'arguments' or '0',tail and '-frame_cells' or '+1'))
+   if tail then drop_context('frame_cells')
+   else
++   emit(flush_context)
+    emit(('v->frames[v->nf++]=(abc_frame){(uint32_t)(next-r->code),%d};'):format(me=='A' and 0 or 1))
+    push_dynamic('C','cached_context','(uint32_t)(next-r->code)')
+   end
+   emit('(void)frame_cells;for(unsigned index=0;index<arguments;index++){')
+   pop_dynamic(me,'cached_selected',remaining[keys[me]]);push_dynamic('C','cached_context','value');emit('}')
++  emit(refill_context)
+   emit('ip=r->code+callee->entry;')
+   dynamic_dispatch(me=='A' and 'cached_selected' or tostring(remaining.a),me=='B' and 'cached_selected' or tostring(remaining.b),'cached_context')
+  elseif kind=='ret' then
+-  emit(('unsigned cached_context=%d;unsigned cells=(unsigned)operand[0]+1,results=operand[1];'):format(state.c))
+-  drop_context('cells')
++  emit('unsigned cells=(unsigned)operand[0]+1,results=operand[1];')
++  drop_context('cells',true)
+   emit('abc_frame continuation=v->frames[--v->nf];')
+   emit(('if(continuation.result_destination_stack==%d){'):format(me=='A' and 0 or 1))
+   emit('if(!v->nf){');publish(tostring(state.a),tostring(state.b),'cached_context','continuation.return_pc');emit('}')
+@@ -269,8 +301,8 @@
+  end
+  emit(('const abc_handler T_%s[256]={%s};'):format(suffix,table.concat(handlers,',')))
+ end
+-out=files[0];emit('const abc_handler *const abc_tables[100]={')
+-for _,state in ipairs(states) do emit(('[%d]=T_a%db%dc%d,'):format((state.a*5+state.b)*4+state.c,state.a,state.b,state.c)) end
++out=files[0];emit('const abc_handler *const abc_tables[25]={')
++for _,state in ipairs(states) do emit(('[%d]=T_a%db%dc%d,'):format(state.a*5+state.b,state.a,state.b,state.c)) end
+ emit('};')
+ assert(header:close());assert(os.rename(output..'/banked.h.tmp',output..'/banked.h'))
+ for index=0,7 do assert(files[index]:close());assert(os.rename(('%s/banked_%d.c.tmp'):format(output,index),('%s/banked_%d.c'):format(output,index))) end
+--- a/src/vm.c
++++ b/src/vm.c
+@@ -5,16 +5,17 @@
+ #include <sys/mman.h>
+ #include <unistd.h>
+ /* Backing counts exclude cached cells. A/B share h0..h3, anchored from
+- * opposite ends; C uses c0..c2. Pops never refill. */
++ * opposite ends. Experimental C handlers keep fixed top-three registers and
++ * a logical end pointer; outside handlers C is fully published in memory. */
+ size_t vm_depth(const abc_vm *v,char stack) {
+     if(stack=='a') return v->na+v->ca;
+     if(stack=='b') return v->nb+v->cb;
+-    return v->nc+v->cc;
++    return v->nc;
+ }
+ uint64_t *vm_at(abc_vm *v,char stack,size_t depth) {
+     if(stack=='a') return depth<v->ca ? &v->h[v->ca-1-depth] : &v->a[v->na-1-(depth-v->ca)];
+     if(stack=='b') return depth<v->cb ? &v->h[4-v->cb+depth] : &v->b[v->nb-1-(depth-v->cb)];
+-    return depth<v->cc ? &v->cr[v->cc-1-depth] : &v->c[v->nc-1-(depth-v->cc)];
++    return &v->c[v->nc-1-depth];
+ }
+ static void vm_spill(abc_vm *v,char stack) {
+     if(stack=='a') {
+@@ -25,16 +26,11 @@
+         v->b[v->nb++]=v->h[3];
+         for(unsigned j=3;j>4-v->cb;j--) v->h[j]=v->h[j-1];
+         v->cb--;
+-    } else {
+-        v->c[v->nc++]=v->cr[0];
+-        for(unsigned j=1;j<v->cc;j++) v->cr[j-1]=v->cr[j];
+-        v->cc--;
+     }
+ }
+ void vm_push(abc_vm *v,char stack,uint64_t value) {
+     if(stack=='c') {
+-        if(v->cc==3) vm_spill(v,'c');
+-        v->cr[v->cc++]=value;
++        v->c[v->nc++]=value;
+     } else {
+         if(v->ca+v->cb==4) vm_spill(v,stack=='a' ? (v->ca ? 'a' : 'b') : (v->cb ? 'b' : 'a'));
+         if(stack=='a') v->h[v->ca++]=value;
+@@ -44,9 +40,9 @@
+ uint64_t vm_pop(abc_vm *v,char stack) {
+     if(stack=='a') return v->ca ? v->h[--v->ca] : v->a[--v->na];
+     if(stack=='b') return v->cb ? v->h[4-v->cb--] : v->b[--v->nb];
+-    return v->cc ? v->cr[--v->cc] : v->c[--v->nc];
++    return v->c[--v->nc];
+ }
+-void vm_publish_all(abc_vm *v){while(v->ca)vm_spill(v,'a');while(v->cb)vm_spill(v,'b');while(v->cc)vm_spill(v,'c');}
++void vm_publish_all(abc_vm *v){while(v->ca)vm_spill(v,'a');while(v->cb)vm_spill(v,'b');}
+ 
+ abc_status abc_vm_create(const abc_limits *limits,abc_vm **out,abc_error *e) {
+     abc_clear(e); if(out) *out=NULL;
+@@ -177,10 +173,11 @@
+ static abc_status vm_execute(abc_vm *v,const abc_module *m,abc_image *image,uint32_t entry,abc_error *e) {
+     abc_run run={v,m,image,m->code,e,entry,0};
+     abc_run *previous=abc_active_run; abc_active_run=&run;
+-    unsigned state=(v->ca*5+v->cb)*4+v->cc;
++    unsigned state=v->ca*5+v->cb;
+     abc_value result=abc_tables[state][run.code[entry]](
+         run.code+entry,v->a+v->na,v->b+v->nb,v->c+v->nc,
+-        v->h[0],v->h[1],v->h[2],v->h[3],v->cr[0],v->cr[1],v->cr[2]);
++        v->h[0],v->h[1],v->h[2],v->h[3],
++        v->nc?v->c[v->nc-1]:0,v->nc>=2?v->c[v->nc-2]:0,v->nc>=3?v->c[v->nc-3]:0);
+     abc_active_run=previous;
+     return (abc_status)result;
+ }

@@ -1,0 +1,2 @@
+/bin/bash: line 1: 183710 Segmentation fault      (core dumped) LUA=/tmp/lua-compat /tmp/lua-compat tests/staging_sessions.lua
+session suite exit=139

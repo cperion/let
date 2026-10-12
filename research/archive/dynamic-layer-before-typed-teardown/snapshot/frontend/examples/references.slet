@@ -1,0 +1,55 @@
+-- A reference names a place instead of copying it. It is also the only indirection boundary that
+-- makes a recursive type finite, so it is what lets a sum mention itself.
+--
+-- Only two targets provably outlive every use of a reference: module-level storage, and a place that
+-- belongs to an enclosing activation. A reference to an enclosing owner is tied to that activation
+-- and cannot escape it; a reference to module storage has no such restriction.
+--
+-- Expected: read_shared(1) = 6     bump_shared(1) = 7     borrowed(2) = 55
+--           following() = 10       bump_following() = 15  following() = 15
+
+let counter = { value: u32 }
+let shared = counter { value = 5 }
+
+-- A reference to a file-scope binding names module storage, so a store through it persists.
+let read_shared(x: u32): u32 = ref(shared).value + x
+let bump_shared(x: u32): u32 = do
+  let r = ref(shared)
+  r.value += 1
+  return r.value + x
+end
+
+-- A closure borrows the record it captures, so a reference to it reaches the caller's instance.
+let borrowed(x: u32): u32 = do
+  let c = counter { value = x }
+  let bump = |d: u32| -> do
+    let r = ref(c)
+    r.value += d
+    return r.value
+  end
+  return bump(3) * 10 + c.value
+end
+
+-- A recursive type: node mentions itself only through a reference, so its layout is finite.
+let node = { value: u32, next: link }
+let link = oneof { none: unit, some: ref(node) }
+
+let first = node { value = 10, next = link.none() }
+let second = node { value = 1, next = link.some(ref(first)) }
+
+let following(): u32 = second.next {
+  none = |u: unit| -> 0,
+  some = |r: ref(node)| -> r.value,
+}
+let bump_following(): u32 = second.next {
+  none = |u: unit| -> 0,
+  some = |r: ref(node)| -> do
+    r.value += 5
+    return r.value
+  end,
+}
+
+return {
+  types = { counter, node, link },
+  functions = { read_shared, bump_shared, borrowed, following, bump_following },
+}

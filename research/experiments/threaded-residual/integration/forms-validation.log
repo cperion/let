@@ -1,0 +1,3 @@
+/tmp/lua-compat tools/validate_execution_forms.lua build/generated/validate_execution_forms.c
+execution forms: 3770 native, 2950 threaded-eligible; layouts and register exclusions pass
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Ibuild/generated build/generated/validate_execution_forms.c -o build/validate-execution-forms

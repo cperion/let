@@ -1,0 +1,313 @@
+function 0: 0 arguments, 1 results; kinds  -> i
+  00000000  CALLOC         8
+  00000003  PUSH8_A        101
+  00000005  FST64_A        8
+  00000008  FADDR_A        8
+  0000000b  GST64          0
+  00000010  PUSH32_A       777
+  00000015  CPUSH_A       
+  00000016  PUSH8_A        111
+  00000018  PUSH32_B       222
+  0000001d  FADDR_A        16
+  00000020  PUSH8_A        0
+  00000022  CALL_B         0x00000296 2
+  00000028  PUSH8_A        10
+  0000002a  BEQ            0x0000002f
+  0000002d  ABORT          1
+  0000002f  PUSH32_A       607
+  00000034  BEQ            0x00000039
+  00000037  ABORT          2
+  00000039  PUSH32_A       222
+  0000003e  BEQ            0x00000043
+  00000041  ABORT          3
+  00000043  PUSH8_B        111
+  00000045  BEQ            0x0000004a
+  00000048  ABORT          4
+  0000004a  CGET0_A       
+  0000004b  PUSH32_B       777
+  00000050  BEQ            0x00000055
+  00000053  ABORT          5
+  00000055  PUSH8_A        111
+  00000057  PUSH32_B       222
+  0000005c  FADDR_A        16
+  0000005f  PUSH8_A        1
+  00000061  CALL_B         0x00000296 2
+  00000067  PUSH8_A        11
+  00000069  BEQ            0x0000006e
+  0000006c  ABORT          1
+  0000006e  PUSH32_A       607
+  00000073  BEQ            0x00000078
+  00000076  ABORT          2
+  00000078  PUSH32_A       222
+  0000007d  BEQ            0x00000082
+  00000080  ABORT          3
+  00000082  PUSH8_B        111
+  00000084  BEQ            0x00000089
+  00000087  ABORT          4
+  00000089  CGET0_A       
+  0000008a  PUSH32_B       777
+  0000008f  BEQ            0x00000094
+  00000092  ABORT          5
+  00000094  PUSH8_A        111
+  00000096  PUSH32_B       222
+  0000009b  FADDR_A        16
+  0000009e  PUSH8_A        2
+  000000a0  CALL_B         0x00000296 2
+  000000a6  PUSH8_A        12
+  000000a8  BEQ            0x000000ad
+  000000ab  ABORT          1
+  000000ad  PUSH32_A       607
+  000000b2  BEQ            0x000000b7
+  000000b5  ABORT          2
+  000000b7  PUSH32_A       222
+  000000bc  BEQ            0x000000c1
+  000000bf  ABORT          3
+  000000c1  PUSH8_B        111
+  000000c3  BEQ            0x000000c8
+  000000c6  ABORT          4
+  000000c8  CGET0_A       
+  000000c9  PUSH32_B       777
+  000000ce  BEQ            0x000000d3
+  000000d1  ABORT          5
+  000000d3  PUSH8_A        111
+  000000d5  PUSH32_B       222
+  000000da  FADDR_A        16
+  000000dd  PUSH8_A        3
+  000000df  CALL_B         0x00000296 2
+  000000e5  PUSH8_A        13
+  000000e7  BEQ            0x000000ec
+  000000ea  ABORT          1
+  000000ec  PUSH32_A       607
+  000000f1  BEQ            0x000000f6
+  000000f4  ABORT          2
+  000000f6  PUSH32_A       222
+  000000fb  BEQ            0x00000100
+  000000fe  ABORT          3
+  00000100  PUSH8_B        111
+  00000102  BEQ            0x00000107
+  00000105  ABORT          4
+  00000107  CGET0_A       
+  00000108  PUSH32_B       777
+  0000010d  BEQ            0x00000112
+  00000110  ABORT          5
+  00000112  PUSH8_A        111
+  00000114  PUSH32_B       222
+  00000119  FADDR_A        16
+  0000011c  PUSH8_A        4
+  0000011e  CALL_B         0x00000296 2
+  00000124  PUSH8_A        14
+  00000126  BEQ            0x0000012b
+  00000129  ABORT          1
+  0000012b  PUSH32_A       607
+  00000130  BEQ            0x00000135
+  00000133  ABORT          2
+  00000135  PUSH32_A       222
+  0000013a  BEQ            0x0000013f
+  0000013d  ABORT          3
+  0000013f  PUSH8_B        111
+  00000141  BEQ            0x00000146
+  00000144  ABORT          4
+  00000146  CGET0_A       
+  00000147  PUSH32_B       777
+  0000014c  BEQ            0x00000151
+  0000014f  ABORT          5
+  00000151  PUSH8_A        111
+  00000153  PUSH32_B       222
+  00000158  FADDR_A        16
+  0000015b  PUSH8_A        5
+  0000015d  CALL_B         0x00000296 2
+  00000163  PUSH8_A        15
+  00000165  BEQ            0x0000016a
+  00000168  ABORT          1
+  0000016a  PUSH32_A       607
+  0000016f  BEQ            0x00000174
+  00000172  ABORT          2
+  00000174  PUSH32_A       222
+  00000179  BEQ            0x0000017e
+  0000017c  ABORT          3
+  0000017e  PUSH8_B        111
+  00000180  BEQ            0x00000185
+  00000183  ABORT          4
+  00000185  CGET0_A       
+  00000186  PUSH32_B       777
+  0000018b  BEQ            0x00000190
+  0000018e  ABORT          5
+  00000190  PUSH8_A        111
+  00000192  PUSH32_B       222
+  00000197  FADDR_A        16
+  0000019a  PUSH8_A        6
+  0000019c  CALL_B         0x00000296 2
+  000001a2  PUSH8_A        16
+  000001a4  BEQ            0x000001a9
+  000001a7  ABORT          1
+  000001a9  PUSH32_A       607
+  000001ae  BEQ            0x000001b3
+  000001b1  ABORT          2
+  000001b3  PUSH32_A       222
+  000001b8  BEQ            0x000001bd
+  000001bb  ABORT          3
+  000001bd  PUSH8_B        111
+  000001bf  BEQ            0x000001c4
+  000001c2  ABORT          4
+  000001c4  CGET0_A       
+  000001c5  PUSH32_B       777
+  000001ca  BEQ            0x000001cf
+  000001cd  ABORT          5
+  000001cf  PUSH8_A        111
+  000001d1  PUSH32_B       222
+  000001d6  FADDR_A        16
+  000001d9  PUSH8_A        7
+  000001db  CALL_B         0x00000296 2
+  000001e1  PUSH8_A        17
+  000001e3  BEQ            0x000001e8
+  000001e6  ABORT          1
+  000001e8  PUSH32_A       607
+  000001ed  BEQ            0x000001f2
+  000001f0  ABORT          2
+  000001f2  PUSH32_A       222
+  000001f7  BEQ            0x000001fc
+  000001fa  ABORT          3
+  000001fc  PUSH8_B        111
+  000001fe  BEQ            0x00000203
+  00000201  ABORT          4
+  00000203  CGET0_A       
+  00000204  PUSH32_B       777
+  00000209  BEQ            0x0000020e
+  0000020c  ABORT          5
+  0000020e  PUSH8_A        111
+  00000210  PUSH32_B       222
+  00000215  FADDR_A        16
+  00000218  PUSH8_A        8
+  0000021a  CALL_B         0x00000296 2
+  00000220  PUSH8_A        18
+  00000222  BEQ            0x00000227
+  00000225  ABORT          1
+  00000227  PUSH32_A       607
+  0000022c  BEQ            0x00000231
+  0000022f  ABORT          2
+  00000231  PUSH32_A       222
+  00000236  BEQ            0x0000023b
+  00000239  ABORT          3
+  0000023b  PUSH8_B        111
+  0000023d  BEQ            0x00000242
+  00000240  ABORT          4
+  00000242  CGET0_A       
+  00000243  PUSH32_B       777
+  00000248  BEQ            0x0000024d
+  0000024b  ABORT          5
+  0000024d  PUSH8_A        111
+  0000024f  PUSH32_B       222
+  00000254  FADDR_A        16
+  00000257  PUSH8_A        9
+  00000259  CALL_B         0x00000296 2
+  0000025f  PUSH8_A        19
+  00000261  BEQ            0x00000266
+  00000264  ABORT          1
+  00000266  PUSH32_A       607
+  0000026b  BEQ            0x00000270
+  0000026e  ABORT          2
+  00000270  PUSH32_A       222
+  00000275  BEQ            0x0000027a
+  00000278  ABORT          3
+  0000027a  PUSH8_B        111
+  0000027c  BEQ            0x00000281
+  0000027f  ABORT          4
+  00000281  CGET0_A       
+  00000282  PUSH32_B       777
+  00000287  BEQ            0x0000028c
+  0000028a  ABORT          5
+  0000028c  FLD64_A        16 ; loadkind=int
+  0000028f  CPOP          
+  00000290  CFREE          8
+  00000293  RET            0 1
+function 1: 2 arguments, 2 results; kinds ai -> ii
+  00000296  CALLOC         8
+  00000299  PUSH32_A       202
+  0000029e  FST64_A        8
+  000002a1  FADDR_A        8
+  000002a4  GST64          8
+  000002a9  PUSH32_A       888
+  000002ae  CPUSH_A       
+  000002af  PUSH32_A       333
+  000002b4  PUSH32_B       444
+  000002b9  CGETN_A        2
+  000002bb  FADDR_A        16
+  000002be  CGETN_A        3
+  000002c0  CALL_B         0x000002f3 3
+  000002c6  CPUSH_B       
+  000002c7  CPUSH_B       
+  000002c8  PUSH32_A       444
+  000002cd  BEQ            0x000002d2
+  000002d0  ABORT          6
+  000002d2  PUSH32_B       333
+  000002d7  BEQ            0x000002dc
+  000002da  ABORT          7
+  000002dc  CGETN_A        2
+  000002de  PUSH32_B       888
+  000002e3  BEQ            0x000002e8
+  000002e6  ABORT          8
+  000002e8  CGET0_A       
+  000002e9  CGET1_A       
+  000002ea  CPOP          
+  000002eb  CPOP          
+  000002ec  CPOP          
+  000002ed  CFREE          8
+  000002f0  RET            2 2
+function 2: 3 arguments, 2 results; kinds aai -> ii
+  000002f3  CGET0_A       
+  000002f4  CGET1_A       
+  000002f5  CGETN_A        2
+  000002f7  PUSH8_A        123
+  000002f9  TCALL          0x00000300 3 4
+function 3: 4 arguments, 2 results; kinds aaii -> ii
+  00000300  CALLOC         8
+  00000303  PUSH32_A       303
+  00000308  FST64_A        8
+  0000030b  FADDR_A        8
+  0000030e  GST64          16
+  00000313  PUSH32_A       999
+  00000318  CPUSH_A       
+  00000319  PUSH32_A       555
+  0000031e  PUSH32_B       666
+  00000323  JMP            0x00000326
+  00000326  FADDR_B        16
+  00000329  GLD64          16 ; loadkind=addr
+  0000032e  BEQ            0x00000333
+  00000331  ABORT          12
+  00000333  CGETN_B        3
+  00000335  GLD64          8 ; loadkind=addr
+  0000033a  BEQ            0x0000033f
+  0000033d  ABORT          12
+  0000033f  CGETN_B        2
+  00000341  GLD64          0 ; loadkind=addr
+  00000346  BEQ            0x0000034b
+  00000349  ABORT          12
+  0000034b  GLD64          16 ; loadkind=addr
+  00000350  PUSH32_B       304
+  00000355  ST64           0
+  00000358  CGETN_A        2
+  0000035a  LD64_A         0 ; loadkind=int
+  0000035d  CGETN_B        3
+  0000035f  LD64_B         0 ; loadkind=int
+  00000362  ADD_A         
+  00000363  FLD64_B        16 ; loadkind=int
+  00000366  ADD_A         
+  00000367  CPUSH_A       
+  00000368  PUSH32_A       666
+  0000036d  BEQ            0x00000372
+  00000370  ABORT          9
+  00000372  PUSH32_B       555
+  00000377  BEQ            0x0000037c
+  0000037a  ABORT          10
+  0000037c  CGET1_A       
+  0000037d  PUSH32_B       999
+  00000382  BEQ            0x00000387
+  00000385  ABORT          11
+  00000387  CGET0_A       
+  00000388  CGETN_A        5
+  0000038a  ADDI_A         10
+  0000038c  CPOP          
+  0000038d  CPOP          
+  0000038e  CFREE          8
+  00000391  RET            4 2
+export main = function 0

@@ -1,75 +1,105 @@
--- Spec-owned opcode manifest for the public ABC runtime/toolchain.
--- Do not import research/vm-prototypes/gen.lua here: it is historical research code.
-local M={}
-M.kind={NORMAL=0,BRANCH=1,CALL=2,RET=3,HALT=4,ABORT=5,OPI=6,OPC=7,BRI=8,TCALL=9,INTERNAL=10,MEMORY=11,ICALL=12,ITCALL=13,EXT=14,FCALL=15,JMP32=16,SWITCH=17}
-M.memory_action={NONE=0,ALLOC=1,FREE=2,FLOAD=3,FSTORE=4,FADDR=5,GLOAD=6,GSTORE=7,GADDR=8,PLOAD=9,PSTORE=10,XLOAD=11,INDEX=12,COPY=13}
-local ops={}
-local function op(name,len,kind,mem)
-  ops[#ops+1]={name=name,len=len,kind=kind or M.kind.NORMAL,mem=mem}
+-- Revision-6 public ISA. Semantic identity is independent of serialized opcode.
+local M = {revision=6, ops={}, ext_ops={}, operations={}, layouts={}}
+M.kind_order={'NORMAL','BRANCH','CALL','RET','HALT','ABORT','OPI','OPC','BRI','TCALL','MEMORY','ICALL','ITCALL','EXT','FCALL','JMP32','SWITCH'}
+M.kind={}
+for index,name in ipairs(M.kind_order) do M.kind[name]=index-1 end
+M.layout_order={'NONE','I8','I32','U64','U8','U8_U8','I16','SWITCH','I32_U8','I32_U8_U8','U16','U32','I8_I16','EXT'}
+local operand_bytes={NONE=0,I8=1,I32=4,U64=8,U8=1,U8_U8=2,I16=2,SWITCH=2,I32_U8=5,I32_U8_U8=6,U16=2,U32=4,I8_I16=3,EXT=1}
+for index,name in ipairs(M.layout_order) do M.layouts[name]=index-1 end
+M.memory_action_order={'NONE','ALLOC','FREE','FLOAD','FSTORE','FADDR','GLOAD','GSTORE','GADDR','PLOAD','PSTORE','XLOAD','INDEX','COPY'}
+M.memory_action={}
+for index,name in ipairs(M.memory_action_order) do M.memory_action[name]=index-1 end
+M.stack={A=0,B=1,NONE=2}
+M.stack_role_order={'NONE','RESULT','UNARY','BINARY','SOURCE','ADDRESS','CONDITION','ARGUMENT_RESULT','ARGUMENT','RETURN_SOURCE','PREFIX'}
+M.stack_role={}
+for index,name in ipairs(M.stack_role_order) do M.stack_role[name]=index-1 end
+local operation_indices={}
+local function operation_index(name)
+    if operation_indices[name]==nil then
+        operation_indices[name]=#M.operations
+        M.operations[#M.operations+1]=name
+    end
+    return operation_indices[name]
 end
-op('HALT',1,M.kind.HALT)
-for _,X in ipairs{'A','B'} do op('PUSH8_'..X,2); op('PUSH32_'..X,5); op('PUSH64_'..X,9) end
-for _,X in ipairs{'A','B'} do op('DUP_'..X,1); op('DROP_'..X,1) end
-for _,n in ipairs{'COPY_AB','COPY_BA','MOVE_AB','MOVE_BA'} do op(n,1) end
-op('CPUSH_A',1); op('CPUSH_B',1); op('CPUSHN',2); op('CPOP',1)
-for _,X in ipairs{'A','B'} do
-  op('CGET0_'..X,1); op('CGET1_'..X,1); op('CGETN_'..X,2); op('CGETR_'..X,3)
-  op('CSET0_'..X,1); op('CSETN_'..X,2)
+local function descriptor(name,layout,kind,profile,role,stack,memory,prefix_bytes)
+    return {name=name,operation=operation_index(name),layout=M.layouts[layout],
+        layout_name=layout,kind=M.kind[kind or 'NORMAL'],profile=profile or 1,
+        role=M.stack_role[role or 'NONE'],stack=stack,len=prefix_bytes+operand_bytes[layout],mem=memory}
 end
-for _,n in ipairs{'ADD','SUB','MUL','DIVU','DIVS','REMU','REMS','AND','OR','XOR','SHL','SHR','SAR','EQ','NE','LT','LE','LTU','LEU'} do op(n..'_A',1); op(n..'_B',1) end
-for _,n in ipairs{'NEG','NOT','LNOT','ZX32','SX32'} do op(n..'_A',1); op(n..'_B',1) end
-for _,n in ipairs{'ZX8','ZX16','POW','POWS','CHKU8','CHKU16','CHKU32','CHKI32','CHKNN'} do op(n,1) end
-op('JMP',3,M.kind.BRANCH); op('JMP32',5,M.kind.JMP32); op('SWITCH',3,M.kind.SWITCH); for _,X in ipairs{'A','B'} do op('JZ_'..X,3,M.kind.BRANCH); op('JNZ_'..X,3,M.kind.BRANCH) end
-for _,n in ipairs{'BEQ','BNE','BLT','BLE','BLTU','BLEU'} do op(n,3,M.kind.BRANCH) end
-for _,n in ipairs{'ADD','SUB','MUL','AND','OR','XOR','SHL','SHR','SAR'} do op(n..'I_A',2,M.kind.OPI); op(n..'I_B',2,M.kind.OPI) end
-for _,n in ipairs{'ADD','SUB','MUL','XOR'} do op(n..'C_A',2,M.kind.OPC); op(n..'C_B',2,M.kind.OPC) end
-for _,n in ipairs{'BEQI','BNEI','BLTI','BLEI','BGTI','BGEI','BLTUI','BLEUI','BGTUI','BGEUI'} do op(n,4,M.kind.BRI) end
-op('CALL_A',6,M.kind.CALL); op('CALL_B',6,M.kind.CALL); op('TCALL',7,M.kind.TCALL); op('RET',3,M.kind.RET); op('ABORT',2,M.kind.ABORT)
--- EXT reserves a core byte for the extended selector table. No extended selectors
--- are assigned yet, so verification rejects every selector deterministically.
-op('EXT',2,M.kind.EXT)
-for _,X in ipairs{'A','B'} do for n=0,2 do op(('CALL_%s_%d'):format(X,n),6,M.kind.INTERNAL) end end
-for k=0,2 do for n=0,2 do op(('TCALL_%d_%d'):format(k,n),7,M.kind.INTERNAL) end end
-for k=0,2 do for r=0,2 do op(('RET_%d_%d'):format(k,r),3,M.kind.INTERNAL) end end
-M.legacy_count=#ops
-local function mem(action,width,to_b,sign) return {action=action,width=width or 0,to_b=to_b or 0,sign=sign or 0} end
-op('CALLOC',3,M.kind.MEMORY,mem(M.memory_action.ALLOC)); op('CFREE',3,M.kind.MEMORY,mem(M.memory_action.FREE))
+local function pair(name,layout,kind,profile,role,memory)
+    assert(#M.ops%2==0,'selected pairs must begin on an even byte')
+    for _,stack in ipairs{'A','B'} do
+        local instruction=descriptor(name,layout or 'NONE',kind,profile,role,M.stack[stack],memory,1)
+        instruction.name=name..'_'..stack
+        instruction.opcode=#M.ops
+        M.ops[#M.ops+1]=instruction
+    end
+end
+local function neutral(name,layout,kind,profile,memory)
+    local instruction=descriptor(name,layout,kind,profile,'NONE',M.stack.NONE,memory,1)
+    instruction.opcode=#M.ops
+    M.ops[#M.ops+1]=instruction
+end
+local function extended(name,layout,kind,role)
+    -- The prefix supplies the selected stack; no duplicate selector per bank.
+    local instruction=descriptor(name,layout,kind,1,role,M.stack.NONE,nil,2)
+    instruction.selector=#M.ext_ops
+    M.ext_ops[#M.ext_ops+1]=instruction
+end
+local function memory(action,width,sign)
+    return {action=M.memory_action[action],width=width or 0,sign=sign or 0}
+end
+pair('HALT','NONE','HALT',1,'RETURN_SOURCE')
+for _,width in ipairs{8,32,64} do pair('PUSH'..width,({[8]='I8',[32]='I32',[64]='U64'})[width],nil,1,'RESULT') end
+pair('DUP','NONE',nil,1,'UNARY')
+pair('DROP','NONE',nil,1,'SOURCE')
+pair('COPY','NONE',nil,1,'SOURCE')
+pair('MOVE','NONE',nil,1,'SOURCE')
+pair('CPUSH','NONE',nil,1,'SOURCE')
+pair('CPUSHN','U8',nil,1,'SOURCE')
+pair('CGET0','NONE',nil,1,'RESULT')
+pair('CGET1','NONE',nil,1,'RESULT')
+pair('CGETN','U8',nil,1,'RESULT')
+pair('CGETR','U8_U8',nil,1,'RESULT')
+pair('CSET0','NONE',nil,1,'SOURCE')
+pair('CSETN','U8',nil,1,'SOURCE')
+for _,name in ipairs{'ADD','SUB','MUL','DIVU','DIVS','REMU','REMS','AND','OR','XOR','SHL','SHR','SAR','EQ','NE','LT','LE','LTU','LEU'} do pair(name,'NONE',nil,1,'BINARY') end
+for _,name in ipairs{'NEG','NOT','LNOT','ZX32','SX32','ZX8','ZX16'} do pair(name,'NONE',nil,1,'UNARY') end
+for _,name in ipairs{'POW','POWS'} do pair(name,'NONE',nil,1,'BINARY') end
+for _,name in ipairs{'CHKU8','CHKU16','CHKU32','CHKI32','CHKNN'} do pair(name,'NONE',nil,1,'UNARY') end
+pair('SWITCH','SWITCH','SWITCH',1,'CONDITION')
+for _,name in ipairs{'JZ','JNZ','BEQ','BNE','BLT','BLE','BLTU','BLEU'} do pair(name,'I16','BRANCH',1,'CONDITION') end
+for _,name in ipairs{'ADD','SUB','MUL','AND','OR','XOR','SHL','SHR','SAR'} do pair(name..'I','I8','OPI',1,'UNARY') end
+pair('CALL','I32_U8','CALL',1,'ARGUMENT_RESULT')
+pair('TCALL','I32_U8_U8','TCALL',1,'ARGUMENT')
+pair('RET','U8_U8','RET',1,'RETURN_SOURCE')
 local loads={{'8',1,0},{'16',2,0},{'32',4,0},{'32S',4,1},{'64',8,0}}
 local stores={{'8',1},{'16',2},{'32',4},{'64',8}}
-for _,v in ipairs(loads) do for _,X in ipairs{'A','B'} do op('FLD'..v[1]..'_'..X,3,M.kind.MEMORY,mem(M.memory_action.FLOAD,v[2],X=='B' and 1 or 0,v[3])) end end
-for _,v in ipairs(stores) do for _,X in ipairs{'A','B'} do op('FST'..v[1]..'_'..X,3,M.kind.MEMORY,mem(M.memory_action.FSTORE,v[2],X=='B' and 1 or 0)) end end
-for _,X in ipairs{'A','B'} do op('FADDR_'..X,3,M.kind.MEMORY,mem(M.memory_action.FADDR,0,X=='B' and 1 or 0)) end
-for _,v in ipairs(loads) do op('GLD'..v[1],5,M.kind.MEMORY,mem(M.memory_action.GLOAD,v[2],0,v[3])) end
-for _,v in ipairs(stores) do op('GST'..v[1],5,M.kind.MEMORY,mem(M.memory_action.GSTORE,v[2])) end
-for _,X in ipairs{'A','B'} do op('GADDR_'..X,5,M.kind.MEMORY,mem(M.memory_action.GADDR,0,X=='B' and 1 or 0)) end
-for _,v in ipairs(loads) do for _,X in ipairs{'A','B'} do op('LD'..v[1]..'_'..X,3,M.kind.MEMORY,mem(M.memory_action.PLOAD,v[2],X=='B' and 1 or 0,v[3])) end end
-for _,v in ipairs(stores) do op('ST'..v[1],3,M.kind.MEMORY,mem(M.memory_action.PSTORE,v[2])) end
-for _,v in ipairs(loads) do op('LDX'..v[1],1,M.kind.MEMORY,mem(M.memory_action.XLOAD,v[2],0,v[3])) end
-op('IDX',3,M.kind.MEMORY,mem(M.memory_action.INDEX)); op('MEMCPY',5,M.kind.MEMORY,mem(M.memory_action.COPY))
-op('CALLI_A',6,M.kind.ICALL); op('CALLI_B',6,M.kind.ICALL); op('TCALLI',7,M.kind.ITCALL)
-op('CALLI_MONO_A',6,M.kind.INTERNAL); op('CALLI_MONO_B',6,M.kind.INTERNAL); op('TCALLI_MONO',7,M.kind.INTERNAL)
-op('CALLI_FINAL_A',6,M.kind.INTERNAL); op('CALLI_FINAL_B',6,M.kind.INTERNAL); op('TCALLI_FINAL',7,M.kind.INTERNAL)
-op('FCALL',3,M.kind.FCALL)
-for _,n in ipairs{'FADD','FSUB','FMUL','FDIV','FLT','FLE','FEQ'} do op(n..'_A',1); op(n..'_B',1) end
-for _,n in ipairs{'FNEG','I2FS','I2FU','F2IS','F2IU'} do op(n,1) end
-for _,n in ipairs{'FBLT','FBLE','FBEQ'} do op(n,3,M.kind.BRANCH) end
--- Profile-5 public EXT selectors. Length includes EXT and selector bytes.
--- Stack effects and descriptor-dependent layout checks are consumed by the verifier.
-local ext_ops={}
-local function ext(name,len,family) ext_ops[#ext_ops+1]={name=name,len=len,family=family} end
-for _,n in ipairs{'ANY_BOX','ANY_CAST','ANY_IS'} do ext(n,6,'descriptor') end
-for _,n in ipairs{'DNEG','DNOT','DLNOT'} do ext(n,2,'unary') end
-for _,n in ipairs{'DADD','DSUB','DMUL','DDIV','DREM','DPOW','DSHL','DSHR','DSAR','DAND','DOR','DXOR'} do ext(n,2,'binary') end
-for _,n in ipairs{'DADDL','DSUBL','DMULL','DDIVL','DREML','DPOWL','DSHLL','DSHRL','DSARL','DANDL','DORL','DXORL'} do ext(n,7,'literal') end
-for _,n in ipairs{'DEQ','DNE','DLT','DLE'} do ext(n,2,'compare') end
-ext('DREQUIRE_BOOL',2,'condition')
-ext('DCALL',9,'call'); ext('DTCALL',9,'tailcall')
-ext('WORD_NEW',6,'word-new')
-for _,n in ipairs{'WORD_GET','WORD_SET','WORD_HAS','WORD_REMOVE','WORD_COUNT','WORD_KEY','WORD_SUPPLY','WORD_METHOD','WORD_FREEZE'} do ext(n,2,'word') end
-ext('STRING_CAT',2,'string'); ext('STRING_TEXT',2,'string')
-ext('WORD_DIRECT',10,'callable'); ext('CLOSURE_NEW',10,'closure')
-ext('MANAGED_NEW',6,'descriptor'); ext('MANAGED_COPY',6,'descriptor')
-ext('WORD_BIND',6,'word-bind')
-M.ext_ops=ext_ops
-M.ops=ops
+for _,base in ipairs{{'F','U16','FLOAD','FSTORE','FADDR'},{'G','U32','GLOAD','GSTORE','GADDR'}} do
+    for _,width in ipairs(loads) do pair(base[1]..'LD'..width[1],base[2],'MEMORY',2,'RESULT',memory(base[3],width[2],width[3])) end
+    for _,width in ipairs(stores) do pair(base[1]..'ST'..width[1],base[2],'MEMORY',2,'SOURCE',memory(base[4],width[2])) end
+    pair(base[1]..'ADDR',base[2],'MEMORY',2,'RESULT',memory(base[5]))
+end
+for _,width in ipairs(loads) do pair('LD'..width[1],'U16','MEMORY',2,'ADDRESS',memory('PLOAD',width[2],width[3])) end
+for _,width in ipairs(stores) do pair('ST'..width[1],'U16','MEMORY',2,'ADDRESS',memory('PSTORE',width[2])) end
+for _,width in ipairs(loads) do pair('LDX'..width[1],'NONE','MEMORY',2,'ADDRESS',memory('XLOAD',width[2],width[3])) end
+pair('IDX','U16','MEMORY',2,'ADDRESS',memory('INDEX'))
+pair('MEMCPY','U32','MEMORY',2,'ADDRESS',memory('COPY'))
+pair('CALLI','U8','ICALL',3,'ARGUMENT_RESULT')
+pair('TCALLI','U8_U8','ITCALL',3,'ARGUMENT')
+pair('FCALL','U16','FCALL',4,'ARGUMENT_RESULT')
+for _,name in ipairs{'FADD','FSUB','FMUL','FDIV','FLT','FLE','FEQ'} do pair(name,'NONE',nil,2,'BINARY') end
+for _,name in ipairs{'FNEG','I2FS','I2FU','F2IS','F2IU'} do pair(name,'NONE',nil,2,'UNARY') end
+for _,name in ipairs{'FBLT','FBLE','FBEQ'} do pair(name,'I16','BRANCH',2,'CONDITION') end
+assert(#M.ops==0xf8,'ordinary core allocation disagrees with revision 6')
+pair('EXT','EXT','EXT',1,'PREFIX')
+neutral('CPOP','NONE')
+neutral('CALLOC','U16','MEMORY',2,memory('ALLOC'))
+neutral('CFREE','U16','MEMORY',2,memory('FREE'))
+neutral('JMP','I16','BRANCH')
+neutral('JMP32','I32','JMP32')
+neutral('ABORT','U8','ABORT')
+for _,name in ipairs{'ADDC','SUBC','MULC','XORC'} do extended(name,'U8','OPC','UNARY') end
+for _,name in ipairs{'BEQI','BNEI','BLTI','BLEI','BGTI','BGEI','BLTUI','BLEUI','BGTUI','BGEUI'} do extended(name,'I8_I16','BRI','CONDITION') end
+assert(#M.ops==256 and #M.ext_ops==14 and #M.operations==145,'incomplete revision-6 manifest')
 return M

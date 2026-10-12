@@ -1,0 +1,1 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_staging_abi.c -o build/validate-staging-abi

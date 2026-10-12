@@ -1,0 +1,97 @@
+
+/tmp/abc-before-ab-symmetry.tdOxjk/performance/runlet:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+00000000002565a0 <h_a1b0c3_CALL_A_1>:
+  2565a0:	55                   	push   %rbp
+  2565a1:	48 83 ec 20          	sub    $0x20,%rsp
+  2565a5:	4c 89 5c 24 10       	mov    %r11,0x10(%rsp)
+  2565aa:	4c 89 4c 24 08       	mov    %r9,0x8(%rsp)
+  2565af:	48 89 7c 24 18       	mov    %rdi,0x18(%rsp)
+  2565b4:	48 c7 c0 f8 ff ff ff 	mov    $0xfffffffffffffff8,%rax
+  2565bb:	64 4c 8b 18          	mov    %fs:(%rax),%r11
+  2565bf:	49 8b 13             	mov    (%r11),%rdx
+  2565c2:	49 8b 43 20          	mov    0x20(%r11),%rax
+  2565c6:	49 8b 4b 18          	mov    0x18(%r11),%rcx
+  2565ca:	49 29 cc             	sub    %rcx,%r12
+  2565cd:	4c 8b 52 30          	mov    0x30(%rdx),%r10
+  2565d1:	48 8b 72 38          	mov    0x38(%rdx),%rsi
+  2565d5:	4c 39 d6             	cmp    %r10,%rsi
+  2565d8:	74 61                	je     25663b <h_a1b0c3_CALL_A_1+0x9b>
+  2565da:	4d 8b 5b 10          	mov    0x10(%r11),%r11
+  2565de:	49 8b 5b 18          	mov    0x18(%r11),%rbx
+  2565e2:	4d 8b 4b 20          	mov    0x20(%r11),%r9
+  2565e6:	44 89 e5             	mov    %r12d,%ebp
+  2565e9:	8b 2c ab             	mov    (%rbx,%rbp,4),%ebp
+  2565ec:	ff cd                	dec    %ebp
+  2565ee:	48 c1 e5 04          	shl    $0x4,%rbp
+  2565f2:	49 8d 1c 29          	lea    (%r9,%rbp,1),%rbx
+  2565f6:	44 8b 5b 04          	mov    0x4(%rbx),%r11d
+  2565fa:	4e 8d 1c dd 00 00 00 	lea    0x0(,%r11,8),%r11
+  256601:	00 
+  256602:	4d 01 eb             	add    %r13,%r11
+  256605:	49 c1 e2 03          	shl    $0x3,%r10
+  256609:	48 8b 3a             	mov    (%rdx),%rdi
+  25660c:	4c 01 d7             	add    %r10,%rdi
+  25660f:	49 39 fb             	cmp    %rdi,%r11
+  256612:	77 27                	ja     25663b <h_a1b0c3_CALL_A_1+0x9b>
+  256614:	8b 7b 08             	mov    0x8(%rbx),%edi
+  256617:	49 8d 3c fe          	lea    (%r14,%rdi,8),%rdi
+  25661b:	4c 8b 5a 08          	mov    0x8(%rdx),%r11
+  25661f:	4d 01 d3             	add    %r10,%r11
+  256622:	4c 39 df             	cmp    %r11,%rdi
+  256625:	77 14                	ja     25663b <h_a1b0c3_CALL_A_1+0x9b>
+  256627:	8b 7b 0c             	mov    0xc(%rbx),%edi
+  25662a:	49 8d 3c ff          	lea    (%r15,%rdi,8),%rdi
+  25662e:	48 83 c7 20          	add    $0x20,%rdi
+  256632:	4c 03 52 10          	add    0x10(%rdx),%r10
+  256636:	4c 39 d7             	cmp    %r10,%rdi
+  256639:	76 24                	jbe    25665f <h_a1b0c3_CALL_A_1+0xbf>
+  25663b:	48 8d 0d db 5d 05 00 	lea    0x55ddb(%rip),%rcx        # 2ac41d <_IO_stdin_used+0x141d>
+  256642:	48 89 c7             	mov    %rax,%rdi
+  256645:	be 07 00 00 00       	mov    $0x7,%esi
+  25664a:	44 89 e2             	mov    %r12d,%edx
+  25664d:	31 c0                	xor    %eax,%eax
+  25664f:	e8 2c 4e 02 00       	call   27b480 <abc_fail>
+  256654:	b8 07 00 00 00       	mov    $0x7,%eax
+  256659:	48 83 c4 20          	add    $0x20,%rsp
+  25665d:	5d                   	pop    %rbp
+  25665e:	c3                   	ret
+  25665f:	41 8b 3c 29          	mov    (%r9,%rbp,1),%edi
+  256663:	4c 8d 1c 39          	lea    (%rcx,%rdi,1),%r11
+  256667:	4c 8b 8a 88 00 00 00 	mov    0x88(%rdx),%r9
+  25666e:	4c 8d 56 01          	lea    0x1(%rsi),%r10
+  256672:	4c 89 52 38          	mov    %r10,0x38(%rdx)
+  256676:	49 83 c4 06          	add    $0x6,%r12
+  25667a:	45 89 24 f1          	mov    %r12d,(%r9,%rsi,8)
+  25667e:	41 c7 44 f1 04 00 00 	movl   $0x0,0x4(%r9,%rsi,8)
+  256685:	00 00 
+  256687:	45 89 e2             	mov    %r12d,%r10d
+  25668a:	4d 89 07             	mov    %r8,(%r15)
+  25668d:	48 8b 44 24 08       	mov    0x8(%rsp),%rax
+  256692:	49 89 47 08          	mov    %rax,0x8(%r15)
+  256696:	49 83 c7 10          	add    $0x10,%r15
+  25669a:	0f b6 0c 39          	movzbl (%rcx,%rdi,1),%ecx
+  25669e:	48 8d 15 7b dc 11 00 	lea    0x11dc7b(%rip),%rdx        # 374320 <T_a0b0c3>
+  2566a5:	48 8b 04 ca          	mov    (%rdx,%rcx,8),%rax
+  2566a9:	4d 89 dc             	mov    %r11,%r12
+  2566ac:	31 ff                	xor    %edi,%edi
+  2566ae:	31 f6                	xor    %esi,%esi
+  2566b0:	31 d2                	xor    %edx,%edx
+  2566b2:	31 c9                	xor    %ecx,%ecx
+  2566b4:	4c 8b 44 24 10       	mov    0x10(%rsp),%r8
+  2566b9:	4d 89 d1             	mov    %r10,%r9
+  2566bc:	4c 8b 5c 24 18       	mov    0x18(%rsp),%r11
+  2566c1:	48 83 c4 20          	add    $0x20,%rsp
+  2566c5:	5d                   	pop    %rbp
+  2566c6:	ff e0                	jmp    *%rax
+
+Disassembly of section .fini:

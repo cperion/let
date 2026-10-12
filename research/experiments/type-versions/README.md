@@ -1,5 +1,11 @@
 # Production check-driven type versions
 
+Historical implementation/results below. The scalar classifier/decoder and
+wide/float execution helpers described here have since been removed. See
+[check-first lowering](../engines/check-first.md) for the replacement and paired
+measurements. `inspect.py` now counts the surviving object-effect and allocation
+entries, not the deleted classifier/decoder symbols.
+
 This integrates the mechanism tested on `experiment/check-cfg-versions`
 (`ac3866f`), without merging its experiment switches or expanded ABC fixtures.
 The pristine comparison is `master` at `d677f08`. Existing pending cache tests

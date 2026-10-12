@@ -1,0 +1,103 @@
+
+/tmp/abc-before-ab-symmetry.tdOxjk/performance/runlet:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+0000000000257870 <h_a1b0c3_RET_1_1>:
+  257870:	48 89 f9             	mov    %rdi,%rcx
+  257873:	48 c7 c0 f8 ff ff ff 	mov    $0xfffffffffffffff8,%rax
+  25787a:	64 48 8b 00          	mov    %fs:(%rax),%rax
+  25787e:	48 8b 10             	mov    (%rax),%rdx
+  257881:	4c 8b 4a 38          	mov    0x38(%rdx),%r9
+  257885:	4c 8b 92 88 00 00 00 	mov    0x88(%rdx),%r10
+  25788c:	49 8d 79 ff          	lea    -0x1(%r9),%rdi
+  257890:	48 89 7a 38          	mov    %rdi,0x38(%rdx)
+  257894:	43 8b 74 ca f8       	mov    -0x8(%r10,%r9,8),%esi
+  257899:	4c 8b 60 18          	mov    0x18(%rax),%r12
+  25789d:	49 01 f4             	add    %rsi,%r12
+  2578a0:	43 83 7c ca fc 00    	cmpl   $0x0,-0x4(%r10,%r9,8)
+  2578a6:	74 1d                	je     2578c5 <h_a1b0c3_RET_1_1+0x55>
+  2578a8:	48 85 ff             	test   %rdi,%rdi
+  2578ab:	74 42                	je     2578ef <h_a1b0c3_RET_1_1+0x7f>
+  2578ad:	41 0f b6 04 24       	movzbl (%r12),%eax
+  2578b2:	48 8d 15 67 42 12 00 	lea    0x124267(%rip),%rdx        # 37bb20 <T_a0b1c1>
+  2578b9:	48 8b 04 c2          	mov    (%rdx,%rax,8),%rax
+  2578bd:	31 ff                	xor    %edi,%edi
+  2578bf:	31 f6                	xor    %esi,%esi
+  2578c1:	31 d2                	xor    %edx,%edx
+  2578c3:	eb 22                	jmp    2578e7 <h_a1b0c3_RET_1_1+0x77>
+  2578c5:	48 85 ff             	test   %rdi,%rdi
+  2578c8:	0f 84 8f 00 00 00    	je     25795d <h_a1b0c3_RET_1_1+0xed>
+  2578ce:	41 0f b6 04 24       	movzbl (%r12),%eax
+  2578d3:	48 8d 15 46 52 12 00 	lea    0x125246(%rip),%rdx        # 37cb20 <T_a1b0c1>
+  2578da:	48 8b 04 c2          	mov    (%rdx,%rax,8),%rax
+  2578de:	48 89 cf             	mov    %rcx,%rdi
+  2578e1:	31 f6                	xor    %esi,%esi
+  2578e3:	31 d2                	xor    %edx,%edx
+  2578e5:	31 c9                	xor    %ecx,%ecx
+  2578e7:	45 31 c9             	xor    %r9d,%r9d
+  2578ea:	45 31 db             	xor    %r11d,%r11d
+  2578ed:	ff e0                	jmp    *%rax
+  2578ef:	48 bf 00 00 00 00 01 	movabs $0x100000000,%rdi
+  2578f6:	00 00 00 
+  2578f9:	48 89 7a 78          	mov    %rdi,0x78(%rdx)
+  2578fd:	c7 82 80 00 00 00 01 	movl   $0x1,0x80(%rdx)
+  257904:	00 00 00 
+  257907:	66 49 0f 6e c6       	movq   %r14,%xmm0
+  25790c:	66 49 0f 6e cd       	movq   %r13,%xmm1
+  257911:	66 0f 6c c8          	punpcklqdq %xmm0,%xmm1
+  257915:	f3 0f 6f 02          	movdqu (%rdx),%xmm0
+  257919:	66 0f fb c8          	psubq  %xmm0,%xmm1
+  25791d:	66 0f 70 c1 ed       	pshufd $0xed,%xmm1,%xmm0
+  257922:	66 0f 72 e0 03       	psrad  $0x3,%xmm0
+  257927:	66 0f 73 d1 03       	psrlq  $0x3,%xmm1
+  25792c:	66 0f 70 c9 e8       	pshufd $0xe8,%xmm1,%xmm1
+  257931:	66 0f 62 c8          	punpckldq %xmm0,%xmm1
+  257935:	f3 0f 7f 4a 18       	movdqu %xmm1,0x18(%rdx)
+  25793a:	4c 2b 7a 10          	sub    0x10(%rdx),%r15
+  25793e:	49 c1 ff 03          	sar    $0x3,%r15
+  257942:	4c 89 7a 28          	mov    %r15,0x28(%rdx)
+  257946:	66 0f ef c0          	pxor   %xmm0,%xmm0
+  25794a:	f3 0f 7f 42 40       	movdqu %xmm0,0x40(%rdx)
+  25794f:	48 c7 42 50 00 00 00 	movq   $0x0,0x50(%rdx)
+  257956:	00 
+  257957:	48 89 4a 58          	mov    %rcx,0x58(%rdx)
+  25795b:	eb 66                	jmp    2579c3 <h_a1b0c3_RET_1_1+0x153>
+  25795d:	48 c7 42 78 01 00 00 	movq   $0x1,0x78(%rdx)
+  257964:	00 
+  257965:	c7 82 80 00 00 00 01 	movl   $0x1,0x80(%rdx)
+  25796c:	00 00 00 
+  25796f:	66 49 0f 6e c6       	movq   %r14,%xmm0
+  257974:	66 49 0f 6e cd       	movq   %r13,%xmm1
+  257979:	66 0f 6c c8          	punpcklqdq %xmm0,%xmm1
+  25797d:	f3 0f 6f 02          	movdqu (%rdx),%xmm0
+  257981:	66 0f fb c8          	psubq  %xmm0,%xmm1
+  257985:	66 0f 70 c1 ed       	pshufd $0xed,%xmm1,%xmm0
+  25798a:	66 0f 72 e0 03       	psrad  $0x3,%xmm0
+  25798f:	66 0f 73 d1 03       	psrlq  $0x3,%xmm1
+  257994:	66 0f 70 c9 e8       	pshufd $0xe8,%xmm1,%xmm1
+  257999:	66 0f 62 c8          	punpckldq %xmm0,%xmm1
+  25799d:	f3 0f 7f 4a 18       	movdqu %xmm1,0x18(%rdx)
+  2579a2:	4c 2b 7a 10          	sub    0x10(%rdx),%r15
+  2579a6:	49 c1 ff 03          	sar    $0x3,%r15
+  2579aa:	4c 89 7a 28          	mov    %r15,0x28(%rdx)
+  2579ae:	48 89 4a 40          	mov    %rcx,0x40(%rdx)
+  2579b2:	66 0f ef c0          	pxor   %xmm0,%xmm0
+  2579b6:	f3 0f 7f 42 48       	movdqu %xmm0,0x48(%rdx)
+  2579bb:	48 c7 42 58 00 00 00 	movq   $0x0,0x58(%rdx)
+  2579c2:	00 
+  2579c3:	4c 89 42 60          	mov    %r8,0x60(%rdx)
+  2579c7:	f3 0f 7f 42 68       	movdqu %xmm0,0x68(%rdx)
+  2579cc:	89 70 28             	mov    %esi,0x28(%rax)
+  2579cf:	c7 40 2c 01 00 00 00 	movl   $0x1,0x2c(%rax)
+  2579d6:	31 c0                	xor    %eax,%eax
+  2579d8:	c3                   	ret
+
+Disassembly of section .fini:

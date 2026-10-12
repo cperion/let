@@ -1,0 +1,5 @@
+baseline: 6 successful executions
+instrumented: [{'destination': 'A', 'mode': 'compiled', 'runtime_snapshots': 10, 'nested_virtual_snapshots': 6, 'snapshots_with_moved_roots': 9, 'max_moved_roots': 2}, {'destination': 'A', 'mode': 'lazy', 'runtime_snapshots': 10, 'nested_virtual_snapshots': 7, 'snapshots_with_moved_roots': 7, 'max_moved_roots': 2}, {'destination': 'B', 'mode': 'compiled', 'runtime_snapshots': 10, 'nested_virtual_snapshots': 6, 'snapshots_with_moved_roots': 9, 'max_moved_roots': 2}, {'destination': 'B', 'mode': 'lazy', 'runtime_snapshots': 10, 'nested_virtual_snapshots': 7, 'snapshots_with_moved_roots': 7, 'max_moved_roots': 2}]
+stack-sweep: 192 executions; 2 status disagreements
+A first successful stack capacities: {'interpreted': 15, 'compiled': 14, 'lazy': 15}
+B first successful stack capacities: {'interpreted': 15, 'compiled': 14, 'lazy': 15}

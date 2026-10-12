@@ -1,4 +1,6 @@
-# Current execution-tier benchmark
+# Historical execution-tier benchmark
+
+> The measurements below are preserved historical results, not the current revision-6 checkpoint. See [the current SLet tier comparison](../slet-tiers-r6/README.md) for fresh interpreter/eager/lazy/AOT/C/LuaJIT measurements. The dynamic `make check` path described below is not supported by the current typed-only runtime.
 
 This suite compares four ABC execution paths with LuaJIT and a handwritten native baseline:
 
@@ -32,6 +34,12 @@ production clearing policy was retained.
 
 [Unfused continuation lowering](continuation-primitives.md) records the frame
 transport/transfer split, differential coverage, and paired Fibonacci results.
+
+[Shared check-first scalar execution](check-first.md) records the shared
+banked/symbolic control-flow definition, both-engine tripwires, paired
+interpreter/native results, the dispatch diagnostic, and explicit code-size
+and checked-lazy regressions. `compare_dynamic.lua BEFORE_RUNLET [AFTER_RUNLET]` reproduces the paired
+comparison on identical verified modules.
 
 ## Workloads
 

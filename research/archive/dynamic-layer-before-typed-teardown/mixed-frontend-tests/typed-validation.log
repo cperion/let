@@ -1,0 +1,44 @@
+build/abc-asdlc --check schema/residual.asdl
+build/validate-asdlc
+validated C ASDL parser, semantics, diagnostics, and C11 emission (32 checks)
+build/validate-residual-ir
+validated residual arena, IDs, whole-program invariants, and readable dumps (29 checks)
+build/validate-symbolic
+validated generated symbolic dispatch, call/return transitions, effects, shared contexts, folding, branches, and local block-version limit
+build/validate-capture
+validated 14 capture contracts (ordering, failure/PC preservation, register/constant renaming)
+/tmp/lua-compat tools/validate.lua
+validated 48 differential cases and all typed opcode forms
+/tmp/lua-compat tools/validate_c_aot.lua
+validated portable C residual arithmetic, branches, loops, calls, and export ABI
+/tmp/lua-compat tools/validate_slet_frontend.lua
+validated spec operand-form frontend lowering
+cd frontend && /tmp/lua-compat tools/embed.lua --check
+schemas up to date
+cd frontend && /tmp/lua-compat tests/schemas.lua
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+cd frontend && /tmp/lua-compat tests/walk.lua
+PASS: schema-driven traversal (4 checks)
+cd frontend && /tmp/lua-compat tests/parse.lua
+PASS: lexer/parser (232 checks)
+cd frontend && /tmp/lua-compat tests/compiler.lua
+PASS: Let compiler source ingestion and semantic IR (176 checks)
+cd frontend && /tmp/lua-compat tests/lowering.lua
+PASS: checked ASDL Ir -> ABC lowering (78 checks)
+cd frontend && /tmp/lua-compat tests/optimize.lua
+PASS: shared C residual-DAG optimizer and LuaJIT FFI (105 checks)
+cd frontend && /tmp/lua-compat tests/staging.lua
+PASS: VM-backed compile-time execution (24 checks)
+/tmp/lua-compat tools/validate_continuations.lua
+validated 243 continuation executions: A/B routing, live caller state, register/home arguments, result arities and stack exhaustion
+/tmp/lua-compat tools/validate_cache.lua build/validate-cache.abcasm build/validate-cache.oracle
+generated 655 cache-transition cases
+build/abc asm build/validate-cache.abcasm -o build/validate-cache.abc
+build/validate-cache build/validate-cache.abc build/validate-cache.oracle
+validated 1800 exact-state handlers with poisoned dead ABI arguments
+validated 655 cache-state transitions
+build/abc asm examples/callables.abcasm -o build/validate-callables.abc
+build/abc asm examples/virtual.abcasm -o build/validate-virtual.abc
+build/abc asm examples/foreign.abcasm -o build/validate-foreign.abc
+build/validate-api build/validate-callables.abc build/validate-virtual.abc build/validate-foreign.abc
+validated eager/lazy residual callable resolution, foreign calls, and stable linkage

@@ -26,7 +26,6 @@ local memoryWidth, layout
 local function cellKind(ty)
     if ty == S.unit then return nil end
     if ty:isInteger() or ty == S.bool then return "i" end
-    if ty==S.any then return "d" end
     if ty == S.f64 then return "f" end
     if ty:isRef() or ty:isPtr() then return "a" end
     return false
@@ -84,7 +83,7 @@ layout=function(ty, seen)
     if ty == S.bool or ty == S.u8 then return {size=1,align=1} end
     if ty == S.u16 then return {size=2,align=2} end
     if ty == S.u32 or ty == S.i32 then return {size=4,align=4} end
-    if ty == S.u64 or ty == S.i64 or ty == S.f64 or ty==S.any or ty:isRef() or ty:isPtr() then return {size=8,align=8} end
+    if ty == S.u64 or ty == S.i64 or ty == S.f64 or ty:isRef() or ty:isPtr() then return {size=8,align=8} end
     if ty:isSlice() then return {size=16,align=8,fields={data={offset=0,type=S.ref(ty.element)},length={offset=8,type=S.u32}}} end
     if ty:isView() then return {size=16,align=8,fields={code={offset=0,type=S.ptr(S.unit)},environment={offset=8,type=S.ref(S.unit)}}} end
     seen=seen or {};if seen[ty] then unsupported("recursive by-value layout "..S.display(ty)) end;seen[ty]=true
@@ -144,6 +143,7 @@ local function floatLiteral(value)
 end
 
 
+local function other(stack) return stack == "A" and "B" or "A" end
 local Function = {}
 Function.__index = Function
 
@@ -170,7 +170,6 @@ function Function.new(fn, definitions, profile, constants, metadata)
         addressTaken = {},
         inputCells = 0,
         constants = constants,
-        descriptorOf=metadata.descriptorOf,
         viewInfo=metadata.viewInfo or {},
     }, Function)
 
@@ -203,15 +202,11 @@ function Function.new(fn, definitions, profile, constants, metadata)
     end
 
 
-    local function reserve(map,id,ty,place,forceManaged,forceFrame)
+    local function reserve(map,id,ty,place,forceFrame)
         if map[id] then D.bug("lower-slot","IR slot "..tostring(id).." is defined twice") end
         local components=valueComponents(ty)
         if not place and components and #components>0 and not cellKind(ty) then
             local holder={type=ty,cells={}};for _,component in ipairs(components) do local slot={index=#self.locals+1,type=component};self.locals[#self.locals+1]=slot;holder.cells[#holder.cells+1]=slot end;map[id]=holder;return
-        end
-        if place and not forceFrame and self.profile=="dynamic" and (forceManaged or self.addressTaken[id]) then
-            local slot={index=#self.locals+1,type=ty,cellType=S.ptr(S.unit),address=true,managed=true,descriptor=self.descriptorOf(ty,true)}
-            self.locals[#self.locals+1]=slot;map[id]=slot;return
         end
         local kind=cellKind(ty)
         if kind and not forceFrame and not (place and self.addressTaken[id]) then local slot={index=#self.locals+1,type=ty};self.locals[#self.locals+1]=slot;map[id]=slot;return end
@@ -241,15 +236,15 @@ function Function.new(fn, definitions, profile, constants, metadata)
                 end
             elseif kind == "View" then
                 local info=self.viewInfo[stmt]
-                if (info and stmt.type:isView()) or stmt.type==S.any then reserve(self.valueSlots,stmt.value.id,stmt.type) end
-                if info and info.environment then reserve(self.storageSlots,stmt.adapter.id,info.environment,true,false,true) end
+                if info and stmt.type:isView() then reserve(self.valueSlots,stmt.value.id,stmt.type) end
+                if info and info.environment then reserve(self.storageSlots,stmt.adapter.id,info.environment,true,true) end
                 self.views[stmt.value.id]={entry=stmt.entry,type=stmt.type,statement=stmt,info=info}
             elseif kind == "Dynamic" then
-                local resultType=stmt.operation.kind=="WordHas" and S.bool or stmt.operation.kind=="WordCount" and S.u32 or S.any
-                for _,value in ipairs(stmt.results) do reserve(self.valueSlots,value.id,resultType) end
+                unsupported("dynamic operations")
             elseif kind == "Indirect" then
-                local results;if stmt.callable.type~=S.any then results=stmt.callable.type.visible.results end
-                for index,value in ipairs(stmt.results) do local ty=results and results[index] or S.any;reserve(self.valueSlots,value.id,ty,ty:isTaggedType()) end
+                if stmt.callable.type==S.any then unsupported("dynamic calls") end
+                local results=stmt.callable.type.visible.results
+                for index,value in ipairs(stmt.results) do local ty=results[index];reserve(self.valueSlots,value.id,ty,ty:isTaggedType()) end
             elseif kind == "If" then
                 scanList(stmt.yes)
                 scanList(stmt.no)
@@ -311,39 +306,31 @@ function Function:valueBlock(value)
     return slot
 end
 
-function Function:loadAddressValue(ty,offset,node)
-    local item=layout(ty);offset=offset or 0
-    if ty:isRecord() then for _,field in ipairs(ty.fields) do self:loadAddressValue(field.type,offset+item.fields[field.name].offset,node) end;return end
-    if ty:isArray() then for index=0,ty.length-1 do self:loadAddressValue(ty.element,offset+index*item.stride,node) end;return end
-    if ty:isSlice() then self:loadAddressValue(S.ref(ty.element),offset,node);self:loadAddressValue(S.u32,offset+8,node);return end
-    if ty:isView() then self:loadAddressValue(S.ptr(S.unit),offset,node);self:loadAddressValue(S.ref(S.unit),offset+8,node);return end
-    if ty:isTaggedType() then for index=0,math.floor((item.size+7)/8)-1 do self:instruction("COPY.BA",node);self:instruction("LD64.A "..(offset+index*8),node) end;return end
-    local width=memoryWidth(ty);if not width then unsupported("aggregate component load of "..S.display(ty)) end
-    self:instruction("COPY.BA",node);if ty==S.f64 then self:instruction(".loadkind float",node) elseif ty==S.any then self:instruction(".loadkind any",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end;self:instruction("LD"..width..".A "..offset,node)
+function Function:blockLoad(slot,offset,ty,node,stack)
+    stack=stack or "A"
+    local item=layout(ty)
+    if ty:isRecord() then for _,field in ipairs(ty.fields) do self:blockLoad(slot,offset+item.fields[field.name].offset,field.type,node,stack) end;return end
+    if ty:isArray() then for index=0,ty.length-1 do self:blockLoad(slot,offset+index*item.stride,ty.element,node,stack) end;return end
+    if ty:isSlice() then self:blockLoad(slot,offset,S.ref(ty.element),node,stack);self:blockLoad(slot,offset+8,S.u32,node,stack);return end
+    if ty:isView() then self:blockLoad(slot,offset,S.ptr(S.unit),node,stack);self:blockLoad(slot,offset+8,S.ref(S.unit),node,stack);return end
+    if ty:isTaggedType() then for index=0,math.floor((item.size+7)/8)-1 do self:instruction("FADDR."..stack.." "..slot.frameOffset,node);self:instruction("LD64."..stack.." "..(offset+index*8),node) end;return end
+    local width=memoryWidth(ty);if not width then unsupported("memory load of "..S.display(ty)) end
+    self:instruction("FADDR."..stack.." "..slot.frameOffset,node)
+    if ty==S.f64 then self:instruction(".loadkind float",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end
+    self:instruction("LD"..width.."."..stack.." "..offset,node)
 end
 
-function Function:blockLoad(slot,offset,ty,node)
+function Function:blockStore(slot,offset,ty,node,stack)
+    stack=stack or "A"
+    local address=other(stack)
     local item=layout(ty)
-    if ty:isRecord() then for _,field in ipairs(ty.fields) do self:blockLoad(slot,offset+item.fields[field.name].offset,field.type,node) end;return end
-    if ty:isArray() then for index=0,ty.length-1 do self:blockLoad(slot,offset+index*item.stride,ty.element,node) end;return end
-    if ty:isSlice() then self:blockLoad(slot,offset,S.ref(ty.element),node);self:blockLoad(slot,offset+8,S.u32,node);return end
-    if ty:isView() then self:blockLoad(slot,offset,S.ptr(S.unit),node);self:blockLoad(slot,offset+8,S.ref(S.unit),node);return end
-    if ty:isTaggedType() then for index=0,math.floor((item.size+7)/8)-1 do self:instruction("FADDR.A "..slot.frameOffset,node);self:instruction("LD64.A "..(offset+index*8),node) end;return end
-    local width=memoryWidth and memoryWidth(ty);if not width then unsupported("memory load of "..S.display(ty)) end
-    self:instruction("FADDR.A "..slot.frameOffset,node)
-    if ty==S.f64 then self:instruction(".loadkind float",node) elseif ty==S.any then self:instruction(".loadkind any",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end
-    self:instruction("LD"..width..".A "..offset,node)
-end
-
-function Function:blockStore(slot,offset,ty,node)
-    local item=layout(ty)
-    if ty:isRecord() then for index=#ty.fields,1,-1 do local field=ty.fields[index];self:blockStore(slot,offset+item.fields[field.name].offset,field.type,node) end;return end
-    if ty:isArray() then for index=ty.length-1,0,-1 do self:blockStore(slot,offset+index*item.stride,ty.element,node) end;return end
-    if ty:isSlice() then self:blockStore(slot,offset+8,S.u32,node);self:blockStore(slot,offset,S.ref(ty.element),node);return end
-    if ty:isView() then self:blockStore(slot,offset+8,S.ref(S.unit),node);self:blockStore(slot,offset,S.ptr(S.unit),node);return end
-    if ty:isTaggedType() then for index=math.floor((item.size+7)/8)-1,0,-1 do self:instruction("MOVE.AB",node);self:instruction("FADDR.A "..slot.frameOffset,node);self:instruction("ST64 "..(offset+index*8),node) end;return end
-    local width=memoryWidth and memoryWidth(ty);if not width then unsupported("memory store of "..S.display(ty)) end
-    self:instruction("MOVE.AB",node);self:instruction("FADDR.A "..slot.frameOffset,node);self:instruction("ST"..width:gsub("S$","").." "..offset,node)
+    if ty:isRecord() then for index=#ty.fields,1,-1 do local field=ty.fields[index];self:blockStore(slot,offset+item.fields[field.name].offset,field.type,node,stack) end;return end
+    if ty:isArray() then for index=ty.length-1,0,-1 do self:blockStore(slot,offset+index*item.stride,ty.element,node,stack) end;return end
+    if ty:isSlice() then self:blockStore(slot,offset+8,S.u32,node,stack);self:blockStore(slot,offset,S.ref(ty.element),node,stack);return end
+    if ty:isView() then self:blockStore(slot,offset+8,S.ref(S.unit),node,stack);self:blockStore(slot,offset,S.ptr(S.unit),node,stack);return end
+    if ty:isTaggedType() then for index=math.floor((item.size+7)/8)-1,0,-1 do self:instruction("FADDR."..address.." "..slot.frameOffset,node);self:instruction("ST64."..address.." "..(offset+index*8),node) end;return end
+    local width=memoryWidth(ty);if not width then unsupported("memory store of "..S.display(ty)) end
+    self:instruction("FADDR."..address.." "..slot.frameOffset,node);self:instruction("ST"..width:gsub("S$","").."."..address.." "..offset,node)
 end
 
 function Function:placeType(place)
@@ -353,38 +340,43 @@ function Function:placeType(place)
     D.bug("lower-place","Cannot determine type of Ir."..tostring(place.kind))
 end
 
-function Function:placeBase(place,node)
+function Function:placeBase(place,node,stack)
+    stack=stack or "A"
+    local opposite=other(stack)
     if place.kind=="Local" then
         local slot=self:storageSlot(place.storage)
-        if slot.block then self:instruction("FADDR.A "..slot.frameOffset,node);return 0 end
-        if slot.address then self:instruction("CGET.A "..self:depth(slot),node);return 0 end
+        if slot.block then self:instruction("FADDR."..stack.." "..slot.frameOffset,node);return 0 end
+        if slot.address then self:instruction("CGET."..stack.." "..self:depth(slot),node);return 0 end
         unsupported("address of non-addressable scalar local")
     elseif place.kind=="Project" then
         local baseType=self:placeType(place.base);local field=layout(baseType).fields[place.field.name]
         if not field then D.bug("lower-field","Unknown projected field "..tostring(place.field.name)) end
-        return self:placeBase(place.base,node)+field.offset
+        return self:placeBase(place.base,node,stack)+field.offset
     elseif place.kind=="Deref" then
-        self:loadPlace(place.base,node);return 0
+        self:loadPlace(place.base,node,stack);return 0
     elseif place.kind=="Index" then
         local baseType=self:placeType(place.base);local item=layout(baseType)
-        self:address(place.base,node)
-        self:expr(place.index)
-        self:instruction("DUP.A",node);self:instruction("PUSH.B "..baseType.length,node);self:instruction("LTU.A",node)
-        local valid=self:label(node);self:instruction("JNZ.A "..valid,node);self:instruction("ABORT 2",node);self:place(valid,node)
-        self:instruction("MOVE.AB",node);self:instruction("IDX "..item.stride,node);return 0
+        self:address(place.base,node,stack)
+        self:expr(place.index,opposite)
+        self:instruction("DUP."..opposite,node);self:instruction("PUSH."..stack.." "..baseType.length,node);self:instruction("LTU."..opposite,node)
+        local valid=self:label(node);self:instruction("JNZ."..opposite.." "..valid,node);self:instruction("ABORT 2",node);self:place(valid,node)
+        self:instruction("IDX."..stack.." "..item.stride,node);return 0
     elseif place.kind=="SliceIndex" then
-        local item=layout(place.type);self:expr(place.view);self:instruction("MOVE.AB",node);self:expr(place.index);self:instruction("DUP.A",node);self:instruction("LTU.A",node)
-        local valid=self:label(node);self:instruction("JNZ.A "..valid,node);self:instruction("ABORT 2",node);self:place(valid,node)
-        self:instruction("MOVE.AB",node);self:instruction("IDX "..align(item.size,item.align),node);return 0
+        local item=layout(place.type)
+        self:expr(place.view,stack);self:instruction("MOVE."..stack,node)
+        self:expr(place.index,stack);self:instruction("DUP."..stack,node);self:instruction("LTU."..stack,node)
+        local valid=self:label(node);self:instruction("JNZ."..stack.." "..valid,node);self:instruction("ABORT 2",node);self:place(valid,node)
+        self:instruction("MOVE."..stack,node);self:instruction("IDX."..stack.." "..align(item.size,item.align),node);return 0
     elseif place.kind=="PtrIndex" then
-        local item=layout(place.type);self:expr(place.view);self:expr(place.index);self:instruction("MOVE.AB",node);self:instruction("IDX "..align(item.size,item.align),node);return 0
+        local item=layout(place.type);self:expr(place.view,stack);self:expr(place.index,opposite);self:instruction("IDX."..stack.." "..align(item.size,item.align),node);return 0
     end
     unsupported("Ir."..tostring(place.kind).." place")
 end
 
-function Function:address(place,node)
-    local offset=self:placeBase(place,node)
-    if offset~=0 then self:instruction("PUSH.B 1",node);self:instruction("IDX "..offset,node) end
+function Function:address(place,node,stack)
+    stack=stack or "A"
+    local offset=self:placeBase(place,node,stack)
+    if offset~=0 then self:instruction("PUSH."..other(stack).." 1",node);self:instruction("IDX."..stack.." "..offset,node) end
 end
 
 memoryWidth=function(ty)
@@ -392,68 +384,80 @@ memoryWidth=function(ty)
     if ty==S.u16 then return "16" end
     if ty==S.u32 then return "32" end
     if ty==S.i32 then return "32S" end
-    if ty==S.u64 or ty==S.i64 or ty==S.f64 or ty==S.any or ty:isRef() or ty:isPtr() then return "64" end
+    if ty==S.u64 or ty==S.i64 or ty==S.f64 or ty:isRef() or ty:isPtr() then return "64" end
 end
 
-function Function:loadPlace(place,node)
+function Function:loadPlace(place,node,stack)
+    stack=stack or "A"
     if place.kind=="Local" then
         local slot=self:storageSlot(place.storage)
-        if slot.block then self:blockLoad(slot,0,slot.type,node);return end
-        if not slot.address then self:instruction("CGET.A "..self:depth(slot),node);return end
+        if slot.block then self:blockLoad(slot,0,slot.type,node,stack);return end
+        if not slot.address then self:instruction("CGET."..stack.." "..self:depth(slot),node);return end
     end
     local ty=self:placeType(place)
-    if ty:isRecord() then for _,field in ipairs(ty.fields) do self:loadPlace(S.Ir.Project(place,S.Ir.Field(field.name)),node) end;return end
-    if ty:isArray() then for index=0,ty.length-1 do self:loadPlace(S.Ir.Index(place,S.Ir.Const(S.u32,S.Ir.UInt(index)),ty.element),node) end;return end
-    if ty:isSlice() then local offset=self:placeBase(place,node);self:instruction(".loadkind addr",node);self:instruction("LD64.A "..offset,node);offset=self:placeBase(place,node);self:instruction("LD32.A "..(offset+8),node);return end
-    if ty:isView() then local offset=self:placeBase(place,node);self:instruction(".loadkind addr",node);self:instruction("LD64.A "..offset,node);offset=self:placeBase(place,node);self:instruction(".loadkind addr",node);self:instruction("LD64.A "..(offset+8),node);return end
+    if ty:isRecord() then for _,field in ipairs(ty.fields) do self:loadPlace(S.Ir.Project(place,S.Ir.Field(field.name)),node,stack) end;return end
+    if ty:isArray() then for index=0,ty.length-1 do self:loadPlace(S.Ir.Index(place,S.Ir.Const(S.u32,S.Ir.UInt(index)),ty.element),node,stack) end;return end
+    if ty:isSlice() or ty:isView() then
+        local offset=self:placeBase(place,node,stack);self:instruction(".loadkind addr",node);self:instruction("LD64."..stack.." "..offset,node)
+        offset=self:placeBase(place,node,stack)
+        if ty:isView() then self:instruction(".loadkind addr",node) end
+        self:instruction((ty:isView() and "LD64." or "LD32.")..stack.." "..(offset+8),node);return
+    end
     local width=memoryWidth(ty);if not width then unsupported("read of "..S.display(ty)) end
-    local offset=self:placeBase(place,node)
-    if ty==S.f64 then self:instruction(".loadkind float",node) elseif ty==S.any then self:instruction(".loadkind any",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end
-    self:instruction("LD"..width..".A "..offset,node)
+    local offset=self:placeBase(place,node,stack)
+    if ty==S.f64 then self:instruction(".loadkind float",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end
+    self:instruction("LD"..width.."."..stack.." "..offset,node)
 end
 
-function Function:storePlace(place,ty,node)
-    if place.kind=="Local" then local slot=self:storageSlot(place.storage);if slot.block then self:blockStore(slot,0,ty,node);return end end
-    if ty:isRecord() then for index=#ty.fields,1,-1 do local field=ty.fields[index];self:storePlace(S.Ir.Project(place,S.Ir.Field(field.name)),field.type,node) end;return end
-    if ty:isArray() then for index=ty.length-1,0,-1 do self:storePlace(S.Ir.Index(place,S.Ir.Const(S.u32,S.Ir.UInt(index)),ty.element),ty.element,node) end;return end
-    if ty:isSlice() then self:instruction("MOVE.AB",node);local offset=self:placeBase(place,node);self:instruction("ST32 "..(offset+8),node);self:instruction("MOVE.AB",node);offset=self:placeBase(place,node);self:instruction("ST64 "..offset,node);return end
-    if ty:isView() then self:instruction("MOVE.AB",node);local offset=self:placeBase(place,node);self:instruction("ST64 "..(offset+8),node);self:instruction("MOVE.AB",node);offset=self:placeBase(place,node);self:instruction("ST64 "..offset,node);return end
+function Function:storePlace(place,ty,node,stack)
+    stack=stack or "A"
+    local address=other(stack)
+    if place.kind=="Local" then local slot=self:storageSlot(place.storage);if slot.block then self:blockStore(slot,0,ty,node,stack);return end end
+    if ty:isRecord() then for index=#ty.fields,1,-1 do local field=ty.fields[index];self:storePlace(S.Ir.Project(place,S.Ir.Field(field.name)),field.type,node,stack) end;return end
+    if ty:isArray() then for index=ty.length-1,0,-1 do self:storePlace(S.Ir.Index(place,S.Ir.Const(S.u32,S.Ir.UInt(index)),ty.element),ty.element,node,stack) end;return end
+    if ty:isSlice() or ty:isView() then
+        local offset=self:placeBase(place,node,address);self:instruction((ty:isView() and "ST64." or "ST32.")..address.." "..(offset+8),node)
+        offset=self:placeBase(place,node,address);self:instruction("ST64."..address.." "..offset,node);return
+    end
     local width=memoryWidth(ty);if not width then unsupported("store of "..S.display(ty)) end
-    self:instruction("MOVE.AB",node);local offset=self:placeBase(place,node);self:instruction("ST"..width:gsub("S$","").." "..offset,node)
+    local offset=self:placeBase(place,node,address)
+    self:instruction("ST"..width:gsub("S$","").."."..address.." "..offset,node)
 end
 
-function Function:normalize(ty, node)
+function Function:normalize(ty, node, stack)
+    stack = stack or "A"
     local op = ty == S.u8 and "ZX8" or ty == S.u16 and "ZX16"
-        or ty == S.u32 and "ZX32.A" or ty == S.i32 and "SX32.A"
-    if op then self:instruction(op, node) end
+        or ty == S.u32 and "ZX32" or ty == S.i32 and "SX32"
+    if op then self:instruction(op .. "." .. stack, node) end
 end
 
 function Function:zero(ty,node)
-    if ty==S.any then self:instruction("ANY_BOX "..self.descriptorOf(S.unit,true),node);return end
     if ty:isRef() or ty:isPtr() then self:instruction("GADDR.A 0",node);return end
     self:instruction("PUSH.A 0",node)
-    if ty==S.f64 then self:instruction("I2FU",node) end
+    if ty==S.f64 then self:instruction("I2FU.A",node) end
 end
 
-function Function:expr(expr)
+-- Append the ordered value to stack, preserving both existing live prefixes.
+function Function:expr(expr, stack)
+    stack = stack or "A"
     local kind = expr.kind
     if kind == "Const" then
         if expr.type == S.unit then return end
         if expr.type:isInteger() then
-            self:instruction("PUSH.A " .. intLiteral(expr.literal), expr)
+            self:instruction("PUSH." .. stack .. " " .. intLiteral(expr.literal), expr)
         elseif expr.type == S.bool then
-            self:instruction("PUSH.A " .. (expr.literal.value and "1" or "0"), expr)
+            self:instruction("PUSH." .. stack .. " " .. (expr.literal.value and "1" or "0"), expr)
         elseif expr.type == S.f64 then
             local bits = floatLiteral(expr.literal.value)
             local offset = self.constants.floats[bits]
             if offset == nil then D.bug("lower-constant", "f64 constant is absent from the module pool") end
             self:instruction(".loadkind float", expr)
-            self:instruction("GLD64 " .. offset, expr)
+            self:instruction("GLD64." .. stack .. " " .. offset, expr)
         elseif expr.type==S.unit then
             -- Unit has no runtime cell.
         elseif expr.type:isSlice() and expr.literal.kind=="Str" then
             local offset=self.constants.strings[expr.literal.bytes];if offset==nil then D.bug("lower-constant","slice constant is absent from the module pool") end
-            self:instruction("GADDR.A "..offset,expr);self:instruction("PUSH.A "..#expr.literal.bytes,expr)
+            self:instruction("GADDR."..stack.." "..offset,expr);self:instruction("PUSH."..stack.." "..#expr.literal.bytes,expr)
         else
             unsupported("Ir.Const " .. S.display(expr.type))
         end
@@ -462,187 +466,164 @@ function Function:expr(expr)
     if kind=="Ref" then
         if expr.type~=S.unit then
             local slot=self.valueSlots[expr.value.id];if not slot then D.bug("lower-value","Function "..self.fn.id.." has no ABC slot for value "..tostring(expr.value.id)) end
-            if slot.block then self:blockLoad(slot,0,expr.type,expr) elseif slot.cells then for _,cell in ipairs(slot.cells) do self:instruction("CGET.A "..self:depth(cell),expr) end else self:instruction("CGET.A "..self:depth(slot),expr) end
+            if slot.block then self:blockLoad(slot,0,expr.type,expr,stack) elseif slot.cells then for _,cell in ipairs(slot.cells) do self:instruction("CGET."..stack.." "..self:depth(cell),expr) end else self:instruction("CGET."..stack.." "..self:depth(slot),expr) end
         end
         return
     end
-    if kind=="Addr" then self:address(expr.place,expr);return end
-    if kind=="Null" then self:instruction(".loadkind addr",expr);self:instruction("GLD64 0",expr);return end
-    if kind=="Make" and (expr.type:isSlice() or expr.type:isRecord() or expr.type:isArray()) then for _,field in ipairs(expr.fields) do self:expr(field) end;return end
+    if kind=="Addr" then self:address(expr.place,expr,stack);return end
+    if kind=="Null" then self:instruction(".loadkind addr",expr);self:instruction("GLD64."..stack.." 0",expr);return end
+    if kind=="Make" and (expr.type:isSlice() or expr.type:isRecord() or expr.type:isArray()) then for _,field in ipairs(expr.fields) do self:expr(field,stack) end;return end
     if kind=="SliceLength" then
-        self:expr(expr.view);self:instruction("MOVE.AB",expr);self:instruction("DROP.A",expr);self:instruction("MOVE.BA",expr);return
+        self:expr(expr.view,stack);self:instruction("MOVE."..stack,expr);self:instruction("DROP."..stack,expr);self:instruction("MOVE."..other(stack),expr);return
     end
-    if kind=="Is" then self:expr(expr.operand);self:instruction("ANY_IS "..self.descriptorOf(expr.tested,true),expr);return end
+    if kind=="Is" then unsupported("dynamic type tests") end
     if kind == "Un" then
-        self:expr(expr.operand)
+        if expr.operand.type==S.any then unsupported("dynamic unary execution") end
+        self:expr(expr.operand,stack)
         local op = expr.op.kind
-        if op == "Not" then self:instruction(expr.operand.type==S.any and "DLNOT" or "LNOT.A", expr)
-        elseif op == "Neg" then self:instruction(expr.operand.type==S.any and "DNEG" or expr.type == S.f64 and "FNEG" or "NEG.A", expr)
-        elseif op == "BitNot" then self:instruction(expr.operand.type==S.any and "DNOT" or "NOT.A", expr)
+        if op == "Not" then self:instruction("LNOT."..stack, expr)
+        elseif op == "Neg" then self:instruction((expr.type == S.f64 and "FNEG." or "NEG.")..stack, expr)
+        elseif op == "BitNot" then self:instruction("NOT."..stack, expr)
         else D.bug("lower-op", "Unknown unary operation " .. tostring(op)) end
-        if expr.type:isInteger() then self:normalize(expr.type, expr) end
+        if expr.type:isInteger() then self:normalize(expr.type, expr,stack) end
         return
     end
     if kind == "Get" then
         local aggregate=expr.aggregate
         if aggregate.kind=="Ref" and self.aggregates[aggregate.value.id] then aggregate=self.aggregates[aggregate.value.id] end
-        if aggregate.kind=="Make" then for index,field in ipairs(aggregate.type.fields) do if field.name==expr.field.name then return self:expr(aggregate.fields[index]) end end end
+        if aggregate.kind=="Make" then for index,field in ipairs(aggregate.type.fields) do if field.name==expr.field.name then return self:expr(aggregate.fields[index],stack) end end end
         if aggregate.kind=="Ref" then
             local holder=self.valueSlots[aggregate.value.id]
             if holder and holder.cells then
                 local first=1
-                for _,field in ipairs(aggregate.type.fields) do local parts=valueComponents(field.type);if field.name==expr.field.name then for index=first,first+#parts-1 do self:instruction("CGET.A "..self:depth(holder.cells[index]),expr) end;return end;first=first+#parts end
+                for _,field in ipairs(aggregate.type.fields) do local parts=valueComponents(field.type);if field.name==expr.field.name then for index=first,first+#parts-1 do self:instruction("CGET."..stack.." "..self:depth(holder.cells[index]),expr) end;return end;first=first+#parts end
             end
         end
         unsupported("escaping or unknown Ir.Get aggregate")
     end
-    if kind == "Bin" then return self:binary(expr) end
+    if kind == "Bin" then return self:binary(expr,stack) end
     if kind == "Convert" then
-        if expr.operand.type==S.any then
-            self:expr(expr.operand);self:instruction("ANY_CAST "..self.descriptorOf(expr.type,true),expr)
-            if expr.type:isRecord() or expr.type:isArray() or expr.type:isTaggedType() then self:instruction("MOVE.AB",expr);self:loadAddressValue(expr.type,0,expr);self:instruction("DROP.B",expr) end
-            return
-        end
-        if expr.type==S.any then
-            if expr.operand.kind=="Addr" and expr.operand.type:isRef() and (expr.operand.type.target:isRecord() or expr.operand.type.target:isArray() or expr.operand.type.target:isTaggedType()) then
-                self:expr(expr.operand);self:instruction("MANAGED_COPY "..self.descriptorOf(expr.operand.type.target,true),expr);self:instruction("ANY_BOX "..self.descriptorOf(expr.operand.type.target,true),expr);return
-            end
-            if expr.operand.type:isRecord() or expr.operand.type:isArray() or expr.operand.type:isTaggedType() or valueComponents(expr.operand.type)==false then unsupported("boxing "..S.display(expr.operand.type).." into any") end
-            self:expr(expr.operand);self:instruction("ANY_BOX "..self.descriptorOf(expr.operand.type,true),expr);return
-        end
-        self:expr(expr.operand)
-        self:convert(expr.operand.type, expr.type, expr)
+        if expr.operand.type==S.any or expr.type==S.any then unsupported("dynamic conversions") end
+        self:expr(expr.operand,stack)
+        self:convert(expr.operand.type, expr.type, expr,stack)
         return
     end
     unsupported("Ir." .. tostring(kind))
 end
 
-function Function:binary(expr)
+function Function:binary(expr, stack)
+    stack = stack or "A"
     local op, ty = expr.op.kind, expr.left.type
+    if ty==S.any then unsupported("dynamic binary execution") end
+    -- Evaluation stays left-to-right even for > and >=. Swapping which
+    -- operand is primary is a placement decision, not an evaluation reorder.
+    self:expr(expr.left,stack)
+    self:expr(expr.right,other(stack))
     local reverse = op == "Gt" or op == "Ge"
-    if reverse then
-        self:expr(expr.right)
-        self:expr(expr.left)
-    else
-        self:expr(expr.left)
-        self:expr(expr.right)
-    end
-    if ty==S.any then
-        local dynamic={Add="DADD",Sub="DSUB",Mul="DMUL",Div="DDIV",Rem="DREM",Pow="DPOW",BitAnd="DAND",BitOr="DOR",BitXor="DXOR",Shl="DSHL",Shr="DSHR",Eq="DEQ",Ne="DNE",Lt="DLT",Le="DLE",Gt="DLT",Ge="DLE"}
-        local instruction=dynamic[op];if not instruction then D.bug("lower-op","Unsupported dynamic operation "..tostring(op)) end
-        self:instruction(instruction,expr);return
-    end
-    self:instruction("MOVE.AB", expr)
-    if ty == S.f64 then
-        local float = { Add = "FADD.A", Sub = "FSUB.A", Mul = "FMUL.A", Div = "FDIV.A",
-            Eq = "FEQ.A", Ne = "FEQ.A", Lt = "FLT.A", Le = "FLE.A",
-            Gt = "FLT.A", Ge = "FLE.A" }
-        local instruction = float[op]
-        if not instruction then D.bug("lower-op", "Unsupported f64 operation " .. tostring(op)) end
-        self:instruction(instruction, expr)
-        if op == "Ne" then self:instruction("LNOT.A", expr) end
-        return
-    end
-
+    local selected = reverse and other(stack) or stack
     local signed = ty:isSigned()
-    local instruction = ({
-        Add = "ADD.A", Sub = "SUB.A", Mul = "MUL.A",
-        Div = signed and "DIVS.A" or "DIVU.A",
-        Rem = signed and "REMS.A" or "REMU.A",
-        Pow = expr.right.type:isSigned() and "POWS" or "POW",
-        BitAnd = "AND.A", BitOr = "OR.A", BitXor = "XOR.A",
-        Shl = "SHL.A", Shr = signed and "SAR.A" or "SHR.A",
-        Eq = "EQ.A", Ne = "NE.A",
-        Lt = signed and "LT.A" or "LTU.A", Le = signed and "LE.A" or "LEU.A",
-        Gt = signed and "LT.A" or "LTU.A", Ge = signed and "LE.A" or "LEU.A",
-    })[op]
-    if not instruction then D.bug("lower-op", "Unknown binary operation " .. tostring(op)) end
-    self:instruction(instruction, expr)
-    if expr.type:isInteger() then self:normalize(expr.type, expr) end
+    local operations
+    if ty == S.f64 then
+        operations={Add="FADD",Sub="FSUB",Mul="FMUL",Div="FDIV",
+            Eq="FEQ",Ne="FEQ",Lt="FLT",Le="FLE",Gt="FLT",Ge="FLE"}
+    else
+        operations={Add="ADD",Sub="SUB",Mul="MUL",
+            Div=signed and "DIVS" or "DIVU",Rem=signed and "REMS" or "REMU",
+            Pow=expr.right.type:isSigned() and "POWS" or "POW",
+            BitAnd="AND",BitOr="OR",BitXor="XOR",Shl="SHL",Shr=signed and "SAR" or "SHR",
+            Eq="EQ",Ne="NE",Lt=signed and "LT" or "LTU",Le=signed and "LE" or "LEU",
+            Gt=signed and "LT" or "LTU",Ge=signed and "LE" or "LEU"}
+    end
+    local instruction=operations[op]
+    if not instruction then D.bug("lower-op","Unsupported binary operation "..tostring(op)) end
+    self:instruction(instruction.."."..selected,expr)
+    if ty==S.f64 and op=="Ne" then self:instruction("LNOT."..selected,expr) end
+    if reverse then self:instruction("MOVE."..selected,expr) end
+    if expr.type:isInteger() then self:normalize(expr.type,expr,stack) end
 end
 
-function Function:convert(source, target, node)
+function Function:convert(source, target, node, stack)
+    stack = stack or "A"
     if source == target then return end
+    local function emit(op) self:instruction(op.."."..stack,node) end
     if source == S.f64 then
-        self:instruction(target:isSigned() and "F2IS" or "F2IU", node)
+        emit(target:isSigned() and "F2IS" or "F2IU")
         local check = target == S.u8 and "CHKU8" or target == S.u16 and "CHKU16"
             or target == S.u32 and "CHKU32" or target == S.i32 and "CHKI32"
-        if check then self:instruction(check, node) end
-        self:normalize(target, node)
+        if check then emit(check) end
+        self:normalize(target,node,stack)
         return
     end
     if target == S.f64 then
-        self:instruction(source:isSigned() and "I2FS" or "I2FU", node)
+        emit(source:isSigned() and "I2FS" or "I2FU")
         return
     end
     local sw, tw = S.widthOf(source), S.widthOf(target)
     if not sw or not tw then D.bug("lower-convert", "Non-numeric conversion reached ABC lowering") end
     if sw == tw then
-        if source:isSigned() ~= target:isSigned() and sw == 64 then self:instruction("CHKNN", node) end
-        self:normalize(target, node)
+        if source:isSigned() ~= target:isSigned() and sw == 64 then emit("CHKNN") end
+        self:normalize(target,node,stack)
         return
     end
     if source:isSigned() == target:isSigned() and sw < tw then return end
-    if source:isSigned() ~= target:isSigned() then self:instruction("CHKNN", node) end
+    if source:isSigned() ~= target:isSigned() then emit("CHKNN") end
     local check = target == S.u8 and "CHKU8" or target == S.u16 and "CHKU16"
         or target == S.u32 and "CHKU32" or target == S.i32 and "CHKI32"
-    if check then self:instruction(check, node) end
-    self:normalize(target, node)
+    if check then emit(check) end
+    self:normalize(target,node,stack)
 end
 
-function Function:storeValue(value,ty,node)
+function Function:storeValue(value,ty,node,stack)
+    stack=stack or "A"
     if ty==S.unit then return end
     local slot=self.valueSlots[value.id];if not slot then D.bug("lower-value","No ABC slot for value "..tostring(value.id)) end
-    if slot.block then self:blockStore(slot,0,ty,node) elseif slot.cells then for index=#slot.cells,1,-1 do self:instruction("CSET.A "..self:depth(slot.cells[index]),node) end else self:instruction("CSET.A "..self:depth(slot),node) end
+    if slot.block then self:blockStore(slot,0,ty,node,stack) elseif slot.cells then for index=#slot.cells,1,-1 do self:instruction("CSET."..stack.." "..self:depth(slot.cells[index]),node) end else self:instruction("CSET."..stack.." "..self:depth(slot),node) end
 end
 
-function Function:placeLoad(place,node) return self:loadPlace(place,node) end
+function Function:placeLoad(place,node,stack) return self:loadPlace(place,node,stack) end
 
-function Function:placeStore(place,ty,node)
+function Function:placeStore(place,ty,node,stack)
+    stack=stack or "A"
     if ty==S.unit then return end
-    if place.kind=="Local" then local slot=self:storageSlot(place.storage);if not slot.block and not slot.address then self:instruction("CSET.A "..self:depth(slot),node);return end end
-    self:storePlace(place,ty,node)
+    if place.kind=="Local" then local slot=self:storageSlot(place.storage);if not slot.block and not slot.address then self:instruction("CSET."..stack.." "..self:depth(slot),node);return end end
+    self:storePlace(place,ty,node,stack)
 end
 
-function Function:arguments(arguments, node)
+function Function:arguments(arguments, node, stack)
+    stack=stack or "A"
     local cells = 0
     for _,argument in ipairs(arguments) do
-        if argument.kind=="ValueArg" then self:expr(argument.value);local kinds=cellKinds(argument.value.type);if kinds==false then unsupported("argument of type "..S.display(argument.value.type)) end;cells=cells+#kinds
-        elseif argument.kind=="BorrowArg" then self:address(argument.place,argument);cells=cells+1
+        if argument.kind=="ValueArg" then self:expr(argument.value,stack);local kinds=cellKinds(argument.value.type);if kinds==false then unsupported("argument of type "..S.display(argument.value.type)) end;cells=cells+#kinds
+        elseif argument.kind=="BorrowArg" then self:address(argument.place,argument,stack);cells=cells+1
         else unsupported("argument "..tostring(argument.kind)) end
     end
     return cells
 end
 
-function Function:call(stmt, selected)
+function Function:call(stmt, selected, stack)
+    stack=stack or "A"
     selected=selected or stmt.target
     local target = self.definitions[selected]
-    local arguments = self:arguments(stmt.arguments, stmt)
-    if target.foreign then self:instruction("FCALL "..selected,stmt)
-    else self:instruction("CALL.A " .. selected .. " " .. arguments, stmt) end
+    local arguments = self:arguments(stmt.arguments,stmt,stack)
+    if target.foreign then self:instruction("FCALL."..stack.." "..selected,stmt)
+    else self:instruction("CALL."..stack.." "..selected.." "..arguments,stmt) end
     for index = #stmt.results, 1, -1 do
-        local ty = target.results[index]
-        self:storeValue(stmt.results[index], ty, stmt)
+        self:storeValue(stmt.results[index],target.results[index],stmt,stack)
     end
 end
 
-function Function:indirect(stmt)
+function Function:indirect(stmt,stack)
+    stack=stack or "A"
     if stmt.callable.kind~="Ref" then unsupported("non-reference Ir.Indirect callable") end
     local holder=self.valueSlots[stmt.callable.value.id]
     if not holder or not holder.cells or #holder.cells~=2 then D.bug("lower-callable","Indirect callable has no code/environment pair") end
-    self:instruction("CGET.B "..self:depth(holder.cells[1]),stmt)
-    self:instruction("CGET.A "..self:depth(holder.cells[2]),stmt)
-    local arguments=1+self:arguments(stmt.arguments,stmt)
+    self:instruction("CGET."..other(stack).." "..self:depth(holder.cells[1]),stmt)
+    self:instruction("CGET."..stack.." "..self:depth(holder.cells[2]),stmt)
+    local arguments=1+self:arguments(stmt.arguments,stmt,stack)
     local info=self.indirectInfo[stmt];if not info then D.bug("lower-callable","Indirect call has no site signature") end
-    self:instruction("CALLI.A "..arguments.." "..info.signature,stmt)
+    self:instruction("CALLI."..stack.." "..arguments.." "..info.signature,stmt)
     local results=stmt.callable.type.visible.results
-    for index=#stmt.results,1,-1 do self:storeValue(stmt.results[index],results[index],stmt) end
-end
-
-function Function:dynamicCall(stmt)
-    self:expr(stmt.callable);local arguments=self:arguments(stmt.arguments,stmt)
-    self:instruction("DCALL "..arguments.." "..#stmt.results.." adjust",stmt)
-    for index=#stmt.results,1,-1 do self:storeValue(stmt.results[index],S.any,stmt) end
+    for index=#stmt.results,1,-1 do self:storeValue(stmt.results[index],results[index],stmt,stack) end
 end
 
 -- Ir is already in ANF: a call's continuation is the remaining statement suffix.
@@ -663,21 +644,12 @@ local function isReturnContinuation(call, k)
     return true
 end
 
-function Function:tailCall(stmt, selected)
+function Function:tailCall(stmt, selected, stack)
+    stack=stack or "A"
     selected=selected or stmt.target
-    local arguments = self:arguments(stmt.arguments, stmt)
-    self:instruction("TCALL "..selected.." "..(self.inputCells+#self.locals+self.blockCells)
+    local arguments = self:arguments(stmt.arguments,stmt,stack)
+    self:instruction("TCALL."..stack.." "..selected.." "..(self.inputCells+#self.locals+self.blockCells)
         .." "..arguments,stmt)
-end
-function Function:dynamic(stmt)
-    local operations={WordNew="WORD_NEW",WordGet="WORD_GET",WordSet="WORD_SET",WordMethod="WORD_METHOD",WordHas="WORD_HAS",WordRemove="WORD_REMOVE",WordCount="WORD_COUNT",WordKey="WORD_KEY",WordSupply="WORD_SUPPLY",WordFreeze="WORD_FREEZE",WordBind="WORD_BIND"}
-    for _,operand in ipairs(stmt.operands) do self:expr(operand) end
-    local instruction=operations[stmt.operation.kind];if not instruction then D.bug("lower-dynamic","Unknown dynamic operation "..tostring(stmt.operation.kind)) end
-    if stmt.operation.kind=="WordNew" then instruction=instruction.." "..self.descriptorOf(S.sig({},{}),true)
-    elseif stmt.operation.kind=="WordBind" then instruction=instruction.." "..stmt.operation.argument end
-    self:instruction(instruction,stmt)
-    local resultType=stmt.operation.kind=="WordHas" and S.bool or stmt.operation.kind=="WordCount" and S.u32 or S.any
-    for index=#stmt.results,1,-1 do self:storeValue(stmt.results[index],resultType,stmt) end
 end
 
 function Function:statements(list)
@@ -686,9 +658,9 @@ function Function:statements(list)
         local stmt = list[index]
         local kind = stmt.kind
         if kind=="Dynamic" then
-            self:dynamic(stmt);index=index+1
+            unsupported("dynamic operations")
         elseif kind=="Indirect" and stmt.callable.type==S.any then
-            self:dynamicCall(stmt);index=index+1
+            unsupported("dynamic calls")
         elseif kind == "Indirect" and self.indirectInfo[stmt] then
             self:indirect(stmt);index=index+1
         elseif kind == "Call" or kind == "Indirect" then
@@ -710,41 +682,19 @@ function Function:statements(list)
                 index = index + 1
             end
         elseif kind == "View" then
-            if stmt.type==S.any then
-                if #stmt.slots>0 then unsupported("captured callable conversion to any") end
-                local target=self.definitions[stmt.entry]
-                self:instruction("WORD_DIRECT "..stmt.entry.." "..self.descriptorOf(S.sig(target.inputs,target.results),true),stmt)
-                self:storeValue(stmt.value,S.any,stmt)
-            elseif stmt.type:isView() and self.viewInfo[stmt] then
+            if stmt.type==S.any then unsupported("dynamic callable values") end
+            if stmt.type:isView() and self.viewInfo[stmt] then
                 local info=self.viewInfo[stmt]
-                local managedRoots=0
                 if info.environment then
                     local base=S.Ir.Local(stmt.adapter)
                     for slotIndex,slot in ipairs(stmt.slots) do
                         local field=info.fields[slotIndex]
-                        if self.profile=="dynamic" then
-                            if slot.kind=="ValueArg" then self:expr(slot.value) else self:address(slot.place,slot) end
-                            local kinds=cellKinds(field.type)
-                            if kinds==false then unsupported("captured root representation of "..S.display(field.type)) end
-                            if field.type:isView() then
-                                self:instruction("MOVE.AB",stmt);self:instruction("DROP.A",stmt);managedRoots=managedRoots+1
-                            else for _=1,#kinds do self:instruction("MOVE.AB",stmt);managedRoots=managedRoots+1 end end
-                        end
                         if slot.kind=="ValueArg" then self:expr(slot.value) else self:address(slot.place,slot) end
                         self:placeStore(S.Ir.Project(base,S.Ir.Field(field.name)),field.type,stmt)
                     end
                 end
-                if info.environment and self.profile=="dynamic" then
-                    self:address(S.Ir.Local(stmt.adapter),stmt)
-                    self:instruction("MANAGED_COPY "..self.descriptorOf(info.environment,true),stmt)
-                    for _=1,managedRoots do self:instruction("DROP.B",stmt) end
-                    self:instruction("MOVE.AB",stmt)
-                    self:instruction(".loadkind addr",stmt);self:instruction("GLD64 "..info.codeOffset,stmt)
-                    self:instruction("MOVE.BA",stmt)
-                else
-                    self:instruction(".loadkind addr",stmt);self:instruction("GLD64 "..info.codeOffset,stmt)
-                    if info.environment then self:address(S.Ir.Local(stmt.adapter),stmt) else self:instruction(".loadkind addr",stmt);self:instruction("GLD64 0",stmt) end
-                end
+                self:instruction(".loadkind addr",stmt);self:instruction("GLD64.A "..info.codeOffset,stmt)
+                if info.environment then self:address(S.Ir.Local(stmt.adapter),stmt) else self:instruction(".loadkind addr",stmt);self:instruction("GLD64.A 0",stmt) end
                 self:storeValue(stmt.value,stmt.type,stmt)
             end
             index = index + 1
@@ -831,7 +781,7 @@ function Function:statements(list)
             index = index + 1
         elseif kind == "Return" then
             for _, value in ipairs(stmt.values) do self:expr(value) end
-            self:instruction("RET "..(self.inputCells+#self.locals+self.blockCells).." "..countCells(self.fn.results),stmt)
+            self:instruction("RET.A "..(self.inputCells+#self.locals+self.blockCells).." "..countCells(self.fn.results),stmt)
             index = index + 1
         else
             unsupported("Ir." .. tostring(kind))
@@ -852,12 +802,11 @@ function Function:lower()
     end
     self:emit(header, self.fn)
     for _,slot in ipairs(self.locals) do
-        self:zero(slot.cellType or slot.type,self.fn)
+        self:zero(slot.type,self.fn)
         self:instruction("CPUSH.A",self.fn)
     end
     for _,slot in ipairs(self.blocks) do self:instruction("CALLOC "..slot.layout.size,self.fn) end
     for _,slot in ipairs(self.blocks) do if slot.initialParameters then for _,parameter in ipairs(slot.initialParameters) do self:instruction("CGET.A "..self:depth(parameter),self.fn) end;self:blockStore(slot,0,slot.type,self.fn) end end
-    for _,slot in ipairs(self.locals) do if slot.managed then self:instruction("MANAGED_NEW "..slot.descriptor,self.fn);self:instruction("CSET.A "..self:depth(slot),self.fn) end end
     self:statements(self.fn.body)
     return self.lines, self.lineMap
 end
@@ -867,70 +816,14 @@ function M.lower(functions, options)
     if options.profile ~= "slet" and options.profile ~= "let" then
         D.reject("source-profile", "ABC lowering requires profile `let` or `slet`")
     end
+    if options.profile == "let" then
+        D.reject("dynamic-lowering", "Dynamic ABC lowering is unavailable; Let parsing, typechecking and IR construction remain supported. Use SLet for executable ABC.")
+    end
     Check.program(functions, options.modules, options.foreigns)
 
     local definitions,usesFloat,usesMemory,usesAddress,usesCallable={},false,false,false,false
     local floatConstants,floatData,floatCount={},{},0
     local stringConstants,stringOrder,stringData={},{},{}
-    local function hasManagedRoots(ty,seen)
-        if ty==S.any or ty:isRef() or ty:isSlice() or ty:isView() then return true end
-        if ty:isPtr() or ty==S.unit or ty:isInteger() or ty==S.bool or ty==S.f64 then return false end
-        seen=seen or {};if seen[ty] then return false end;seen[ty]=true
-        local result=false
-        if ty:isRecord() then for _,field in ipairs(ty.fields) do if hasManagedRoots(field.type,seen) then result=true;break end end
-        elseif ty:isArray() then result=hasManagedRoots(ty.element,seen)
-        elseif ty:isTaggedType() then for _,case in ipairs(S.alternatives(ty)) do if hasManagedRoots(case.type,seen) then result=true;break end end end
-        seen[ty]=nil;return result
-    end
-    local descriptorNames,descriptorLines,descriptorCount={},{},0
-    local function descriptorOf(ty,managed)
-        local key=S.encode(ty)..(managed and ":managed" or ":strict");if descriptorNames[key] then return descriptorNames[key] end
-        local primitive=ty==S.unit and "unit" or ty==S.bool and "bool" or ty==S.u8 and "u8" or ty==S.u16 and "u16" or ty==S.u32 and "u32" or ty==S.u64 and "u64" or ty==S.i32 and "i32" or ty==S.i64 and "i64" or ty==S.f64 and "f64" or ty==S.any and "any" or nil
-        if primitive then local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name;descriptorLines[#descriptorLines+1]=".descriptor primitive "..name.." "..primitive;return name end
-        if ty:isSig() then
-            local components={}
-            for _,input in ipairs(ty.inputs) do if input.kind=="InPlace" then unsupported("dynamic direct word with borrowed input") end;components[#components+1]=descriptorOf(input.type,managed) end
-            for _,result in ipairs(ty.results) do components[#components+1]=descriptorOf(result,managed) end
-            local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name
-            local parts={".descriptor signature",name,tostring(#ty.inputs),tostring(#ty.results)};for _,component in ipairs(components) do parts[#parts+1]=component end;descriptorLines[#descriptorLines+1]=table.concat(parts," ");return name
-        end
-        if ty:isRef() or ty:isPtr() then
-            local child=descriptorOf(ty.target,managed);local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name
-            local owner=ty:isPtr() and "raw" or managed and "managed" or "strict";descriptorLines[#descriptorLines+1]=".descriptor pointer "..name.." "..owner.." "..child;return name
-        end
-        if ty:isString() then
-            local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name;descriptorLines[#descriptorLines+1]=".descriptor primitive "..name.." string";return name
-        end
-        if ty:isSlice() then
-            local child=descriptorOf(ty.element,managed);local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name
-            descriptorLines[#descriptorLines+1]=".descriptor slice "..name.." "..(managed and "managed" or "strict").." "..child;return name
-        end
-        if ty:isView() then
-            local child=descriptorOf(S.ref(S.unit),managed);local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name
-            descriptorLines[#descriptorLines+1]=".descriptor record "..name.." 16 1 0 0 8 "..child;return name
-        end
-        if ty:isRecord() then
-            local item=layout(ty);local children={};for _,field in ipairs(ty.fields) do if field.type:isView() then children[#children+1]={at=item.fields[field.name].offset+8,name=descriptorOf(S.ref(S.unit),managed)} elseif hasManagedRoots(field.type) then children[#children+1]={at=item.fields[field.name].offset,name=descriptorOf(field.type,managed)} end end
-            local emptyChild;if #children==0 then emptyChild=descriptorOf(S.unit,managed) end
-            local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name;local parts={".descriptor record",name,tostring(item.size),tostring(emptyChild and 1 or #children)}
-            if emptyChild then parts[#parts+1]="0";parts[#parts+1]="0";parts[#parts+1]="0";parts[#parts+1]=emptyChild end
-            for _,child in ipairs(children) do parts[#parts+1]="0";parts[#parts+1]="0";parts[#parts+1]=tostring(child.at);parts[#parts+1]=child.name end
-            descriptorLines[#descriptorLines+1]=table.concat(parts," ");return name
-        end
-        if ty:isArray() then
-            if not hasManagedRoots(ty) then local child=descriptorOf(S.unit,managed);local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name;descriptorLines[#descriptorLines+1]=".descriptor record "..name.." "..layout(ty).size.." 1 0 0 0 "..child;return name end
-            local child=descriptorOf(ty.element,managed);local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name
-            descriptorLines[#descriptorLines+1]=".descriptor array "..name.." "..layout(ty).size.." "..ty.length.." "..child;return name
-        end
-        if ty:isTaggedType() then
-            if not hasManagedRoots(ty) then local child=descriptorOf(S.unit,managed);local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name;descriptorLines[#descriptorLines+1]=".descriptor record "..name.." "..layout(ty).size.." 1 0 0 0 "..child;return name end
-            local item=layout(ty);local children={};for index,case in ipairs(S.alternatives(ty)) do children[#children+1]={tag=index-1,name=hasManagedRoots(case.type) and descriptorOf(case.type,managed) or descriptorOf(S.unit,managed)} end
-            local name="_let_D"..descriptorCount;descriptorCount=descriptorCount+1;descriptorNames[key]=name;local parts={".descriptor sum",name,tostring(item.size),"0","4",tostring(#children)}
-            for _,child in ipairs(children) do parts[#parts+1]=tostring(child.tag);parts[#parts+1]=tostring(item.payloadOffset);parts[#parts+1]=child.name end
-            descriptorLines[#descriptorLines+1]=table.concat(parts," ");return name
-        end
-        unsupported("managed descriptor for "..S.display(ty))
-    end
     local viewInfo,indirectInfo,adapters,signatureNames,signatureLines={},{},{},{},{}
     local function inputKinds(input) if input.kind=="InPlace" then return {"a"} end;local kinds=cellKinds(input.type);if kinds==false then unsupported("callable input of type "..S.display(input.type)) end;return kinds end
     local function signatureFor(sig)
@@ -940,7 +833,7 @@ function M.lower(functions, options)
         signatureLines[#signatureLines+1]=".signature "..name.." "..#arguments.." "..#results.." "..table.concat(arguments).." "..(#results>0 and table.concat(results) or "-");return name
     end
     local function inspectType(ty)
-        if ty==S.any then if options.profile~="let" then D.reject("slet-forbidden","SLet cannot lower any values") end;return end
+        if ty==S.any then D.reject("slet-forbidden","SLet cannot lower any values") end
         if ty:isView() or ty:isOwned() then return end
         if ty:isSlice() then usesMemory=true;usesAddress=true;return end
         if ty:isRecord() or ty:isArray() or ty:isTaggedType() then return end
@@ -998,9 +891,9 @@ function M.lower(functions, options)
         if #bytes==0 then hex[1]="00" else for i=1,#bytes do hex[#hex+1]=string.format("%02x",bytes:byte(i)) end end
         stringData[#stringData+1]=table.concat(hex);stringOffset=stringOffset+math.max(1,#bytes)
     end
-    local profile=options.profile=="let" and "dynamic" or #(options.foreigns or {})>0 and "foreign" or usesCallable and "callables" or (usesFloat or usesMemory) and "memory" or "integer"
+    local profile=#(options.foreigns or {})>0 and "foreign" or usesCallable and "callables" or (usesFloat or usesMemory) and "memory" or "integer"
     local constants={floats=floatConstants,strings=stringConstants}
-    local metadata={descriptorOf=descriptorOf,viewInfo=viewInfo,indirectInfo=indirectInfo}
+    local metadata={viewInfo=viewInfo,indirectInfo=indirectInfo}
     local loweredFunctions={}
     for index,fn in ipairs(functions) do loweredFunctions[index]=Function.new(fn,definitions,profile,constants,metadata) end
     local loweredOutput={}
@@ -1019,7 +912,6 @@ function M.lower(functions, options)
     end
     if dataSize>0 then append(".datazero "..dataSize) end
     local rodata=table.concat(floatData)..table.concat(stringData);if #rodata>0 then append(".rodata "..rodata) end
-    for _,line in ipairs(descriptorLines) do append(line) end
     for _,line in ipairs(signatureLines) do append(line) end
     for _,info in ipairs(adapters) do append(".codeaddr "..info.codeOffset.." "..info.name) end
     for _, output in ipairs(loweredOutput) do
@@ -1049,7 +941,7 @@ function M.lower(functions, options)
         local parameter=1
         for index=#statement.slots+1,#target.inputs do for _ in ipairs(inputKinds(target.inputs[index])) do append("  CGET.A "..parameter,statement);parameter=parameter+1 end end
         local targetCells=0;for _,input in ipairs(target.inputs) do targetCells=targetCells+#inputKinds(input) end
-        append("  TCALL "..target.id.." "..adapterCells.." "..targetCells,statement)
+        append("  TCALL.A "..target.id.." "..adapterCells.." "..targetCells,statement)
     end
     for _, name in ipairs(options.exports or {}) do
         if not identifier(name) or not definitions[name] then

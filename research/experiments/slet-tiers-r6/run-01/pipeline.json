@@ -1,0 +1,162 @@
+{
+  "loop": {
+    "frontend": [
+      0.018809271001373418,
+      0.01886570199712878,
+      0.019131103999825427
+    ],
+    "emit": [
+      0.014295990997197805,
+      0.009800773997994838,
+      0.010728982000728138
+    ],
+    "c_compile": [
+      0.18653122799878474,
+      0.171187480998924,
+      0.17939987600038876
+    ],
+    "module_bytes": 156,
+    "aot_executable_bytes": 16688,
+    "aot_size": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3009\t    664\t     16\t   3689\t    e69\t/home/cperion_ext/dev/let/research/experiments/slet-tiers-r6/run-01/programs/loop\n"
+  },
+  "skip": {
+    "frontend": [
+      0.0206963899981929,
+      0.017212918999575777,
+      0.01840865499980282
+    ],
+    "emit": [
+      0.010304664003342623,
+      0.010404150998510886,
+      0.010808442999405088
+    ],
+    "c_compile": [
+      0.19055540200133692,
+      0.16557691900015925,
+      0.18738867200227105
+    ],
+    "module_bytes": 159,
+    "aot_executable_bytes": 16688,
+    "aot_size": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3025\t    664\t     16\t   3705\t    e79\t/home/cperion_ext/dev/let/research/experiments/slet-tiers-r6/run-01/programs/skip\n"
+  },
+  "branch": {
+    "frontend": [
+      0.020231921000231523,
+      0.020025043999339687,
+      0.02159411000320688
+    ],
+    "emit": [
+      0.010409628001070814,
+      0.00964934900184744,
+      0.015577729998767609
+    ],
+    "c_compile": [
+      0.180233319002582,
+      0.16791962700153817,
+      0.17346219200044288
+    ],
+    "module_bytes": 202,
+    "aot_executable_bytes": 16688,
+    "aot_size": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3025\t    664\t     16\t   3705\t    e79\t/home/cperion_ext/dev/let/research/experiments/slet-tiers-r6/run-01/programs/branch\n"
+  },
+  "sum2": {
+    "frontend": [
+      0.019007024999154964,
+      0.022939915001188638,
+      0.01980516000185162
+    ],
+    "emit": [
+      0.010616010000376264,
+      0.011382328997569857,
+      0.011509821997606196
+    ],
+    "c_compile": [
+      0.17167426699961652,
+      0.17233882499931497,
+      0.18588374699902488
+    ],
+    "module_bytes": 199,
+    "aot_executable_bytes": 16688,
+    "aot_size": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3073\t    664\t     16\t   3753\t    ea9\t/home/cperion_ext/dev/let/research/experiments/slet-tiers-r6/run-01/programs/sum2\n"
+  },
+  "mul": {
+    "frontend": [
+      0.020471129999350524,
+      0.020382086997415172,
+      0.019399001001147553
+    ],
+    "emit": [
+      0.01114276899897959,
+      0.012761936999595491,
+      0.011873268002091208
+    ],
+    "c_compile": [
+      0.17521204399963608,
+      0.17434729999877163,
+      0.17827792999742087
+    ],
+    "module_bytes": 154,
+    "aot_executable_bytes": 16688,
+    "aot_size": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   2993\t    664\t     16\t   3673\t    e59\t/home/cperion_ext/dev/let/research/experiments/slet-tiers-r6/run-01/programs/mul\n"
+  },
+  "divide": {
+    "frontend": [
+      0.018427254999551224,
+      0.019583981000323547,
+      0.0173777540003357
+    ],
+    "emit": [
+      0.010105883000505855,
+      0.013017065997701138,
+      0.012509233001765097
+    ],
+    "c_compile": [
+      0.1890693410023232,
+      0.17686388400034048,
+      0.19834494899987476
+    ],
+    "module_bytes": 163,
+    "aot_executable_bytes": 16688,
+    "aot_size": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3033\t    664\t     16\t   3713\t    e81\t/home/cperion_ext/dev/let/research/experiments/slet-tiers-r6/run-01/programs/divide\n"
+  },
+  "mix": {
+    "frontend": [
+      0.01824666399988928,
+      0.020103646002098685,
+      0.02000658500037389
+    ],
+    "emit": [
+      0.011546892998012481,
+      0.011044262002542382,
+      0.00951858700136654
+    ],
+    "c_compile": [
+      0.18305291200158536,
+      0.1801538409999921,
+      0.17522357200141414
+    ],
+    "module_bytes": 160,
+    "aot_executable_bytes": 16688,
+    "aot_size": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3009\t    664\t     16\t   3689\t    e69\t/home/cperion_ext/dev/let/research/experiments/slet-tiers-r6/run-01/programs/mix\n"
+  },
+  "fib": {
+    "frontend": [
+      0.02067256400187034,
+      0.02257221100080642,
+      0.01981188299760106
+    ],
+    "emit": [
+      0.012370342999929562,
+      0.012212533001729753,
+      0.017339050998998573
+    ],
+    "c_compile": [
+      0.19512641700202948,
+      0.2145579389980412,
+      0.2036595399986254
+    ],
+    "module_bytes": 134,
+    "aot_executable_bytes": 16728,
+    "aot_size": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   3049\t    664\t     16\t   3729\t    e91\t/home/cperion_ext/dev/let/research/experiments/slet-tiers-r6/run-01/programs/fib\n"
+  }
+}

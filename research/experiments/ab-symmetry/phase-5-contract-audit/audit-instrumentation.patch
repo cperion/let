@@ -1,0 +1,19 @@
+--- src/residualize.c	2026-10-11 22:11:03.317449582 +0200
++++ /tmp/abc-contract-audit/residualize.c	2026-10-11 22:49:28.402724832 +0200
+@@ -1,5 +1,6 @@
+ #define _GNU_SOURCE
+ #include "residualize.h"
++#include <stdio.h> /* Audit-only trace; not installed in the runtime. */
+ #include "symbolic.h"
+ #include "generated/stencils.h"
+ #include "generated/stencil_layout.h"
+@@ -474,6 +475,9 @@
+     v->pc=pc;v->owner=c;
+     if(c->lazy&&!place_lazy_entry(c,v)){context_free(&v->in);free(v);if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_NOMEM,pc,"lazy entry-stub allocation failed");return NULL;}
+     v->next=c->versions[pc]; c->versions[pc]=v;
++    unsigned audit_total=0;
++    for(Version *audit=c->versions[pc];audit;audit=audit->next)audit_total++;
++    fprintf(stderr,"AUDIT pc=%u versions=%u family_versions=%u continuations=%u\n",pc,audit_total,count+1,in->ncont);
+     if(!c->lazy){if(!grow((void **)&c->queue,&c->qcap,c->nq+1,sizeof *c->queue)) { c->status=abc_fail(c->error,ABC_NOMEM,pc,"compiler queue allocation failed"); return NULL; }c->queue[c->nq++]=v;} return v;
+ }
+ static Version *edge(Compiler *c,uint32_t from,uint32_t target,Context *x) {

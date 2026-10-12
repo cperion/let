@@ -1,0 +1,82 @@
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 1 roots=1,6,13
+GENERAL_ENTRY 1 roots_stable=3 A=555 B=666 cbase=13 bias=0
+LEAF_RETURN activation=1 cbase=13 slot=8 displacement=-5
+MATERIALIZED_RESUME_BEFORE activation=1 cbase=13 displacement=-7
+MATERIALIZED_CALLER_CONTRACT activation=1 caller_ctop=2
+MATERIALIZED_RETURN 1
+MATERIALIZED_RESUME_AFTER activation=1 cbase=6
+MATERIALIZED_RETURN 2
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 2 roots=1,6,13
+GENERAL_ENTRY 2 roots_stable=3 A=555 B=666 cbase=13 bias=0
+LEAF_RETURN activation=2 cbase=13 slot=8 displacement=-5
+MATERIALIZED_RESUME_BEFORE activation=2 cbase=13 displacement=-7
+MATERIALIZED_CALLER_CONTRACT activation=2 caller_ctop=2
+MATERIALIZED_RETURN 3
+MATERIALIZED_RESUME_AFTER activation=2 cbase=6
+MATERIALIZED_RETURN 4
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 3 roots=1,6,13
+GENERAL_ENTRY 3 roots_stable=3 A=555 B=666 cbase=13 bias=0
+LEAF_RETURN activation=3 cbase=13 slot=8 displacement=-5
+MATERIALIZED_RESUME_BEFORE activation=3 cbase=13 displacement=-7
+MATERIALIZED_CALLER_CONTRACT activation=3 caller_ctop=2
+MATERIALIZED_RETURN 5
+MATERIALIZED_RESUME_AFTER activation=3 cbase=6
+MATERIALIZED_RETURN 6
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 4 roots=1,6,13
+GENERAL_ENTRY 4 roots_stable=3 A=555 B=666 cbase=13 bias=0
+LEAF_RETURN activation=4 cbase=13 slot=8 displacement=-5
+MATERIALIZED_RESUME_BEFORE activation=4 cbase=13 displacement=-7
+MATERIALIZED_CALLER_CONTRACT activation=4 caller_ctop=2
+MATERIALIZED_RETURN 7
+MATERIALIZED_RESUME_AFTER activation=4 cbase=6
+MATERIALIZED_RETURN 8
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 5 roots=1,6,13
+GENERAL_ENTRY 5 roots_stable=3 A=555 B=666 cbase=13 bias=0
+LEAF_RETURN activation=5 cbase=13 slot=8 displacement=-5
+MATERIALIZED_RESUME_BEFORE activation=5 cbase=13 displacement=-7
+MATERIALIZED_CALLER_CONTRACT activation=5 caller_ctop=2
+MATERIALIZED_RETURN 9
+MATERIALIZED_RESUME_AFTER activation=5 cbase=6
+MATERIALIZED_RETURN 10
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 6 roots=1,6,13
+GENERAL_ENTRY 6 roots_stable=3 A=555 B=666 cbase=13 bias=0
+LEAF_RETURN activation=6 cbase=13 slot=8 displacement=-5
+MATERIALIZED_RESUME_BEFORE activation=6 cbase=13 displacement=-7
+MATERIALIZED_CALLER_CONTRACT activation=6 caller_ctop=2
+MATERIALIZED_RETURN 11
+MATERIALIZED_RESUME_AFTER activation=6 cbase=6
+MATERIALIZED_RETURN 12
+MATERIALIZE pc=806 continuations=2 general_versions_at_pc=1
+ACTIVATION 7 roots=1,6,13
+GENERAL_ENTRY 7 roots_stable=3 A=555 B=666 cbase=13 bias=0
+LEAF_RETURN activation=7 cbase=13 slot=8 displacement=-5
+MATERIALIZED_RESUME_BEFORE activation=7 cbase=13 displacement=-7
+MATERIALIZED_CALLER_CONTRACT activation=7 caller_ctop=2
+MATERIALIZED_RETURN 13
+MATERIALIZED_RESUME_AFTER activation=7 cbase=6
+MATERIALIZED_RETURN 14
+LEGACY_GENERAL pc=806 bias=1 versions_at_pc=2
+ACTIVATION 8 roots=1,6,13
+GENERAL_ENTRY 8 roots_stable=3 A=555 B=666 cbase=12 bias=1
+LEAF_RETURN activation=8 cbase=12 slot=8 displacement=-4
+REAL_RESUME_BEFORE activation=8 cbase=12 displacement=-6
+REAL_CALLER_CONTRACT activation=8 caller_ctop=2
+REAL_RESUME_AFTER activation=8 cbase=6
+ACTIVATION 9 roots=1,6,13
+GENERAL_ENTRY 9 roots_stable=3 A=555 B=666 cbase=12 bias=1
+LEAF_RETURN activation=9 cbase=12 slot=8 displacement=-4
+REAL_RESUME_BEFORE activation=9 cbase=12 displacement=-6
+REAL_CALLER_CONTRACT activation=9 caller_ctop=2
+REAL_RESUME_AFTER activation=9 cbase=6
+ACTIVATION 10 roots=1,6,13
+GENERAL_ENTRY 10 roots_stable=3 A=555 B=666 cbase=12 bias=1
+LEAF_RETURN activation=10 cbase=12 slot=8 displacement=-4
+REAL_RESUME_BEFORE activation=10 cbase=12 displacement=-6
+REAL_CALLER_CONTRACT activation=10 caller_ctop=2
+REAL_RESUME_AFTER activation=10 cbase=6

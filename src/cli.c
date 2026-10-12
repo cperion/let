@@ -24,25 +24,33 @@ static void disassemble(const abc_module *m) {
         }
         putchar('\n');
         for(uint32_t pc=f->entry;pc<f->end;) {
-            const uint8_t *p=m->code+pc; unsigned op=*p, len=abc_instruction_length(p), k=op_kind[op];
-            printf("  %08x  %-14s",pc,op_name[op]);
-            if(k==K_BRANCH) printf(" 0x%08x",(uint32_t)((int64_t)pc+len+abc_i16(p+1)));
-            else if(k==K_JMP32) printf(" 0x%08x",(uint32_t)((int64_t)pc+len+abc_i32(p+1)));
-            else if(k==K_SWITCH){unsigned count=abc_u16(p+1);printf(" %u",count);for(unsigned j=0;j<count;j++)printf(" 0x%08x",(uint32_t)((int64_t)pc+len+abc_i32(p+3+4*j)));}
-            else if(k==K_BRI) printf(" %" PRId64 " 0x%08x",abc_signed(abc_imm8(p[1])),(uint32_t)((int64_t)pc+len+abc_i16(p+2)));
-            else if(k==K_CALL || k==K_TCALL) { printf(" 0x%08x %u",(uint32_t)((int64_t)pc+len+abc_i32(p+1)),p[5]); if(k==K_TCALL) printf(" %u",p[6]); }
-            else if(k==K_RET) printf(" %u %u",p[1],p[2]);
-            else if(k==K_ICALL || k==K_ITCALL) {
-                unsigned tail=k==K_ITCALL; if (tail) printf(" frame=%u",p[1]);
-                const abc_function *s=abc_find_site(m,pc);
-                printf(" args=%u results=%u cache=%u",p[tail ? 2 : 1],s->results,abc_u32(p+(tail ? 3 : 2)));
+            abc_decoded_instruction instruction;
+            abc_decode_instruction(m->code+pc,f->end-pc,&instruction);
+            const abc_instruction_metadata *metadata=instruction.metadata;
+            const uint8_t *operand=instruction.operands;
+            unsigned len=instruction.length,kind=metadata->kind;uint32_t next=pc+len;
+            char name[64];
+            if(abc_core_instructions[m->code[pc]].kind==K_EXT)
+                snprintf(name,sizeof name,"%s_%c",metadata->name,instruction.selected_stack==ABC_STACK_A?'A':'B');
+            else snprintf(name,sizeof name,"%s",metadata->name);
+            printf("  %08x  %-14s",pc,name);
+            if(kind==K_BRANCH)printf(" 0x%08x",(uint32_t)((int64_t)next+abc_i16(operand)));
+            else if(kind==K_JMP32)printf(" 0x%08x",(uint32_t)((int64_t)next+abc_i32(operand)));
+            else if(kind==K_BRI)printf(" %" PRId64 " 0x%08x",abc_signed(abc_imm8(operand[0])),(uint32_t)((int64_t)next+abc_i16(operand+1)));
+            else if(kind==K_SWITCH){unsigned count=abc_u16(operand);printf(" %u",count);for(unsigned entry=0;entry<count;entry++)printf(" 0x%08x",(uint32_t)((int64_t)next+abc_i32(operand+2+4*entry)));}
+            else if(kind==K_CALL||kind==K_TCALL){printf(" 0x%08x %u",(uint32_t)((int64_t)next+abc_i32(operand)),operand[4]);if(kind==K_TCALL)printf(" %u",operand[5]);}
+            else if(kind==K_ICALL||kind==K_ITCALL){unsigned tail=kind==K_ITCALL;if(tail)printf(" frame=%u",operand[0]);printf(" args=%u results=%u",operand[tail?1:0],abc_find_site(m,pc)->results);}
+            else if(kind==K_FCALL){unsigned external=abc_u16(operand);printf(" %u ; %s",external,m->externs[external].name);}
+            else switch(metadata->operand_layout) {
+                case ABC_LAYOUT_U8_U8:printf(" %u %u",operand[0],operand[1]);break;
+                case ABC_LAYOUT_U8:printf(" %u",operand[0]);break;
+                case ABC_LAYOUT_I8:printf(" %" PRId64,abc_signed(abc_imm8(operand[0])));break;
+                case ABC_LAYOUT_U16:printf(" %u",abc_u16(operand));break;
+                case ABC_LAYOUT_U32:printf(" %" PRIu32,abc_u32(operand));break;
+                case ABC_LAYOUT_I32:printf(" %" PRId32,abc_i32(operand));break;
+                case ABC_LAYOUT_U64:printf(" %" PRId64,abc_signed(abc_u64(operand)));break;
+                default:break;
             }
-            else if(op==OP_CGETR_A || op==OP_CGETR_B) printf(" %u %u",p[1],p[2]);
-            else if(len==2) printf(" %" PRId64,k==K_OPI || op==OP_PUSH8_A || op==OP_PUSH8_B ? abc_signed(abc_imm8(p[1])) : (int64_t)p[1]);
-            else if(k==K_MEMORY && len==3) printf(" %u",abc_u16(p+1));
-            else if(k==K_MEMORY && len==5) printf(" %" PRIu32,abc_u32(p+1));
-            else if(k==K_FCALL) { unsigned index=abc_u16(p+1); printf(" %u",index); if(index<m->extern_count)printf(" ; %s",m->externs[index].name); }
-            else if(len==5) printf(" %" PRId32,abc_i32(p+1)); else if(len==9) printf(" %" PRId64,abc_signed(abc_u64(p+1)));
             if (m->load_kinds && m->load_kinds[pc]) printf(" ; loadkind=%s",m->load_kinds[pc]==3 ? "float" : m->load_kinds[pc]==2 ? "addr" : "int");
             putchar('\n'); pc+=len;
         }
@@ -52,13 +60,18 @@ static void disassemble(const abc_module *m) {
 int main(int argc,char **argv) {
     if(argc==2 && !strcmp(argv[1],"opcodes")) {
         printf("["); int first=1;
-        for(unsigned i=0;i<OP_COUNT;i++) if(op_kind[i]!=K_INTERNAL) {
-            printf("%s{\"name\":\"%s\",\"opcode\":%u,\"length\":%u,\"kind\":%u}",first ? "" : ",",op_name[i],i,op_len[i],op_kind[i]); first=0;
+        for(unsigned opcode=0;opcode<OP_COUNT;opcode++) {
+            const abc_instruction_metadata *metadata=&abc_core_instructions[opcode];
+            printf("%s{\"name\":\"%s\",\"opcode\":%u,\"length\":%u,\"kind\":%u,\"profile\":%u}",first?"":",",metadata->name,opcode,metadata->encoded_length,metadata->kind,metadata->minimum_profile);first=0;
+        }
+        for(unsigned selector=0;selector<EXT_COUNT;selector++)for(unsigned stack=0;stack<2;stack++) {
+            const abc_instruction_metadata *metadata=&abc_extended_instructions[selector];
+            printf(",{\"name\":\"%s_%c\",\"opcode\":%u,\"selector\":%u,\"length\":%u,\"kind\":%u,\"profile\":%u}",metadata->name,stack?'B':'A',OP_EXT_A+stack,selector,metadata->encoded_length,metadata->kind,metadata->minimum_profile);
         }
         puts("]"); return 0;
     }
     if(argc<3 || (strcmp(argv[1],"check") && strcmp(argv[1],"dis") && strcmp(argv[1],"run"))) {
-        fprintf(stderr,"usage: abc-runtime check|dis module.abc\n       abc-runtime run module.abc [export [integer ...]] [--compiled|--lazy|--interpreted] [--stack=N]\n"); return 2;
+        fprintf(stderr,"usage: abc-runtime check|dis module.abc\n       abc-runtime run module.abc [export [integer ...]] [--jit=off|threaded|lazy|eager] [--stack=N]\n"); return 2;
     }
     abc_module *m=NULL; abc_vm *v=NULL; abc_error e; int rc=0;
     if(abc_module_read(argv[2],&m,&e)!=ABC_OK) return report(&e);
@@ -70,6 +83,13 @@ int main(int argc,char **argv) {
             uint64_t n;
             if(!number(argv[i]+8,&n) || !n || argv[i][8]=='-' || n>ABC_MAX_FILE) { fprintf(stderr,"abc: invalid stack limit\n"); rc=2; goto done; }
             limits.stack_cells=(size_t)n;
+        } else if(!strncmp(argv[i],"--jit=",6)) {
+            const char *mode=argv[i]+6;
+            if(!strcmp(mode,"off"))limits.mode=ABC_EXEC_INTERPRETED;
+            else if(!strcmp(mode,"threaded"))limits.mode=ABC_EXEC_THREADED;
+            else if(!strcmp(mode,"lazy"))limits.mode=ABC_EXEC_LAZY;
+            else if(!strcmp(mode,"eager"))limits.mode=ABC_EXEC_COMPILED;
+            else {fprintf(stderr,"abc: invalid execution policy: %s\n",mode);rc=2;goto done;}
         } else if(!strcmp(argv[i],"--compiled")) limits.mode=ABC_EXEC_COMPILED;
         else if(!strcmp(argv[i],"--lazy")) limits.mode=ABC_EXEC_LAZY;
         else if(!strcmp(argv[i],"--interpreted")) limits.mode=ABC_EXEC_INTERPRETED;

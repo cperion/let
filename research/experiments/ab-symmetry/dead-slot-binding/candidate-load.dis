@@ -1,0 +1,33 @@
+
+research/experiments/ab-symmetry/dead-slot-binding/runlet:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+00000000000d0da0 <handler_a0b0c1_GLD64_A>:
+   d0da0:	48 c7 c0 f8 ff ff ff 	mov    $0xfffffffffffffff8,%rax
+   d0da7:	64 48 8b 08          	mov    %fs:(%rax),%rcx
+   d0dab:	49 8d 44 24 05       	lea    0x5(%r12),%rax
+   d0db0:	48 8b 49 10          	mov    0x10(%rcx),%rcx
+   d0db4:	48 8b 49 08          	mov    0x8(%rcx),%rcx
+   d0db8:	41 8b 54 24 01       	mov    0x1(%r12),%edx
+   d0dbd:	48 8b 3c 11          	mov    (%rcx,%rdx,1),%rdi
+   d0dc1:	41 0f b6 4c 24 05    	movzbl 0x5(%r12),%ecx
+   d0dc7:	48 8d 15 22 8c 25 00 	lea    0x258c22(%rip),%rdx        # 3299f0 <T_a1b0c1>
+   d0dce:	4c 8b 14 ca          	mov    (%rdx,%rcx,8),%r10
+   d0dd2:	49 89 c4             	mov    %rax,%r12
+   d0dd5:	31 f6                	xor    %esi,%esi
+   d0dd7:	31 d2                	xor    %edx,%edx
+   d0dd9:	31 c9                	xor    %ecx,%ecx
+   d0ddb:	45 31 c9             	xor    %r9d,%r9d
+   d0dde:	45 31 db             	xor    %r11d,%r11d
+   d0de1:	4c 89 d0             	mov    %r10,%rax
+   d0de4:	ff e0                	jmp    *%rax
+
+Disassembly of section .fini:

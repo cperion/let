@@ -1,0 +1,67 @@
+
+research/experiments/ab-symmetry/final-comparison/new-memory-lazy.bin:     file format binary
+
+
+Disassembly of section .data:
+
+0000000000000000 <.data>:
+   0:	49 bf 00 00 00 00 00 	movabs $0x0,%r15
+   7:	00 00 00 
+   a:	4c 89 3d ef 0f 79 01 	mov    %r15,0x1790fef(%rip)        # 0x1791000
+  11:	e9 e2 fe 02 00       	jmp    0x2fef8
+  16:	e9 59 fe 02 00       	jmp    0x2fe74
+  1b:	4c 8b 3d de 0f 79 01 	mov    0x1790fde(%rip),%r15        # 0x1791000
+  22:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+  29:	4c 89 3d d0 0f 79 01 	mov    %r15,0x1790fd0(%rip)        # 0x1791000
+  30:	49 bf 3f 42 0f 00 00 	movabs $0xf423f,%r15
+  37:	00 00 00 
+  3a:	4d 89 be 00 00 00 00 	mov    %r15,0x0(%r14)
+  41:	e9 aa fd 02 00       	jmp    0x2fdf0
+  46:	4d 8b be 00 00 00 00 	mov    0x0(%r14),%r15
+  4d:	48 bf 00 00 00 00 00 	movabs $0x0,%rdi
+  54:	00 00 00 
+  57:	49 39 ff             	cmp    %rdi,%r15
+  5a:	0f 84 0c fd 02 00    	je     0x2fd6c
+  60:	e9 83 fc 02 00       	jmp    0x2fce8
+  65:	4c 8b 3d 94 0f 79 01 	mov    0x1790f94(%rip),%r15        # 0x1791000
+  6c:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+  73:	4c 89 3d 86 0f 79 01 	mov    %r15,0x1790f86(%rip)        # 0x1791000
+  7a:	4d 8b be 00 00 00 00 	mov    0x0(%r14),%r15
+  81:	49 81 ef 01 00 00 00 	sub    $0x1,%r15
+  88:	e9 d7 fb 02 00       	jmp    0x2fc64
+  8d:	48 bf 00 00 00 00 00 	movabs $0x0,%rdi
+  94:	00 00 00 
+  97:	49 39 ff             	cmp    %rdi,%r15
+  9a:	0f 84 40 fb 02 00    	je     0x2fbe0
+  a0:	e9 b7 fa 02 00       	jmp    0x2fb5c
+  a5:	48 8b 3d 54 0f 79 01 	mov    0x1790f54(%rip),%rdi        # 0x1791000
+  ac:	48 81 c7 01 00 00 00 	add    $0x1,%rdi
+  b3:	48 89 3d 46 0f 79 01 	mov    %rdi,0x1790f46(%rip)        # 0x1791000
+  ba:	4c 89 ff             	mov    %r15,%rdi
+  bd:	48 81 ef 01 00 00 00 	sub    $0x1,%rdi
+  c4:	e9 0f fa 02 00       	jmp    0x2fad8
+  c9:	49 bf 00 00 00 00 00 	movabs $0x0,%r15
+  d0:	00 00 00 
+  d3:	4c 39 ff             	cmp    %r15,%rdi
+  d6:	0f 84 78 f9 02 00    	je     0x2fa54
+  dc:	e9 ef f8 02 00       	jmp    0x2f9d0
+  e1:	4c 8b 3d 18 0f 79 01 	mov    0x1790f18(%rip),%r15        # 0x1791000
+  e8:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+  ef:	4c 89 3d 0a 0f 79 01 	mov    %r15,0x1790f0a(%rip)        # 0x1791000
+  f6:	49 89 ff             	mov    %rdi,%r15
+  f9:	49 81 ef 01 00 00 00 	sub    $0x1,%r15
+ 100:	e9 5f fb 02 00       	jmp    0x2fc64
+ 105:	4c 8b 3d f4 0e 79 01 	mov    0x1790ef4(%rip),%r15        # 0x1791000
+ 10c:	49 8b be f8 ff ff ff 	mov    -0x8(%r14),%rdi
+ 113:	48 be ff ff ff ff 00 	movabs $0xffffffff,%rsi
+ 11a:	00 00 00 
+ 11d:	48 39 f7             	cmp    %rsi,%rdi
+ 120:	0f 84 13 00 00 00    	je     0x139
+ 126:	4d 8d b6 f8 ff ff ff 	lea    -0x8(%r14),%r14
+ 12d:	48 be 00 00 00 00 00 	movabs $0x0,%rsi
+ 134:	00 00 00 
+ 137:	ff e7                	jmp    *%rdi
+ 139:	4d 89 bc 24 00 00 00 	mov    %r15,0x0(%r12)
+ 140:	00 
+ 141:	31 c0                	xor    %eax,%eax
+ 143:	c3                   	ret

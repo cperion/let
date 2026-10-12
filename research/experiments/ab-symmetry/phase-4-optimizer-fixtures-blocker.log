@@ -1,0 +1,6 @@
+luajit: line 5: unknown instruction RET; selected forms require .A or .B
+stack traceback:
+	[C]: in function 'error'
+	tests/../../build/assembler.lua:153: in function 'assemble'
+	tests/optimize.lua:15: in main chunk
+	[C]: at 0x5bebac425120

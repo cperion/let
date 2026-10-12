@@ -1,0 +1,16 @@
+PASS example: revision 6, profile 1, 3 sections
+PASS memory: revision 6, profile 2, 6 sections
+PASS callables: revision 6, profile 3, 8 sections
+PASS foreign: revision 6, profile 4, 9 sections
+PASS documented assembly: interpreted returns 42
+PASS documented assembly: compiled returns 42
+PASS documented assembly: lazy returns 42
+PASS rejected revision 0: abc: invalid: expected ABC2 ISA revision 6
+PASS rejected revision 1: abc: invalid: expected ABC2 ISA revision 6
+PASS rejected revision 2: abc: invalid: expected ABC2 ISA revision 6
+PASS rejected revision 3: abc: invalid: expected ABC2 ISA revision 6
+PASS rejected revision 4: abc: invalid: expected ABC2 ISA revision 6
+PASS rejected revision 5: abc: invalid: expected ABC2 ISA revision 6
+PASS rejected revision 7: abc: invalid: expected ABC2 ISA revision 6
+PASS rejected profile 0: abc: invalid: invalid typed capability profile header
+PASS rejected profile 5: abc: invalid: invalid typed capability profile header

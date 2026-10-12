@@ -1,0 +1,7 @@
+let loop(n: u32, x: u32, acc: u32): u32 = do
+    if n == 0 then return acc end
+    let y = (x ~ (x >> 7)) * 5 + 1
+    return loop(n - 1, y, acc + (y & 1023))
+end
+let main(n: u32): u32 = loop(n, 305419896, 0)
+

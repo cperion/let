@@ -1,0 +1,3 @@
+Generator and cache validator match pre-experiment source hashes; Makefile matches clean pre-experiment build.
+before banked text/data/bss: [2008368, 137120, 0]
+candidate banked text/data/bss: [2048732, 137120, 0]

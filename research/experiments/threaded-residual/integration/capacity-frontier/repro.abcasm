@@ -1,0 +1,8 @@
+.function run 1 1
+  PUSH.A 0
+  CPUSH.A
+  TCALL.A value 2 0
+.function value 0 1
+  PUSH.A 42
+  RET.A 0 1
+.export run

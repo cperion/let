@@ -1,0 +1,87 @@
+# Target-independent residual program produced by symbolic ABC execution.
+# This schema describes semantics, control flow and representation facts. It does not
+# contain ABC stack positions, host registers, stencil IDs or C identifiers.
+module Residual {
+  Id = (number value)
+  Origin = (number offset, Origin? caller)
+
+  Type = Cell | U32 | I32 | U64 | I64 | F64 | Address | Any
+  Representation = None | Raw | Encoded | Boxed | Unknown
+  Facts = (number dynamic_tags, number dynamic_width, Representation representation)
+
+  # Every value has exactly one definition. InstructionResult refers to a result
+  # position in one Node. BlockArgument values are the IR's phi parameters.
+  Definition = FunctionArgument(number index)
+             | BlockArgument(Id block, number index)
+             | Constant(number low, number high)
+             | InstructionResult(Id instruction, number index)
+  Value = (Id id, Type type, Facts facts, Definition definition, Origin origin)
+
+  UnaryOp = Neg | BitNot | LogicalNot | ZeroExtend32 | SignExtend32
+            | FloatNeg | SignedToFloat | UnsignedToFloat | FloatToSigned | FloatToUnsigned
+  BinaryOp = Add | Sub | Mul | DivUnsigned | DivSigned | RemUnsigned | RemSigned
+             | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight | ShiftArithmetic
+             | PowUnsigned | PowSigned
+             | Equal | NotEqual | LessSigned | LessEqualSigned
+             | LessUnsigned | LessEqualUnsigned
+             | FloatAdd | FloatSub | FloatMul | FloatDiv
+             | FloatLess | FloatLessEqual | FloatEqual
+  CheckOp = Unsigned8 | Unsigned16 | Unsigned32 | Signed32 | Nonnegative
+  ConvertOp = Truncate8 | Truncate16 | Truncate32 | ExtendSigned8 | ExtendSigned16 | ExtendSigned32
+  AddressSpace = Frame | Image | Pointer
+  CallKind = Direct | Indirect | Foreign | Dynamic
+  MaterializeKind = EncodeAny | BoxAny | DecodeAny
+
+  # Semantic ABI data uses cells and bytes, never architectural stack homes.
+  CallABI = (number arguments, number results, number frame_cells,
+             number hidden_result_bytes)
+  DynamicLiteral = (number primitive, number flags, number low, number high)
+
+  Effect = (boolean may_trap, boolean reads_memory, boolean writes_memory,
+            boolean calls, boolean safepoint)
+
+  Operation = Unary(UnaryOp operation, Id input)
+            | Binary(BinaryOp operation, Id left, Id right)
+            | Check(CheckOp operation, Id input, number reason)
+            | Convert(ConvertOp operation, Id input)
+            | Load(AddressSpace space, number width, boolean signed, Id address, number offset)
+            | Store(AddressSpace space, number width, Id address, number offset, Id value)
+            | CopyMemory(Id destination, Id source, number bytes)
+            | ClearFrame(number first_cell, number cells)
+            | FrameAddress(number offset)
+            | ImageAddress(number offset)
+            | FunctionReference(Id function)
+            | CallableConstructor(Id target, number signature, number descriptor,
+                                  number environment_cells, Id? environment)
+            | Call(CallKind kind, number target, Id? callee, CallABI abi, Id* arguments)
+            | Materialize(MaterializeKind kind, number descriptor, Id input)
+            | DynamicOperation(number selector, number descriptor,
+                               DynamicLiteral? literal, boolean reverse, Id* arguments)
+            | DynamicCall(CallABI abi, number adjustment, Id* arguments)
+            | ManagedWrite(Id address, number offset, number bytes)
+
+  # Nodes are ordered inside a block. Pure nodes can be scheduled by a backend,
+  # but all effectful nodes retain this order. Result IDs name Value records.
+  Node = (Id id, Id* results, Effect effect, Operation operation, Origin origin)
+
+  Edge = (Id target, Id* arguments)
+  SwitchArm = (number value_low, number value_high, Edge edge)
+  Terminator = Jump(Edge edge)
+             | Branch(BinaryOp relation, Id left, Id right, Edge yes, Edge no)
+             | Switch(Id value, SwitchArm* arms, Edge fallback)
+             | Return(CallABI abi, Id* values)
+             | Halt(Id* values)
+             | TailCall(CallKind kind, number target, Id? callee, CallABI abi, Id* arguments)
+             | DynamicTailCall(CallABI abi, number adjustment, Id* arguments)
+             | Abort(number reason)
+             | Unreachable
+             attributes (Origin origin)
+
+  # Block arguments define all values that differ between incoming contexts.
+  # Every incoming Edge has exactly the same arity and compatible facts.
+  Block = (Id id, number bytecode_offset, Id* arguments, Node* nodes, Terminator terminator)
+
+  Function = (Id id, string name, Type* argument_types, Type* result_types,
+              number hidden_result_bytes, Id* arguments, Id entry, Block* blocks)
+  Program = (Function* functions, Value* values)
+}

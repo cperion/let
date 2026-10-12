@@ -13,10 +13,10 @@ local operations={
   {'dup_b','DUP.B',function(_,b) push(b,b[#b]) end,function(_,b) return #b>0 end},
   {'drop_a','DROP.A',function(a) pop(a) end,function(a) return #a>0 end},
   {'drop_b','DROP.B',function(_,b) pop(b) end,function(_,b) return #b>0 end},
-  {'copy_ab','COPY.AB',function(a,b) push(b,a[#a]) end,function(a) return #a>0 end},
-  {'copy_ba','COPY.BA',function(a,b) push(a,b[#b]) end,function(_,b) return #b>0 end},
-  {'move_ab','MOVE.AB',function(a,b) push(b,pop(a)) end,function(a) return #a>0 end},
-  {'move_ba','MOVE.BA',function(a,b) push(a,pop(b)) end,function(_,b) return #b>0 end},
+  {'copy_ab','COPY.A',function(a,b) push(b,a[#a]) end,function(a) return #a>0 end},
+  {'copy_ba','COPY.B',function(a,b) push(a,b[#b]) end,function(_,b) return #b>0 end},
+  {'move_ab','MOVE.A',function(a,b) push(b,pop(a)) end,function(a) return #a>0 end},
+  {'move_ba','MOVE.B',function(a,b) push(a,pop(b)) end,function(_,b) return #b>0 end},
   {'cpush_a','CPUSH.A',function(a,_,c) push(c,pop(a)) end,function(a) return #a>0 end},
   {'cpush_b','CPUSH.B',function(_,b,c) push(c,pop(b)) end,function(_,b) return #b>0 end},
   {'cget_a','CGET.A 0',function(a,_,c) push(a,c[#c]) end,function(_,_,c) return #c>0 end},
@@ -37,9 +37,9 @@ for si,s in ipairs(cache.states()) do
       for i=1,s.a do push(asm,(' PUSH.A %d'):format(30+i)) end
       for i=1,s.b do push(asm,(' PUSH.B %d'):format(50+i)) end
       push(asm,' '..op[2]); op[3](a,b,c)
-      while #b>0 do push(asm,' MOVE.BA'); push(a,pop(b)) end
+      while #b>0 do push(asm,' MOVE.B'); push(a,pop(b)) end
       while #c>0 do push(asm,' CGET.A 0'); push(a,c[#c]); push(asm,' CPOP'); pop(c) end
-      push(asm,(' RET 0 %d'):format(#a)); push(asm,'.export '..name)
+      push(asm,(' RET.A 0 %d'):format(#a)); push(asm,'.export '..name)
       asm[header]=('.function %s 0 %d'):format(name,#a)
       local row={name,tostring(#a)}; for _,v in ipairs(a) do row[#row+1]=tostring(v) end; push(oracle,table.concat(row,' '))
     end

@@ -1,4 +1,11 @@
-# Let frontend gap analysis
+# Let frontend gap analysis — historical audit
+
+**Superseded roadmap.** The audit below records the earlier frontend and its
+SLet/GC/open-word design assumptions; it is not the active ownership contract or
+current test-count report. Use [owners-references-ids.md](owners-references-ids.md)
+and [frontend-completion-plan.md](frontend-completion-plan.md) for the approved
+collector-free target and current work order. A pre-alignment copy is preserved in
+`research/archive/ownership-before-counted-design/docs/`.
 
 Status: historical implementation audit. For the current audited gaps and execution order, use [frontend-completion-plan.md](frontend-completion-plan.md). The matrix below predates the restored-tree conformance audit: it understates completed open-word methods/named runtime keyed supply and omits some core inference, generic, result-adjustment and capture gaps. Its architectural discussion remains useful, but it is not the current completeness checklist.
 
@@ -6,8 +13,9 @@ Status: historical implementation audit. For the current audited gaps and execut
 
 The production compiler now follows the required path: profile-neutral ASDL parsing, source semantic
 construction into checked `Ir.Fn`, shared ABC lowering, independent assembly/runtime verification,
-the C `abc-opt` residual optimizer, and `abc_vm` execution. `tools/slet_frontend.lua` is only a
-bootstrap validation oracle. The Lua evaluator and direct source-to-C path are not used.
+the C `abc-opt` residual optimizer, and `abc_vm` execution. The separate bootstrap validation
+compiler has since been [retired and archived](../research/archive/bootstrap-slet-before-retirement/README.md).
+The Lua evaluator and direct source-to-C path are not used.
 
 Ordinary `.slet` and `.let` source now covers scalar control and calls, local records and arrays,
 addressable places and stores, scalar-payload sums, slices and strings, checked references, raw pointers,
@@ -128,7 +136,7 @@ The public API provides verified module loading, execution modes, calls and pers
 
 ### 5.2 Frontend and backend boundaries
 
-Keep `tools/slet_frontend.lua` only as a bootstrap validation oracle. The production compiler is the reused ASDL pipeline under `frontend/`; extend its parser, typed IR, resolver, analysis and checked lowering rather than adding language families to any direct source-to-assembly path. Reuse applicable SLet verification as it is migrated, but keep strict borrow proofs separate from Let GC promotion/provenance/root analysis. Do not migrate the legacy Lua execution engine or direct source-to-C backend.
+The former recommendation to retain the bootstrap oracle is superseded by its retirement. The production compiler is the reused ASDL pipeline under `frontend/`; extend its parser, typed IR, resolver, analysis and checked lowering rather than adding language families to any direct source-to-assembly path. Reuse applicable SLet verification as it is migrated, but keep strict borrow proofs separate from Let GC promotion/provenance/root analysis. Do not migrate the legacy Lua execution engine or direct source-to-C backend.
 
 The reused ASDL `Ir` representation is the typed structured boundary between source and bytecode. It preserves places, effects, joins and source spans, while executable folding goes through a staging module. Extend that schema when ABC or Let needs additional explicit facts; do not replace it with another ad-hoc IR. The ABC-specific side has these responsibilities:
 

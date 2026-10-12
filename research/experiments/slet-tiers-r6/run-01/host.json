@@ -1,0 +1,38 @@
+{
+  "platform": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "cpu": 0,
+  "affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+  ],
+  "clang": "Ubuntu clang version 20.1.2 (0ubuntu1~24.04.3)\nTarget: x86_64-pc-linux-gnu\nThread model: posix\nInstalledDir: /tmp/llvm20-local/usr/lib/llvm-20/bin\n",
+  "luajit": "LuaJIT 2.1.1703358377 -- Copyright (C) 2005-2023 Mike Pall. https://luajit.org/\n",
+  "lscpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           39 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  12\nOn-line CPU(s) list:                     0-11\nVendor ID:                               GenuineIntel\nModel name:                              12th Gen Intel(R) Core(TM) i7-1255U\nCPU family:                              6\nModel:                                   154\nThread(s) per core:                      2\nCore(s) per socket:                      6\nSocket(s):                               1\nStepping:                                4\nBogoMIPS:                                5222.42\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology tsc_reliable nonstop_tsc cpuid tsc_known_freq pni pclmulqdq vmx ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb sha_ni xsaveopt xsavec xgetbv1 xsaves avx_vnni vnmi umip waitpkg gfni vaes vpclmulqdq rdpid movdiri movdir64b fsrm md_clear serialize ibt flush_l1d arch_capabilities\nVirtualization:                          VT-x\nHypervisor vendor:                       Microsoft\nVirtualization type:                     full\nL1d cache:                               288 KiB (6 instances)\nL1i cache:                               192 KiB (6 instances)\nL2 cache:                                7.5 MiB (6 instances)\nL3 cache:                                12 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-11\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Mitigation; Clear Register File\nVulnerability Retbleed:                  Mitigation; Enhanced IBRS\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI BHI_DIS_S\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n",
+  "git": "e723f1e8f42043a10672afa1251f9cf8cf62c3d5",
+  "dirty": " M Makefile\n M README.md\n M docs/architecture.md\n M docs/callable-profile.md\n M docs/dynamic-profile.md\n M docs/spec.md\n M docs/symbolic-vm.md\n D examples/dynamic_gc.abcasm\n M frontend/README.md\n M frontend/let/abc.lua\n M frontend/let/compiler.lua\n M frontend/tests/compiler.lua\n M frontend/tests/lowering.lua\n M frontend/tests/optimize.lua\n M gen/banked.lua\n D gen/banked_manifest.lua\n M gen/cold.lua\n M gen/semantics.lua\n M gen/stencils.lua\n M gen/symbolic.lua\n M include/abc.h\n M research/experiments/engines/README.md\n M research/experiments/engines/dynamic-types.md\n M research/experiments/type-versions/README.md\n M research/experiments/type-versions/inspect.py\n M schema/residual.asdl\n M src/cli.c\n D src/dynamic.c\n D src/dynamic.h\n M src/internal.h\n M src/memory_module.c\n M src/module.c\n M src/optimize.c\n M src/residual_analysis.c\n M src/residual_analysis.h\n M src/residual_builder.c\n M src/residual_c.c\n M src/residualize.c\n M src/residualize.h\n M src/symbolic.c\n M src/symbolic.h\n M src/vm.c\n M src/vm_internal.h\n D src/whippet_embedder.h\n D src/whippet_types.h\n M tools/assembler.lua\n M tools/gen_opcodes.lua\n M tools/opcodes.lua\n M tools/validate.lua\n M tools/validate_api.c\n M tools/validate_c_aot.lua\n M tools/validate_cache.c\n M tools/validate_continuations.lua\n D tools/validate_dynamic.lua\n M tools/validate_residual_ir.c\n M tools/validate_symbolic.c\n D tools/validate_type_versions.lua\n?? AGENTS.md\n?? REFACTOR.md\n?? docs/symmetric-isa.md\n?? frontend/tests/symmetric.lua\n?? gen/fold.lua\n?? research/archive/c-cache-eager/\n?? research/archive/dynamic-layer-before-typed-teardown/\n?? research/archive/native-only-scalar-wip/\n?? research/archive/split-scalar-orchestration-wip/\n?? research/archive/typed-before-ab-symmetry/\n?? research/experiments/ab-symmetry/\n?? research/experiments/c-cache-eager/\n?? research/experiments/continuation-layout/\n?? research/experiments/engines/check-first.md\n?? research/experiments/engines/compare_dynamic.lua\n?? research/experiments/engines/scalar-dispatch-pairs.txt\n?? research/experiments/engines/scalar-runtime-audit.md\n?? research/experiments/engines/shared-scalar-engines.txt\n?? research/experiments/engines/shared-scalar-pairs.txt\n?? research/experiments/pre-tooling-vm/\n?? research/experiments/slet-tiers-r6/\n?? src/verify.c\n?? tools/validate_banked_isa.c\n?? tools/validate_call_graph.abcasm\n?? tools/validate_call_graph.c\n?? tools/validate_capture.c\n?? tools/validate_isa.c\n?? tools/validate_native_returns.lua\n?? tools/validate_optimizer_foreign.c\n?? tools/validate_optimizer_isa.lua\n?? tools/validate_stencil_operands.c\n?? tools/validate_symmetric_interpreter.lua\n",
+  "runtime_flags": "-O2 -g; stencils use Makefile -O2 stencil flags",
+  "c_flags": "-O3 -march=native; no LTO",
+  "rounds": 7,
+  "samples": 7,
+  "timer": "CLOCK_MONOTONIC_RAW (all engines)",
+  "start_load": [
+    0.76806640625,
+    0.6572265625,
+    0.55712890625
+  ],
+  "end_load": [
+    1.54248046875,
+    1.0703125,
+    0.73388671875
+  ]
+}

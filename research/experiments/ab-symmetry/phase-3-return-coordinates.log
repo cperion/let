@@ -1,0 +1,3 @@
+native return transport: 36 interpreter/eager/lazy checks passed
+revision-6 banked/call contracts: 27 cases, including mirrored foreign calls in all modes
+validated revision-6 symbolic dispatch: 28 selected-bank contracts, narrow folds, existing control/context/fusion regressions

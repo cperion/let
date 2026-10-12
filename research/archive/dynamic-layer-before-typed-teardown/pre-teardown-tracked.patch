@@ -1,0 +1,1708 @@
+diff --git a/Makefile b/Makefile
+index b71d66a..f6ac644 100644
+--- a/Makefile
++++ b/Makefile
+@@ -13,6 +13,7 @@ GC_OBJDIR := build/whippet/
+ GC_EMBEDDER_H := $(CURDIR)/src/whippet_embedder.h
+ GC_EMBEDDER_CPPFLAGS := -I$(CURDIR)/src -I$(CURDIR)/build
+ include vendor/whippet/embed.mk
++CPPFLAGS += -isystem $(GC_BASE)api $(GC_CPPFLAGS)
+ GC_LTO_CFLAGS :=
+ GC_LTO_LDFLAGS :=
+ SHARDS = 0 1 2 3 4 5 6 7
+@@ -37,12 +38,14 @@ build/generated/residual_ir.h build/generated/residual_ir.c &: schema/residual.a
+ build/generated/residual_ir.o: build/generated/residual_ir.c build/generated/residual_ir.h
+ 	$(CC) $(CFLAGS) $(WARN) -Ibuild/generated -c $< -o $@
+ BANKED_C = $(addprefix build/generated/banked_,$(addsuffix .c,$(SHARDS)))
+-build/generated/banked.h $(BANKED_C) &: gen/banked.lua gen/cache.lua gen/semantics.lua gen/banked_manifest.lua tools/opcodes.lua | build/generated
++build/generated/banked.h $(BANKED_C) &: gen/banked.lua gen/scalar_banked.lua gen/scalar_semantics.lua gen/cache.lua gen/semantics.lua gen/banked_manifest.lua tools/opcodes.lua | build/generated
+ 	$(LUA) gen/banked.lua build/generated
+-build/banked_%.o: build/generated/banked_%.c build/generated/banked.h src/vm_internal.h src/internal.h include/abc.h build/opcodes.h
++build/banked_%.o: build/generated/banked_%.c build/generated/banked.h src/vm_internal.h src/dynamic.h src/any_repr.h src/scalar_rules.h build/generated/scalar_ops.h src/internal.h include/abc.h build/opcodes.h
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
+ build/generated/stencils.c build/generated/stencils.order build/generated/stencil_names.h build/generated/stencil_layout.h &: gen/stencils.lua gen/semantics.lua | build/generated
+ 	$(LUA) gen/stencils.lua build/generated
++build/generated/scalar_ops.h build/generated/symbolic_scalar_ops.inc &: gen/scalar.lua gen/scalar_semantics.lua gen/scalar_symbolic.lua gen/semantics.lua | build/generated
++	$(LUA) gen/scalar.lua build/generated
+ build/generated/symbolic_dispatch.c: gen/symbolic.lua gen/semantics.lua tools/opcodes.lua | build/generated
+ 	$(LUA) gen/symbolic.lua build/generated
+ build/generated/symbolic_dispatch.o: build/generated/symbolic_dispatch.c src/symbolic.h build/opcodes.h
+@@ -53,8 +56,8 @@ build/foreign.o: build/generated/foreign.c src/vm_internal.h src/internal.h incl
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -Wno-cast-function-type-strict -Wno-unused-parameter -c $< -o $@
+ build/generated/cold.inc: gen/cold.lua gen/semantics.lua | build/generated
+ 	$(LUA) gen/cold.lua $@
+-build/generated/stencils.o: build/generated/stencils.c
+-	$(CC) -O2 -std=c2x -w -fno-builtin -fno-pic -fno-pie -fcf-protection=none -fno-asynchronous-unwind-tables -ffunction-sections -fno-stack-protector -c $< -o $@
++build/generated/stencils.o: build/generated/stencils.c src/any_repr.h src/scalar_rules.h build/opcodes.h src/whippet_types.h
++	$(CC) $(CPPFLAGS) -isystem $(GC_BASE)api $(GC_CPPFLAGS) -O2 -std=c2x -w -fno-builtin -fno-pic -fno-pie -fcf-protection=none -fno-asynchronous-unwind-tables -ffunction-sections -fno-stack-protector -c $< -o $@
+ build/generated/stencils.h: build/generated/stencils.o build/generated/stencils.order tools/extract_stencils.lua
+ 	$(LUA) tools/extract_stencils.lua build/generated/stencils.o build/generated/stencils.order $@
+ build/residual_ir.o build/residual_validate.o build/residual_dump.o: build/%.o: src/%.c src/residual_ir.h build/generated/residual_ir.h
+@@ -62,15 +65,18 @@ build/residual_ir.o build/residual_validate.o build/residual_dump.o: build/%.o:
+ build/%.o: src/%.c src/internal.h src/handler_abi.h include/abc.h build/opcodes.h
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
+ build/vm.o: src/vm_internal.h src/dynamic.h build/generated/banked.h build/generated/cold.inc
+-build/dynamic.o: src/dynamic.c src/dynamic.h src/whippet_types.h src/vm_internal.h build/opcodes.h
++build/dynamic.o: src/dynamic.c src/dynamic.h src/any_repr.h src/whippet_types.h src/vm_internal.h build/opcodes.h
+ 	$(CC) $(CPPFLAGS) -isystem $(GC_BASE)api $(GC_CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
+ build/symbolic.o: src/symbolic.h src/dynamic.h src/vm_internal.h
++build/vm.o build/symbolic.o build/dynamic.o build/residualize.o build/residual_builder.o build/optimize.o build/pic/vm.o build/pic/symbolic.o build/pic/residual_builder.o build/pic/optimize.o: src/any_repr.h src/scalar_rules.h build/generated/scalar_ops.h
++build/symbolic.o build/pic/symbolic.o: build/generated/symbolic_scalar_ops.inc src/symbolic_scalar.inc
+ build/residual_analysis.o build/residual_c.o: build/generated/residual_ir.h
+ build/residual_analysis.o: src/residual_analysis.h src/symbolic.h src/vm_internal.h
+ build/residual_builder.o: src/residual_builder.c src/residual_builder.h src/residual_analysis.h src/residual_ir.h src/symbolic.h src/dynamic.h build/generated/residual_ir.h
+ build/optimize.o: src/optimize.c include/abc_tool.h src/symbolic.h src/dynamic.h src/vm_internal.h
+ build/residual_c.o: include/abc_tool.h
+-build/residualize.o: src/residualize.c src/residualize.h src/symbolic.h src/dynamic.h src/vm_internal.h build/generated/stencils.h build/generated/stencil_layout.h
++build/residualize.o: src/residualize.c src/native_scalar.inc src/residualize.h src/symbolic.h src/dynamic.h src/any_repr.h src/vm_internal.h build/generated/stencils.h build/generated/stencil_layout.h
++	$(CC) $(CPPFLAGS) -isystem $(GC_BASE)api $(GC_CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
+ build/pic:
+ 	mkdir -p $@
+ build/pic/%.o: src/%.c src/internal.h src/vm_internal.h src/symbolic.h src/dynamic.h include/abc.h build/opcodes.h | build/pic
+@@ -113,7 +119,7 @@ build/abc: tools/abc build/abc-runtime build/abc-opt $(addprefix build/,$(addsuf
+ build/embed: examples/embed.c build/libabc.a include/abc.h
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a $(GC_LIBS) -o $@
+ build/validate-api: tools/validate_api.c build/libabc.a include/abc.h
+-	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -Wno-cast-function-type-strict $< build/libabc.a $(GC_LIBS) -o $@
++	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -Wno-cast-function-type-strict $< build/libabc.a $(GC_LIBS) -Wl,--wrap=vm_collect_native -o $@
+ build/validate-cache: tools/validate_cache.c build/libabc.a include/abc.h src/vm_internal.h src/handler_abi.h build/generated/banked.h build/opcodes.h
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a $(GC_LIBS) -o $@
+ build/validate-symbolic: tools/validate_symbolic.c build/libabc.a src/symbolic.h
+@@ -122,11 +128,14 @@ build/validate-asdlc: tools/validate_asdlc.c $(filter-out tools/asdlc/main.c,$(A
+ 	$(CC) $(CFLAGS) $(WARN) -Itools tools/validate_asdlc.c $(filter-out tools/asdlc/main.c,$(ASDLC_SRC)) -o $@
+ build/validate-residual-ir: tools/validate_residual_ir.c build/libabc-tool.a src/residual_ir.h
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc-tool.a -lm -o $@
+-validate: all build/validate-api build/validate-cache build/validate-symbolic build/validate-asdlc build/validate-residual-ir
++build/validate-scalar-native: tools/validate_scalar_native.c build/cli.o build/libabc.a src/dynamic.h src/any_repr.h
++	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/cli.o build/libabc.a $(GC_LIBS) -Wl,--wrap=vm_dynamic -Wl,--wrap=vm_dynamic_native -Wl,--wrap=vm_scalar_allocate -o $@
++validate: all build/validate-api build/validate-cache build/validate-symbolic build/validate-asdlc build/validate-residual-ir build/validate-scalar-native
+ 	build/abc-asdlc --check schema/residual.asdl
+ 	build/validate-asdlc
+ 	build/validate-residual-ir
+ 	build/validate-symbolic
++	$(LUA) tools/validate_scalar_flow.lua
+ 	$(LUA) tools/validate.lua
+ 	$(LUA) tools/validate_c_aot.lua
+ 	$(LUA) tools/validate_slet_frontend.lua
+@@ -138,8 +147,8 @@ validate: all build/validate-api build/validate-cache build/validate-symbolic bu
+ 	cd frontend && $(LUA) tests/lowering.lua
+ 	cd frontend && $(LUA) tests/optimize.lua
+ 	cd frontend && $(LUA) tests/staging.lua
+-	$(LUA) tools/validate_dynamic.lua
+-	$(LUA) tools/validate_type_versions.lua
++	$(LUA) tools/validate_dynamic.lua build/validate-scalar-native
++	$(LUA) tools/validate_type_versions.lua build/validate-scalar-native
+ 	$(LUA) tools/validate_continuations.lua
+ 	$(LUA) tools/validate_cache.lua build/validate-cache.abcasm build/validate-cache.oracle
+ 	build/abc asm build/validate-cache.abcasm -o build/validate-cache.abc
+@@ -148,6 +157,7 @@ validate: all build/validate-api build/validate-cache build/validate-symbolic bu
+ 	build/abc asm examples/virtual.abcasm -o build/validate-virtual.abc
+ 	build/abc asm examples/foreign.abcasm -o build/validate-foreign.abc
+ 	build/abc asm examples/dynamic_gc.abcasm -o build/validate-dynamic-gc.abc
+-	build/validate-api build/validate-callables.abc build/validate-virtual.abc build/validate-foreign.abc build/validate-dynamic-gc.abc
++	build/abc asm tools/validate_scalar_gc.abcasm -o build/validate-scalar-gc.abc
++	build/validate-api build/validate-callables.abc build/validate-virtual.abc build/validate-foreign.abc build/validate-dynamic-gc.abc build/validate-scalar-gc.abc
+ clean:
+ 	rm -rf build
+diff --git a/docs/architecture.md b/docs/architecture.md
+index 17c2207..51c52d9 100644
+--- a/docs/architecture.md
++++ b/docs/architecture.md
+@@ -65,11 +65,11 @@ research/                    historical prototypes and measurements only
+ - **Interpreter cache and quickening:** A and B share four anchored registers; C has its own bank. Every executable opcode has generated cache-state handling and direct `musttail` dispatch; there is no generic synchronized fallback. Fixed-length handlers advance `ip` by their literal encoded length. A measured monomorphic dynamic site may replace `EXT` in its private code copy with a same-total-length operation-specific internal opcode; unquickened and polymorphic sites keep selector dispatch, and all internal forms reject in serialized code. Profile 5 must reclaim opcode space from prototype call quickening before assigning these forms. Dynamic binary operators use A0/B0 and `.X` like typed operators. Calls and returns carry cache state; `CALLOC` flushes C, while `FCALL` performs full C-ABI synchronization.
+ - **Compiled-tier input:** The same semantic definitions used for interpreter handlers feed the JIT's register-addressed stencil generator. The interpreter keeps state-keyed handlers; the JIT uses register-addressed stencils. Offline tooling compiles and extracts stencils; no C compiler runs when a module is loaded or executed.
+ - **Compile-time execution:** The Let compiler lowers fully known user subprograms to temporary verified modules and runs them in an `abc_vm`; it does not reimplement executable language semantics in Lua. The compiler independently configures interpreted, eager or lazy policy for staging modules. `FCALL` remains disabled. No instruction/fuel or logical-work budget exists: execution continues until completion, language abort, actual resource failure or external interruption. The compiler supplies delayed progress and Ctrl-C static-stack diagnostics. Speculative folds use disposable/checkpointed images, accepted module initialization supplies a copied residual image, and compile-time VM-local addresses never enter serialized output.
+-- **Dynamic runtime and source ownership split:** Generated helpers own `any` tags, canonical nonallocating float encoding, boxing/unboxing and generic arithmetic. Handwritten runtime code integrates vendored Whippet `stack_conservative_mmc`/Nofl, pins every published object to preserve plain-address identity, supplies conservative native/VM-stack ranges and descriptor-precise heap/module tracing, and owns object headers, each open word's collected ordered hash map, and process-wide non-reused numeric layout-token allocation. A token owns no key metadata. Structural mutation changes it; value replacement does not. Constant-key caches guard `(token, key, slot)`, while computed keys use generic lookup. Managed strings retain owners; SLet/foreign views copy. An SLet producer emits stack-disciplined borrows and no managed roots; Let uses profile-5 promotion and trace descriptors where managed values occur. The VM enforces capabilities without inspecting filenames.
++- **Dynamic runtime and source ownership split:** Shared representation primitives own `any` layouts and canonical nonallocating float encoding. One scalar control-flow definition binds to banked interpreter handlers or to symbolic checks, refined edges and typed operations. Wide native integers allocate only on a non-fitting represented escape. Pending-request checks publish physical roots only on the collection edge, without changing native placement or boxing raw values. Handwritten runtime code integrates vendored Whippet `stack_conservative_mmc`/Nofl, pins every published object to preserve plain-address identity, supplies conservative native/VM-stack ranges and descriptor-precise heap/module tracing, and owns object headers, each open word's collected ordered hash map, and process-wide non-reused numeric layout-token allocation. A token owns no key metadata. Structural mutation changes it; value replacement does not. Constant-key caches guard `(token, key, slot)`, while computed keys use generic lookup. Managed strings retain owners; SLet/foreign views copy. An SLet producer emits stack-disciplined borrows and no managed roots; Let uses profile-5 promotion and trace descriptors where managed values occur. The VM enforces capabilities without inspecting filenames.
+ - **Compilation by configuration:** After verification, interpreted mode uses generated handlers only. Eager mode creates all reachable capped block versions at load and emits generic checked code for unavailable facts. Lazy mode retains persistent version state and stable stubs; first arrival creates a version from checked context, including tags and layout tokens when present. Tokens are scalar generations and retain no word/map storage. At the cap, conform to the most specific compatible version, ultimately generic. Both JIT policies share partial evaluation, stencils and virtual continuations.
+ - **Emission, calls and timing:** `src/residualize.c` owns symbolic propagation, versions, stencil copying, relocations and executable-code mappings. No C compiler runs at load or first arrival. Every known acyclic direct call uses a virtual continuation while the callee entry has room under the ordinary version cap; there is no byte-size or nesting-depth heuristic. At the cap, a direct call stores a native resume address in the VM C-stack return cell and jumps to the callee. Recursive SCCs use the same mechanism as cyclic CFGs: arguments conform to shared capped register-entry versions, live activation state is materialized, and single-cell results return in a canonical register before `RET` restores stack bases and jumps through the run-time continuation. Tail recursion stays a direct backedge. Only host, foreign and explicit runtime-helper boundaries use the host C ABI. Residualized code keeps a checked wide integer as raw register bits across compatible edges and materializes its dynamic box only at an escape. Eager mode completes reachable load-time compilation before execution. Lazy mode enters the compiler only through stable first-context stubs, then publishes and reuses the version. There is no fuel accounting, tracing, hotness counter, heat-driven tier switch or source-extension test. Safepoints are determined by generic/allocating bytecode; a host request can remain pending across a verifier-proven allocation-free loop.
+ - **Site versions:** The interpreter keeps VM-private call/return and dynamic-site quickening. Eager targets patch at load; lazy targets use stable stubs. Each indirect-call or generic site owns one knowledge state shared by all arrival-context versions. Site patches move monotonically from observing to checked-specific and then permanent generic after mismatch. A passed tag or layout-token check can become downstream context. No execution counters or heat-driven respecialization exist.
+-- **Handwritten C:** Owns module/VM lifetime, image storage, host ABI, limits, configured modes, persistent lazy state, stable stubs, foreign bindings, collected open-word maps, layout-token generation, heap ownership, GC integration and cold helpers. It must not grow competing arithmetic or tag semantics. Generated semantics own interpreter handlers, generic-value helpers, foreign bridges and offline stencil sources.
++- **Handwritten C:** Owns module/VM lifetime, image storage, host ABI, limits, configured modes, persistent lazy state, stable stubs, foreign bindings, collected open-word maps, layout-token generation, heap ownership, GC integration and cold helpers. It must not grow competing arithmetic or tag semantics. Generated semantics own interpreter handlers, the symbolic dispatcher, foreign bridges and offline stencil sources. Complete scalar computations—not just arithmetic recipes—are defined in `gen/scalar_semantics.lua` and bound to the banked cache or the register-bearing symbolic context. The native sink supplies representation placement and control emission, not a second arithmetic/conversion implementation; neither engine enters an out-of-line scalar opcode handler.
+ - **Build and runtime boundary:** The Makefile regenerates C and headers from Lua inputs and extracts native stencils offline. `libabc.a` contains only loading, verification, interpretation, dynamic support and eager/lazy native execution. ABC rewriting and portable-C emission live in `libabc-tool.a`, `libabc-opt.so` and the standalone `abc-opt`; the runtime verifies and executes supplied bytecode without invoking them. Generated output stays under `build/`, is never hand-edited, and can be reproduced after `make clean`.
+ 
+ ## Validation
+diff --git a/docs/dynamic-profile.md b/docs/dynamic-profile.md
+index 84dc3a0..a9210af 100644
+--- a/docs/dynamic-profile.md
++++ b/docs/dynamic-profile.md
+@@ -1,8 +1,8 @@
+ # ABC2 dynamic-value profile
+ 
+-> Status: normative profile contract. The loader, scalar `any` representation, generic scalar operations, GC roots, stack-conservative Whippet/Nofl integration, collected ordered-map open words, descriptor-driven aggregate boxing, managed typed allocation/copy and mutation ownership barriers, direct/captured callable construction, partial open-word calls, saturated calls, dynamic tail calls, and result adjustment are implemented for interpreted/eager/lazy execution and conservative canonical ABC optimization. Eager and lazy native execution also implement check-driven primitive-tag/numeric block versions. Complete portable-C lowering, keyed requirement metadata, methods, constant-key caches, same-length quickening, compiled escape-based wide integers, and checked layout-token block-version propagation remain in progress.
++> Status: normative profile contract. The loader, scalar `any` representation, generic scalar operations, GC roots, stack-conservative Whippet/Nofl integration, collected ordered-map open words, descriptor-driven aggregate boxing, managed typed allocation/copy and mutation ownership barriers, direct/captured callable construction, partial open-word calls, saturated calls, dynamic tail calls, and result adjustment are implemented for interpreted/eager/lazy execution and conservative canonical ABC optimization. Eager and lazy native execution also implement check-driven primitive-tag/numeric block versions. Complete portable-C lowering, keyed requirement metadata, methods, constant-key caches, same-length quickening, and checked layout-token block-version propagation remain in progress.
+ 
+-> Current specialization scope: the JIT exposes existing numeric operations, not a new public opcode family or frontend rewrite. Narrow integer arms can become helper-free; wide/float operations retain their arithmetic helper. Primitive branch refinement currently requires an adjacent test and branch. See [symbolic VM implementation](symbolic-vm.md#check-driven-scalar-specialization) and [measurements and limits](../research/experiments/type-versions/README.md).
++> Current scalar scope: shared recipes execute concretely through the banked cache or symbolically through checked typed CFGs, including wide/float arithmetic, literals, comparisons, conditions and conversions. Neither engine enters a scalar execution handler. Unproved native tags select checked branches, and version overflow conforms to another checked CFG. Wide integers remain raw until escape. Object construction/operations and dynamic calls retain runtime boundaries. Primitive branch refinement currently requires an adjacent test and branch. See [symbolic VM implementation](symbolic-vm.md#check-driven-scalar-specialization) and [measurements and limits](../research/experiments/engines/check-first.md).
+ 
+ This profile extends the foreign-call profile with dynamic values, open words, collected objects, managed references/views and generic operations. It is a bytecode capability profile. It has no relationship to a source filename: the VM never receives or tests `.slet` or `.let`. The source compiler uses these capabilities for managed ownership in Let, while SLet uses checked lexical borrows and emits no managed roots. The host independently selects interpreted, eager-JIT or lazy-JIT execution for any loaded module.
+ 
+@@ -32,7 +32,9 @@ The representation is VM-private and is not serialized in a module or exposed as
+ 8. Open words, closures with collected captures, records, arrays or sums copied into `any`, and boxes for managed references or views are represented by collected objects. Aggregate boxing recursively copies the value, retains nested managed strings/references/views, and copies only SLet or foreign borrowed data; its descriptor identifies every dynamic cell and managed-reference/view field that must be traced.
+ 9. A Let-owned `ref` or slice can be boxed as `any`; boxing retains its collected owner, and unboxing restores the typed managed value. A reference/view into foreign memory or an unpromoted SLet stack, a borrowed callable view, and a `type` value cannot be retained this way. The producer must distinguish managed provenance from an unmanaged borrow.
+ 
+-The runtime centralizes these rules in generated `any_tag`, `any_box_*`, `any_unbox_*` and tracing helpers. Interpreter handlers, JIT stencils and the C emitter use those helpers rather than reproducing tag arithmetic.
++The implementation centralizes representation constants, layouts and inline bit operations in `src/any_repr.h`, scalar rules in `src/scalar_rules.h`, and typed recipes in `gen/semantics.lua`. `gen/scalar_semantics.lua` defines the full scalar control flow, consumed by concrete and symbolic bindings; sharing only arithmetic recipes is insufficient. `gen/scalar.lua` emits the symbolic computation and object/call ABI conversion. The interpreter executes them in its banked cache; symbolic execution emits ordinary typed operations through the existing native sink. Neither engine calls a scalar opcode handler. Actual allocation and tracing remain runtime effects.
++
++Both concrete and native scalar execution poll the VM's pending-request flag at scalar boundaries. The native collection edge publishes physical home ranges and the register bank without boxing raw numbers. Tests cover requests before heap creation and live register roots after module-root removal. Ordinary typed instructions leave a request pending.
+ 
+ **Compiled wide integers use escape-based materialization.** Once a valid dominating check proves an integer tag, residualized code carries the exact raw integer bits in a register while the tag remains compile-time/block-context knowledge. It must preserve that unboxed form across compatible compiled edges, including loop backedges. A heap box is materialized only when the value escapes to an interpreter-visible dynamic stack/image/object cell, an unknown generic or dynamic-call ABI, the embedding API, or an incompatible fallback edge. A compatible specialized call or block edge is not an escape. This prevents a `u64` arithmetic or hashing loop from allocating per operation.
+ 
+@@ -51,7 +53,7 @@ A record or array descriptor gives its byte size and the offsets of fields conta
+ 
+ Module writable storage can contain descriptor-rooted values listed in the module's GC-root section. Descriptor traversal traces their dynamic cells and typed managed reference/view/callable cells while skipping raw pointers and SLet borrows. Frame and operand stacks are conservative root ranges. Heap objects and module roots are traced with descriptor-derived knowledge where available. Code addresses and raw pointers are not semantic heap roots.
+ 
+-A collection can begin in an allocation slow path. The host can also request collection; the VM then switches to safepoint dispatch and honors the request at the next generic or allocating instruction boundary, never in the middle of an ordinary typed instruction. Before collection, interpreter or compiled code saves every live root in scanner-visible form; an unboxed proven integer is not a root and needs no box solely for collection. Collection never observes a half-initialized object: allocation initializes the header and zeroes traceable slots before publishing the reference. A host request can remain pending indefinitely in a loop whose verified path has no generic call or allocating instruction. That is intentional: the loop creates no collectible garbage, and the request is honored when execution next reaches an eligible boundary.
++A collection can begin in an allocation slow path. The host can also request collection; the VM honors the request at the next generic or allocating instruction boundary, never in the middle of an ordinary typed instruction. Before collection, interpreter or compiled code saves every live root in scanner-visible form; an unboxed proven integer is not a root and needs no box solely for collection. Collection never observes a half-initialized object: allocation initializes the header and zeroes traceable slots before publishing the reference. A host request can remain pending indefinitely in a loop whose verified path has no generic call or allocating instruction. That is intentional: the loop creates no collectible garbage, and the request is honored when execution next reaches an eligible boundary.
+ 
+ Out-of-memory is `ABC_NOMEM`, an actual host resource failure. It is not a language abort and does not retry the instruction invisibly. Cross-mode semantic equality is required when execution completes with sufficient resources; a physical OOM may occur in one policy and not another because compiled code can elide boxes. The compiler does not replace that fact with a logical allocation or work budget.
+ 
+diff --git a/docs/symbolic-vm.md b/docs/symbolic-vm.md
+index 8c58057..41a693b 100644
+--- a/docs/symbolic-vm.md
++++ b/docs/symbolic-vm.md
+@@ -32,32 +32,53 @@ Dynamic facts keep semantic tag sets and scalar widths separate from physical re
+ 
+ A symbolic copy can retain its source register or home until one alias is overwritten. Context flushing is therefore a parallel-copy problem, not permission to assign every value a permanent home. The native sink preserves older C-stack aliases before writing newer A/B scratch destinations. This order is required when a `CSET` renames a call result whose source A home will be reused by the next call.
+ 
+-At dynamic and foreign boundaries, the sink materializes required representations and roots. Managed interior pointers remain visible through stack homes before allocation or collection. Unknown dynamic operations continue through `vm_dynamic_native()`.
++At object/call and foreign boundaries, the sink materializes required representations and roots. Managed interior pointers remain visible through stack homes before allocation or collection. Object construction, open-word operations and dynamic calls retain the runtime ABI; scalar uncertainty does not use it.
+ 
+ ## Check-driven scalar specialization
+ 
+-The native sink exposes `DADD` through `DXOR` as local numeric dispatch CFGs.
+-The concrete runtime and symbolic executor share operand validity, signedness
+-and width-promotion rules in `src/dynamic.h`. Unknown operands pass through a
+-nonallocating classifier. Checked successors refine currently live aliases and
+-carry result facts into the existing block versions. Proven narrow-integer arms
+-decode their operands and emit ordinary register-addressed arithmetic stencils.
+-Known checks disappear; no new DCE pass, allocator or target-independent IR is
+-involved. The original dynamic helper handles wide integers, floats and errors.
+-A successful helper return supplies a result postcondition, not an entry proof.
+-The classifier's invalid-type arm is terminal.
++Scalar dynamic instructions are lowered to checks, typed bodies and specified
++error edges in the existing register-bearing context. This covers binary and
++literal arithmetic, unary operations, comparisons, conditions, boxing, casts
++and type tests. `gen/scalar_semantics.lua` defines the complete control flow,
++including checks, representation steps, selected typed operations and errors.
++`gen/scalar_banked.lua` and `gen/scalar_symbolic.lua` bind that same computation
++to concrete cache operations and ordinary symbolic ABC respectively.
++`src/symbolic_scalar.inc` abstracts predicates and binds representation/control;
++it does not independently orchestrate EXT algorithms. Typed expressions and
++conversion recipes remain in `gen/semantics.lua`.
++`src/native_scalar.inc` supplies only representation placement and branch-arm
++binding; `src/residualize.c` drives the existing block versions. Neither engine
++uses a scalar execution-handler fallback, including at version saturation.
++
++Operand validity, promotion, literal adoption and equality rules live in
++`src/scalar_rules.h`; descriptor projection lives in `src/dynamic.h`.
++Representation bit operations and object layouts live in `src/any_repr.h`,
++inlined into concrete operations and extracted stencils. Unknown
++operands get register tag projections and ordinary branches. A possible object
++address is checked with the collector's nonallocating membership predicate
++before its header is read; this is not a language-operation dispatcher and
++requires no whole-context publication. Proven tags skip the projections.
++Checked successors refine live aliases. Narrow integers, wide integers and
++`f64` use ordinary typed arithmetic. Failed arithmetic checks abort directly;
++equality has its distinct mixed-signedness and unequal-type rules. No new IR,
++allocator, placement pass or interpreter excursion is involved.
+ 
+ Primitive `ANY_IS` folds from existing facts. An adjacent `ANY_IS; JZ.A/JNZ.A`
+ also refines positive and negative successor contexts. Alias occurrences are
+-captured before stack publication. Stored, combined or delayed predicates do
+-not carry persistent identities and therefore do not refine successors.
+-Aggregate descriptor and layout-token predicates remain opaque.
+-
+-Scalar helpers preserve facts about unchanged live values while publishing
+-all required representations and roots. Opaque dynamic calls and object effects
+-keep the conservative boundary. Unit boxing becomes an encoded constant.
+-Real call arguments, returns, stores and incompatible edges encode raw `any`
+-values before crossing their represented ABI.
++captured before register placement changes. Stored, combined or delayed
++predicates do not carry persistent identities and therefore do not refine
++successors. Aggregate/managed descriptor checks and unboxing use checked header
++and field accesses, but descriptor proofs are not yet carried in version keys.
++
++Unit boxing is an encoded constant; numeric boxing initially carries raw bits
++and a tag fact, including when normalization is unproved. Raw wide integers and
++floats survive compatible edges and spills. Real call arguments, returns,
++stores and incompatible edges encode raw `any` values before crossing their
++represented ABI. Float encoding never allocates. Integer escapes check payload
++fit; only the non-fitting edge publishes roots and calls the scalar allocator.
++That entry allocates an object, not an arithmetic or tag-dispatch operation.
++Raw numbers need no boxes merely to make other roots visible to collection.
++NaNs are canonicalized when encoded or exposed by an identity float cast.
+ 
+ Tag, width, range and encoding are distinct proofs. `SX32` is not an unsigned
+ range proof for immediate boxing. Exact-tag casts preserve even oversized
+@@ -73,7 +94,26 @@ register spills to distinct canonical homes can precede it: they neither
+ clobber the predicate nor overwrite a live home source. This keeps ordinary
+ typed branches on their original direct stencil path.
+ 
+-See [production measurements and reproduction](../research/experiments/type-versions/README.md).
++The interpreter generates a separate handler and continuation site for each
++scalar selector, without quickening or a second arithmetic-selector dispatch.
++It preserves its banked cache through scalar instructions, publishing roots
++only on allocation or pending-collection edges. It stores canonical dynamic
++cells rather than the native executor's raw representations.
++Both engines use the allocation-only `vm_scalar_allocate`; `src/dynamic.c`
++retains object/call effects, not scalar opcode execution.
++
++Validation links tripwires rejecting scalar entry into both `vm_dynamic` and
++`vm_dynamic_native`, including unary operations, casts and descriptor tests,
++and a separate native allocation tripwire for a wide loop without escapes.
++Both bindings poll the VM's pending-request flag at scalar boundaries. Native
++code exposes live physical homes and its register bank only on the collection
++edge, without reallocation or boxing raw integers. Tests cover pending requests
++with/without a heap and a live register root after its module root is cleared.
++A structural test also compares all semantic binding events of the two
++generators. Repeated cold collection paths currently cause substantial native
++code growth, and the checked-lazy benchmark regresses; see
++[check-first measurements](../research/experiments/engines/check-first.md) and the
++[historical type-version measurements](../research/experiments/type-versions/README.md).
+ 
+ ## Versioning and termination
+ 
+diff --git a/frontend/tests/optimize.lua b/frontend/tests/optimize.lua
+index 87e7cf7..69cac6b 100644
+--- a/frontend/tests/optimize.lua
++++ b/frontend/tests/optimize.lua
+@@ -436,6 +436,21 @@ local dynamicInput = Assembler.assemble([[
+ .export d2_u64
+ .export f_w_add_w
+ ]])
++local scalarOnly = Assembler.assemble([[
++.profile dynamic
++.descriptor primitive U u32
++.function main 0 1 - i
++  PUSH.A 7
++  ANY_BOX U
++  PUSH.A 35
++  ANY_BOX U
++  DADD
++  ANY_CAST U
++  RET 0 1
++.export main
++]])
++check(#Compiler.optimize(scalarOnly) < #scalarOnly,
++  "shared scalar execution retains build-time scalar ABC rewrites")
+ local dynamicOptimized = Compiler.optimize(dynamicInput)
+ check(Compiler.optimize(dynamicOptimized) == dynamicOptimized,
+   "dynamic-effect optimization reaches a deterministic fixpoint")
+diff --git a/gen/banked.lua b/gen/banked.lua
+index 7f0bba6..24d805c 100644
+--- a/gen/banked.lua
++++ b/gen/banked.lua
+@@ -4,6 +4,7 @@ local root = (arg[0]:match('^(.*)/[^/]+$') or '.')
+ package.path = root .. '/?.lua;' .. root .. '/../tools/?.lua;' .. package.path
+ local cache = require('cache')
+ local semantics = require('semantics')
++local scalar = require('scalar_banked')
+ local banked = require('banked_manifest')
+ local manifest = require('opcodes')
+ local output = assert(arg[1], 'output directory required')
+@@ -282,9 +283,10 @@ header:write('extern const abc_handler *const abc_tables[100];\n#endif\n')
+ for i=0,7 do
+   out=files[i]
+   emit('#include "banked.h"')
++  emit('#include "dynamic.h"')
+   emit('static inline uint64_t banked_load(const uint8_t *p,unsigned width,unsigned sign){uint64_t v=0;memcpy(&v,p,width);if(sign&&width==4)v=(uint64_t)(int64_t)(int32_t)v;return v;}')
+   emit('static inline void banked_store(uint8_t *p,unsigned width,uint64_t v){memcpy(p,&v,width);}')
+-  emit('#define ABORT(REASON) do { unsigned reason=(REASON); abc_run *ar=abc_active_run; uint32_t at=(uint32_t)(ip-ar->code); abc_error *ae=ar->e; abc_status status=abc_fail(ae,ABC_ABORT,at,"language abort %u",reason); if(ae) ae->reason=(uint8_t)reason; return status; } while(0)')
++  emit('#define ABORT(REASON) do { unsigned abort_reason=(REASON); abc_run *ar=abc_active_run; uint32_t at=(uint32_t)(ip-ar->code); abc_error *ae=ar->e; abc_status status=abc_fail(ae,ABC_ABORT,at,"language abort %u",abort_reason); if(ae) ae->reason=(uint8_t)abort_reason; return status; } while(0)')
+ end
+ local names,opinfo = {},{}
+ for _,op in ipairs(manifest.ops) do opinfo[op.name]=op end
+@@ -306,6 +308,7 @@ for index,s in ipairs(states) do
+     else
+       local fn='h_'..suffix..'_'..opcode
+       entries[opcode]=fn
++      if b.dynamic_ext then scalar.emit_handlers(emit,builder,s,fn);fn=fn..'_effect' end
+       emit(('static ABC_HANDLER_CC abc_value %s(ABC_HANDLER_ARGS) {'):format(fn))
+       if b.needs_run then emit('abc_run *r=abc_active_run; abc_vm *v=r->v; abc_error *e=r->e; uint32_t pc=(uint32_t)(ip-r->code); (void)v;(void)e;(void)pc;') end
+       emit(('const uint8_t *p=ip,*next=ip+%s; (void)p;(void)next;(void)asp;(void)bsp;(void)csp;(void)h0;(void)h1;(void)h2;(void)h3;(void)c0;(void)c1;(void)c2;'):format(info.kind==manifest.kind.SWITCH and 'abc_instruction_length(ip)' or info.kind==manifest.kind.EXT and 'abc_instruction_length(ip)' or tostring(info.len)))
+@@ -315,6 +318,7 @@ for index,s in ipairs(states) do
+         if s.c>0 then for j=0,s.c-1 do emit(('*csp++=c%d;'):format(j)) end end
+         emit('v->ca=v->cb=v->cc=0;v->na=(size_t)(asp-v->a);v->nb=(size_t)(bsp-v->b);v->nc=(size_t)(csp-v->c);abc_status status=vm_foreign(r,p,pc);if(status!=ABC_OK)return status;asp=v->a+v->na;bsp=v->b+v->nb;csp=v->c+v->nc;h0=h1=h2=h3=c0=c1=c2=0;ip=next;ABC_HANDLER_TAIL return T_a0b0c0[*ip](ABC_HANDLER_PASS);')
+       elseif b.dynamic_ext then
++        -- Only object/call effects reach the represented runtime boundary.
+         if s.a>0 then for j=0,s.a-1 do emit(('*asp++=h%d;'):format(j)) end end
+         if s.b>0 then for j=0,s.b-1 do emit(('*bsp++=h%d;'):format(3-j)) end end
+         if s.c>0 then for j=0,s.c-1 do emit(('*csp++=c%d;'):format(j)) end end
+diff --git a/gen/semantics.lua b/gen/semantics.lua
+index d68b9c0..13695c6 100644
+--- a/gen/semantics.lua
++++ b/gen/semantics.lua
+@@ -29,6 +29,47 @@ M.comparisons = { BEQ='x==y', BNE='x!=y', BLT='abc_signed(x)<abc_signed(y)',
+   BLE='abc_signed(x)<=abc_signed(y)', BLTU='x<y', BLEU='x<=y',
+   BGT='abc_signed(x)>abc_signed(y)', BGE='abc_signed(x)>=abc_signed(y)',
+   BGTU='x>y', BGEU='x>=y' }
++-- Scalar EXT semantics are checked compositions of the ordinary operations.
++-- Both the banked interpreter and symbolic execution consume these recipes;
++-- neither execution sink owns a second arithmetic/conversion switch.
++M.scalar_binary_order={'DADD','DSUB','DMUL','DDIV','DREM','DPOW','DSHL','DSHR','DSAR','DAND','DOR','DXOR','DLT','DLE'}
++M.scalar_binary={
++  DADD={'ADD','ADD','FADD'}, DSUB={'SUB','SUB','FSUB'}, DMUL={'MUL','MUL','FMUL'},
++  DDIV={'DIVU','DIVS','FDIV'}, DREM={'REMU','REMS'}, DPOW={'POW','POW'},
++  DSHL={'SHL','SHL'}, DSHR={'SHR','SHR'}, DSAR={'SAR','SAR'},
++  DAND={'AND','AND'}, DOR={'OR','OR'}, DXOR={'XOR','XOR'},
++  DLT={'LTU','LT','FLT'}, DLE={'LEU','LE','FLE'},
++}
++M.scalar_unary_order={'DNEG','DNOT','DLNOT','DREQUIRE_BOOL'}
++M.scalar_unary={DNEG={'NEG','FNEG'},DNOT={'NOT'},DLNOT={'EQ_ZERO'},DREQUIRE_BOOL={'IDENTITY'}}
++M.scalar_tags={'UNIT','BOOL','U8','U16','U32','U64','I32','I64','F64'}
++M.scalar_widths={0,1,8,16,32,64,32,64,64}
++function M.scalar_normalization(tag)
++  if tag=='U8' then return {{'mask',255}} elseif tag=='U16' then return {{'mask',65535}}
++  elseif tag=='U32' then return {{'unary','ZX32'}} elseif tag=='I32' then return {{'unary','SX32'}} end
++  return {}
++end
++function M.scalar_conversion(from,to)
++  local steps={}
++  local function add(kind,op) steps[#steps+1]={kind,op} end
++  local function signed(t) return t=='I32' or t=='I64' end
++  local function width(t) for i,v in ipairs(M.scalar_tags) do if v==t then return M.scalar_widths[i] end end end
++  if from==to then if to=='F64' then add('canonical','F64') end;return steps end
++  if to=='F64' then add('float_unary',signed(from) and 'I2FS' or 'I2FU');return steps end
++  if from=='F64' then add('float_unary',signed(to) and 'F2IS' or 'F2IU');from=signed(to) and 'I64' or 'U64' end
++  local fw,tw=width(from),width(to)
++  if fw~=tw then
++    if signed(to) then
++      if not signed(from) then add('check','CHKNN') end
++      if tw==32 then add('check','CHKI32') end
++    else
++      if signed(from) then add('check','CHKNN') end
++      if tw<64 then add('check','CHKU'..tw) end
++    end
++  end
++  for _,step in ipairs(M.scalar_normalization(to)) do steps[#steps+1]=step end
++  return steps
++end
+ -- Sink-independent transfer classes consumed by the generated symbolic VM.
+ -- The generator assigns every remaining manifest opcode an explicit effect contract
+ -- and rejects an opcode that has neither a transfer class nor such a contract.
+diff --git a/gen/stencils.lua b/gen/stencils.lua
+index b28c340..cb65736 100644
+--- a/gen/stencils.lua
++++ b/gen/stencils.lua
+@@ -17,6 +17,8 @@ end
+ emit('#include <stdint.h>')
+ emit('#include <math.h>')
+ emit('#include <stddef.h>')
++emit('#include "scalar_rules.h"')
++emit('#include "gc-ref.h"')
+ emit('typedef uint64_t abc_value;')
+ emit('#define ABC_JIT_CC __attribute__((preserve_none))')
+ emit('#define ABC_JIT_ARGS abc_value *asp, abc_value *bsp, abc_value *csp, abc_value r0, abc_value r1, abc_value r2, abc_value r3, abc_value r4, abc_value r5, abc_value r6, abc_value r7')
+@@ -161,6 +163,7 @@ for _,op in ipairs(semantics.float_branch_order) do for a=0,R-1 do for b=0,R-1 d
+ end end end
+ layout:write('#define ABC_STENCIL_MEM_LOAD_BASE (ABC_STENCIL_FLOAT_BRANCH_BASE+3*64)\n#define ABC_STENCIL_MEM_LOAD(K,D) (ABC_STENCIL_MEM_LOAD_BASE+(K)*8+(D))\n')
+ local loads={{'u8','uint8_t'},{'u16','uint16_t'},{'u32','uint32_t'},{'s32','int32_t'},{'u64','uint64_t'}}
++for i,kind in ipairs(loads) do layout:write(('#define ABC_JLOAD_%s %d\n'):format(kind[1]:upper(),i-1)) end
+ local load_ins={u8='movzbq',u16='movzwq',u32='movl',s32='movslq',u64='movq'}
+ local load_dst={u8='%0',u16='%0',u32='%k0',s32='%0',u64='%0'}
+ for _,kind in ipairs(loads) do for d=0,R-1 do local k=kind[1]; stencil(('mem_load_%s_%d'):format(k,d),'__asm__("'..load_ins[k]..' HOLE_IMM(%0),'..load_dst[k]..'":"+r"(r'..d..')::"memory"); NEXT') end end
+@@ -224,13 +227,71 @@ stencil('finish','*(abc_value *)(uintptr_t)HOLE_FINAL=r0; return 0;')
+ stencil('return_ok','return 0;')
+ stencil('dynamic','abc_value fn,state,status,*ap=asp+(int32_t)(intptr_t)HOLE_BIAS,*bp=bsp+(int32_t)(intptr_t)HOLE_IMM2,*cp=csp+(int32_t)(intptr_t)HOLE_ERROR;__asm__("movabsq $HOLE_FINAL,%0":"=r"(fn));__asm__("movabsq $HOLE_STATE,%0":"=r"(state));status=((abc_dynamic_fn)(uintptr_t)fn)(&ap,&bp,&cp,(const unsigned char *)(uintptr_t)state,(unsigned)(uintptr_t)HOLE_IMM);if(status)return status;NEXT')
+ stencil('dynamic_tail','abc_value fn,state,status,cont,*ap=asp+(int32_t)(intptr_t)HOLE_BIAS,*bp=bsp+(int32_t)(intptr_t)HOLE_IMM2,*cp=csp+(int32_t)(intptr_t)HOLE_ERROR;__asm__("movabsq $HOLE_FINAL,%0":"=r"(fn));__asm__("movabsq $HOLE_STATE,%0":"=r"(state));status=((abc_dynamic_fn)(uintptr_t)fn)(&ap,&bp,&cp,(const unsigned char *)(uintptr_t)state,(unsigned)(uintptr_t)HOLE_IMM);if(status)return status;cont=*(abc_value *)((unsigned char *)csp+(intptr_t)HOLE_TAKEN);if(cont==UINT32_MAX)return 0;TAIL return ((abc_jit_fn)(uintptr_t)cont)(ap,bp,csp,0,0,0,0,0,0,0,0);')
+-layout:write('#define ABC_STENCIL_RETURN_OK (ABC_STENCIL_FINISH+1)\n#define ABC_STENCIL_DYNAMIC (ABC_STENCIL_RETURN_OK+1)\n#define ABC_STENCIL_DYNAMIC_TAIL (ABC_STENCIL_DYNAMIC+1)\n#define ABC_STENCIL_LAZY_ENTRY (ABC_STENCIL_DYNAMIC_TAIL+1)\n#endif\n')
++layout:write('#define ABC_STENCIL_RETURN_OK (ABC_STENCIL_FINISH+1)\n#define ABC_STENCIL_DYNAMIC (ABC_STENCIL_RETURN_OK+1)\n#define ABC_STENCIL_DYNAMIC_TAIL (ABC_STENCIL_DYNAMIC+1)\n#define ABC_STENCIL_LAZY_ENTRY (ABC_STENCIL_DYNAMIC_TAIL+1)\n')
+ stencil('lazy_entry','abc_value state,prepare;__asm__("movabsq $HOLE_STATE,%0":"=r"(state));__asm__("movabsq $HOLE_FINAL,%0":"=r"(prepare));abc_value*s=(abc_value*)(uintptr_t)state;s[0]=(abc_value)(uintptr_t)asp;s[1]=(abc_value)(uintptr_t)bsp;s[2]=(abc_value)(uintptr_t)csp;s[3]=r0;s[4]=r1;s[5]=r2;s[6]=r3;s[7]=r4;s[8]=r5;s[9]=r6;s[10]=r7;abc_value body=((abc_lazy_prepare_fn)(uintptr_t)prepare)(state);if(s[11])return s[11];TAIL return ((abc_jit_fn)(uintptr_t)body)((abc_value*)(uintptr_t)s[0],(abc_value*)(uintptr_t)s[1],(abc_value*)(uintptr_t)s[2],s[3],s[4],s[5],s[6],s[7],s[8],s[9],s[10]);')
+-layout:write(('#define ABC_STENCIL_NUMERIC_CLASSIFY(R) (%d+(R))\n'):format(n))
+-emit('typedef abc_value (*abc_numeric_classify_fn)(abc_value,abc_value,abc_value,abc_value);')
+-for r=0,R-1 do stencil(('numeric_classify_%d'):format(r),('abc_value fn,state;__asm__("movabsq $HOLE_FINAL,%%0":"=r"(fn));__asm__("movabsq $HOLE_STATE,%%0":"=r"(state));r%d=((abc_numeric_classify_fn)(uintptr_t)fn)(state,asp[(int32_t)(intptr_t)HOLE_IMM],asp[(int32_t)(intptr_t)HOLE_IMM+1],(unsigned)(uintptr_t)HOLE_IMM2);NEXT'):format(r)) end
+-layout:write(('#define ABC_STENCIL_NUMERIC_DECODE(R) (%d+(R))\n'):format(n))
+-for r=0,R-1 do stencil(('numeric_decode_%d'):format(r),('abc_value fn,state;__asm__("movabsq $HOLE_FINAL,%%0":"=r"(fn));__asm__("movabsq $HOLE_STATE,%%0":"=r"(state));r%d=((abc_resolve_fn)(uintptr_t)fn)(r%d,state);NEXT'):format(r,r)) end
++-- Scalar representation checks have no VM stack ABI and do not allocate.
++-- The collector membership predicate is used only before dereferencing a
++-- possible collected address; it performs no language operation.
++layout:write(('#define ABC_STENCIL_TYPE_TAG(D,S) (%d+(D)*8+(S))\n'):format(n))
++for d=0,R-1 do for s=0,R-1 do
++  stencil(('type_tag_%d_%d'):format(d,s),([[
++    struct abc_dynamic_heap **state;__asm__("movabsq $HOLE_STATE,%%0":"=r"(state));
++    r%d=abc_repr_tag(*state,r%d,(abc_heap_contains_fn)(uintptr_t)jit_final());NEXT]]):format(d,s))
++end end
++layout:write(('#define ABC_STENCIL_OBJECT_MATCH(D,S) (%d+(D)*8+(S))\n'):format(n))
++for d=0,R-1 do for s=0,R-1 do
++  stencil(('object_match_%d_%d'):format(d,s),([[
++    struct abc_dynamic_heap **state;__asm__("movabsq $HOLE_STATE,%%0":"=r"(state));
++    abc_object *o=abc_repr_object(*state,r%d,(abc_heap_contains_fn)(uintptr_t)jit_final());
++    r%d=o&&o->kind==(unsigned)(uintptr_t)HOLE_IMM&&o->descriptor==(unsigned)(uintptr_t)HOLE_IMM2;NEXT]]):format(s,d))
++end end
++layout:write(('#define ABC_STENCIL_NUMERIC_RESULT(A,B) (%d+(A)*8+(B))\n'):format(n))
++for a=0,R-1 do for b=0,R-1 do
++  stencil(('numeric_result_%d_%d'):format(a,b),([[
++    unsigned tag=abc_scalar_promote(r%d,r%d,(uintptr_t)HOLE_IMM!=0);
++    r%d=tag==UINT_MAX?0:tag+1;NEXT]]):format(a,b,a))
++end end
++layout:write(('#define ABC_STENCIL_EQUALITY_KIND(A,B) (%d+(A)*8+(B))\n'):format(n))
++for a=0,R-1 do for b=0,R-1 do
++  stencil(('equality_kind_%d_%d'):format(a,b),([[
++    unsigned kind=abc_scalar_equality_kind(r%d,r%d);
++    r%d=kind==UINT_MAX?0:kind+1;NEXT]]):format(a,b,a))
++end end
++layout:write(('#define ABC_STENCIL_NONNEG_EQ(A,B) (%d+(A)*8+(B))\n'):format(n))
++for a=0,R-1 do for b=0,R-1 do
++  stencil(('nonneg_eq_%d_%d'):format(a,b),('r%d=abc_scalar_mixed_equal(r%d,r%d);NEXT'):format(a,a,b))
++end end
++layout:write(('#define ABC_STENCIL_STRING_EQ(A,B) (%d+(A)*8+(B))\n'):format(n))
++for a=0,R-1 do for b=0,R-1 do
++  stencil(('string_eq_%d_%d'):format(a,b),([[
++    r%d=abc_repr_string_equal(r%d,r%d);NEXT]]):format(a,a,b))
++end end
++layout:write(('#define ABC_STENCIL_SCALAR_DECODE(K,R) (%d+(K)*8+(R))\n'):format(n))
++for k=0,2 do for r=0,R-1 do
++  local tag=({'ABC_ANY_U64','ABC_ANY_I64','ABC_ANY_F64'})[k+1]
++  stencil(('scalar_decode_%d_%d'):format(k,r),('r%d=abc_repr_bits(r%d,%s);NEXT'):format(r,r,tag))
++end end
++layout:write(('#define ABC_STENCIL_FLOAT_ENCODE(R) (%d+(R))\n'):format(n))
++for r=0,R-1 do stencil(('float_encode_%d'):format(r),('r%d=encode_float(r%d);NEXT'):format(r,r)) end
++layout:write(('#define ABC_STENCIL_FLOAT_CANON(R) (%d+(R))\n'):format(n))
++for r=0,R-1 do stencil(('float_canon_%d'):format(r),('if(float_nan_bits(r%d))r%d=UINT64_C(0x7ff8000000000000);NEXT'):format(r,r)) end
++layout:write(('#define ABC_STENCIL_SCALAR_FITS(S,R) (%d+(S)*8+(R))\n'):format(n))
++for s=0,1 do for r=0,R-1 do
++  local fits=('abc_repr_fits(%s,r%d)'):format(s==0 and 'ABC_ANY_U64' or 'ABC_ANY_I64',r)
++  stencil(('scalar_fits_%d_%d'):format(s,r),('if(%s){TAIL return HOLE_TAKEN(ABC_JIT_PASS);}NEXT'):format(fits))
++end end
++emit('typedef abc_value (*abc_scalar_allocate_fn)(abc_value *,abc_value *,abc_value *,unsigned,abc_value);')
++layout:write(('#define ABC_STENCIL_SCALAR_ALLOCATE(R) (%d+(R))\n'):format(n))
++for r=0,R-1 do stencil(('scalar_allocate_%d'):format(r),('r%d=((abc_scalar_allocate_fn)(uintptr_t)jit_final())(asp+(int32_t)(intptr_t)HOLE_BIAS,bsp+(int32_t)(intptr_t)HOLE_IMM2,csp+(int32_t)(intptr_t)HOLE_STATE,(unsigned)(uintptr_t)HOLE_IMM,r%d);if(!r%d)return jit_error();NEXT'):format(r,r,r)) end
++emit('typedef void (*abc_gc_poll_fn)(abc_value *,abc_value *,abc_value *,abc_value *);')
++layout:write(('#define ABC_STENCIL_GC_POLL %d\n'):format(n))
++stencil('gc_poll',[[
++  _Atomic unsigned *requested;__asm__("movabsq $HOLE_STATE,%0":"=r"(requested));
++  if(atomic_load(requested)){
++    abc_value roots[8]={r0,r1,r2,r3,r4,r5,r6,r7};
++    ((abc_gc_poll_fn)(uintptr_t)jit_final())(asp+(int32_t)(intptr_t)HOLE_IMM,bsp+(int32_t)(intptr_t)HOLE_IMM2,csp+(int32_t)(intptr_t)HOLE_BIAS,roots);
++  }NEXT]])
++layout:write('#endif\n')
+ names:write(('#define ABC_STENCIL_COUNT %d\n'):format(n))
+ assert(c:close()); assert(order:close()); assert(names:close()); assert(layout:close())
+ assert(os.rename(dir..'/stencils.c.tmp',dir..'/stencils.c'))
+diff --git a/gen/symbolic.lua b/gen/symbolic.lua
+index ab626bb..25e6145 100644
+--- a/gen/symbolic.lua
++++ b/gen/symbolic.lua
+@@ -20,7 +20,7 @@ local function transfer(op)
+   if effect then return effect end
+   if op.mem then return {kind='memory'} end
+   local name=op.name
+-  if name=='EXT' then return {kind='dynamic'} end
++  if name=='EXT' then return {kind='ext'} end
+   if name=='FCALL' then return {kind='foreign'} end
+   if name=='RET' then return {kind='return'} end
+   if name=='TCALL' then return {kind='tail'} end
+@@ -72,7 +72,7 @@ local function action(op)
+   elseif effect.kind=='indirect' then return ('abc_symbolic_machine_indirect(m,0,p[1],ABC_SYM_%s,0)'):format(effect.destination)
+   elseif effect.kind=='indirect_tail' then return 'abc_symbolic_machine_indirect(m,p[1],p[2],ABC_SYM_A,1)'
+   elseif effect.kind=='tail' then return ('abc_symbolic_machine_tail(m,(uint32_t)((int64_t)(m->pc+%d)+abc_i32(p+1)),p[5],p[6])'):format(op.len)
+-  elseif effect.kind=='dynamic' then return 'abc_symbolic_machine_dynamic(m)'
++  elseif effect.kind=='ext' then return 'abc_symbolic_machine_ext(m)'
+   elseif effect.kind=='foreign' then return 'abc_symbolic_machine_foreign(m)'
+   elseif effect.kind=='effect' then return ('abc_symbolic_machine_effect(m,OP_%s)'):format(op.name)
+   end
+@@ -86,7 +86,7 @@ for _,op in ipairs(manifest.ops) do
+     local effect=transfer(op)
+     local control=effect.kind=='jump' or effect.kind=='zero_branch' or effect.kind=='branch' or effect.kind=='float_branch' or effect.kind=='immediate_branch' or effect.kind=='abort' or effect.kind=='switch' or effect.kind=='halt'
+     local value=effect.kind=='binary' or effect.kind=='unary' or effect.kind=='float_binary' or effect.kind=='immediate' or effect.kind=='c_operand' or effect.kind=='float_unary' or effect.kind=='mask' or effect.kind=='pow' or effect.kind=='check'
+-    local effects=effect.kind=='effect' or effect.kind=='memory' or effect.kind=='return' or effect.kind=='call' or effect.kind=='indirect' or effect.kind=='indirect_tail' or effect.kind=='tail' or effect.kind=='dynamic' or effect.kind=='foreign'
++    local effects=effect.kind=='effect' or effect.kind=='memory' or effect.kind=='return' or effect.kind=='call' or effect.kind=='indirect' or effect.kind=='indirect_tail' or effect.kind=='tail' or effect.kind=='ext' or effect.kind=='foreign'
+     local mask=control and 'ABC_SYM_TRANSFER_CONTROL' or effects and 'ABC_SYM_TRANSFER_EFFECT' or value and 'ABC_SYM_TRANSFER_VALUE' or 'ABC_SYM_TRANSFER_STACK'
+     local length=op.name=='EXT' and 'abc_instruction_length(p)' or tostring(op.len)
+     emit(('static abc_symbolic_exit h_%s(abc_symbolic_machine *m){const uint8_t*p=m->code+m->pc;(void)p;if(m->transfer_mask&&!(m->transfer_mask&%s))return boundary(m);if(!(%s))return m->exit;SYM_NEXT(%s);}'):format(lower,mask,a,length))
+diff --git a/research/experiments/engines/README.md b/research/experiments/engines/README.md
+index 3bcc4ff..e34cfaa 100644
+--- a/research/experiments/engines/README.md
++++ b/research/experiments/engines/README.md
+@@ -33,6 +33,12 @@ production clearing policy was retained.
+ [Unfused continuation lowering](continuation-primitives.md) records the frame
+ transport/transfer split, differential coverage, and paired Fibonacci results.
+ 
++[Shared check-first scalar execution](check-first.md) records the shared
++banked/symbolic control-flow definition, both-engine tripwires, paired
++interpreter/native results, the dispatch diagnostic, and explicit code-size
++and checked-lazy regressions. `compare_dynamic.lua BEFORE_RUNLET [AFTER_RUNLET]` reproduces the paired
++comparison on identical verified modules.
++
+ ## Workloads
+ 
+ | workload | iterations/calls | purpose |
+diff --git a/research/experiments/engines/dynamic-types.md b/research/experiments/engines/dynamic-types.md
+index 1da9adc..cd53710 100644
+--- a/research/experiments/engines/dynamic-types.md
++++ b/research/experiments/engines/dynamic-types.md
+@@ -1,5 +1,9 @@
+ # Dynamic numeric benchmarks
+ 
++The initial measurements below describe the helper-based implementation at
++`4d3e1fd`. See [check-first lowering](check-first.md) for the replacement,
++structural validation and paired before/after results.
++
+ Run both the original scalar suite and this suite:
+ 
+ ```sh
+diff --git a/research/experiments/type-versions/README.md b/research/experiments/type-versions/README.md
+index feaf984..cf0e74b 100644
+--- a/research/experiments/type-versions/README.md
++++ b/research/experiments/type-versions/README.md
+@@ -1,5 +1,11 @@
+ # Production check-driven type versions
+ 
++Historical implementation/results below. The scalar classifier/decoder and
++wide/float execution helpers described here have since been removed. See
++[check-first lowering](../engines/check-first.md) for the replacement and paired
++measurements. `inspect.py` now counts the surviving object-effect and allocation
++entries, not the deleted classifier/decoder symbols.
++
+ This integrates the mechanism tested on `experiment/check-cfg-versions`
+ (`ac3866f`), without merging its experiment switches or expanded ABC fixtures.
+ The pristine comparison is `master` at `d677f08`. Existing pending cache tests
+diff --git a/research/experiments/type-versions/inspect.py b/research/experiments/type-versions/inspect.py
+index 2aab7b7..9badaf2 100644
+--- a/research/experiments/type-versions/inspect.py
++++ b/research/experiments/type-versions/inspect.py
+@@ -51,9 +51,9 @@ for name in ('u32','source','u8'):
+                 print(f'  {comp[0]:x}..{comp[-1]:x}: {len(comp)} instructions, {calls} call sites')
+                 if not calls:print('\n'.join(ins[a][2] for a in comp))
+ commands='set pagination off\nset confirm off\n'
+-for var,func in [('dyn','vm_dynamic_native'),('classify','abc_dynamic_numeric_classify'),('decode','abc_dynamic_numeric_bits')]:
++for var,func in [('effects','vm_dynamic_native'),('allocate','vm_scalar_allocate')]:
+     commands+=f'set ${var}=0\nbreak {func}\ncommands\nsilent\nset ${var}=${var}+1\ncontinue\nend\n'
+-commands+='run\nprintf "HELPERS %d %d %d\\n", $dyn, $classify, $decode\n'
++commands+='run\nprintf "RUNTIME %d %d\\n", $effects, $allocate\n'
+ cmd=out/'count.gdb';cmd.write_text(commands)
+ for name,mode in [('u32','compiled'),('u32','lazy'),('source','compiled'),('source','lazy'),('u8','lazy')]:
+     counts=[]
+@@ -65,8 +65,8 @@ for name,mode in [('u32','compiled'),('u32','lazy'),('source','compiled'),('sour
+         module=src.with_suffix('.abc');execute([root/'build/abc',command,src,'-o',module])
+         p=execute(['gdb','-q','-batch','-x',cmd,'--args',current,mode,module,'3'])
+         (out/f'count-{name}-{mode}-{n}.log').write_text(p.stdout+p.stderr)
+-        match=re.search(r'HELPERS (\d+) (\d+) (\d+)',p.stdout);assert match,p.stdout
++        match=re.search(r'RUNTIME (\d+) (\d+)',p.stdout);assert match,p.stdout
+         count=tuple(map(int,match.groups()));counts.append(count)
+-        print(name,mode,n,'four calls: dynamic/classifier/decoder',count,flush=True)
++        print(name,mode,n,'four calls: object effects/scalar allocations',count,flush=True)
+     assert counts[0]==counts[1],(name,mode,counts)
+ 
+diff --git a/src/dynamic.c b/src/dynamic.c
+index 7294504..0c180d2 100644
+--- a/src/dynamic.c
++++ b/src/dynamic.c
+@@ -7,37 +7,18 @@
+ #include "gc-stack-addr.h"
+ #include <math.h>
+ 
+-#define IMM_PREFIX UINT64_C(0xffff000000000000)
+-#define IMM_MASK   UINT64_C(0xffff000000000000)
+-#define TAG_SHIFT 40
+-#define PAYLOAD_MASK UINT64_C(0x000000ffffffffff)
+-#define FLOAT_OFFSET UINT64_C(0x0001000000000000)
+-#define POSITIVE_NAN_COUNT UINT64_C(0x000fffffffffffff)
+-
+ static _Atomic uint64_t next_layout_token=1;
+-typedef struct { uint64_t bits; uint8_t tag; } scalar_box;
+-typedef struct { uint32_t length; char bytes[]; } string_box;
+-typedef struct { uint64_t address, length, owner; } managed_box;
+-typedef struct { uint32_t size, owner_count; unsigned char storage[]; } aggregate_box;
+ typedef struct { uint32_t function, signature; uint64_t captures; } callable_box;
+ typedef struct { uint8_t kind, negative; uint16_t reserved; uint32_t length; uint64_t magnitude; const char *bytes; } word_key;
+ typedef struct { uint64_t key, value, hash; uint32_t argument; uint8_t method; uint8_t reserved[3]; } word_entry;
+ typedef struct { uint32_t count, capacity, index_capacity, reserved; unsigned char storage[]; } word_map;
+ typedef struct { uint64_t map, terminal, layout_token; uint32_t remaining; uint8_t frozen, readonly; uint16_t reserved; } word_box;
+-enum { ABC_OBJECT_WORD_MAP=64, ABC_OBJECT_MANAGED=65, ABC_OBJECT_STORAGE=66 };
+-
+-static uint64_t immediate(unsigned tag,uint64_t payload){return IMM_PREFIX|((uint64_t)tag<<TAG_SHIFT)|(payload&PAYLOAD_MASK);}
+-static int float_nan_bits(uint64_t bits){return (bits&UINT64_C(0x7ff0000000000000))==UINT64_C(0x7ff0000000000000)&&(bits&UINT64_C(0x000fffffffffffff));}
+-static uint64_t encode_float(uint64_t bits){uint64_t rank;if(float_nan_bits(bits))rank=UINT64_MAX-2*POSITIVE_NAN_COUNT+1;else rank=bits<UINT64_C(0x8000000000000000)?bits:bits-POSITIVE_NAN_COUNT;return rank+FLOAT_OFFSET;}
+-static uint64_t decode_float(uint64_t encoded){uint64_t rank=encoded-FLOAT_OFFSET;if(rank<=UINT64_C(0x7ff0000000000000))return rank;if(rank<UINT64_MAX-2*POSITIVE_NAN_COUNT+1)return rank+POSITIVE_NAN_COUNT;return UINT64_C(0x7ff8000000000000);}
+ uint64_t abc_any_unit(void){return immediate(ABC_ANY_UNIT,0);}
+ static abc_object *find_object(const abc_vm *v,uint64_t value){
+-    if(!v||!v->dynamic||!v->dynamic->gc.heap||(value&15)||(value>>48)||!gc_heap_contains(v->dynamic->gc.heap,gc_ref(value)))return NULL;abc_object *o=(abc_object *)(uintptr_t)value;uintptr_t tag=o->tag;return (tag&1u)&&o->published&&ABC_GC_TAG_KIND(tag)==o->kind?o:NULL;
++    return abc_repr_object(v?v->dynamic:NULL,value,gc_heap_contains);
+ }
+ unsigned abc_any_tag(const abc_vm *v,uint64_t value){
+-    if((value&IMM_MASK)==IMM_PREFIX)return (unsigned)((value>>TAG_SHIFT)&255);
+-    abc_object *o=find_object(v,value);if(o){if(o->kind==ABC_ANY_STRING)return ABC_ANY_STRING;if(o->kind==ABC_ANY_WORD)return ABC_ANY_WORD;if(o->kind==ABC_ANY_CLOSURE)return ABC_ANY_CLOSURE;if(o->kind==ABC_ANY_AGGREGATE||o->kind==ABC_OBJECT_MANAGED)return ABC_ANY_AGGREGATE;return ((scalar_box *)o->data)->tag;}
+-    return ABC_ANY_F64;
++    return abc_repr_tag(v?v->dynamic:NULL,value,gc_heap_contains);
+ }
+ static void trace_value(abc_vm *v,uint64_t *value,void (*trace)(struct gc_edge,struct gc_heap *,void *),struct gc_heap *heap,void *data){(void)v;uint64_t x=*value;if(x&&!(x&15)&&!(x>>48))trace(gc_edge(value),heap,data);}
+ static word_entry *map_entries(word_map *map){return (word_entry *)map->storage;}
+@@ -48,13 +29,13 @@ size_t abc_whippet_trace_object(struct gc_ref ref,void (*trace)(struct gc_edge,s
+ static uint32_t trace_layout_size(const abc_module *m,uint32_t di){const abc_descriptor *d=&m->descriptors[di];if(d->tag==ABC_DESC_PRIMITIVE){unsigned p=d->payload[0];return p==ABC_PRIM_UNIT?0:p==ABC_PRIM_STRING?16:8;}if(d->tag==ABC_DESC_POINTER)return 8;if(d->tag==ABC_DESC_SLICE)return 16;if(d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM)return abc_u32(d->payload);return 0;}
+ static void trace_layout(const abc_module *m,uint8_t *base,uint32_t di,void (*trace)(struct gc_edge,struct gc_heap *,void *),void (*ambiguous)(uintptr_t,uintptr_t,int,struct gc_heap *,void *),struct gc_heap *heap,void *data){const abc_descriptor *d=&m->descriptors[di];const uint8_t *p=d->payload;if(d->tag==ABC_DESC_PRIMITIVE){if(trace&&(p[0]==ABC_PRIM_ANY||p[0]==ABC_PRIM_WORD))trace_heap_cell((uint64_t *)(void *)base,trace,heap,data);return;}if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE){if(p[0]==2&&ambiguous)ambiguous((uintptr_t)base,(uintptr_t)base+8,1,heap,data);return;}if(d->tag==ABC_DESC_RECORD){uint32_t n=abc_u32(p+4);for(uint32_t i=0;i<n;i++){const uint8_t *f=p+8+16*i;trace_layout(m,base+abc_u32(f+8),abc_u32(f+12),trace,ambiguous,heap,data);}}else if(d->tag==ABC_DESC_ARRAY){uint32_t n=abc_u32(p+4),element=abc_u32(p+8),stride=trace_layout_size(m,element);for(uint32_t i=0;i<n;i++)trace_layout(m,base+(size_t)i*stride,element,trace,ambiguous,heap,data);}else if(d->tag==ABC_DESC_SUM){uint64_t disc=0;memcpy(&disc,base+abc_u32(p+4),p[8]);for(unsigned i=0;i<p[9];i++){const uint8_t *c=p+12+16*i;if(abc_u64(c)==disc){trace_layout(m,base+abc_u32(c+8),abc_u32(c+12),trace,ambiguous,heap,data);break;}}}}
+ void abc_whippet_trace_roots(struct abc_whippet_roots *roots,void (*trace)(struct gc_edge,struct gc_heap *,void *),struct gc_heap *heap,void *data){if(!roots||!roots->vm||!trace)return;abc_vm *v=roots->vm;for(unsigned i=0;v->dynamic&&i<v->dynamic->temporary_count;i++)trace_value(v,&v->dynamic->temporary[i],trace,heap,data);for(unsigned i=0;v->dynamic&&i<v->dynamic->call_root_count;i++)trace_value(v,&v->dynamic->call_roots[i],trace,heap,data);for(abc_image *im=v->images;im;im=im->next)for(uint32_t j=0;j<im->module->gc_root_count;j++)trace_layout(im->module,im->bytes+im->module->gc_roots[j].offset,im->module->gc_roots[j].descriptor,trace,NULL,heap,data);}
+-void abc_whippet_trace_pinned_roots(struct abc_whippet_roots *roots,void (*pinned)(struct gc_ref,struct gc_heap *,void *),void (*ambiguous)(uintptr_t,uintptr_t,int,struct gc_heap *,void *),struct gc_heap *heap,void *data){(void)pinned;if(!roots||!roots->vm||!ambiguous)return;abc_vm *v=roots->vm;if(v->na)ambiguous((uintptr_t)v->a,(uintptr_t)(v->a+v->na),1,heap,data);if(v->nb)ambiguous((uintptr_t)v->b,(uintptr_t)(v->b+v->nb),1,heap,data);if(v->nc)ambiguous((uintptr_t)v->c,(uintptr_t)(v->c+v->nc),1,heap,data);ambiguous((uintptr_t)v->h,(uintptr_t)(v->h+4),1,heap,data);ambiguous((uintptr_t)v->cr,(uintptr_t)(v->cr+3),1,heap,data);if(v->dynamic&&v->dynamic->temporary_count)ambiguous((uintptr_t)v->dynamic->temporary,(uintptr_t)(v->dynamic->temporary+v->dynamic->temporary_count),1,heap,data);if(v->dynamic&&v->dynamic->call_root_count)ambiguous((uintptr_t)v->dynamic->call_roots,(uintptr_t)(v->dynamic->call_roots+v->dynamic->call_root_count),1,heap,data);if(v->dynamic&&v->dynamic->suspended_count)ambiguous((uintptr_t)v->dynamic->suspended,(uintptr_t)(v->dynamic->suspended+v->dynamic->suspended_count),1,heap,data);for(abc_image *im=v->images;im;im=im->next)for(uint32_t j=0;j<im->module->gc_root_count;j++)trace_layout(im->module,im->bytes+im->module->gc_roots[j].offset,im->module->gc_roots[j].descriptor,NULL,ambiguous,heap,data);}
++void abc_whippet_trace_pinned_roots(struct abc_whippet_roots *roots,void (*pinned)(struct gc_ref,struct gc_heap *,void *),void (*ambiguous)(uintptr_t,uintptr_t,int,struct gc_heap *,void *),struct gc_heap *heap,void *data){(void)pinned;if(!roots||!roots->vm||!ambiguous)return;abc_vm *v=roots->vm;if(v->na)ambiguous((uintptr_t)v->a,(uintptr_t)(v->a+v->na),1,heap,data);if(v->nb)ambiguous((uintptr_t)v->b,(uintptr_t)(v->b+v->nb),1,heap,data);if(v->nc)ambiguous((uintptr_t)v->c,(uintptr_t)(v->c+v->nc),1,heap,data);ambiguous((uintptr_t)v->h,(uintptr_t)(v->h+4),1,heap,data);ambiguous((uintptr_t)v->cr,(uintptr_t)(v->cr+3),1,heap,data);if(v->dynamic&&v->dynamic->temporary_count)ambiguous((uintptr_t)v->dynamic->temporary,(uintptr_t)(v->dynamic->temporary+v->dynamic->temporary_count),1,heap,data);if(v->dynamic&&v->dynamic->call_root_count)ambiguous((uintptr_t)v->dynamic->call_roots,(uintptr_t)(v->dynamic->call_roots+v->dynamic->call_root_count),1,heap,data);if(v->dynamic&&v->dynamic->suspended_count)ambiguous((uintptr_t)v->dynamic->suspended,(uintptr_t)(v->dynamic->suspended+v->dynamic->suspended_count),1,heap,data);if(v->dynamic&&v->dynamic->native_roots)ambiguous((uintptr_t)v->dynamic->native_roots,(uintptr_t)(v->dynamic->native_roots+8),1,heap,data);for(abc_image *im=v->images;im;im=im->next)for(uint32_t j=0;j<im->module->gc_root_count;j++)trace_layout(im->module,im->bytes+im->module->gc_roots[j].offset,im->module->gc_roots[j].descriptor,NULL,ambiguous,heap,data);}
+ static void *allocation_failed(struct gc_heap *heap,size_t bytes){(void)heap;(void)bytes;return NULL;}
+ static int ensure_heap(abc_vm *v){if(!v->dynamic){v->dynamic=calloc(1,sizeof *v->dynamic);if(!v->dynamic)return 0;}if(v->dynamic->gc.heap)return 1;struct gc_options *options=gc_allocate_options();if(!options)return 0;if(!gc_init(options,gc_empty_stack_addr(),&v->dynamic->gc.heap,&v->dynamic->gc.mutator,GC_NULL_EVENT_LISTENER,NULL))return 0;v->dynamic->gc.roots.vm=v;gc_mutator_set_roots(v->dynamic->gc.mutator,(struct gc_mutator_roots *)&v->dynamic->gc.roots);gc_heap_set_allocation_failure_handler(v->dynamic->gc.heap,allocation_failed);return 1;}
+-void abc_dynamic_collect(abc_vm *v){if(!v||!v->dynamic||!v->dynamic->gc.mutator)return;gc_collect(v->dynamic->gc.mutator,GC_COLLECTION_MAJOR);atomic_store(&v->dynamic->collection_requested,0);}
+-abc_status abc_vm_request_collection(abc_vm *v,abc_error *e){abc_clear(e);if(!v)return abc_fail(e,ABC_INVALID,UINT32_MAX,"missing VM");if(!v->dynamic){v->dynamic=calloc(1,sizeof *v->dynamic);if(!v->dynamic)return abc_fail(e,ABC_NOMEM,UINT32_MAX,"dynamic heap allocation failed");}atomic_store(&v->dynamic->collection_requested,1);return ABC_OK;}
++void abc_dynamic_collect(abc_vm *v){if(!v)return;if(v->dynamic&&v->dynamic->gc.mutator)gc_collect(v->dynamic->gc.mutator,GC_COLLECTION_MAJOR);atomic_store(&v->collection_requested,0);}
++abc_status abc_vm_request_collection(abc_vm *v,abc_error *e){abc_clear(e);if(!v)return abc_fail(e,ABC_INVALID,UINT32_MAX,"missing VM");atomic_store(&v->collection_requested,1);return ABC_OK;}
+ static abc_object *allocate_object(abc_run *r,unsigned kind,size_t payload,uint32_t descriptor){
+-    abc_vm *v=r->v;if(!ensure_heap(v)||payload>SIZE_MAX-sizeof(abc_object))return NULL;if(atomic_load(&v->dynamic->collection_requested))abc_dynamic_collect(v);size_t bytes=sizeof(abc_object)+payload;abc_object *o=gc_allocate(v->dynamic->gc.mutator,bytes,GC_ALLOCATION_TAGGED);if(!o)return NULL;o->tag=ABC_GC_TAG(kind);o->bytes=bytes;o->descriptor=descriptor;o->kind=(uint8_t)kind;o->published=0;o->module=r->m;memset(o->data,0,payload);if((uintptr_t)o>>48)return NULL;gc_pin_object(v->dynamic->gc.mutator,gc_ref_from_heap_object(o));o->published=1;return o;
++    abc_vm *v=r->v;if(!ensure_heap(v)||payload>SIZE_MAX-sizeof(abc_object))return NULL;if(atomic_load(&v->collection_requested))abc_dynamic_collect(v);size_t bytes=sizeof(abc_object)+payload;abc_object *o=gc_allocate(v->dynamic->gc.mutator,bytes,GC_ALLOCATION_TAGGED);if(!o)return NULL;o->tag=ABC_GC_TAG(kind);o->bytes=bytes;o->descriptor=descriptor;o->kind=(uint8_t)kind;o->published=0;o->module=r->m;memset(o->data,0,payload);if((uintptr_t)o>>48)return NULL;gc_pin_object(v->dynamic->gc.mutator,gc_ref_from_heap_object(o));o->published=1;return o;
+ }
+ static uint32_t aggregate_owner_slots(const abc_module *m,uint32_t di){const abc_descriptor *d=&m->descriptors[di];const uint8_t *p=d->payload;if(d->tag==ABC_DESC_PRIMITIVE)return p[0]==ABC_PRIM_STRING;if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE)return p[0]==2;uint64_t count=0;if(d->tag==ABC_DESC_RECORD){for(uint32_t i=0;i<abc_u32(p+4);i++)count+=aggregate_owner_slots(m,abc_u32(p+8+16*i+12));}else if(d->tag==ABC_DESC_ARRAY)count=(uint64_t)abc_u32(p+4)*aggregate_owner_slots(m,abc_u32(p+8));else if(d->tag==ABC_DESC_SUM){for(unsigned i=0;i<p[9];i++){uint32_t n=aggregate_owner_slots(m,abc_u32(p+12+16*i+12));if(n>count)count=n;}}return count>UINT32_MAX?UINT32_MAX:(uint32_t)count;}
+ static uint32_t aggregate_owner_count(const abc_module *m,const uint8_t *base,uint32_t di){const abc_descriptor *d=&m->descriptors[di];const uint8_t *p=d->payload;if(d->tag==ABC_DESC_PRIMITIVE)return p[0]==ABC_PRIM_STRING; if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE)return p[0]==2&&abc_u64(base)?1:0;uint64_t count=0;if(d->tag==ABC_DESC_RECORD){for(uint32_t i=0;i<abc_u32(p+4);i++){const uint8_t *f=p+8+16*i;count+=aggregate_owner_count(m,base+abc_u32(f+8),abc_u32(f+12));}}else if(d->tag==ABC_DESC_ARRAY){uint32_t n=abc_u32(p+4),element=abc_u32(p+8),stride=trace_layout_size(m,element);for(uint32_t i=0;i<n;i++)count+=aggregate_owner_count(m,base+(size_t)i*stride,element);}else if(d->tag==ABC_DESC_SUM){uint64_t disc=0;memcpy(&disc,base+abc_u32(p+4),p[8]);for(unsigned i=0;i<p[9];i++){const uint8_t *c=p+12+16*i;if(abc_u64(c)==disc){count+=aggregate_owner_count(m,base+abc_u32(c+8),abc_u32(c+12));break;}}}return count>UINT32_MAX?UINT32_MAX:(uint32_t)count;}
+@@ -62,69 +43,27 @@ static int prepare_aggregate(abc_run *r,uint8_t *base,uint32_t di,uint64_t *owne
+ void abc_dynamic_destroy(abc_vm *v){if(!v||!v->dynamic)return;if(v->dynamic->gc.mutator){v->dynamic->gc.roots.vm=NULL;gc_mutator_set_roots(v->dynamic->gc.mutator,NULL);gc_collect(v->dynamic->gc.mutator,GC_COLLECTION_MAJOR);gc_finish_for_thread(v->dynamic->gc.mutator);}free(v->dynamic);v->dynamic=NULL;}
+ static abc_status abort_dynamic(abc_run *r,uint32_t pc,unsigned reason){abc_status s=abc_fail(r->e,ABC_ABORT,pc,"language abort %u",reason);if(r->e)r->e->reason=(uint8_t)reason;return s;}
+ static uint64_t box_scalar(abc_run *r,unsigned tag,uint64_t bits,int *ok){
+-    int immediate_ok=0;uint64_t payload=bits;if(tag==ABC_ANY_F64)return encode_float(bits);switch(tag){case ABC_ANY_UNIT:case ABC_ANY_BOOL:case ABC_ANY_U8:case ABC_ANY_U16:case ABC_ANY_U32:immediate_ok=bits<=PAYLOAD_MASK;break;case ABC_ANY_I32:case ABC_ANY_I64:{int64_t x=abc_signed(bits);immediate_ok=x>=-(INT64_C(1)<<39)&&x<(INT64_C(1)<<39);payload=(uint64_t)x;break;}case ABC_ANY_U64:immediate_ok=bits<=PAYLOAD_MASK;break;}
+-    if(immediate_ok)return immediate(tag,payload);abc_object *o=allocate_object(r,tag,sizeof(scalar_box),UINT32_MAX);if(!o){*ok=0;return 0;}scalar_box *b=(scalar_box *)o->data;b->tag=(uint8_t)tag;b->bits=bits;return (uint64_t)(uintptr_t)o;
++    if(tag==ABC_ANY_F64)return encode_float(bits);
++    if(tag<=ABC_ANY_I64&&abc_repr_fits(tag,bits))return immediate(tag,bits);abc_object *o=allocate_object(r,tag,sizeof(scalar_box),UINT32_MAX);if(!o){*ok=0;return 0;}scalar_box *b=(scalar_box *)o->data;b->tag=(uint8_t)tag;b->bits=bits;return (uint64_t)(uintptr_t)o;
+ }
+ static int scalar(const abc_vm *v,uint64_t value,unsigned *tag,uint64_t *bits){
+-    *tag=abc_any_tag(v,value);if((value&IMM_MASK)==IMM_PREFIX){uint64_t p=value&PAYLOAD_MASK;*bits=(*tag==ABC_ANY_I32||*tag==ABC_ANY_I64)?(uint64_t)((int64_t)(p<<24)>>24):p;return *tag<=ABC_ANY_I64;}
+-    abc_object *o=find_object(v,value);if(o&&o->kind<=ABC_ANY_PTR){scalar_box *b=(scalar_box *)o->data;*tag=b->tag;*bits=b->bits;return 1;}if(*tag==ABC_ANY_F64){*bits=decode_float(value);return 1;}return 0;
++    *tag=abc_any_tag(v,value);if(!abc_repr_scalar(*tag))return 0;*bits=abc_repr_bits(value,*tag);return 1;
+ }
+-static unsigned primitive_tag(unsigned p){static const uint8_t tags[]={ABC_ANY_UNIT,ABC_ANY_BOOL,ABC_ANY_U8,ABC_ANY_U16,ABC_ANY_U32,ABC_ANY_U64,ABC_ANY_I32,ABC_ANY_I64,ABC_ANY_F64,ABC_ANY_STRING,255,ABC_ANY_WORD};return p<sizeof tags?tags[p]:255;}
+-static int integer_tag(unsigned);
+-static int convert_numeric(unsigned from,uint64_t bits,unsigned to,uint64_t *out);
+ static int pop_any(abc_vm *,uint64_t *);static int push_any(abc_vm *,uint64_t);
+-static int push_unboxed(abc_run *r,uint64_t value,uint32_t di){abc_vm *v=r->v;const abc_descriptor *d=&r->m->descriptors[di];if(d->tag==ABC_DESC_PRIMITIVE){unsigned prim=d->payload[0],tag;if(prim==ABC_PRIM_UNIT)return abc_any_tag(v,value)==ABC_ANY_UNIT;if(prim==ABC_PRIM_ANY)return push_any(v,value);if(prim==ABC_PRIM_STRING){abc_object *o=find_object(v,value);if(!o||o->kind!=ABC_ANY_STRING)return 0;string_box *s=(string_box *)o->data;return push_any(v,(uint64_t)(uintptr_t)s->bytes)&&push_any(v,s->length);}if(prim==ABC_PRIM_WORD)return abc_any_tag(v,value)==ABC_ANY_WORD&&push_any(v,value);uint64_t raw,converted;unsigned want=primitive_tag(prim);if(!scalar(v,value,&tag,&raw))return 0;if(tag!=want){int numeric=(integer_tag(tag)||tag==ABC_ANY_F64)&&(integer_tag(want)||want==ABC_ANY_F64);if(!numeric)return 0;if(!convert_numeric(tag,raw,want,&converted))return -1;raw=converted;}return push_any(v,raw);}if(d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM){abc_object *o=find_object(v,value);if(!o||o->kind!=ABC_ANY_AGGREGATE||o->descriptor!=di)return 0;return push_any(v,(uint64_t)(uintptr_t)((aggregate_box *)o->data)->storage);}if(d->tag==ABC_DESC_POINTER&&d->payload[0]==0){abc_object *o=find_object(v,value);if(!o||o->kind!=ABC_ANY_PTR||o->descriptor!=di)return 0;return push_any(v,((scalar_box *)o->data)->bits);}if((d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE)&&d->payload[0]==2){abc_object *o=find_object(v,value);if(!o||o->kind!=ABC_OBJECT_MANAGED||o->descriptor!=di)return 0;managed_box *box=(managed_box *)o->data;return push_any(v,box->address)&&(d->tag!=ABC_DESC_SLICE||push_any(v,box->length));}return 0;}
++static int push_unboxed(abc_run *r,uint64_t value,uint32_t di){abc_vm *v=r->v;const abc_descriptor *d=&r->m->descriptors[di];if(d->tag==ABC_DESC_PRIMITIVE){unsigned prim=d->payload[0],tag;if(prim==ABC_PRIM_UNIT)return abc_any_tag(v,value)==ABC_ANY_UNIT;if(prim==ABC_PRIM_ANY)return push_any(v,value);if(prim==ABC_PRIM_STRING){abc_object *o=find_object(v,value);if(!o||o->kind!=ABC_ANY_STRING)return 0;string_box *s=(string_box *)o->data;return push_any(v,(uint64_t)(uintptr_t)s->bytes)&&push_any(v,s->length);}if(prim==ABC_PRIM_WORD)return abc_any_tag(v,value)==ABC_ANY_WORD&&push_any(v,value);uint64_t raw,converted;unsigned want=abc_primitive_tag(prim);if(!scalar(v,value,&tag,&raw))return 0;if(tag!=want){int numeric=(abc_numeric_integer(tag)||tag==ABC_ANY_F64)&&(abc_numeric_integer(want)||want==ABC_ANY_F64);if(!numeric)return 0;if(abc_scalar_convert(tag,want,raw,&converted))return -1;raw=converted;}return push_any(v,raw);}if(d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM){abc_object *o=find_object(v,value);if(!o||o->kind!=ABC_ANY_AGGREGATE||o->descriptor!=di)return 0;return push_any(v,(uint64_t)(uintptr_t)((aggregate_box *)o->data)->storage);}if(d->tag==ABC_DESC_POINTER&&d->payload[0]==0){abc_object *o=find_object(v,value);if(!o||o->kind!=ABC_ANY_PTR||o->descriptor!=di)return 0;return push_any(v,((scalar_box *)o->data)->bits);}if((d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE)&&d->payload[0]==2){abc_object *o=find_object(v,value);if(!o||o->kind!=ABC_OBJECT_MANAGED||o->descriptor!=di)return 0;managed_box *box=(managed_box *)o->data;return push_any(v,box->address)&&(d->tag!=ABC_DESC_SLICE||push_any(v,box->length));}return 0;}
+ static int box_result(abc_run *r,uint32_t di,uint64_t *out){
+     abc_vm *v=r->v;const abc_descriptor *d=&r->m->descriptors[di];uint64_t raw=0;
+     if(d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM){if(!pop_any(v,&raw)||!ensure_heap(v))return 0;uint32_t size=trace_layout_size(r->m,di),owners=aggregate_owner_count(r->m,(const uint8_t *)(uintptr_t)raw,di),aligned=(size+7u)&~7u;if(owners==UINT32_MAX||(size_t)aligned+(size_t)owners*8<aligned)return 0;v->dynamic->temporary[0]=raw;v->dynamic->temporary_count=1;abc_object *o=allocate_object(r,ABC_ANY_AGGREGATE,sizeof(aggregate_box)+(size_t)aligned+(size_t)owners*8,di);if(!o){v->dynamic->temporary_count=0;return 0;}v->dynamic->temporary[1]=(uint64_t)(uintptr_t)o;v->dynamic->temporary_count=2;aggregate_box *box=(aggregate_box *)o->data;box->size=size;box->owner_count=owners;memcpy(box->storage,(const void *)(uintptr_t)raw,size);uint32_t at=0;if(!prepare_aggregate(r,box->storage,di,(uint64_t *)(void *)(box->storage+aligned),&at)||at!=owners){v->dynamic->temporary_count=0;return 0;}v->dynamic->temporary_count=0;*out=(uint64_t)(uintptr_t)o;return 1;}
+     if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE){uint64_t length=0;if(d->tag==ABC_DESC_SLICE&&!pop_any(v,&length))return 0;if(!pop_any(v,&raw)||d->payload[0]==1)return 0;if(d->payload[0]==0){if(d->tag==ABC_DESC_SLICE)return 0;abc_object *o=allocate_object(r,ABC_ANY_PTR,sizeof(scalar_box),di);if(!o)return 0;scalar_box *box=(scalar_box *)o->data;box->tag=ABC_ANY_PTR;box->bits=raw;*out=(uint64_t)(uintptr_t)o;return 1;}if(!ensure_heap(v))return 0;struct gc_ref owner=gc_ref_null();if(raw){owner=gc_resolve_conservative_ref(v->dynamic->gc.heap,gc_conservative_ref(raw),1);if(gc_ref_is_null(owner))return 0;}v->dynamic->temporary[0]=raw;v->dynamic->temporary_count=1;abc_object *o=allocate_object(r,ABC_OBJECT_MANAGED,sizeof(managed_box),di);v->dynamic->temporary_count=0;if(!o)return 0;managed_box *box=(managed_box *)o->data;box->address=raw;box->length=length;box->owner=gc_ref_value(owner);*out=(uint64_t)(uintptr_t)o;return 1;}
+     if(d->tag!=ABC_DESC_PRIMITIVE)return 0;unsigned prim=d->payload[0];if(prim==ABC_PRIM_UNIT){*out=abc_any_unit();return 1;}if(prim==ABC_PRIM_ANY){return pop_any(v,out);}if(prim==ABC_PRIM_WORD){if(!pop_any(v,out)||abc_any_tag(v,*out)!=ABC_ANY_WORD)return 0;return 1;}if(prim==ABC_PRIM_STRING){uint64_t n,a;if(!pop_any(v,&n)||!pop_any(v,&a)||n>UINT32_MAX)return 0;abc_object *o=allocate_object(r,ABC_ANY_STRING,sizeof(string_box)+(size_t)n,di);if(!o)return 0;string_box *s=(string_box *)o->data;s->length=(uint32_t)n;memcpy(s->bytes,(const void *)(uintptr_t)a,(size_t)n);*out=(uint64_t)(uintptr_t)o;return 1;}
+-    if(!pop_any(v,&raw))return 0;int ok=1;*out=box_scalar(r,primitive_tag(prim),raw,&ok);return ok;
+-}
+-static int integer_tag(unsigned t){return t>=ABC_ANY_U8&&t<=ABC_ANY_I64;}
+-static int signed_tag(unsigned t){return t==ABC_ANY_I32||t==ABC_ANY_I64;}
+-static unsigned width_tag(unsigned t){static const uint8_t w[]={0,1,8,16,32,64,32,64};return t<8?w[t]:0;}
+-static uint64_t normalize(unsigned tag,uint64_t x){unsigned w=width_tag(tag);if(w==8)return x&255;if(w==16)return x&65535;if(w==32)return tag==ABC_ANY_I32?(uint64_t)(int64_t)(int32_t)x:(uint32_t)x;return x;}
+-static int convert_integer(unsigned from,uint64_t bits,unsigned to,uint64_t *out){
+-    if(!integer_tag(from)||!integer_tag(to))return 0;unsigned fw=width_tag(from),tw=width_tag(to);
+-    if(fw==tw){*out=normalize(to,bits);return 1;}
+-    if(signed_tag(to)){
+-        int64_t maximum=tw==32?INT32_MAX:INT64_MAX,minimum=tw==32?INT32_MIN:INT64_MIN;
+-        if(signed_tag(from)){int64_t value=abc_signed(bits);if(value<minimum||value>maximum)return 0;*out=normalize(to,(uint64_t)value);return 1;}
+-        if(bits>(uint64_t)maximum)return 0;*out=normalize(to,bits);return 1;
+-    }
+-    uint64_t maximum=tw==64?UINT64_MAX:(UINT64_C(1)<<tw)-1;
+-    if(signed_tag(from)&&abc_signed(bits)<0)return 0;if(bits>maximum)return 0;*out=normalize(to,bits);return 1;
+-}
+-static int convert_numeric(unsigned from,uint64_t bits,unsigned to,uint64_t *out){
+-    if(integer_tag(from)&&integer_tag(to))return convert_integer(from,bits,to,out);
+-    if(integer_tag(from)&&to==ABC_ANY_F64){double value=signed_tag(from)?(double)abc_signed(bits):(double)bits;*out=vm_float_bits(value);return 1;}
+-    if(from==ABC_ANY_F64&&integer_tag(to)){uint64_t integer;if(signed_tag(to)){if(!vm_f2is(bits,&integer))return 0;return convert_integer(ABC_ANY_I64,integer,to,out);}if(!vm_f2iu(bits,&integer))return 0;return convert_integer(ABC_ANY_U64,integer,to,out);}
+-    return 0;
++    if(!pop_any(v,&raw))return 0;int ok=1;*out=box_scalar(r,abc_primitive_tag(prim),raw,&ok);return ok;
+ }
+ static int pop_any(abc_vm *v,uint64_t *out){if(!v->na)return 0;*out=v->a[--v->na];return 1;}
+ static int push_any(abc_vm *v,uint64_t x){if(v->na>=v->capacity)return 0;v->a[v->na++]=x;return 1;}
+-/* Nonallocating projections used only around checked native numeric CFGs.
+-   The classifier establishes the decoder's scalar precondition. */
+-uint64_t abc_dynamic_numeric_classify(uint64_t state,uint64_t left,uint64_t right,uint64_t selector) {
+-    const abc_vm *vm=(const abc_vm *)(uintptr_t)state;unsigned a,b;uint64_t bits;
+-    if(!scalar(vm,left,&a,&bits)||!scalar(vm,right,&b,&bits))return 0;
+-    unsigned result=abc_numeric_result((unsigned)selector,a,b);return result==UINT_MAX?0:(uint64_t)result+1;
+-}
+-uint64_t abc_dynamic_numeric_bits(uint64_t value,uint64_t state) {
+-    unsigned tag;uint64_t bits=0;(void)scalar((const abc_vm *)(uintptr_t)state,value,&tag,&bits);return bits;
+-}
+ 
+-static abc_status dynamic_binary(abc_run *r,unsigned ext,uint64_t x,uint64_t y,uint32_t pc,uint64_t *out){
+-    unsigned tx,ty;uint64_t bx,by;if(!scalar(r->v,x,&tx,&bx)||!scalar(r->v,y,&ty,&by))return abort_dynamic(r,pc,6);
+-    unsigned tag=abc_numeric_result(ext,tx,ty);if(tag==UINT_MAX)return abort_dynamic(r,pc,6);
+-    if(tag==ABC_ANY_F64){double a=vm_float(bx),b=vm_float(by),z;if(ext==EXT_DADD)z=a+b;else if(ext==EXT_DSUB)z=a-b;else if(ext==EXT_DMUL)z=a*b;else z=a/b;int ok=1;*out=box_scalar(r,ABC_ANY_F64,vm_float_bits(z),&ok);return ok?ABC_OK:abc_fail(r->e,ABC_NOMEM,pc,"dynamic allocation failed");}
+-    uint64_t z=0;if(ext==EXT_DADD)z=bx+by;else if(ext==EXT_DSUB)z=bx-by;else if(ext==EXT_DMUL)z=bx*by;else if(ext==EXT_DAND)z=bx&by;else if(ext==EXT_DOR)z=bx|by;else if(ext==EXT_DXOR)z=bx^by;else if(ext==EXT_DSHL)z=by>=64?0:bx<<by;else if(ext==EXT_DSHR)z=by>=64?0:bx>>by;else if(ext==EXT_DSAR)z=vm_sar(bx,by);else if(ext==EXT_DDIV||ext==EXT_DREM){if(!by)return abort_dynamic(r,pc,1);if(signed_tag(tag)){int64_t a=abc_signed(bx),b=abc_signed(by);z=ext==EXT_DDIV?(b==-1&&a==INT64_MIN?bx:(uint64_t)(a/b)):(b==-1&&a==INT64_MIN?0:(uint64_t)(a%b));}else z=ext==EXT_DDIV?bx/by:bx%by;}else if(ext==EXT_DPOW){z=vm_pow(bx,by);}else return abort_dynamic(r,pc,6);
+-    int ok=1;*out=box_scalar(r,tag,normalize(tag,z),&ok);return ok?ABC_OK:abc_fail(r->e,ABC_NOMEM,pc,"dynamic allocation failed");
+-}
+ static int key_from_any(abc_vm *v,uint64_t value,word_key *key){
+     memset(key,0,sizeof *key);unsigned tag;uint64_t bits;if(scalar(v,value,&tag,&bits)&&tag==ABC_ANY_BOOL){key->kind=1;key->magnitude=bits;return 1;}
+-    if(scalar(v,value,&tag,&bits)&&integer_tag(tag)){key->kind=2;if(signed_tag(tag)&&abc_signed(bits)<0){key->negative=1;key->magnitude=0-bits;}else key->magnitude=bits;return 1;}
++    if(scalar(v,value,&tag,&bits)&&abc_numeric_integer(tag)){key->kind=2;if(abc_numeric_signed(tag)&&abc_signed(bits)<0){key->negative=1;key->magnitude=0-bits;}else key->magnitude=bits;return 1;}
+     abc_object *o=find_object(v,value);if(o&&o->kind==ABC_ANY_STRING){string_box *s=(string_box *)o->data;key->kind=3;key->length=s->length;key->bytes=s->bytes;return 1;}return 0;
+ }
+ static int key_equal(const word_key *a,const word_key *b){return a->kind==b->kind&&a->negative==b->negative&&a->magnitude==b->magnitude&&a->length==b->length&&(!a->length||!memcmp(a->bytes,b->bytes,a->length));}
+@@ -145,30 +84,12 @@ static abc_status push_bound_method(abc_run *r,uint64_t receiver_value,uint64_t
+ }
+ 
+ abc_status vm_dynamic(abc_run *r,const uint8_t *p,uint32_t pc){
+-    abc_vm *v=r->v;unsigned ext=p[1];uint64_t x=0,y=0,z=0;abc_status status=ABC_OK;if(v->dynamic&&atomic_load(&v->dynamic->collection_requested))abc_dynamic_collect(v);
++    abc_vm *v=r->v;unsigned ext=p[1];uint64_t x=0,y=0,z=0;if(atomic_load(&v->collection_requested))abc_dynamic_collect(v);
+     if(ext==EXT_ANY_BOX){const abc_descriptor *d=&r->m->descriptors[abc_u32(p+2)];if((d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM)&&!ensure_heap(v))return abc_fail(r->e,ABC_NOMEM,pc,"dynamic heap allocation failed");}
+-    if(ext==EXT_ANY_BOX||ext==EXT_ANY_CAST||ext==EXT_ANY_IS){const abc_descriptor *d=&r->m->descriptors[abc_u32(p+2)];if(d->tag==ABC_DESC_PRIMITIVE&&(d->payload[0]==ABC_PRIM_ANY||d->payload[0]==ABC_PRIM_WORD)){if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");int matches=d->payload[0]==ABC_PRIM_ANY||abc_any_tag(v,x)==ABC_ANY_WORD;if(ext==EXT_ANY_IS)return push_any(v,matches)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");if(!matches)return abort_dynamic(r,pc,6);return push_any(v,x)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}}
+-    if(ext==EXT_ANY_BOX){uint32_t di=abc_u32(p+2);const abc_descriptor *d=&r->m->descriptors[di];if(d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM){if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");uint32_t size=trace_layout_size(r->m,di),owners=aggregate_owner_count(r->m,(const uint8_t *)(uintptr_t)x,di),aligned=(size+7u)&~7u;if(owners==UINT32_MAX||(size_t)aligned+(size_t)owners*8<aligned)return abc_fail(r->e,ABC_NOMEM,pc,"aggregate dynamic box too large");v->dynamic->temporary[0]=x;v->dynamic->temporary_count=1;abc_object *o=allocate_object(r,ABC_ANY_AGGREGATE,sizeof(aggregate_box)+(size_t)aligned+(size_t)owners*8,di);if(!o){v->dynamic->temporary_count=0;return abc_fail(r->e,ABC_NOMEM,pc,"aggregate dynamic allocation failed");}v->dynamic->temporary[1]=(uint64_t)(uintptr_t)o;v->dynamic->temporary_count=2;aggregate_box *box=(aggregate_box *)o->data;box->size=size;box->owner_count=owners;memcpy(box->storage,(const void *)(uintptr_t)x,size);uint64_t *owner_cells=(uint64_t *)(void *)(box->storage+aligned);uint32_t owner_at=0;if(!prepare_aggregate(r,box->storage,di,owner_cells,&owner_at)||owner_at!=owners){v->dynamic->temporary_count=0;return abc_fail(r->e,ABC_INVALID,pc,"invalid managed aggregate source");}v->dynamic->temporary_count=0;z=(uint64_t)(uintptr_t)o;}else if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE){unsigned ownership=d->payload[0];uint64_t length=0;if(d->tag==ABC_DESC_SLICE&&!pop_any(v,&length))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");if(ownership==1||(!ownership&&d->tag==ABC_DESC_SLICE))return abc_fail(r->e,ABC_INVALID,pc,"unmanaged borrowed view cannot enter any");if(!ownership){abc_object *o=allocate_object(r,ABC_ANY_PTR,sizeof(scalar_box),di);if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic pointer boxing failed");scalar_box *b=(scalar_box *)o->data;b->tag=ABC_ANY_PTR;b->bits=x;z=(uint64_t)(uintptr_t)o;}else{if(!ensure_heap(v))return abc_fail(r->e,ABC_NOMEM,pc,"dynamic heap allocation failed");struct gc_ref owner=gc_ref_null();if(x){owner=gc_resolve_conservative_ref(v->dynamic->gc.heap,gc_conservative_ref(x),1);if(gc_ref_is_null(owner))return abc_fail(r->e,ABC_INVALID,pc,"managed view has no collected owner");}v->dynamic->temporary[0]=x;v->dynamic->temporary_count=1;abc_object *o=allocate_object(r,ABC_OBJECT_MANAGED,sizeof(managed_box),di);v->dynamic->temporary_count=0;if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"managed-view boxing failed");managed_box *box=(managed_box *)o->data;box->address=x;box->length=length;box->owner=gc_ref_value(owner);z=(uint64_t)(uintptr_t)o;}}else if(d->tag==ABC_DESC_PRIMITIVE){unsigned prim=d->payload[0],tag=primitive_tag(prim);if(prim==ABC_PRIM_UNIT)z=abc_any_unit();else if(prim==ABC_PRIM_STRING){uint64_t n,a;if(!pop_any(v,&n)||!pop_any(v,&a))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");if(n>UINT32_MAX||n>SIZE_MAX-sizeof(string_box))return abc_fail(r->e,ABC_NOMEM,pc,"dynamic string too large");abc_object *o=allocate_object(r,ABC_ANY_STRING,sizeof(string_box)+(size_t)n,di);if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic string allocation failed");string_box *s=(string_box *)o->data;s->length=(uint32_t)n;memcpy(s->bytes,(void *)(uintptr_t)a,(size_t)n);z=(uint64_t)(uintptr_t)o;}else{if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");int ok=1;z=box_scalar(r,tag,x,&ok);if(!ok)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic boxing failed");}}else return abc_fail(r->e,ABC_INVALID,pc,"descriptor is not dynamically boxable");if(!push_any(v,z))return abc_fail(r->e,ABC_STACK,pc,"stack limit reached");return ABC_OK;}
+-    if(ext==EXT_ANY_IS||ext==EXT_ANY_CAST){
+-        uint32_t di=abc_u32(p+2);const abc_descriptor *d=&r->m->descriptors[di];if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");
+-        if(d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM){abc_object *o=find_object(v,x);int matches=o&&o->kind==ABC_ANY_AGGREGATE&&o->descriptor==di;if(ext==EXT_ANY_IS)return push_any(v,matches)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");if(!matches)return abort_dynamic(r,pc,6);aggregate_box *box=(aggregate_box *)o->data;return push_any(v,(uint64_t)(uintptr_t)box->storage)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-        if((d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE)&&d->payload[0]==2){abc_object *o=find_object(v,x);int matches=o&&o->kind==ABC_OBJECT_MANAGED&&o->descriptor==di;if(ext==EXT_ANY_IS)return push_any(v,matches)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");if(!matches)return abort_dynamic(r,pc,6);managed_box *box=(managed_box *)o->data;if(!push_any(v,box->address)||(d->tag==ABC_DESC_SLICE&&!push_any(v,box->length)))return abc_fail(r->e,ABC_STACK,pc,"stack limit reached");return ABC_OK;}
+-        if(d->tag!=ABC_DESC_PRIMITIVE&&d->tag!=ABC_DESC_POINTER)return abort_dynamic(r,pc,6);
+-        unsigned prim=d->tag==ABC_DESC_POINTER?UINT_MAX:d->payload[0],want=d->tag==ABC_DESC_POINTER?ABC_ANY_PTR:primitive_tag(prim),tag;uint64_t bits;
+-        if(ext==EXT_ANY_IS){abc_object *o=find_object(v,x);z=o&&o->descriptor==di?1:abc_any_tag(v,x)==want;return push_any(v,z)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-        if(want==ABC_ANY_STRING){abc_object *o=find_object(v,x);if(!o||o->kind!=ABC_ANY_STRING)return abort_dynamic(r,pc,6);string_box *s=(string_box *)o->data;return push_any(v,(uint64_t)(uintptr_t)s->bytes)&&push_any(v,s->length)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-        if(want==ABC_ANY_WORD){if(abc_any_tag(v,x)!=want)return abort_dynamic(r,pc,6);return push_any(v,x)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-        if(!scalar(v,x,&tag,&bits))return abort_dynamic(r,pc,6);
+-        if(tag!=want){uint64_t converted;int numeric=(integer_tag(tag)||tag==ABC_ANY_F64)&&(integer_tag(want)||want==ABC_ANY_F64);if(!numeric)return abort_dynamic(r,pc,6);if(!convert_numeric(tag,bits,want,&converted))return abort_dynamic(r,pc,3);bits=converted;}
+-        if(prim==ABC_PRIM_UNIT)return ABC_OK;return push_any(v,bits)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");
+-    }
+-    if(ext>=EXT_DADD&&ext<=EXT_DXOR){if(!pop_any(v,&y)||!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");status=dynamic_binary(r,ext,x,y,pc,&z);if(status!=ABC_OK)return status;return push_any(v,z)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-    if(ext>=EXT_DADDL&&ext<=EXT_DXORL){uint32_t ci=abc_u32(p+2);const abc_dynamic_constant *c=&r->m->dynamic_constants[ci];if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");unsigned xt;uint64_t xb;if(!scalar(v,x,&xt,&xb))return abort_dynamic(r,pc,6);uint64_t bits=0;memcpy(&bits,c->payload,c->length);unsigned ct=primitive_tag(c->kind);if((c->flags&1)&&integer_tag(xt)){int fit=1;if(signed_tag(xt)){int64_t q=c->kind==ABC_PRIM_I32||c->kind==ABC_PRIM_I64?abc_signed(bits):(bits<=INT64_MAX?(int64_t)bits:INT64_MIN);unsigned w=width_tag(xt);fit=w==32?q>=INT32_MIN&&q<=INT32_MAX:!(c->kind!=ABC_PRIM_I32&&c->kind!=ABC_PRIM_I64&&bits>INT64_MAX);bits=(uint64_t)q;}else{if(c->kind==ABC_PRIM_I32||c->kind==ABC_PRIM_I64)fit=abc_signed(bits)>=0;unsigned w=width_tag(xt);if(w<64)fit=fit&&bits<=(UINT64_C(1)<<w)-1;}if(!fit)return abort_dynamic(r,pc,6);ct=xt;}int ok=1;y=box_scalar(r,ct,normalize(ct,bits),&ok);if(!ok)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic literal allocation failed");unsigned base=EXT_DADD+(ext-EXT_DADDL);status=p[6]?dynamic_binary(r,base,y,x,pc,&z):dynamic_binary(r,base,x,y,pc,&z);if(status!=ABC_OK)return status;return push_any(v,z)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-    if(ext==EXT_DNEG||ext==EXT_DNOT||ext==EXT_DLNOT){unsigned tag;uint64_t bits;if(!pop_any(v,&x)||!scalar(v,x,&tag,&bits))return abort_dynamic(r,pc,6);if(ext==EXT_DLNOT){if(tag!=ABC_ANY_BOOL)return abort_dynamic(r,pc,6);return push_any(v,!bits)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}if(!integer_tag(tag)&&!(ext==EXT_DNEG&&tag==ABC_ANY_F64))return abort_dynamic(r,pc,6);if(tag==ABC_ANY_F64)bits^=UINT64_C(0x8000000000000000);else bits=ext==EXT_DNEG?0-bits:~bits;int ok=1;z=box_scalar(r,tag,normalize(tag,bits),&ok);if(!ok)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic allocation failed");return push_any(v,z)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-    if(ext>=EXT_DEQ&&ext<=EXT_DLE){unsigned tx,ty;uint64_t bx,by;if(!pop_any(v,&y)||!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");int eq=x==y;if(scalar(v,x,&tx,&bx)&&scalar(v,y,&ty,&by)){if(integer_tag(tx)&&integer_tag(ty)){if(signed_tag(tx)==signed_tag(ty))eq=bx==by;else eq=signed_tag(tx)?abc_signed(bx)>=0&&(uint64_t)abc_signed(bx)==by:abc_signed(by)>=0&&bx==(uint64_t)abc_signed(by);}else if(tx==ABC_ANY_F64&&ty==ABC_ANY_F64)eq=vm_feq(bx,by);else eq=tx==ty&&bx==by;}if(ext==EXT_DEQ||ext==EXT_DNE)z=ext==EXT_DEQ?eq:!eq;else{if(!scalar(v,x,&tx,&bx)||!scalar(v,y,&ty,&by))return abort_dynamic(r,pc,6);if(tx==ABC_ANY_F64&&ty==ABC_ANY_F64)z=ext==EXT_DLT?vm_flt(bx,by):vm_fle(bx,by);else if(integer_tag(tx)&&integer_tag(ty)&&signed_tag(tx)==signed_tag(ty))z=signed_tag(tx)?(ext==EXT_DLT?abc_signed(bx)<abc_signed(by):abc_signed(bx)<=abc_signed(by)):(ext==EXT_DLT?bx<by:bx<=by);else return abort_dynamic(r,pc,6);}return push_any(v,z)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-    if(ext==EXT_DREQUIRE_BOOL){unsigned tag;uint64_t bits;if(!pop_any(v,&x)||!scalar(v,x,&tag,&bits)||tag!=ABC_ANY_BOOL)return abort_dynamic(r,pc,6);return push_any(v,bits)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
++    if(ext==EXT_ANY_CAST||ext==EXT_ANY_IS||(ext>=EXT_DNEG&&ext<=EXT_DREQUIRE_BOOL))return abc_fail(r->e,ABC_INVALID,pc,"scalar opcode reached object runtime");
++    if(ext==EXT_ANY_BOX){uint32_t di=abc_u32(p+2);const abc_descriptor *d=&r->m->descriptors[di];if(d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM){if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");uint32_t size=trace_layout_size(r->m,di),owners=aggregate_owner_count(r->m,(const uint8_t *)(uintptr_t)x,di),aligned=(size+7u)&~7u;if(owners==UINT32_MAX||(size_t)aligned+(size_t)owners*8<aligned)return abc_fail(r->e,ABC_NOMEM,pc,"aggregate dynamic box too large");v->dynamic->temporary[0]=x;v->dynamic->temporary_count=1;abc_object *o=allocate_object(r,ABC_ANY_AGGREGATE,sizeof(aggregate_box)+(size_t)aligned+(size_t)owners*8,di);if(!o){v->dynamic->temporary_count=0;return abc_fail(r->e,ABC_NOMEM,pc,"aggregate dynamic allocation failed");}v->dynamic->temporary[1]=(uint64_t)(uintptr_t)o;v->dynamic->temporary_count=2;aggregate_box *box=(aggregate_box *)o->data;box->size=size;box->owner_count=owners;memcpy(box->storage,(const void *)(uintptr_t)x,size);uint64_t *owner_cells=(uint64_t *)(void *)(box->storage+aligned);uint32_t owner_at=0;if(!prepare_aggregate(r,box->storage,di,owner_cells,&owner_at)||owner_at!=owners){v->dynamic->temporary_count=0;return abc_fail(r->e,ABC_INVALID,pc,"invalid managed aggregate source");}v->dynamic->temporary_count=0;z=(uint64_t)(uintptr_t)o;}else if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE){unsigned ownership=d->payload[0];uint64_t length=0;if(d->tag==ABC_DESC_SLICE&&!pop_any(v,&length))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");if(ownership==1||(!ownership&&d->tag==ABC_DESC_SLICE))return abc_fail(r->e,ABC_INVALID,pc,"unmanaged borrowed view cannot enter any");if(!ownership){abc_object *o=allocate_object(r,ABC_ANY_PTR,sizeof(scalar_box),di);if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic pointer boxing failed");scalar_box *b=(scalar_box *)o->data;b->tag=ABC_ANY_PTR;b->bits=x;z=(uint64_t)(uintptr_t)o;}else{if(!ensure_heap(v))return abc_fail(r->e,ABC_NOMEM,pc,"dynamic heap allocation failed");struct gc_ref owner=gc_ref_null();if(x){owner=gc_resolve_conservative_ref(v->dynamic->gc.heap,gc_conservative_ref(x),1);if(gc_ref_is_null(owner))return abc_fail(r->e,ABC_INVALID,pc,"managed view has no collected owner");}v->dynamic->temporary[0]=x;v->dynamic->temporary_count=1;abc_object *o=allocate_object(r,ABC_OBJECT_MANAGED,sizeof(managed_box),di);v->dynamic->temporary_count=0;if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"managed-view boxing failed");managed_box *box=(managed_box *)o->data;box->address=x;box->length=length;box->owner=gc_ref_value(owner);z=(uint64_t)(uintptr_t)o;}}else if(d->tag==ABC_DESC_PRIMITIVE){if(d->payload[0]!=ABC_PRIM_STRING)return abc_fail(r->e,ABC_INVALID,pc,"scalar boxing reached object runtime");{uint64_t n,a;if(!pop_any(v,&n)||!pop_any(v,&a))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");if(n>UINT32_MAX||n>SIZE_MAX-sizeof(string_box))return abc_fail(r->e,ABC_NOMEM,pc,"dynamic string too large");abc_object *o=allocate_object(r,ABC_ANY_STRING,sizeof(string_box)+(size_t)n,di);if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic string allocation failed");string_box *s=(string_box *)o->data;s->length=(uint32_t)n;memcpy(s->bytes,(void *)(uintptr_t)a,(size_t)n);z=(uint64_t)(uintptr_t)o;}}else return abc_fail(r->e,ABC_INVALID,pc,"descriptor is not dynamically boxable");if(!push_any(v,z))return abc_fail(r->e,ABC_STACK,pc,"stack limit reached");return ABC_OK;}
+     if(ext==EXT_STRING_CAT){if(!pop_any(v,&y)||!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");abc_object *a=find_object(v,x),*b=find_object(v,y);if(!a||!b||a->kind!=ABC_ANY_STRING||b->kind!=ABC_ANY_STRING)return abort_dynamic(r,pc,6);string_box *sa=(string_box *)a->data,*sb=(string_box *)b->data;size_t n=(size_t)sa->length+sb->length;if(n>UINT32_MAX)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic string too large");v->dynamic->temporary[0]=x;v->dynamic->temporary[1]=y;v->dynamic->temporary_count=2;abc_object *o=allocate_object(r,ABC_ANY_STRING,sizeof(string_box)+n,UINT32_MAX);v->dynamic->temporary_count=0;if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic string allocation failed");string_box *s=(string_box *)o->data;s->length=(uint32_t)n;memcpy(s->bytes,sa->bytes,sa->length);memcpy(s->bytes+sa->length,sb->bytes,sb->length);return push_any(v,(uint64_t)(uintptr_t)o)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+-    if(ext==EXT_STRING_TEXT){if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");unsigned tag;uint64_t bits;char text[96];int n;if(!scalar(v,x,&tag,&bits))return abort_dynamic(r,pc,6);if(tag==ABC_ANY_UNIT)n=snprintf(text,sizeof text,"unit");else if(tag==ABC_ANY_BOOL)n=snprintf(text,sizeof text,bits?"true":"false");else if(tag==ABC_ANY_F64)n=snprintf(text,sizeof text,"%.17g",vm_float(bits));else if(integer_tag(tag))n=signed_tag(tag)?snprintf(text,sizeof text,"%lld",(long long)abc_signed(bits)):snprintf(text,sizeof text,"%llu",(unsigned long long)bits);else return abort_dynamic(r,pc,6);abc_object *o=allocate_object(r,ABC_ANY_STRING,sizeof(string_box)+(size_t)n,UINT32_MAX);if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic text allocation failed");string_box *s=(string_box *)o->data;s->length=(uint32_t)n;memcpy(s->bytes,text,(size_t)n);return push_any(v,(uint64_t)(uintptr_t)o)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
++    if(ext==EXT_STRING_TEXT){if(!pop_any(v,&x))return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");unsigned tag;uint64_t bits;char text[96];int n;if(!scalar(v,x,&tag,&bits))return abort_dynamic(r,pc,6);if(tag==ABC_ANY_UNIT)n=snprintf(text,sizeof text,"unit");else if(tag==ABC_ANY_BOOL)n=snprintf(text,sizeof text,bits?"true":"false");else if(tag==ABC_ANY_F64)n=snprintf(text,sizeof text,"%.17g",vm_float(bits));else if(abc_numeric_integer(tag))n=abc_numeric_signed(tag)?snprintf(text,sizeof text,"%lld",(long long)abc_signed(bits)):snprintf(text,sizeof text,"%llu",(unsigned long long)bits);else return abort_dynamic(r,pc,6);abc_object *o=allocate_object(r,ABC_ANY_STRING,sizeof(string_box)+(size_t)n,UINT32_MAX);if(!o)return abc_fail(r->e,ABC_NOMEM,pc,"dynamic text allocation failed");string_box *s=(string_box *)o->data;s->length=(uint32_t)n;memcpy(s->bytes,text,(size_t)n);return push_any(v,(uint64_t)(uintptr_t)o)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+     if(ext==EXT_DCALL||ext==EXT_DTCALL){
+         unsigned supplied=p[2],requested=p[3],adjust=p[4];uint64_t incoming[255],arguments[255],callable_value;
+         if(v->na<(size_t)supplied+1)return abc_fail(r->e,ABC_INVALID,pc,"dynamic stack underflow");for(unsigned i=supplied;i--;)pop_any(v,&incoming[i]);pop_any(v,&callable_value);
+@@ -201,7 +122,7 @@ abc_status vm_dynamic(abc_run *r,const uint8_t *p,uint32_t pc){
+             for(uint32_t i=0;i<addition->count;i++){word_key supplied_key;uint64_t hash;int slot=map_find(v,copy_map,added[i].key,&supplied_key,&hash);if(slot>=0){uint32_t argument=map_entries(copy_map)[slot].argument;map_entries(copy_map)[slot]=added[i];map_entries(copy_map)[slot].argument=argument;}else{word_entry entry=added[i];entry.argument=UINT32_MAX;map_entries(copy_map)[copy_map->count++]=entry;}map_rebuild(copy_map);}
+             word_box *copy=(word_box *)copy_object->data;copy->map=(uint64_t)(uintptr_t)copy_map_object;copy->terminal=w->terminal;copy->remaining=w->remaining;copy->layout_token=fresh_layout_token(v);if(!copy->layout_token)return abc_fail(r->e,ABC_NOMEM,pc,"layout-token space exhausted");return push_any(v,(uint64_t)(uintptr_t)copy_object)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");
+         }
+-        if(ext==EXT_WORD_KEY){unsigned tag;uint64_t bits;if(!scalar(v,key_value,&tag,&bits)||!integer_tag(tag)||bits>=map->count)return abort_dynamic(r,pc,2);return push_any(v,map_entries(map)[bits].key)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
++        if(ext==EXT_WORD_KEY){unsigned tag;uint64_t bits;if(!scalar(v,key_value,&tag,&bits)||!abc_numeric_integer(tag)||bits>=map->count)return abort_dynamic(r,pc,2);return push_any(v,map_entries(map)[bits].key)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}
+         word_key key;uint64_t hash=0;int slot=map_find(v,map,key_value,&key,&hash);if(slot==-2)return abort_dynamic(r,pc,8);if(ext==EXT_WORD_HAS)return push_any(v,slot>=0)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");if(ext==EXT_WORD_GET){if(slot<0)return abort_dynamic(r,pc,7);word_entry *entry=&map_entries(map)[slot];return entry->method?push_bound_method(r,word_value,entry->value,pc):push_any(v,entry->value)?ABC_OK:abc_fail(r->e,ABC_STACK,pc,"stack limit reached");}if(w->readonly)return abort_dynamic(r,pc,13);if(w->frozen)return abort_dynamic(r,pc,10);
+         if(ext==EXT_WORD_SET||ext==EXT_WORD_METHOD||ext==EXT_WORD_BIND){
+             uint8_t method=ext==EXT_WORD_METHOD;uint32_t argument=ext==EXT_WORD_BIND?abc_u32(p+2):UINT32_MAX,required=r->m->descriptors[o->descriptor].payload[0];if(argument!=UINT32_MAX&&argument>=required)return abort_dynamic(r,pc,12);
+@@ -232,6 +153,23 @@ abc_status vm_dynamic(abc_run *r,const uint8_t *p,uint32_t pc){
+ 
+ static void refresh_owner_layout(abc_run *r,uint8_t *base,uint32_t di,uint64_t *owners,uint32_t *at){const abc_descriptor *d=&r->m->descriptors[di];const uint8_t *p=d->payload;if(d->tag==ABC_DESC_PRIMITIVE&&p[0]==ABC_PRIM_STRING){uint64_t address=abc_u64(base);owners[(*at)++]=address?gc_ref_value(gc_resolve_conservative_ref(r->v->dynamic->gc.heap,gc_conservative_ref(address),1)):0;return;}if((d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE)&&p[0]==2){uint64_t address=abc_u64(base);owners[(*at)++]=address?gc_ref_value(gc_resolve_conservative_ref(r->v->dynamic->gc.heap,gc_conservative_ref(address),1)):0;return;}if(d->tag==ABC_DESC_RECORD){for(uint32_t i=0;i<abc_u32(p+4);i++){const uint8_t *f=p+8+16*i;refresh_owner_layout(r,base+abc_u32(f+8),abc_u32(f+12),owners,at);}}else if(d->tag==ABC_DESC_ARRAY){uint32_t n=abc_u32(p+4),element=abc_u32(p+8),stride=trace_layout_size(r->m,element);for(uint32_t i=0;i<n;i++)refresh_owner_layout(r,base+(size_t)i*stride,element,owners,at);}else if(d->tag==ABC_DESC_SUM){uint64_t disc=0;memcpy(&disc,base+abc_u32(p+4),p[8]);for(unsigned i=0;i<p[9];i++){const uint8_t *c=p+12+16*i;if(abc_u64(c)==disc){refresh_owner_layout(r,base+abc_u32(c+8),abc_u32(c+12),owners,at);break;}}}}
+ void vm_dynamic_write_native(uint64_t address,uint32_t bytes){abc_run *r=abc_active_run;if(!r||!r->v->dynamic||!r->v->dynamic->gc.heap||!bytes)return;struct gc_ref ref=gc_resolve_conservative_ref(r->v->dynamic->gc.heap,gc_conservative_ref(address),1);if(gc_ref_is_null(ref))return;abc_object *o=gc_ref_heap_object(ref);if(o->kind!=ABC_OBJECT_STORAGE)return;aggregate_box *box=(aggregate_box *)o->data;uintptr_t start=(uintptr_t)box->storage,end=start+box->size;if(address>=end||(uint64_t)bytes>end-address)return;uint32_t aligned=(box->size+7u)&~7u,at=0;uint64_t *owners=(uint64_t *)(void *)(box->storage+aligned);memset(owners,0,(size_t)box->owner_count*8);refresh_owner_layout(r,box->storage,o->descriptor,owners,&at);if(at>box->owner_count)return;for(uint32_t i=0;i<at;i++)if(owners[i])gc_write_barrier(r->v->dynamic->gc.mutator,ref,o->bytes,gc_edge(&owners[i]),gc_ref(owners[i]));}
++/* The cold poll edge roots physical homes and registers without changing
++   placement or boxing raw integers. Whippet pins every managed object. */
++void vm_collect_native(uint64_t *asp,uint64_t *bsp,uint64_t *csp,uint64_t *registers) {
++    abc_vm *v=abc_active_run->v;if(!v->dynamic||!v->dynamic->gc.mutator){abc_dynamic_collect(v);return;}
++    size_t na=v->na,nb=v->nb,nc=v->nc;
++    uint64_t *previous=v->dynamic->native_roots;v->dynamic->native_roots=registers;
++    v->na=(size_t)(asp-v->a);v->nb=(size_t)(bsp-v->b);v->nc=(size_t)(csp-v->c);
++    abc_dynamic_collect(v);
++    v->dynamic->native_roots=previous;v->na=na;v->nb=nb;v->nc=nc;
++}
++uint64_t vm_scalar_allocate(uint64_t *asp,uint64_t *bsp,uint64_t *csp,unsigned tag,uint64_t bits) {
++    abc_run *r=abc_active_run;if(!r)return 0;abc_vm *v=r->v;
++    v->ca=v->cb=v->cc=0;v->na=(size_t)(asp-v->a);v->nb=(size_t)(bsp-v->b);v->nc=(size_t)(csp-v->c);
++    abc_object *o=allocate_object(r,tag,sizeof(scalar_box),UINT32_MAX);
++    if(o){scalar_box *b=(scalar_box *)o->data;b->tag=(uint8_t)tag;b->bits=bits;}
++    v->na=v->nb=v->nc=0;return (uint64_t)(uintptr_t)o;
++}
+ uint64_t vm_dynamic_native(uint64_t **asp,uint64_t **bsp,uint64_t **csp,const uint8_t *p,uint32_t pc){
+     abc_run *r=abc_active_run;if(!r)return (uint64_t)ABC_INVALID|((uint64_t)pc<<16);abc_vm *v=r->v;
+     v->ca=v->cb=v->cc=0;v->na=(size_t)(*asp-v->a);v->nb=(size_t)(*bsp-v->b);v->nc=(size_t)(*csp-v->c);
+@@ -239,61 +177,3 @@ uint64_t vm_dynamic_native(uint64_t **asp,uint64_t **bsp,uint64_t **csp,const ui
+     *asp=v->a+v->na;*bsp=v->b+v->nb;*csp=v->c+v->nc;v->na=v->nb=v->nc=0;if(s==ABC_OK)return 0;unsigned reason=r->e?r->e->reason:0;return (uint64_t)s|((uint64_t)reason<<8)|((uint64_t)pc<<16);
+ }
+ 
+-static void residual_put32(uint8_t *p,uint32_t value){
+-    p[0]=(uint8_t)value;p[1]=(uint8_t)(value>>8);
+-    p[2]=(uint8_t)(value>>16);p[3]=(uint8_t)(value>>24);
+-}
+-
+-uint64_t vm_dynamic_residual_native(uint64_t **asp,uint64_t **bsp,
+-        uint64_t **csp,const uint8_t *state,uint32_t unused_pc){
+-    const abc_residual_dynamic_site *site=
+-        (const abc_residual_dynamic_site *)(const void *)state;
+-    abc_run *active=abc_active_run;
+-    if(!active)return (uint64_t)ABC_INVALID|(site->origin<<16);
+-    uint8_t instruction[10]={OP_EXT,0};
+-    instruction[1]=(uint8_t)(site->kind==ABC_RESIDUAL_DYNAMIC_CALL
+-        ?EXT_DCALL:site->kind==ABC_RESIDUAL_DYNAMIC_TAIL_CALL
+-        ?EXT_DTCALL:site->kind==ABC_RESIDUAL_DYNAMIC_CALLABLE
+-        ?(site->has_environment?EXT_CLOSURE_NEW:EXT_WORD_DIRECT):
+-        site->kind==ABC_RESIDUAL_DYNAMIC_MATERIALIZE
+-        ?(site->materialize_decode?EXT_ANY_CAST:EXT_ANY_BOX):site->selector);
+-    abc_run local=*active;
+-    abc_module local_module=*active->m;
+-    abc_dynamic_constant literal={0};
+-    uint8_t payload[16]={0};
+-    if(site->kind==ABC_RESIDUAL_DYNAMIC_CALLABLE){
+-        residual_put32(instruction+2,(uint32_t)site->target);
+-        residual_put32(instruction+6,(uint32_t)site->descriptor);
+-    }else if(site->kind==ABC_RESIDUAL_DYNAMIC_CALL||
+-       site->kind==ABC_RESIDUAL_DYNAMIC_TAIL_CALL){
+-        instruction[2]=(uint8_t)site->arguments;
+-        instruction[3]=(uint8_t)site->results;
+-        instruction[4]=(uint8_t)site->adjustment;
+-    }else if(site->has_literal){
+-        residual_put32(instruction+2,0);instruction[6]=site->reverse;
+-        unsigned length=site->literal_primitive==ABC_PRIM_UNIT?0:
+-            site->literal_primitive==ABC_PRIM_BOOL||
+-            site->literal_primitive==ABC_PRIM_U8?1:
+-            site->literal_primitive==ABC_PRIM_U16?2:
+-            site->literal_primitive==ABC_PRIM_U32||
+-            site->literal_primitive==ABC_PRIM_I32?4:8;
+-        memcpy(payload,&site->literal_low,8);
+-        memcpy(payload+8,&site->literal_high,8);
+-        literal=(abc_dynamic_constant){site->literal_primitive,
+-            site->literal_flags,(uint16_t)length,payload};
+-        local_module.dynamic_constants=&literal;
+-        local_module.dynamic_constant_count=1;
+-        local.m=&local_module;
+-    }else residual_put32(instruction+2,(uint32_t)site->descriptor);
+-    abc_vm *v=local.v;
+-    v->ca=v->cb=v->cc=0;v->na=(size_t)(*asp-v->a);
+-    v->nb=(size_t)(*bsp-v->b);v->nc=(size_t)(*csp-v->c);
+-    abc_status status=vm_dynamic(&local,instruction,(uint32_t)site->origin);
+-    *asp=v->a+v->na;*bsp=v->b+v->nb;*csp=v->c+v->nc;
+-    v->na=v->nb=v->nc=0;
+-    if(status==ABC_OK)return 0;
+-    unsigned reason=local.e?local.e->reason:0;
+-    (void)unused_pc;
+-    return (uint64_t)status|((uint64_t)reason<<8)|(site->origin<<16);
+-}
+-
+diff --git a/src/dynamic.h b/src/dynamic.h
+index eb9f05b..608c0f5 100644
+--- a/src/dynamic.h
++++ b/src/dynamic.h
+@@ -1,81 +1,47 @@
+ #ifndef ABC_DYNAMIC_H
+ #define ABC_DYNAMIC_H
+ #include "vm_internal.h"
+-#include "whippet_types.h"
++#include "scalar_rules.h"
++#include "generated/scalar_ops.h"
+ 
+-enum {
+-    ABC_ANY_UNIT, ABC_ANY_BOOL, ABC_ANY_U8, ABC_ANY_U16, ABC_ANY_U32, ABC_ANY_U64,
+-    ABC_ANY_I32, ABC_ANY_I64, ABC_ANY_F64, ABC_ANY_STRING, ABC_ANY_PTR, ABC_ANY_WORD,
+-    ABC_ANY_CLOSURE, ABC_ANY_AGGREGATE
+-};
+ 
+-
+-typedef enum {
+-    ABC_RESIDUAL_DYNAMIC_OPERATION,
+-    ABC_RESIDUAL_DYNAMIC_CALL,
+-    ABC_RESIDUAL_DYNAMIC_TAIL_CALL,
+-    ABC_RESIDUAL_DYNAMIC_MATERIALIZE,
+-    ABC_RESIDUAL_DYNAMIC_CALLABLE
+-} abc_residual_dynamic_kind;
+-
+-typedef struct {
+-    uint64_t origin;
+-    uint64_t selector;
+-    uint64_t descriptor;
+-    uint64_t adjustment;
+-    uint64_t target;
+-    uint64_t literal_low;
+-    uint64_t literal_high;
+-    uint32_t arguments;
+-    uint32_t results;
+-    uint8_t kind;
+-    uint8_t reverse;
+-    uint8_t has_literal;
+-    uint8_t literal_primitive;
+-    uint8_t literal_flags;
+-    uint8_t materialize_decode;
+-    uint8_t has_environment;
+-} abc_residual_dynamic_site;
+-
+-struct abc_dynamic_heap {
+-    struct abc_whippet_heap gc;
+-    _Atomic unsigned collection_requested;
+-    unsigned temporary_count;
+-    uint64_t temporary[4], call_roots[255], *suspended;
+-    size_t suspended_count;
+-    unsigned call_root_count;
+-};
+-
+-/* Numeric dispatch is shared by concrete execution and symbolic CFGs.
+-   UINT_MAX means type mismatch; width promotion never mixes signedness. */
+-static inline unsigned abc_numeric_width(unsigned tag) {
+-    static const uint8_t widths[]={0,1,8,16,32,64,32,64,64};
+-    return tag<sizeof widths?widths[tag]:0;
+-}
+-static inline int abc_numeric_integer(unsigned tag) { return tag>=ABC_ANY_U8&&tag<=ABC_ANY_I64; }
+-static inline int abc_numeric_signed(unsigned tag) { return tag==ABC_ANY_I32||tag==ABC_ANY_I64; }
+-static inline unsigned abc_numeric_result(unsigned selector,unsigned left,unsigned right) {
+-    if(selector<EXT_DADD||selector>EXT_DXOR)return UINT_MAX;
+-    if(left==ABC_ANY_F64&&right==ABC_ANY_F64)
+-        return selector==EXT_DADD||selector==EXT_DSUB||selector==EXT_DMUL||selector==EXT_DDIV?ABC_ANY_F64:UINT_MAX;
+-    if(!abc_numeric_integer(left)||!abc_numeric_integer(right)||abc_numeric_signed(left)!=abc_numeric_signed(right))return UINT_MAX;
+-    return abc_numeric_width(left)>=abc_numeric_width(right)?left:right;
++static inline unsigned abc_primitive_tag(unsigned primitive) {
++    static const uint8_t tags[]={ABC_ANY_UNIT,ABC_ANY_BOOL,ABC_ANY_U8,ABC_ANY_U16,ABC_ANY_U32,ABC_ANY_U64,ABC_ANY_I32,ABC_ANY_I64,ABC_ANY_F64,ABC_ANY_STRING,255,ABC_ANY_WORD};
++    return primitive<sizeof tags?tags[primitive]:255;
+ }
+-static inline uint16_t abc_numeric_arguments(unsigned result) {
+-    uint16_t mask=0;
+-    for(unsigned tag=ABC_ANY_U8;tag<=ABC_ANY_F64;tag++)
+-        if(abc_numeric_result(EXT_DADD,tag,result)==result)mask|=(uint16_t)(1u<<tag);
+-    return mask;
++/* Descriptor projection, independent of cache/register placement. */
++enum { ABC_ANY_LAYOUT_INVALID, ABC_ANY_LAYOUT_SCALAR, ABC_ANY_LAYOUT_IDENTITY, ABC_ANY_LAYOUT_OBJECT };
++typedef struct { unsigned form,tag,cells,object_kind,exact_descriptor,address; size_t offset[2]; unsigned width[2]; } abc_any_layout;
++static inline abc_any_layout abc_any_descriptor_layout(const abc_descriptor *d) {
++    abc_any_layout l={0};l.cells=1;
++    if(d->tag==ABC_DESC_PRIMITIVE){
++        unsigned p=d->payload[0];l.tag=abc_primitive_tag(p);
++        if(p==ABC_PRIM_ANY||p==ABC_PRIM_WORD){l.form=ABC_ANY_LAYOUT_IDENTITY;return l;}
++        if(p!=ABC_PRIM_STRING){l.form=ABC_ANY_LAYOUT_SCALAR;l.cells=p!=ABC_PRIM_UNIT;return l;}
++        l.form=ABC_ANY_LAYOUT_OBJECT;l.object_kind=ABC_ANY_STRING;l.cells=2;l.address=1;
++        l.offset[0]=sizeof(abc_object)+offsetof(string_box,bytes);l.offset[1]=sizeof(abc_object)+offsetof(string_box,length);l.width[1]=4;return l;
++    }
++    if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE){
++        if(d->tag==ABC_DESC_POINTER&&d->payload[0]==0){l.form=ABC_ANY_LAYOUT_SCALAR;l.tag=ABC_ANY_PTR;return l;}
++        if(d->payload[0]!=2)return l;
++        l.form=ABC_ANY_LAYOUT_OBJECT;l.tag=ABC_ANY_AGGREGATE;l.object_kind=ABC_OBJECT_MANAGED;l.exact_descriptor=1;
++        l.cells=d->tag==ABC_DESC_SLICE?2:1;l.offset[0]=sizeof(abc_object)+offsetof(managed_box,address);l.width[0]=8;
++        l.offset[1]=sizeof(abc_object)+offsetof(managed_box,length);l.width[1]=8;return l;
++    }
++    if(d->tag==ABC_DESC_RECORD||d->tag==ABC_DESC_ARRAY||d->tag==ABC_DESC_SUM){
++        l.form=ABC_ANY_LAYOUT_OBJECT;l.tag=ABC_ANY_AGGREGATE;l.object_kind=ABC_ANY_AGGREGATE;l.exact_descriptor=1;l.address=1;
++        l.offset[0]=sizeof(abc_object)+offsetof(aggregate_box,storage);
++    }
++    return l;
+ }
+-uint64_t abc_dynamic_numeric_classify(uint64_t state,uint64_t left,uint64_t right,uint64_t selector);
+-uint64_t abc_dynamic_numeric_bits(uint64_t value,uint64_t state);
++/* Allocation only: tag checks and arithmetic never enter this boundary. */
++uint64_t vm_scalar_allocate(uint64_t *asp,uint64_t *bsp,uint64_t *csp,unsigned tag,uint64_t bits);
+ 
+ uint64_t abc_any_unit(void);
+ unsigned abc_any_tag(const abc_vm *vm,uint64_t value);
+ abc_status vm_dynamic(abc_run *run,const uint8_t *p,uint32_t pc);
+-uint64_t vm_dynamic_residual_native(uint64_t **asp,uint64_t **bsp,
+-    uint64_t **csp,const uint8_t *state,uint32_t pc);
+ void abc_dynamic_collect(abc_vm *vm);
++void vm_collect_native(uint64_t *asp,uint64_t *bsp,uint64_t *csp,uint64_t *registers);
+ void abc_dynamic_destroy(abc_vm *vm);
+ 
+ #endif
+diff --git a/src/residualize.c b/src/residualize.c
+index 6e2a03c..dc3dbe6 100644
+--- a/src/residualize.c
++++ b/src/residualize.c
+@@ -2,6 +2,7 @@
+ #include "residualize.h"
+ #include "symbolic.h"
+ #include "dynamic.h"
++#include "gc-api.h"
+ #include "generated/stencils.h"
+ #include "generated/stencil_layout.h"
+ _Static_assert(ABC_SYM_EQ==ABC_JBR_EQ && ABC_SYM_NE==ABC_JBR_NE &&
+@@ -266,13 +267,63 @@ static int materialize_mask(Compiler *c,Context *x,JValue *v,unsigned mask) {
+ }
+ static int materialize(Compiler *c,Context *x,JValue *v) { return materialize_mask(c,x,v,0); }
+ static int writable(Compiler *c,Context *x,JValue *v);
++static int save_value(Compiler *c,Context *x,JValue *v);
++static int local_branch(Compiler *c,unsigned stencil,Fixup *fix);
++static void bind_local(Compiler *c,const Fixup *fix);
++static int allocate_scalar(Compiler *c,Context *x,unsigned reg,unsigned tag) {
++    /* Only the allocating edge publishes roots. Raw numbers are not roots and
++       need no boxes for collection; the nonmoving collector preserves registers. */
++    for(int s=2;s>=0;s--)for(uint32_t i=0;i<x->n[s];i++){
++        JValue *q=&x->s[s][i];
++        if(q->kind==VK_REG&&!place(c,store_id(q->dst_stack,q->reg),(uint64_t)((int64_t)q->dst_home*8),NULL))return 0;
++    }
++    const Stencil *st=&stencils[ABC_STENCIL_SCALAR_ALLOCATE(reg)];c->placements++;if(!reserve(c,st->len))return 0;
++    uint8_t *at=c->pos;memcpy(at,st->code,st->len);c->pos+=st->len;
++    for(unsigned i=0;i<st->nrel;i++){const Reloc *r=&st->rel[i];int64_t value;
++        if(r->hole==HOLE_NEXT)value=(int64_t)(intptr_t)c->pos;
++        else if(r->hole==HOLE_FINAL)value=(int64_t)(intptr_t)vm_scalar_allocate;
++        else if(r->hole==HOLE_IMM)value=tag;
++        else if(r->hole==HOLE_BIAS)value=x->n[JS_A];
++        else if(r->hole==HOLE_IMM2)value=x->n[JS_B];
++        else if(r->hole==HOLE_STATE)value=x->c_bias+(int32_t)x->n[JS_C]-x->c_origin;
++        else if(r->hole==HOLE_ERROR)value=ABC_NOMEM|((uint64_t)c->current_pc<<16);
++        else return 0;patch(at+r->off,r->kind,r->addend,value);
++    }return 1;
++}
+ static int materialize_dynamic(Compiler *c,Context *x,JValue *v) {
+     if(v->dynamic_repr!=ABC_SYM_REPR_RAW)return 1;uint16_t tags=v->dynamic_tags;
+     unsigned tag=tags&&!(tags&(uint16_t)(tags-1))?(unsigned)__builtin_ctz((unsigned)tags):UINT_MAX;
+-    int supported=abc_numeric_integer(tag)&&v->dynamic_width==abc_numeric_width(tag);
+-    if(!supported){if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_INVALID,c->current_pc,"cannot materialize specialized dynamic representation");return 0;}
+-    int reg=writable(c,x,v);if(reg<0||!place(c,ABC_STENCIL_DYNAMIC_ENCODE(reg),(uint64_t)__builtin_ctz((unsigned)tags),NULL))return 0;
+-    v->kind=VK_REG;v->reg=(uint32_t)reg;v->dynamic_repr=ABC_SYM_REPR_ENCODED;return 1;
++    if(tag>ABC_ANY_F64){c->status=abc_fail(c->error,ABC_INVALID,c->current_pc,"cannot materialize scalar representation");return 0;}
++    int fits=v->dynamic_width&&v->dynamic_width<=32;
++    if(v->kind==VK_CONST){
++        fits=abc_numeric_signed(tag)?v->constant+(UINT64_C(1)<<39)<(UINT64_C(1)<<40):v->constant<=PAYLOAD_MASK;
++        if(tag==ABC_ANY_F64||fits){v->constant=tag==ABC_ANY_F64?encode_float(v->constant):immediate(tag,v->constant);v->dynamic_repr=ABC_SYM_REPR_ENCODED;return 1;}
++    }
++    if(tag!=ABC_ANY_F64&&!fits){
++        /* A live C alias may still refer to an old A home. Protect displaced
++           home sources before the cold edge publishes registers into their
++           destinations. Do this on both edges so placement stays identical;
++           no number is encoded merely for root visibility. */
++        for(int s=2;s>=0;s--)for(uint32_t i=0;i<x->n[s];i++){
++            JValue *q=&x->s[s][i];
++            if(q->kind==VK_HOME&&(q->stack!=q->dst_stack||q->home!=q->dst_home)){
++                if(!save_value(c,x,q))return 0;*q=rehome_value(*q,q->dst_stack,q->dst_home);
++            }
++        }
++    }
++    int reg=writable(c,x,v);if(reg<0)return 0;
++    if(tag==ABC_ANY_F64){if(!place(c,ABC_STENCIL_FLOAT_ENCODE(reg),0,NULL))return 0;}
++    else {
++        Fixup immediate_edge,done;
++        if(!fits){
++            if(!local_branch(c,ABC_STENCIL_SCALAR_FITS(abc_numeric_signed(tag),reg),&immediate_edge)||
++               !allocate_scalar(c,x,(unsigned)reg,tag)||!local_branch(c,ABC_STENCIL_JUMP,&done))return 0;
++            bind_local(c,&immediate_edge);
++        }
++        if(!place(c,ABC_STENCIL_DYNAMIC_ENCODE(reg),tag,NULL))return 0;
++        if(!fits)bind_local(c,&done);
++    }
++    v->dynamic_repr=ABC_SYM_REPR_ENCODED;return 1;
+ }
+ static int writable(Compiler *c,Context *x,JValue *v) {
+     int r=materialize(c,x,v); if(r<0 || reg_uses(x,(unsigned)r)==1) return r;
+@@ -311,6 +362,7 @@ static int binary32_index(int op) {
+     case ABC_JOP_AND:return ABC_J32_AND; case ABC_JOP_OR:return ABC_J32_OR; case ABC_JOP_XOR:return ABC_J32_XOR; default:return -1; }
+ }
+ static int follows_zx32(const Compiler *c,uint32_t pc,unsigned stack) {
++    if(c->module->code[c->current_pc]==OP_EXT)return 0;
+     return pc<c->module->code_size && !c->block[pc] && c->module->code[pc]==(stack==JS_B?OP_ZX32_B:OP_ZX32_A);
+ }
+ 
+@@ -683,13 +735,50 @@ static int local_branch(Compiler *c,unsigned stencil,Fixup *fix) {
+     return local_reference(c,stencil,0,fix);
+ }
+ static void bind_local(Compiler *c,const Fixup *fix) { patch(fix->site,fix->kind,fix->addend,(int64_t)(intptr_t)c->pos); }
++static int place_type_projection(Compiler *c,unsigned id,uint64_t immediate) {
++    const Stencil *st=&stencils[id];c->placements++;if(!reserve(c,st->len))return 0;
++    uint8_t *at=c->pos;memcpy(at,st->code,st->len);c->pos+=st->len;
++    for(unsigned i=0;i<st->nrel;i++){const Reloc *r=&st->rel[i];int64_t v;
++        if(r->hole==HOLE_NEXT)v=(int64_t)(intptr_t)c->pos;
++        else if(r->hole==HOLE_STATE)v=(int64_t)(intptr_t)&c->vm->dynamic;
++        else if(r->hole==HOLE_FINAL)v=(int64_t)(intptr_t)gc_heap_contains;
++        else if(r->hole==HOLE_IMM)v=(uint32_t)immediate;
++        else if(r->hole==HOLE_IMM2)v=(uint32_t)(immediate>>32);
++        else return 0;patch(at+r->off,r->kind,r->addend,v);
++    }return 1;
++}
++/* A tag projection keeps the operand and every live register in place. Only
++   actual runtime uncertainty emits a check; singleton facts emit a constant. */
++static int native_scalar_tag(Compiler *c,Context *x,JValue *value,unsigned mask) {
++    uint16_t tags=value->dynamic_tags;
++    if(tags&&!(tags&(tags-1))){
++        int r=free_reg_mask(c,x,mask);return r>=0&&place(c,ABC_STENCIL_CONST(r),(unsigned)__builtin_ctz(tags),NULL)?r:-1;
++    }
++    int source=materialize_mask(c,x,value,mask);if(source<0)return -1;
++    int reg=free_reg_mask(c,x,mask|(1u<<(unsigned)source));if(reg<0)return -1;
++    return place_type_projection(c,ABC_STENCIL_TYPE_TAG(reg,source),0)?reg:-1;
++}
++static int native_type_test(Compiler *c,Context *x,JValue *value,uint16_t want) {
++    int reg=native_scalar_tag(c,x,value,0);if(reg<0)return -1;
++    JValue tag=const_value((unsigned)__builtin_ctz(want),JS_A,0);
++    int rr=materialize_mask(c,x,&tag,1u<<(unsigned)reg);
++    return rr>=0&&place(c,ABC_STENCIL_BINARY(ABC_JOP_EQ,reg,rr),0,NULL)?reg:-1;
++}
++static int native_object_test(Compiler *c,Context *x,JValue *input,unsigned kind,unsigned descriptor) {
++    unsigned tag=kind==ABC_OBJECT_MANAGED?ABC_ANY_AGGREGATE:kind;
++    if(input->dynamic_tags&&!(input->dynamic_tags&(1u<<tag))){
++        int reg=free_reg(c,x);return reg>=0&&place(c,ABC_STENCIL_CONST(reg),0,NULL)?reg:-1;
++    }
++    int source=materialize(c,x,input);if(source<0)return -1;
++    int reg=free_reg_mask(c,x,1u<<(unsigned)source);if(reg<0)return -1;
++    return place_type_projection(c,ABC_STENCIL_OBJECT_MATCH(reg,source),kind|((uint64_t)descriptor<<32))?reg:-1;
++}
+ static int native_type_branch(NativeSymbolicSink *sink,uint32_t pc,uint16_t want) {
+     Compiler *c=sink->compiler;Context *x=sink->machine->context;const uint8_t *p=c->module->code+pc;
+     uint32_t bp=pc+abc_instruction_length(p);unsigned op=c->module->code[bp];TypeAliases aliases;
+     if(!capture_aliases(x,*top(x,JS_A,0),NULL,&aliases))return 0;
+-    if(!conform_context(c,x,0)||!place_dynamic(c,p,pc,x->n[JS_A],x->n[JS_B],x->c_bias+(int32_t)x->n[JS_C]-x->c_origin,0,0)){free(aliases.bits);return 0;}
+-    int reg=free_reg(c,x);int32_t home=(int32_t)x->n[JS_A]-1;
+-    if(reg<0||!place(c,ABC_STENCIL_LOAD(JS_A,reg),(uint64_t)((int64_t)home*8),NULL)){free(aliases.bits);return 0;}
++    int reg=native_type_test(c,x,top(x,JS_A,0),want);
++    if(reg<0){free(aliases.bits);return 0;}
+     (void)pop(x,JS_A);Context taken;if(!context_copy(&taken,x)){free(aliases.bits);return 0;}
+     int taken_true=op==OP_JNZ_A;
+     refine_aliases(&taken,&aliases,1,taken_true?want:(uint16_t)~want);
+@@ -699,46 +788,24 @@ static int native_type_branch(NativeSymbolicSink *sink,uint32_t pc,uint16_t want
+     bind_local(c,&branch);int ok=emit_jump(c,edge(c,bp,target,&taken));context_free(&taken);
+     if(ok)sink->machine->exit=ABC_SYM_EXIT_CONTROL;return 0;
+ }
+-static int place_numeric(Compiler *c,unsigned id,uint32_t base,unsigned selector,uint64_t helper) {
+-    const Stencil *s=&stencils[id];c->placements++;if(!reserve(c,s->len))return 0;uint8_t *at=c->pos;memcpy(at,s->code,s->len);c->pos+=s->len;
+-    for(unsigned i=0;i<s->nrel;i++){const Reloc *r=&s->rel[i];int64_t value;
+-        if(r->hole==HOLE_NEXT)value=(int64_t)(intptr_t)c->pos;else if(r->hole==HOLE_FINAL)value=(int64_t)helper;
+-        else if(r->hole==HOLE_STATE)value=(int64_t)(intptr_t)c->vm;else if(r->hole==HOLE_IMM)value=base;
+-        else if(r->hole==HOLE_IMM2)value=selector;else return 0;patch(at+r->off,r->kind,r->addend,value);
+-    }return 1;
+-}
+ static int decode_numeric(Compiler *c,Context *x,JValue *value) {
+     if(value->dynamic_repr==ABC_SYM_REPR_RAW)return 1;
+-    int reg=writable(c,x,value);if(reg<0||!place_numeric(c,ABC_STENCIL_NUMERIC_DECODE(reg),0,0,(uint64_t)(uintptr_t)abc_dynamic_numeric_bits))return 0;
+-    value->dynamic_repr=ABC_SYM_REPR_RAW;return 1;
+-}
+-static int native_numeric_body(Compiler *c,Context *x,uint32_t pc,unsigned selector,unsigned tag,JValue *result) {
+-    uint32_t base=x->n[JS_A]-2;JValue *left=&x->s[JS_A][base],*right=&x->s[JS_A][base+1];
+-    if(!decode_numeric(c,x,left)||!decode_numeric(c,x,right))return 0;
+-    int rd=writable(c,x,left);if(rd<0)return 0;int rs=materialize_mask(c,x,right,1u<<(unsigned)rd);if(rs<0)return 0;
+-    int signed_value=abc_numeric_signed(tag),op=-1;
+-    switch(selector){
+-    case EXT_DADD:op=ABC_JOP_ADD;break;case EXT_DSUB:op=ABC_JOP_SUB;break;case EXT_DMUL:op=ABC_JOP_MUL;break;
+-    case EXT_DDIV:op=signed_value?ABC_JOP_DIVS:ABC_JOP_DIVU;break;case EXT_DREM:op=signed_value?ABC_JOP_REMS:ABC_JOP_REMU;break;
+-    case EXT_DSHL:op=ABC_JOP_SHL;break;case EXT_DSHR:op=ABC_JOP_SHR;break;case EXT_DSAR:op=ABC_JOP_SAR;break;
+-    case EXT_DAND:op=ABC_JOP_AND;break;case EXT_DOR:op=ABC_JOP_OR;break;case EXT_DXOR:op=ABC_JOP_XOR;break;
+-    case EXT_DPOW:break;default:return 0;
++    uint16_t tags=value->dynamic_tags;
++    unsigned kind=tags==(1u<<ABC_ANY_F64)?2:(tags&((1u<<ABC_ANY_I32)|(1u<<ABC_ANY_I64)))?1:0;
++    int reg=writable(c,x,value);if(reg<0||!place(c,ABC_STENCIL_SCALAR_DECODE(kind,reg),0,NULL))return 0;
++    value->dynamic_repr=ABC_SYM_REPR_RAW;value->dynamic_width=0;return 1;
++}
++static int native_runtime_effect(Compiler *c,Context *x,uint32_t pc,abc_symbolic_dynamic *effect) {
++    if(effect->selector==EXT_ANY_CAST||effect->selector==EXT_ANY_IS||
++       (effect->selector>=EXT_DNEG&&effect->selector<=EXT_DREQUIRE_BOOL)){
++        c->status=abc_fail(c->error,ABC_INVALID,pc,"scalar operation reached runtime-effect boundary");return 0;
+     }
+-    uint64_t error=(uint64_t)ABC_ABORT|(UINT64_C(1)<<8)|((uint64_t)pc<<16);int narrow=binary32_index(op);
+-    unsigned stencil=selector==EXT_DPOW?ABC_STENCIL_POW(rd,rs):narrow>=0?ABC_STENCIL_BINARY32(narrow,rd,rs):ABC_STENCIL_BINARY(op,rd,rs);
+-    if(!place(c,stencil,error,NULL))return 0;
+-    unsigned width=abc_numeric_width(tag);
+-    if(width<32){if(!place(c,ABC_STENCIL_IMMEDIATE(ABC_JIMM_AND,rd),(UINT64_C(1)<<width)-1,NULL))return 0;}
+-    else if(!place(c,ABC_STENCIL_UNARY(signed_value?ABC_JUN_SX32:ABC_JUN_ZX32,rd),0,NULL))return 0;
+-    *result=*left;result->kind=VK_REG;result->reg=(uint32_t)rd;result->dynamic_tags=(uint16_t)(1u<<tag);
+-    result->dynamic_width=(uint8_t)width;result->dynamic_repr=ABC_SYM_REPR_RAW;result->zero_extended=0;return 1;
+-}
+-static int native_dynamic_helper(Compiler *c,Context *x,uint32_t pc,abc_symbolic_dynamic *effect,uint16_t numeric_tags) {
+     uint32_t base=x->n[JS_A]-effect->pops;unsigned runtime_tail=effect->tail&&!x->ncont;
+     int32_t return_offset=(x->c_bias-x->c_origin-1)*8;
+-    /* Scalar helpers cannot mutate live stack values. Calls and object effects
+-       retain the conservative boundary; all roots still get materialized. */
+-    int preserve=effect->selector<=EXT_DREQUIRE_BOOL;
++    /* Only object construction, object operations and calls use this ABI.
++       Scalar checks/operations have no handler fallback, including on version
++       overflow. Root publication belongs to an actual runtime boundary. */
++    int preserve=effect->selector==EXT_ANY_BOX;
+     if(!conform_context(c,x,!preserve)||!place_dynamic(c,c->module->code+pc,pc,x->n[JS_A],x->n[JS_B],x->c_bias+(int32_t)x->n[JS_C]-x->c_origin,runtime_tail,return_offset))return 0;
+     if(!runtime_tail)for(unsigned i=0;i<effect->pushes;i++){int r=free_reg(c,x);int32_t home=(int32_t)(base+i);
+         if(r<0||!place(c,ABC_STENCIL_LOAD(JS_A,(unsigned)r),(uint64_t)((int64_t)home*8),NULL))return 0;
+@@ -746,79 +813,43 @@ static int native_dynamic_helper(Compiler *c,Context *x,uint32_t pc,abc_symbolic
+     }
+     if(effect->pushes==1){
+         if(effect->selector==EXT_ANY_BOX)abc_symbolic_dynamic_descriptor_fact(c->module,effect->descriptor,&effect->result[0]);
+-        else if(effect->selector>=EXT_DADD&&effect->selector<=EXT_DXOR)abc_symbolic_numeric_fact(&effect->result[0],numeric_tags);
+     }return 1;
+ }
+-static int numeric_is_narrow(unsigned tag) { return tag==ABC_ANY_U8||tag==ABC_ANY_U16||tag==ABC_ANY_U32||tag==ABC_ANY_I32; }
+-static int native_numeric_cfg(NativeSymbolicSink *sink,uint32_t pc,abc_symbolic_dynamic *effect,uint16_t tags) {
+-    Compiler *c=sink->compiler;Context *x=sink->machine->context;uint32_t base=x->n[JS_A]-2,next=pc+abc_instruction_length(c->module->code+pc);
+-    TypeAliases aliases;if(!capture_aliases(x,x->s[JS_A][base],&x->s[JS_A][base+1],&aliases))return 0;
+-    if(!conform_context(c,x,0)){free(aliases.bits);return 0;}
+-    int reg=free_reg(c,x);
+-    if(reg<0||!place_numeric(c,ABC_STENCIL_NUMERIC_CLASSIFY(reg),base,effect->selector,(uint64_t)(uintptr_t)abc_dynamic_numeric_classify)){free(aliases.bits);return 0;}
++static int native_scalar_arm(NativeSymbolicSink *,Context *,uint32_t,abc_symbolic_dynamic *,unsigned);
++static int native_emit_scalar_split(void *opaque,uint32_t pc,abc_symbolic_dynamic *effect,unsigned family,uint16_t tags) {
++    NativeSymbolicSink *sink=opaque;Compiler *c=sink->compiler;Context *x=sink->machine->context;
++    c->current_pc=pc;uint32_t base=x->n[JS_A]-effect->pops;
++    int unary=family==ABC_SYM_SCALAR_UNARY,equality=family==ABC_SYM_SCALAR_EQUALITY;
++    TypeAliases aliases;if(!capture_aliases(x,x->s[JS_A][base],unary?NULL:&x->s[JS_A][base+1],&aliases))return 0;
++    int reg=native_scalar_tag(c,x,&x->s[JS_A][base],0);
++    if(reg<0){free(aliases.bits);return 0;}
++    if(!unary){
++        int right=native_scalar_tag(c,x,&x->s[JS_A][base+1],1u<<(unsigned)reg);
++        unsigned check=equality?ABC_STENCIL_EQUALITY_KIND(reg,right):ABC_STENCIL_NUMERIC_RESULT(reg,right);
++        if(right<0||!place(c,check,(tags&(1u<<ABC_ANY_F64))?ABC_ANY_F64+1:0,NULL)){free(aliases.bits);return 0;}
++    }
+     Fixup branches[16],fallback;
+     for(unsigned tag=0;tag<16;tag++)if(tags&(1u<<tag)){
+-        JValue constant=const_value(tag+1,JS_A,0);int rr=materialize_mask(c,x,&constant,1u<<(unsigned)reg);
++        JValue constant=const_value(tag+(unary?0:1),JS_A,0);int rr=materialize_mask(c,x,&constant,1u<<(unsigned)reg);
+         if(rr<0||!local_branch(c,ABC_STENCIL_BRANCH(ABC_JBR_EQ,reg,rr),&branches[tag])){free(aliases.bits);return 0;}
+     }
+     if(!local_branch(c,ABC_STENCIL_JUMP,&fallback)){free(aliases.bits);return 0;}
+     for(unsigned tag=0;tag<16;tag++)if(tags&(1u<<tag)){
+         bind_local(c,&branches[tag]);Context arm;if(!context_copy(&arm,x)){free(aliases.bits);return 0;}
+-        refine_aliases(&arm,&aliases,3,abc_numeric_arguments(tag));abc_symbolic_dynamic leaf=*effect;
+-        int ok=numeric_is_narrow(tag)?native_numeric_body(c,&arm,pc,effect->selector,tag,&leaf.result[0]):native_dynamic_helper(c,&arm,pc,&leaf,(uint16_t)(1u<<tag));
+-        if(ok){arm.n[JS_A]=base;ok=push(&arm,JS_A,leaf.result[0])&&emit_jump(c,edge(c,pc,next,&arm));}
++        if(equality){refine_aliases(&arm,&aliases,1,abc_scalar_equality_arguments(tag,1));refine_aliases(&arm,&aliases,2,abc_scalar_equality_arguments(tag,2));}
++        else refine_aliases(&arm,&aliases,unary?1:3,unary?(uint16_t)(1u<<tag):abc_numeric_arguments(tag));
++        int ok=native_scalar_arm(sink,&arm,pc,effect,tag);
+         context_free(&arm);if(!ok){free(aliases.bits);return 0;}
+     }
+     free(aliases.bits);bind_local(c,&fallback);
+-    /* Classification zero means type mismatch, not an unknown successful
+-       result. Keep the original helper's safepoint/error behavior, but do not
+-       invent a successful edge that would consume the version budget. */
+-    if(!native_dynamic_helper(c,x,pc,effect,0)||
+-       !place(c,ABC_STENCIL_ABORT,(uint64_t)ABC_ABORT|(UINT64_C(6)<<8)|((uint64_t)pc<<16),NULL))return 0;
++    if(!native_scalar_arm(sink,x,pc,effect,UINT_MAX))return 0;
+     sink->machine->exit=ABC_SYM_EXIT_CONTROL;return 0;
+ }
++#include "native_scalar.inc"
++
+ static int native_emit_dynamic(void *opaque,uint32_t pc,abc_symbolic_dynamic *effect) {
+-    NativeSymbolicSink *sink=opaque;Compiler *c=sink->compiler;Context *x=sink->machine->context;const uint8_t *p=c->module->code+pc;uint32_t base=x->n[JS_A]-effect->pops;c->current_pc=pc;
+-    if(effect->selector==EXT_ANY_BOX&&c->module->descriptors[effect->descriptor].tag==ABC_DESC_PRIMITIVE&&
+-       c->module->descriptors[effect->descriptor].payload[0]==ABC_PRIM_UNIT){
+-        effect->result[0]=const_value(abc_any_unit(),JS_A,(int32_t)base);
+-        abc_symbolic_dynamic_descriptor_fact(c->module,effect->descriptor,&effect->result[0]);return 1;
+-    }
+-    if(effect->selector==EXT_ANY_IS){
+-        uint16_t want=abc_symbolic_test_tags(c->module,effect->descriptor);uint32_t next=pc+abc_instruction_length(p);
+-        if(want&&next<c->module->code_size&&!c->block[next]&&(c->module->code[next]==OP_JZ_A||c->module->code[next]==OP_JNZ_A)){
+-            int ok=native_type_branch(sink,pc,want);if(!ok&&sink->machine->exit!=ABC_SYM_EXIT_CONTROL)goto failed;return ok;
+-        }
+-    }
+-    if(effect->selector==EXT_ANY_BOX&&effect->pops==1&&effect->pushes==1&&abc_symbolic_dynamic_box_specialization(c->module,effect->descriptor,x->s[JS_A][base])){
+-        effect->result[0]=x->s[JS_A][base];abc_symbolic_dynamic_descriptor_fact(c->module,effect->descriptor,&effect->result[0]);effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;return 1;
+-    }
+-    if(effect->selector==EXT_ANY_CAST&&effect->pops==1&&effect->pushes==1&&abc_symbolic_dynamic_cast_matches(c->module,effect->descriptor,x->s[JS_A][base])){
+-        effect->result[0]=x->s[JS_A][base];abc_symbolic_forget_dynamic(&effect->result[0]);return 1;
+-    }
+-    uint16_t tags=0;
+-    if(effect->selector>=EXT_DADD&&effect->selector<=EXT_DXOR){
+-        int certain;tags=abc_symbolic_numeric_results(effect->selector,x->s[JS_A][base],x->s[JS_A][base+1],&certain);
+-        if(certain&&numeric_is_narrow((unsigned)__builtin_ctz((unsigned)tags))){
+-            if(!native_numeric_body(c,x,pc,effect->selector,(unsigned)__builtin_ctz((unsigned)tags),&effect->result[0]))goto failed;return 1;
+-        }
+-        unsigned opcode;if(abc_symbolic_dynamic_binary_specialization(effect->selector,x->s[JS_A][base],x->s[JS_A][base+1],&opcode)){
+-            int ok=0;effect->result[0]=x->s[JS_A][base];effect->result[0].constant=abc_symbolic_fold_binary(opcode,x->s[JS_A][base].constant,x->s[JS_A][base+1].constant,&ok);
+-            if(!ok)goto failed;effect->result[0].kind=VK_CONST;effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;return 1;
+-        }
+-        uint16_t narrow=(uint16_t)((1u<<ABC_ANY_U8)|(1u<<ABC_ANY_U16)|(1u<<ABC_ANY_U32)|(1u<<ABC_ANY_I32));
+-        if(!certain&&(tags&narrow)){
+-            uint32_t next=pc+abc_instruction_length(p);Context family=*x;family.n[JS_A]=base+1;unsigned versions=0;
+-            for(Version *v=c->versions[next];v;v=v->next)versions+=context_family_equal(&v->in,&family);
+-            /* Reserve the existing generic slot; never split a saturated family. */
+-            if(versions+(unsigned)__builtin_popcount((unsigned)tags)<ABC_BLOCK_VERSION_LIMIT){
+-                int ok=native_numeric_cfg(sink,pc,effect,tags);if(!ok&&sink->machine->exit!=ABC_SYM_EXIT_CONTROL)goto failed;return ok;
+-            }
+-        }
+-    }
+-    if(!native_dynamic_helper(c,x,pc,effect,tags))goto failed;return 1;
+-failed:
+-    if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_NOMEM,pc,"native dynamic specialization emission failed");return 0;
++    NativeSymbolicSink *sink=opaque;sink->compiler->current_pc=pc;
++    return native_runtime_effect(sink->compiler,sink->machine->context,pc,effect);
+ }
+ 
+ static int native_emit_foreign(void *opaque,uint32_t pc,abc_symbolic_foreign *effect) {
+@@ -970,6 +1001,8 @@ static int compile_version(Compiler *c,Version *v) {
+         machine.emit_control=native_emit_control; machine.emit_abort=native_emit_abort; machine.emit_halt=native_emit_halt;
+         machine.emit_effect=native_emit_effect; machine.emit_memory=native_emit_memory;machine.emit_return=native_emit_return;machine.emit_call=native_emit_call;machine.emit_indirect=native_emit_indirect;machine.emit_tail=native_emit_tail;
+         machine.emit_dynamic=native_emit_dynamic;machine.emit_foreign=native_emit_foreign;machine.emit_edge=native_emit_edge;
++        machine.emit_scalar_value=native_emit_scalar_value;machine.emit_scalar_split=native_emit_scalar_split;
++        machine.emit_guard=native_emit_guard;machine.emit_safepoint=native_emit_safepoint;
+         abc_symbolic_exit symbolic_exit=abc_symbolic_dispatch(&machine);
+         if(symbolic_exit==ABC_SYM_EXIT_FAILURE) { c->status=c->error?c->error->status:ABC_NOMEM; goto failed; }
+         if(symbolic_exit==ABC_SYM_EXIT_CONTROL||symbolic_exit==ABC_SYM_EXIT_TERMINATED) { live=0; break; }
+diff --git a/src/symbolic.c b/src/symbolic.c
+index acafa24..472c037 100644
+--- a/src/symbolic.c
++++ b/src/symbolic.c
+@@ -536,7 +536,7 @@ void abc_symbolic_dynamic_descriptor_fact(const abc_module *module,unsigned desc
+         if(primitive==ABC_PRIM_ANY){value->dynamic_tags=ABC_SYM_DYNAMIC_TAGS_UNKNOWN;value->dynamic_repr=ABC_SYM_REPR_UNKNOWN;return;}
+         if(primitive>=sizeof tags)return;tag=tags[primitive];width=widths[primitive];
+         repr=(primitive==ABC_PRIM_UNIT||primitive==ABC_PRIM_F64)?ABC_SYM_REPR_ENCODED:ABC_SYM_REPR_UNKNOWN;
+-    } else if(d->tag==ABC_DESC_POINTER)tag=ABC_ANY_PTR;
++    } else if(d->tag==ABC_DESC_POINTER&&d->payload[0]==0)tag=ABC_ANY_PTR;
+     value->dynamic_tags=(uint16_t)(1u<<tag);value->dynamic_width=(uint8_t)width;value->dynamic_repr=(uint8_t)repr;
+ }
+ 
+@@ -568,9 +568,7 @@ void abc_symbolic_numeric_fact(abc_symbolic_value *value,uint16_t tags) {
+ }
+ 
+ static int dynamic_immediate(unsigned tag,uint64_t value) {
+-    if(tag==ABC_ANY_U8||tag==ABC_ANY_U16||tag==ABC_ANY_U32||tag==ABC_ANY_U64)return value<=(UINT64_C(1)<<40)-1;
+-    if(tag==ABC_ANY_I32||tag==ABC_ANY_I64){int64_t signed_value=(int64_t)value;return signed_value>=-(INT64_C(1)<<39)&&signed_value<(INT64_C(1)<<39);}
+-    return 0;
++    return abc_numeric_integer(tag)&&abc_repr_fits(tag,value);
+ }
+ 
+ int abc_symbolic_dynamic_box_specialization(const abc_module *module,unsigned descriptor,abc_symbolic_value input) {
+@@ -601,15 +599,22 @@ int abc_symbolic_dynamic_binary_specialization(unsigned selector,abc_symbolic_va
+     return 1;
+ }
+ 
+-int abc_symbolic_machine_dynamic(abc_symbolic_machine *m) {
+-    if(!m->emit_dynamic){m->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}abc_symbolic_context *x=m->context;abc_symbolic_dynamic effect;
++#include "symbolic_scalar.inc"
++
++int abc_symbolic_machine_ext(abc_symbolic_machine *m) {
++    if(!m->emit_dynamic&&!m->emit_scalar_value){m->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}abc_symbolic_context *x=m->context;abc_symbolic_dynamic effect;
+     if(!dynamic_contract(m->module,m->code+m->pc,&effect)||x->n[ABC_SYM_A]<effect.pops)return machine_fail(m,"invalid symbolic dynamic contract");
+     for(unsigned i=0;i<effect.pushes;i++)effect.result[i]=abc_symbolic_home(ABC_SYM_A,(int32_t)(x->n[ABC_SYM_A]-effect.pops+i));
+     if(effect.selector==EXT_ANY_BOX&&effect.pushes){abc_symbolic_dynamic_descriptor_fact(m->module,effect.descriptor,&effect.result[0]);uint32_t base=x->n[ABC_SYM_A]-effect.pops;if(effect.pops==1&&abc_symbolic_dynamic_box_specialization(m->module,effect.descriptor,x->s[ABC_SYM_A][base]))effect.result[0].dynamic_repr=ABC_SYM_REPR_ENCODED;}
++    /* Native execution supports raw scalar contexts. Build-time sinks may
++       instead preserve/rewrite the verified EXT description; that is not an
++       execution-handler fallback and must not silently disable ABC rewrites. */
+     int matches;
+-    if(effect.selector==EXT_ANY_IS&&abc_symbolic_dynamic_test(m->module,effect.descriptor,*abc_symbolic_top(x,ABC_SYM_A,0),&matches))
++    if(scalar_instruction(m->module,&effect)&&m->emit_scalar_value&&m->emit_scalar_split){
++        if(!scalar_dispatch(m,&effect))return 0;
++    }else if(effect.selector==EXT_ANY_IS&&abc_symbolic_dynamic_test(m->module,effect.descriptor,*abc_symbolic_top(x,ABC_SYM_A,0),&matches))
+         effect.result[0]=abc_symbolic_constant((uint64_t)matches,ABC_SYM_A,(int32_t)x->n[ABC_SYM_A]-1);
+-    else if(!m->emit_dynamic(m->sink,m->pc,&effect)){if(m->exit==ABC_SYM_EXIT_BOUNDARY||m->exit==ABC_SYM_EXIT_CONTROL||m->exit==ABC_SYM_EXIT_TERMINATED)return 0;m->exit=ABC_SYM_EXIT_FAILURE;return 0;}
++    else if(!m->emit_dynamic||!m->emit_dynamic(m->sink,m->pc,&effect)){if(m->exit==ABC_SYM_EXIT_BOUNDARY||m->exit==ABC_SYM_EXIT_CONTROL||m->exit==ABC_SYM_EXIT_TERMINATED)return 0;m->exit=ABC_SYM_EXIT_FAILURE;return 0;}
+     if(effect.direct){uint32_t base=x->n[ABC_SYM_A]-effect.pops;abc_symbolic_value args[255];unsigned supplied=effect.pops-1;for(unsigned i=0;i<supplied;i++)args[i]=x->s[ABC_SYM_A][base+1+i];x->n[ABC_SYM_A]=base;if(effect.direct_environment){abc_symbolic_value q=effect.environment;q.dst_stack=ABC_SYM_A;q.dst_home=(int32_t)x->n[ABC_SYM_A];if(!abc_symbolic_push(x,ABC_SYM_A,q))return machine_fail(m,"symbolic dynamic environment allocation failed");}for(unsigned i=0;i<supplied;i++){abc_symbolic_value q=args[i];q.dst_stack=ABC_SYM_A;q.dst_home=(int32_t)x->n[ABC_SYM_A];if(!abc_symbolic_push(x,ABC_SYM_A,q))return machine_fail(m,"symbolic dynamic argument allocation failed");}return abc_symbolic_machine_call(m,effect.direct_target,effect.direct_arguments,ABC_SYM_A,m->pc+abc_instruction_length(m->code+m->pc));}
+     x->n[ABC_SYM_A]-=effect.pops;for(unsigned i=0;i<effect.pushes;i++)if(!abc_symbolic_push(x,ABC_SYM_A,effect.result[i]))return machine_fail(m,"symbolic dynamic result allocation failed");
+     if(!effect.tail)return 1;
+diff --git a/src/symbolic.h b/src/symbolic.h
+index bac07cd..cde2da2 100644
+--- a/src/symbolic.h
++++ b/src/symbolic.h
+@@ -89,6 +89,13 @@ typedef struct {
+     abc_symbolic_value environment, result[255];
+ } abc_symbolic_dynamic;
+ typedef int (*abc_symbolic_emit_dynamic_fn)(void *sink, uint32_t origin, abc_symbolic_dynamic *dynamic);
++/* Representation/control primitives, not scalar-opcode execution callbacks. */
++typedef enum { ABC_SYM_SCALAR_DECODE, ABC_SYM_SCALAR_CANONICAL, ABC_SYM_SCALAR_MIXED_EQ,
++    ABC_SYM_SCALAR_STRING_EQ, ABC_SYM_SCALAR_TEST, ABC_SYM_SCALAR_UNBOX } abc_symbolic_scalar_primitive;
++typedef enum { ABC_SYM_SCALAR_NUMERIC, ABC_SYM_SCALAR_EQUALITY, ABC_SYM_SCALAR_UNARY } abc_symbolic_scalar_split;
++typedef int (*abc_symbolic_emit_scalar_value_fn)(void *,uint32_t,unsigned,unsigned,
++    abc_symbolic_value *,abc_symbolic_value *,abc_symbolic_value *);
++typedef int (*abc_symbolic_emit_scalar_split_fn)(void *,uint32_t,abc_symbolic_dynamic *,unsigned,uint16_t);
+ typedef struct { unsigned index, arguments, results; abc_symbolic_value result[1]; } abc_symbolic_foreign;
+ typedef int (*abc_symbolic_emit_foreign_fn)(void *sink, uint32_t origin, abc_symbolic_foreign *foreign);
+ typedef int (*abc_symbolic_emit_edge_fn)(void *sink, uint32_t origin, uint32_t target);
+@@ -121,6 +128,9 @@ typedef struct abc_symbolic_machine {
+     abc_symbolic_emit_control_fn emit_control; abc_symbolic_emit_abort_fn emit_abort, emit_halt;
+     abc_symbolic_emit_effect_fn emit_effect; abc_symbolic_emit_memory_fn emit_memory; abc_symbolic_emit_return_fn emit_return; abc_symbolic_emit_call_fn emit_call; abc_symbolic_emit_indirect_fn emit_indirect; abc_symbolic_emit_tail_fn emit_tail;
+     abc_symbolic_emit_dynamic_fn emit_dynamic; abc_symbolic_emit_foreign_fn emit_foreign; abc_symbolic_emit_edge_fn emit_edge;
++    abc_symbolic_emit_scalar_value_fn emit_scalar_value; abc_symbolic_emit_scalar_split_fn emit_scalar_split;
++    int (*emit_guard)(void *,uint32_t,abc_symbolic_value *,unsigned);
++    int (*emit_safepoint)(void *,uint32_t);
+     abc_error *error; abc_symbolic_exit exit;
+ } abc_symbolic_machine;
+ 
+@@ -143,6 +153,7 @@ int abc_symbolic_machine_immediate(abc_symbolic_machine *machine, unsigned opcod
+ int abc_symbolic_machine_c_operand(abc_symbolic_machine *machine, unsigned opcode, unsigned stack, unsigned depth);
+ int abc_symbolic_machine_pow(abc_symbolic_machine *machine, unsigned opcode);
+ int abc_symbolic_machine_check(abc_symbolic_machine *machine, unsigned opcode);
++int abc_symbolic_machine_require(abc_symbolic_machine *machine,abc_symbolic_value *predicate,unsigned reason);
+ int abc_symbolic_machine_control(abc_symbolic_machine *machine, abc_symbolic_control_kind kind,
+     unsigned opcode, unsigned relation, unsigned reverse, unsigned stack,
+     uint32_t target, uint32_t fallthrough, uint64_t immediate);
+@@ -155,7 +166,8 @@ int abc_symbolic_machine_return(abc_symbolic_machine *machine, unsigned frame_ce
+ int abc_symbolic_machine_call(abc_symbolic_machine *machine, uint32_t target, unsigned arguments, unsigned destination, uint32_t return_pc);
+ int abc_symbolic_machine_indirect(abc_symbolic_machine *machine, unsigned frame_cells, unsigned arguments, unsigned destination, int tail);
+ int abc_symbolic_machine_tail(abc_symbolic_machine *machine, uint32_t target, unsigned frame_cells, unsigned arguments);
+-int abc_symbolic_machine_dynamic(abc_symbolic_machine *machine);
++int abc_symbolic_machine_ext(abc_symbolic_machine *machine);
++int abc_symbolic_scalar_arm(abc_symbolic_machine *machine,abc_symbolic_dynamic *effect,unsigned tag,abc_symbolic_value *result);
+ int abc_symbolic_machine_foreign(abc_symbolic_machine *machine);
+ abc_symbolic_exit abc_symbolic_machine_boundary(abc_symbolic_machine *machine);
+ 
+diff --git a/src/vm.c b/src/vm.c
+index 78cf459..33e579d 100644
+--- a/src/vm.c
++++ b/src/vm.c
+@@ -56,6 +56,7 @@ abc_status abc_vm_create(const abc_limits *limits,abc_vm **out,abc_error *e) {
+     if(cap>ABC_MAX_FILE) return abc_fail(e,ABC_INVALID,UINT32_MAX,"stack limit exceeds maximum");
+     abc_vm *v=calloc(1,sizeof *v);
+     if(!v) return abc_fail(e,ABC_NOMEM,UINT32_MAX,"VM allocation failed");
++    atomic_init(&v->collection_requested,0);
+     v->capacity=cap;
+     v->mode=limits ? limits->mode : ABC_EXEC_INTERPRETED;
+     if(v->mode!=ABC_EXEC_INTERPRETED && v->mode!=ABC_EXEC_COMPILED && v->mode!=ABC_EXEC_LAZY) { free(v); return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid execution mode"); }
+diff --git a/src/vm_internal.h b/src/vm_internal.h
+index 36ad065..4908e9f 100644
+--- a/src/vm_internal.h
++++ b/src/vm_internal.h
+@@ -19,6 +19,7 @@ struct abc_vm {
+     abc_frame *frames; abc_execution_mode mode; abc_image *images;
+     abc_foreign_binding *foreign_bindings;
+     abc_dynamic_heap *dynamic;
++    _Atomic unsigned collection_requested;
+ };
+ typedef struct {
+     abc_vm *v; const abc_module *m; abc_image *image; const uint8_t *code;
+diff --git a/tools/validate_api.c b/tools/validate_api.c
+index a9c6e60..8c5f3ff 100644
+--- a/tools/validate_api.c
++++ b/tools/validate_api.c
+@@ -1,11 +1,29 @@
+ #include "abc.h"
+ #include "vm_internal.h"
+ #include "residualize.h"
++#include "dynamic.h"
++#include <stdlib.h>
+ #include <stdint.h>
+ #include <stdio.h>
+ #include <string.h>
+ 
+-static unsigned noted;
++static unsigned noted, native_polls;
++static uint64_t expected_register_root;
++static void scalar_gc_request(void) {
++    abc_run *run=abc_active_run;expected_register_root=abc_u64(run->image->bytes);
++    if(abc_vm_request_collection(run->v,NULL)!=ABC_OK)abort();
++}
++void __real_vm_collect_native(uint64_t *,uint64_t *,uint64_t *,uint64_t *);
++void __wrap_vm_collect_native(uint64_t *a,uint64_t *b,uint64_t *c,uint64_t *registers) {
++    native_polls++;
++    if(expected_register_root){
++        unsigned found=0;for(unsigned i=0;i<8;i++)found|=registers[i]==expected_register_root;
++        if(!found){fprintf(stderr,"validate-api: live native register root not published\n");abort();}
++        expected_register_root=0;
++    }
++    __real_vm_collect_native(a,b,c,registers);
++}
++
+ static double host_mix(uint64_t x,double y) { return (double)x+y+0.5; }
+ static uint64_t host_wide(uint64_t a,double b,uint64_t c,const uint64_t *d,double e,uint64_t f,double g,const uint64_t *h,double i,uint64_t j) { return a+(uint64_t)b+c+*d+(uint64_t)e+f+(uint64_t)g+*h+(uint64_t)i+j; }
+ static void host_note(uint64_t x) { noted=(unsigned)x; }
+@@ -14,7 +32,7 @@ static int fail(const char *what,const abc_error *e) {
+     fprintf(stderr,"validate-api: %s: %s\n",what,e->message); return 1;
+ }
+ int main(int argc,char **argv) {
+-    if(argc<2||argc>5) { fprintf(stderr,"usage: validate-api callables.abc [virtual.abc] [foreign.abc] [dynamic-gc.abc]\n"); return 2; }
++    if(argc<2||argc>6) { fprintf(stderr,"usage: validate-api callables.abc [virtual.abc] [foreign.abc] [dynamic-gc.abc] [scalar-gc.abc]\n"); return 2; }
+     abc_module *m=NULL; abc_vm *v=NULL; abc_error e; abc_limits limits={.mode=ABC_EXEC_COMPILED};
+     uint64_t add=0,sub=0,cell=40,args[3],result=0; size_t n=0; abc_site_stats stats;
+     if(abc_module_read(argv[1],&m,&e)!=ABC_OK) return fail("read",&e);
+@@ -63,10 +81,27 @@ int main(int argc,char **argv) {
+             abc_vm_free(v);
+         } abc_module_free(fm);
+     }
+-    if(argc>=5) {
+-        abc_module *dm=NULL;if(abc_module_read(argv[4],&dm,&e)!=ABC_OK)return fail("dynamic read",&e);
+-        for(unsigned mode=0;mode<3;mode++){limits.mode=(abc_execution_mode)mode;v=NULL;result=0;n=0;if(abc_vm_create(&limits,&v,&e)!=ABC_OK||abc_vm_load(v,dm,&e)!=ABC_OK)return fail("dynamic load",&e);if(abc_vm_call(v,dm,"build",NULL,0,NULL,0,&n,&e)!=ABC_OK||n)return fail("dynamic build",&e);if(abc_vm_request_collection(v,&e)!=ABC_OK)return fail("collection request",&e);if(abc_vm_call(v,dm,"check",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=1)return fail("root after collection",&e);if(abc_vm_request_collection(v,&e)!=ABC_OK||abc_vm_call(v,dm,"check_managed",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=77)return fail("managed interior root after collection",&e);abc_vm_free(v);}abc_module_free(dm);
++    for(int fixture=4;fixture<argc;fixture++) {
++        int scalar_tests=fixture==5;
++        abc_module *dm=NULL;if(abc_module_read(argv[fixture],&dm,&e)!=ABC_OK)return fail("dynamic read",&e);
++        for(unsigned mode=0;mode<3;mode++){
++            limits.mode=(abc_execution_mode)mode;v=NULL;result=0;n=0;native_polls=0;expected_register_root=0;
++            if(abc_vm_create(&limits,&v,&e)!=ABC_OK||(scalar_tests&&abc_vm_bind_foreign(v,"scalar_gc_request",(abc_foreign_address)scalar_gc_request,&e)!=ABC_OK)||abc_vm_load(v,dm,&e)!=ABC_OK)return fail("dynamic load",&e);
++            if(scalar_tests){
++                if(abc_vm_request_collection(v,&e)!=ABC_OK||abc_vm_call(v,dm,"typed_no_poll",NULL,0,&result,1,&n,&e)!=ABC_OK||result!=42||!atomic_load(&v->collection_requested))return fail("typed code must leave request pending",&e);
++                if(abc_vm_call(v,dm,"scalar_poll",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=42||atomic_load(&v->collection_requested))return fail("scalar poll without an allocated heap",&e);
++            }
++            if(abc_vm_call(v,dm,"build",NULL,0,NULL,0,&n,&e)!=ABC_OK||n)return fail("dynamic build",&e);
++            if(abc_vm_request_collection(v,&e)!=ABC_OK)return fail("collection request",&e);
++            if(abc_vm_call(v,dm,"check",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=1)return fail("root after collection",&e);
++            if(abc_vm_request_collection(v,&e)!=ABC_OK||abc_vm_call(v,dm,"check_managed",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=77||atomic_load(&v->collection_requested))return fail("managed interior root after scalar collection",&e);
++            if(scalar_tests){
++                if(abc_vm_call(v,dm,"check_registers",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=1||atomic_load(&v->collection_requested))return fail("register root after scalar collection",&e);
++                if(mode!=ABC_EXEC_INTERPRETED&&(!native_polls||expected_register_root))return fail("native scalar poll did not execute",&e);
++            }
++            abc_vm_free(v);
++        }abc_module_free(dm);
+     }
+-    puts("validated eager/lazy residual callable resolution, foreign calls, Whippet module/mutated managed-interior roots, and stable linkage"); return 0;
++    puts("validated eager/lazy residual callable resolution, foreign calls, Whippet module/managed-interior/register roots, scalar safepoints, and stable linkage"); return 0;
+ }
+ 
+diff --git a/tools/validate_dynamic.lua b/tools/validate_dynamic.lua
+index 3ce1751..aaf96c6 100644
+--- a/tools/validate_dynamic.lua
++++ b/tools/validate_dynamic.lua
+@@ -1,5 +1,6 @@
+ local root=(arg[0]:match('^(.*)/tools/[^/]+$') or '.')
+ local abc=root..'/build/abc'
++local runtime=arg[1] or abc
+ local tmp='/tmp/abc-vm-dynamic-'..tostring(os.time())
+ assert(os.execute(('mkdir -p %q'):format(tmp))==0)
+ local function capture(cmd)local p=assert(io.popen(cmd..' 2>&1','r'));local out=p:read('*a'):gsub('%s+$','');p:close();return out,not out:match('^abc:') end
+@@ -9,7 +10,7 @@ local function module(name,body)
+ end
+ local function same(path,export,expected)
+   local first,status
+-  for _,mode in ipairs{'interpreted','compiled','lazy'} do local out,ok=capture(('%q run %q %s --%s'):format(abc,path,export or '',mode));if not first then first,status=out,ok else assert(out==first and ok==status,('dynamic mode mismatch: %s != %s'):format(first,out))end end
++  for _,mode in ipairs{'interpreted','compiled','lazy'} do local out,ok=capture(('%q run %q %s --%s'):format(runtime,path,export or '',mode));if not first then first,status=out,ok else assert(out==first and ok==status,('dynamic mode mismatch: %s != %s'):format(first,out))end end
+   assert(first==expected,('dynamic result %s != %s'):format(first,expected))
+ end
+ local scalar=module('scalar',[=[
+@@ -498,6 +499,20 @@ local string_key=module('string-key',[=[
+ .export main
+ ]=])
+ same(string_key,'main','42')
++-- Equality is by string contents, not identity or the first scalar-sized bytes.
++-- Rooted reloads force the unrefined comparison CFG as well as known-tag arms.
++do
++  local lines={'.profile dynamic','.datazero 16','.rodata 616263646566676858616263646566676858616263646566676859',
++    '.descriptor primitive D any','.descriptor primitive S string','.gcroot 0 D','.gcroot 8 D','.function main 0 3 - iii'}
++  for _,test in ipairs{{16,25,'DEQ'},{16,34,'DEQ'},{16,34,'DNE'}} do
++    for i=1,2 do
++      lines[#lines+1]=(' GADDR.A %d\n PUSH.A 9\n ANY_BOX S\n GST64 %d'):format(test[i],(i-1)*8)
++    end
++    lines[#lines+1]=' .loadkind any\n GLD64 0\n .loadkind any\n GLD64 8\n '..test[3]
++  end
++  lines[#lines+1]=' RET 0 3\n.export main'
++  same(module('string-equality',table.concat(lines,'\n')..'\n'),'main','1 0 1')
++end
+ local churn_lines={'.profile dynamic','.descriptor primitive U u32','.descriptor signature Empty 0 0','.function main 0 2 - ii','  WORD_NEW Empty','  CPUSH.A'}
+ for i=1,1000 do churn_lines[#churn_lines+1]='  CGET0.A';churn_lines[#churn_lines+1]=('  PUSH.A %d'):format(i);churn_lines[#churn_lines+1]='  ANY_BOX U';churn_lines[#churn_lines+1]=('  PUSH.A %d'):format(i*10);churn_lines[#churn_lines+1]='  ANY_BOX U';churn_lines[#churn_lines+1]='  WORD_SET';churn_lines[#churn_lines+1]='  DROP.A' end
+ for i=2,998 do churn_lines[#churn_lines+1]='  CGET0.A';churn_lines[#churn_lines+1]=('  PUSH.A %d'):format(i);churn_lines[#churn_lines+1]='  ANY_BOX U';churn_lines[#churn_lines+1]='  WORD_REMOVE';churn_lines[#churn_lines+1]='  DROP.A' end
+diff --git a/tools/validate_symbolic.c b/tools/validate_symbolic.c
+index 0bbb639..03a5069 100644
+--- a/tools/validate_symbolic.c
++++ b/tools/validate_symbolic.c
+@@ -22,12 +22,18 @@ static int emit_control(void *sink,uint32_t origin,const abc_symbolic_control *c
+ 
+ typedef struct { unsigned seen; } effect_state;
+ static int emit_dynamic(void *sink,uint32_t origin,abc_symbolic_dynamic *dynamic) {
+-    effect_state *state=sink;if(state->seen||origin!=0||dynamic->selector!=EXT_ANY_BOX||dynamic->descriptor!=0||dynamic->pops!=1||dynamic->pushes!=1||
+-            dynamic->result[0].dynamic_tags!=(1u<<ABC_ANY_U32)||dynamic->result[0].dynamic_width!=32||dynamic->result[0].dynamic_repr!=ABC_SYM_REPR_ENCODED)return 0;
+-    state->seen++;return 1;
++    effect_state *state=sink;state->seen++;(void)origin;(void)dynamic;return 0;
++}
++static int emit_scalar_value(void *sink,uint32_t pc,unsigned op,unsigned descriptor,
++        abc_symbolic_value *value,abc_symbolic_value *other,abc_symbolic_value *result) {
++    (void)pc;(void)op;(void)descriptor;(void)value;(void)other;(void)result;
++    ((effect_state *)sink)->seen++;return 0;
++}
++static int emit_scalar_split(void *sink,uint32_t pc,abc_symbolic_dynamic *effect,unsigned family,uint16_t tags) {
++    (void)pc;(void)effect;(void)family;(void)tags;((effect_state *)sink)->seen++;return 0;
+ }
+ static int emit_memory(void *sink,uint32_t origin,abc_symbolic_memory *memory) {
+-    effect_state *state=sink;if(state->seen!=1||origin!=6||memory->opcode!=OP_CALLOC||memory->cells)return 0;
++    effect_state *state=sink;if(state->seen||origin!=6||memory->opcode!=OP_CALLOC||memory->cells)return 0;
+     state->seen++;return 1;
+ }
+ 
+@@ -89,12 +95,25 @@ int main(void) {
+     abc_symbolic_context effected={0};effect_state effects={0};
+     if(!abc_symbolic_push(&effected,ABC_SYM_A,abc_symbolic_constant(7,ABC_SYM_A,0)))return fail("dynamic test allocation");
+     machine=(abc_symbolic_machine){.module=&effect_module,.code=effect_code,.pc=0,.end=sizeof effect_code,
+-        .context=&effected,.sink=&effects,.emit_dynamic=emit_dynamic,.emit_memory=emit_memory};
+-    if(abc_symbolic_dispatch(&machine)!=ABC_SYM_EXIT_BLOCK||machine.pc!=9||effects.seen!=2||effected.n[ABC_SYM_A]!=1||
+-            effected.s[ABC_SYM_A][0].dynamic_tags!=(1u<<ABC_ANY_U32)||effected.s[ABC_SYM_A][0].dynamic_width!=32||effected.s[ABC_SYM_A][0].dynamic_repr!=ABC_SYM_REPR_ENCODED)
++        .context=&effected,.sink=&effects,.emit_dynamic=emit_dynamic,.emit_memory=emit_memory,
++        .emit_scalar_value=emit_scalar_value,.emit_scalar_split=emit_scalar_split};
++    if(abc_symbolic_dispatch(&machine)!=ABC_SYM_EXIT_BLOCK||machine.pc!=9||effects.seen!=1||effected.n[ABC_SYM_A]!=1||
++            effected.s[ABC_SYM_A][0].dynamic_tags!=(1u<<ABC_ANY_U32)||effected.s[ABC_SYM_A][0].dynamic_width!=32||effected.s[ABC_SYM_A][0].dynamic_repr!=ABC_SYM_REPR_RAW)
+         return fail("generated dynamic fact propagation and variable EXT length");
+     abc_symbolic_context_free(&effected);
+ 
++    uint8_t scalar_code[]={OP_EXT,EXT_ANY_BOX,0,0,0,0,OP_PUSH8_A,5,
++        OP_EXT,EXT_ANY_BOX,0,0,0,0,OP_EXT,EXT_DADD,OP_EXT,EXT_ANY_CAST,0,0,0,0};
++    effects.seen=0;
++    if(!abc_symbolic_push(&effected,ABC_SYM_A,abc_symbolic_constant(7,ABC_SYM_A,0)))return fail("scalar test allocation");
++    machine=(abc_symbolic_machine){.module=&effect_module,.code=scalar_code,.end=sizeof scalar_code,
++        .context=&effected,.sink=&effects,.emit_dynamic=emit_dynamic,
++        .emit_scalar_value=emit_scalar_value,.emit_scalar_split=emit_scalar_split};
++    if(abc_symbolic_dispatch(&machine)!=ABC_SYM_EXIT_BLOCK||effects.seen||effected.n[ABC_SYM_A]!=1||
++        effected.s[ABC_SYM_A][0].kind!=ABC_SYM_CONST||effected.s[ABC_SYM_A][0].constant!=12||effected.s[ABC_SYM_A][0].dynamic_tags)
++        return fail("shared scalar composition did not fold without an opaque effect");
++    abc_symbolic_context_free(&effected);
++
+     uint8_t call_code[]={OP_CALL_A,3,0,0,0,1,OP_RET,1,1,OP_CGET0_A,OP_RET,1,1};
+     abc_function call_functions[2]={{.entry=0,.end=9,.arguments=1,.results=1},{.entry=9,.end=13,.arguments=1,.results=1}};
+     abc_module call_module={.code=call_code,.code_size=sizeof call_code,.functions=call_functions,.function_count=2};
+diff --git a/tools/validate_type_versions.lua b/tools/validate_type_versions.lua
+index f23d29f..c1939cd 100644
+--- a/tools/validate_type_versions.lua
++++ b/tools/validate_type_versions.lua
+@@ -1,6 +1,7 @@
+ -- Check-driven native versions, on ordinary verified dynamic-profile ABC.
+ local root=(arg[0]:match('^(.*)/tools/[^/]+$') or '.')
+ local abc=root..'/build/abc'
++local runtime=arg[1] or abc
+ local temp=assert(io.popen('mktemp -d /tmp/abc-type-versions.XXXXXX'))
+ local tmp=assert(temp:read('*l'));assert(temp:close())
+ local checks=0
+@@ -14,10 +15,11 @@ local function module(name,source)
+   local path=tmp..'/'..name;local f=assert(io.open(path..'.abcasm','wb'));assert(f:write(source));assert(f:close())
+   local out,status=run{abc,'asm',path..'.abcasm','-o',path..'.abc'};assert(status==0,out);return path..'.abc'
+ end
+-local function same(path,args,expected)
++local function same(path,args,expected,noalloc,collect)
+   local first,code
+   for _,mode in ipairs{'interpreted','compiled','lazy'} do
+-    local cmd={abc,'run',path,'main'};for _,a in ipairs(args or {}) do cmd[#cmd+1]=a end;cmd[#cmd+1]='--'..mode
++    local cmd={runtime,'run',path,'main'};for _,a in ipairs(args or {}) do cmd[#cmd+1]=a end;cmd[#cmd+1]='--'..mode
++    if noalloc or collect then table.insert(cmd,1,noalloc and 'ABC_TEST_NO_SCALAR_ALLOC=1' or 'ABC_TEST_COLLECT_SCALARS=1');table.insert(cmd,1,'env') end
+     local out,status=run(cmd)
+     if not first then first,code=out,status else assert(out==first and status==code,path..' '..mode..': '..out..' != '..first) end
+     checks=checks+1
+@@ -29,7 +31,7 @@ local types={'u8','u16','u32','u64','i32','i64','f64','bool'}
+ local head='.profile dynamic\n.descriptor primitive D any\n.datazero 64\n'
+ for i=0,7 do head=head..'.gcroot '..(i*8)..' D\n' end
+ for i,t in ipairs(types) do head=head..'.descriptor primitive T'..i..' '..t..'\n' end
+-local ops={'DADD','DSUB','DMUL','DDIV','DREM','DPOW','DSHL','DSHR','DSAR','DAND','DOR','DXOR'}
++local ops={'DADD','DSUB','DMUL','DDIV','DREM','DPOW','DSHL','DSHR','DSAR','DAND','DOR','DXOR','DEQ','DNE','DLT','DLE'}
+ local function result_type(a,b)
+   if a==7 and b==7 then return 7 end
+   if a<=4 and b<=4 or (a==5 or a==6) and (b==5 or b==6) then return math.max(a,b) end
+@@ -37,17 +39,90 @@ local function result_type(a,b)
+ end
+ for _,op in ipairs(ops) do
+   for a=1,#types do for b=1,#types do
+-    local out=result_type(a,b);local result_kind=out==7 and 'f' or 'i'
++    local out=result_type(a,b);local comparison=op=='DEQ' or op=='DNE' or op=='DLT' or op=='DLE'
++    local result_kind=not comparison and out==7 and 'f' or 'i'
+     local text=head..'.function main 2 1 ii '..result_kind..'\n'
+     for depth,t in ipairs{a,b} do
+       text=text..' CGET.A '..(depth-1)..'\n'..(t==7 and ' I2FS\n' or '')..' ANY_BOX T'..t..'\n GST64 '..((depth-1)*8)..'\n'
+     end
+-    text=text..' .loadkind any\n GLD64 0\n .loadkind any\n GLD64 8\n '..op..'\n ANY_CAST T'..out..'\n RET 2 1\n.export main\n'
++    text=text..' .loadkind any\n GLD64 0\n .loadkind any\n GLD64 8\n '..op..'\n'..(comparison and '' or ' ANY_CAST T'..out..'\n')..' RET 2 1\n.export main\n'
+     local path=module(op..'-'..a..'-'..b,text)
+     for _,values in ipairs{{0,0},{7,2},{4294967295,1},{'-1',2},{'35184372088832',3},{'-9223372036854775808','-1'},{'-1','-1'},{'-1',64},{2,65}} do same(path,values) end
+   end end
+ end
+ 
++-- Unknown loaded operands exercise every checked conversion and unary arm.
++for from=1,#types do
++  for to=1,#types do
++    local source=head..('.function main 1 1 i %s\n CGET0.A\n %s ANY_BOX T%d\n GST64 0\n .loadkind any\n GLD64 0\n ANY_CAST T%d\n RET 1 1\n.export main\n'):format(to==7 and 'f' or 'i',from==7 and 'I2FS\n' or '',from,to)
++    local path=module('cast-'..from..'-'..to,source)
++    for _,v in ipairs{0,255,65536,2147483648,'-1','35184372088832','-9223372036854775808'} do same(path,{v}) end
++  end
++  for _,op in ipairs{'DNEG','DNOT','DLNOT','DREQUIRE_BOOL'} do
++    local boolean=op=='DLNOT' or op=='DREQUIRE_BOOL'
++    local source=head..('.function main 1 1 i %s\n CGET0.A\n %s ANY_BOX T%d\n GST64 0\n .loadkind any\n GLD64 0\n %s\n %s RET 1 1\n.export main\n'):format(not boolean and from==7 and 'f' or 'i',from==7 and 'I2FS\n' or '',from,op,boolean and '' or 'ANY_CAST T'..from..'\n')
++    local path=module(op..'-'..from,source)
++    for _,v in ipairs{0,1,'-1',4294967295,'35184372088832','-9223372036854775808'} do same(path,{v}) end
++  end
++  for _,op in ipairs{'DADDL','DSUBL','DMULL','DDIVL','DREML','DPOWL','DSHLL','DSHRL','DSARL','DANDL','DORL','DXORL'} do
++    for _,reverse in ipairs{0,1} do
++      local source=head..('.constant K u8 02 literal\n.function main 1 1 i %s\n CGET0.A\n %s ANY_BOX T%d\n GST64 0\n .loadkind any\n GLD64 0\n %s K %d\n ANY_CAST T%d\n RET 1 1\n.export main\n'):format(from==7 and 'f' or 'i',from==7 and 'I2FS\n' or '',from,op,reverse,from)
++      local path=module(op..'-'..from..'-'..reverse,source)
++      for _,v in ipairs{0,3,'-1','35184372088832'} do same(path,{v}) end
++    end
++  end
++end
++
++-- A wide numeric loop must not box per operation or on compatible backedges.
++local wide=module('wide-no-escape',[=[
++.profile dynamic
++.descriptor primitive W u64
++.constant One u8 01 literal
++.function main 0 1 - i
++ PUSH64.A 1152921504606846976
++ ANY_BOX W
++ CPUSH.A
++ PUSH.A 0
++ CPUSH.A
++loop:
++ CGET0.A
++ PUSH.B 200
++ BLTU body
++ CGET1.A
++ ANY_CAST W
++ RET 2 1
++body:
++ CGET1.A
++ DADDL One 0
++ CSET.A 1
++ CGET0.A
++ ADDI.A 1
++ CSET.A 0
++ JMP loop
++.export main
++]=])
++same(wide,{},'1152921504606847176',true)
++-- Reversed literals must leave their result in the unary instruction's home,
++-- not the temporary right-hand cell. Keep enough results live to force spills.
++do
++  local lines={'.profile dynamic','.descriptor primitive I i64','.constant Seven u8 07 literal','.function main 0 1 - i'}
++  for i=1,20 do lines[#lines+1]=(' PUSH.A %d\n ANY_BOX I\n DSUBL Seven 1'):format(i) end
++  for _=1,19 do lines[#lines+1]=' DADD' end
++  lines[#lines+1]=' ANY_CAST I\n RET 0 1\n.export main'
++  same(module('reverse-literal-pressure',table.concat(lines,'\n')..'\n'),{},'-70',true)
++end
++
++-- An indirect result starts in an A home. Its live C alias must survive
++-- publication of a replacement A register before an allocating escape/GC.
++do
++  local lines={'.profile dynamic','.descriptor primitive W u64','.descriptor primitive D any','.datazero 16','.gcroot 0 D',
++    '.codeaddr 8 identity','.signature id 2 1 ad d','.function main 1 1 i i',
++    ' GADDR.A 0\n CGET0.A\n ANY_BOX W\n .loadkind addr\n GLD64 8\n MOVE.AB\n CALLI.A 2 id\n CPUSH.A'}
++  for i=1,20 do lines[#lines+1]=(' CGET1.A\n ADDI.A %d\n ANY_BOX W\n GST64 0'):format(i) end
++  lines[#lines+1]=' CGET0.A\n ANY_CAST W\n RET 2 1\n.function identity 2 1 ad d\n CGET1.A\n RET 2 1\n.export main'
++  same(module('allocation-home-alias',table.concat(lines,'\n')..'\n'),{'1152921504606846976'},'1152921504606846976',false,true)
++end
++
+ -- Stack aliases, spills, positive/negative facts, delayed predicates, and CSET.
+ for _,typ in ipairs{3,5} do for _,delay in ipairs{false,true} do
+   local lines={head,'.function main 1 1 i i',' CGET0.A',' ANY_BOX T'..typ,' GST64 0',' PUSH.A 9',' ANY_BOX T5',' GST64 8',' .loadkind any',' GLD64 0'}

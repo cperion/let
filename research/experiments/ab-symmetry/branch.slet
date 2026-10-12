@@ -1,0 +1,7 @@
+let step(x: u32): u32 = if (x & 1) == 0 then x >> 1 else x * 3 + 1
+let loop(n: u32, x: u32, acc: u32): u32 = do
+    if n == 0 then return acc end
+    let y = step(x)
+    return loop(n - 1, y, acc + (y & 255))
+end
+let main(): u32 = loop(3000000, 305419896, 0)

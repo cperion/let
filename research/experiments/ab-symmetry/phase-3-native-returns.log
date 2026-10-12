@@ -1,0 +1,2 @@
+revision-6 banked/call contracts: 27 cases, including mirrored foreign calls in all modes
+native return transport: 33 interpreter/eager/lazy checks passed

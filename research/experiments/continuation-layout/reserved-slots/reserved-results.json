@@ -1,0 +1,609 @@
+{
+  "ample_stack": [
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "original",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "original",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "original",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "reserved",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "reserved",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "reserved",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "transfer",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "transfer",
+      "mode": "compiled",
+      "result": 101,
+      "activations": 10,
+      "general_entries": 10,
+      "materialized_returns": 15,
+      "materializations": 7
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "transfer",
+      "mode": "lazy",
+      "result": 101,
+      "activations": 10,
+      "general_entries": 10,
+      "materialized_returns": 14,
+      "materializations": 7
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "original",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "original",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "original",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "reserved",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "reserved",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "reserved",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "transfer",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "transfer",
+      "mode": "compiled",
+      "result": 101,
+      "activations": 10,
+      "general_entries": 10,
+      "materialized_returns": 15,
+      "materializations": 7
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "transfer",
+      "mode": "lazy",
+      "result": 101,
+      "activations": 10,
+      "general_entries": 10,
+      "materialized_returns": 14,
+      "materializations": 7
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "original",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "original",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "original",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "reserved",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "reserved",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "reserved",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "transfer",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "transfer",
+      "mode": "compiled",
+      "result": 101,
+      "activations": 10,
+      "general_entries": 10,
+      "materialized_returns": 15,
+      "materializations": 7
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "transfer",
+      "mode": "lazy",
+      "result": 101,
+      "activations": 10,
+      "general_entries": 10,
+      "materialized_returns": 14,
+      "materializations": 7
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "original",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "original",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "original",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "reserved",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "reserved",
+      "mode": "compiled",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "reserved",
+      "mode": "lazy",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "transfer",
+      "mode": "interpreted",
+      "result": 101
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "transfer",
+      "mode": "compiled",
+      "result": 101,
+      "activations": 10,
+      "general_entries": 10,
+      "materialized_returns": 15,
+      "materializations": 7
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "transfer",
+      "mode": "lazy",
+      "result": 101,
+      "activations": 10,
+      "general_entries": 10,
+      "materialized_returns": 14,
+      "materializations": 7
+    }
+  ],
+  "sweeps": [
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "original",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 14,
+        "lazy": 15
+      },
+      "status_disagreements": [
+        {
+          "capacity": 14,
+          "outcomes": [
+            {
+              "mode": "interpreted",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            },
+            {
+              "mode": "compiled",
+              "status": "ok",
+              "diagnostic": ""
+            },
+            {
+              "mode": "lazy",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            }
+          ]
+        }
+      ],
+      "stack_diagnostic_disagreements": [
+        {
+          "capacity": 9,
+          "outcomes": [
+            {
+              "mode": "interpreted",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+            },
+            {
+              "mode": "compiled",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            },
+            {
+              "mode": "lazy",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "reserved",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 15,
+        "lazy": 15
+      },
+      "status_disagreements": [],
+      "stack_diagnostic_disagreements": []
+    },
+    {
+      "fixture": "layout",
+      "destination": "A",
+      "config": "transfer",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 15,
+        "lazy": 15
+      },
+      "status_disagreements": [],
+      "stack_diagnostic_disagreements": []
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "original",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 14,
+        "lazy": 15
+      },
+      "status_disagreements": [
+        {
+          "capacity": 14,
+          "outcomes": [
+            {
+              "mode": "interpreted",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            },
+            {
+              "mode": "compiled",
+              "status": "ok",
+              "diagnostic": ""
+            },
+            {
+              "mode": "lazy",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            }
+          ]
+        }
+      ],
+      "stack_diagnostic_disagreements": [
+        {
+          "capacity": 9,
+          "outcomes": [
+            {
+              "mode": "interpreted",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+            },
+            {
+              "mode": "compiled",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            },
+            {
+              "mode": "lazy",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "reserved",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 15,
+        "lazy": 15
+      },
+      "status_disagreements": [],
+      "stack_diagnostic_disagreements": []
+    },
+    {
+      "fixture": "layout",
+      "destination": "B",
+      "config": "transfer",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 15,
+        "lazy": 15
+      },
+      "status_disagreements": [],
+      "stack_diagnostic_disagreements": []
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "original",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 14,
+        "lazy": 15
+      },
+      "status_disagreements": [
+        {
+          "capacity": 14,
+          "outcomes": [
+            {
+              "mode": "interpreted",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            },
+            {
+              "mode": "compiled",
+              "status": "ok",
+              "diagnostic": ""
+            },
+            {
+              "mode": "lazy",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            }
+          ]
+        }
+      ],
+      "stack_diagnostic_disagreements": [
+        {
+          "capacity": 9,
+          "outcomes": [
+            {
+              "mode": "interpreted",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+            },
+            {
+              "mode": "compiled",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            },
+            {
+              "mode": "lazy",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "reserved",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 15,
+        "lazy": 15
+      },
+      "status_disagreements": [],
+      "stack_diagnostic_disagreements": []
+    },
+    {
+      "fixture": "alias",
+      "destination": "A",
+      "config": "transfer",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 15,
+        "lazy": 15
+      },
+      "status_disagreements": [],
+      "stack_diagnostic_disagreements": []
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "original",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 14,
+        "lazy": 15
+      },
+      "status_disagreements": [
+        {
+          "capacity": 14,
+          "outcomes": [
+            {
+              "mode": "interpreted",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            },
+            {
+              "mode": "compiled",
+              "status": "ok",
+              "diagnostic": ""
+            },
+            {
+              "mode": "lazy",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            }
+          ]
+        }
+      ],
+      "stack_diagnostic_disagreements": [
+        {
+          "capacity": 9,
+          "outcomes": [
+            {
+              "mode": "interpreted",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x22: stack limit reached"
+            },
+            {
+              "mode": "compiled",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            },
+            {
+              "mode": "lazy",
+              "status": "stack",
+              "diagnostic": "abc: stack-limit at byte 0x2c0: stack limit reached"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "reserved",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 15,
+        "lazy": 15
+      },
+      "status_disagreements": [],
+      "stack_diagnostic_disagreements": []
+    },
+    {
+      "fixture": "alias",
+      "destination": "B",
+      "config": "transfer",
+      "first_successful_capacity": {
+        "interpreted": 15,
+        "compiled": 15,
+        "lazy": 15
+      },
+      "status_disagreements": [],
+      "stack_diagnostic_disagreements": []
+    }
+  ],
+  "limits": [
+    "Forced interior edge, not the production eight-version policy.",
+    "Return adapters are experimental emitted code, not a validated bounded continuation design.",
+    "Typed fixtures only; no GC/dynamic validation or performance claims.",
+    "This checker covers fixed arity; check_tail.py separately reproduces argument-count-changing tail failures."
+  ],
+  "executions": 1188
+}

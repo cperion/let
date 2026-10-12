@@ -1,0 +1,88 @@
+; Profile-5 module-root fixture for host-requested Whippet collection.
+.profile dynamic
+.datazero 16
+.rodata 78
+.extern scalar_gc_request - -
+.descriptor primitive Unit unit
+.descriptor primitive Word word
+.descriptor primitive U u32
+.descriptor record R 8 1 0 1 0 U
+.descriptor pointer Ref managed R
+.descriptor record Holder 8 1 0 1 0 Ref
+.descriptor pointer HolderRef managed Holder
+.descriptor primitive D any
+.descriptor array Pair 16 2 D
+.descriptor signature Empty 0 0
+.gcroot 0 Pair
+
+.function build 0 0
+  WORD_NEW Empty
+  PUSH.A 7
+  ANY_BOX U
+  PUSH.A 42
+  ANY_BOX U
+  WORD_SET
+  GST64 0
+  MANAGED_NEW Holder
+  DUP.A
+  MANAGED_NEW R
+  DUP.A
+  PUSH.B 77
+  ST64 0
+  MOVE.AB
+  ST64 0
+  ANY_BOX HolderRef
+  GST64 8
+  RET 0 0
+
+.function check 0 1 - i
+  .loadkind any
+  GLD64 0
+  WORD_COUNT
+  RET 0 1
+
+ .function check_managed 0 1 - i
+  .loadkind any
+  GLD64 8
+  ANY_CAST HolderRef
+  .loadkind addr
+  LD64.A 0
+  LD64.A 0
+  RET 0 1
+
+.function scalar_poll 0 1 - i
+  PUSH.A 42
+  ANY_BOX U
+  ANY_CAST U
+  RET 0 1
+
+.function typed_no_poll 0 1 - i
+  PUSH.A 42
+  RET 0 1
+
+; At the requested scalar boundary, the word is only in the live A register
+; bank. Its module root was cleared; A's old home was overwritten before FCALL.
+.function check_registers 0 1 - i
+  ANY_BOX Unit
+  CPUSH.A
+  PUSH.A 0
+  FCALL scalar_gc_request
+  DROP.A
+  .loadkind any
+  GLD64 0
+  CGET0.A
+  GST64 0
+  CPOP
+  DUP.A
+  ANY_IS Word
+  DROP.A
+  WORD_COUNT
+  RET 0 1
+
+.export scalar_poll
+.export typed_no_poll
+.export check_registers
+.export build
+.export check
+.export check_managed
+

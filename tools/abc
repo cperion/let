@@ -14,7 +14,7 @@ local function main()
         print('       abc compile SOURCE.let|SOURCE.slet -o MODULE [--export WORD] [--emit-asm]')
         print('       abc opt MODULE -o OPTIMIZED')
         print('       abc c MODULE -o OUTPUT.c')
-        print('       abc run MODULE|SOURCE.let|SOURCE.slet [EXPORT] [ARGS...] [--stack=N]')
+        print('       abc run MODULE|SOURCE.let|SOURCE.slet [EXPORT] [ARGS...] [--stack=N] [--jit=off|threaded|lazy|eager]')
         print('       abc check MODULE | abc dis MODULE | abc opcodes')
         return command and 0 or 1
     end

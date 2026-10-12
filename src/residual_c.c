@@ -636,6 +636,12 @@ static int emit_node(c_emitter *emitter,
                 !append_text(&emitter->output, "^UINT64_C(1));\n", 16))
                 return emit_out_of_memory(emitter);
             return 1;
+        case ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND8:
+            if (!append_text(&emitter->output, "(uint8_t)", 9)) return 0;
+            break;
+        case ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND16:
+            if (!append_text(&emitter->output, "(uint16_t)", 10)) return 0;
+            break;
         case ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND32:
             if (!append_text(&emitter->output, "(uint32_t)", 10)) return 0;
             break;
@@ -747,16 +753,29 @@ static int emit_node(c_emitter *emitter,
         }
         if (!append_format(
                 &emitter->output,
-                "    uint64_t call_results_%llu[%zu];\n"
-                "    int call_status_%llu=abc_aot_function_%zu(call_args_%llu,call_results_%llu,error);\n"
-                "    if(call_status_%llu)return call_status_%llu;\n",
+                "    uint64_t call_results_%llu[%zu];\n",
                 (unsigned long long)node->id.value,
-                node->results.count ? node->results.count : 1,
-                (unsigned long long)node->id.value, target,
-                (unsigned long long)node->id.value,
-                (unsigned long long)node->id.value,
-                (unsigned long long)node->id.value,
-                (unsigned long long)node->id.value))
+                node->results.count ? node->results.count : 1))
+            return emit_out_of_memory(emitter);
+        /* Vector shape chooses the ABI, not whether the callee can fail.
+         * A proven non-failing vector call also works inside a scalar caller,
+         * which deliberately has no error channel or status return. */
+        if (emitter->may_fail[target]) {
+            if (!append_format(
+                    &emitter->output,
+                    "    int call_status_%llu=abc_aot_function_%zu(call_args_%llu,call_results_%llu,error);\n"
+                    "    if(call_status_%llu)return call_status_%llu;\n",
+                    (unsigned long long)node->id.value, target,
+                    (unsigned long long)node->id.value,
+                    (unsigned long long)node->id.value,
+                    (unsigned long long)node->id.value,
+                    (unsigned long long)node->id.value))
+                return emit_out_of_memory(emitter);
+        } else if (!append_format(
+                       &emitter->output,
+                       "    (void)abc_aot_function_%zu(call_args_%llu,call_results_%llu,NULL);\n",
+                       target, (unsigned long long)node->id.value,
+                       (unsigned long long)node->id.value))
             return emit_out_of_memory(emitter);
         for (i = 0; i < node->results.count; i++) {
             if (!append_text(&emitter->output, "    ", 4) ||
@@ -988,7 +1007,7 @@ static int emit_function(c_emitter *emitter, size_t index) {
                           (unsigned long long)emitter->program->values.items[i].id.value))
             return emit_out_of_memory(emitter);
     if(!scalar_function(emitter,index)&&
-       !append_format(&emitter->output,"  (void)arguments; (void)error;\n"))
+       !append_format(&emitter->output,"  (void)arguments; (void)results; (void)error;\n"))
         return emit_out_of_memory(emitter);
     for (i = 0; i < emitter->program->values.count; i++) {
         const abc_residual_value *value =

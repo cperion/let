@@ -1,0 +1,7 @@
+4 native executions returned 101; 40 observed leaf-return/caller-resume pairs checked.
+2 interpreter executions returned ordered 607,17 results to A/B and popped C to cell 8.
+Observed paths: {('compiled', 'MATERIALIZED'): 18, ('compiled', 'REAL'): 2, ('lazy', 'MATERIALIZED'): 14, ('lazy', 'REAL'): 6}
+Coordinate model: all six C homes stay at cells 9..14 under normalization.
+Coordinate model: normalize-only resumes one cell too high on every real return.
+Coordinate model: project RET pop to cell 8, then restore the recorded caller cache base (1 or 6).
+No new return convention, entry merging, budget enforcement or performance validated.

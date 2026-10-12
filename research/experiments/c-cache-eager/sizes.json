@@ -1,0 +1,10 @@
+{
+  "current": {
+    ".text": 1594488,
+    ".data.rel.ro": 137120
+  },
+  "eager": {
+    ".text": 522800,
+    ".data.rel.ro": 34288
+  }
+}

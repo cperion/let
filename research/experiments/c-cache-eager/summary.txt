@@ -1,0 +1,10 @@
+workload current_ms eager_ms eager/current paired_ratio_min paired_ratio_max
+warm-top 21.437 22.992 1.0725 1.0505 1.0825
+post-call-top 30.730 30.309 0.9863 0.9680 1.0082
+post-call-mixed 30.348 33.095 1.0905 1.0819 1.1198
+post-call-deep 29.277 30.570 1.0442 1.0025 1.0625
+post-free-top 24.659 29.396 1.1921 1.1485 1.2349
+ab-control 7.941 7.974 1.0041 0.9372 1.0267
+fib28 9.997 11.445 1.1449 1.0790 1.1606
+frame-alias 2.660 5.281 1.9850 1.5974 2.1657
+global-memory 5.708 5.905 1.0345 0.9662 1.1892

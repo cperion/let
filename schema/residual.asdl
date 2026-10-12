@@ -17,7 +17,7 @@ module Residual {
              | InstructionResult(Id instruction, number index)
   Value = (Id id, Type type, Facts facts, Definition definition, Origin origin)
 
-  UnaryOp = Neg | BitNot | LogicalNot | ZeroExtend32 | SignExtend32
+  UnaryOp = Neg | BitNot | LogicalNot | ZeroExtend8 | ZeroExtend16 | ZeroExtend32 | SignExtend32
             | FloatNeg | SignedToFloat | UnsignedToFloat | FloatToSigned | FloatToUnsigned
   BinaryOp = Add | Sub | Mul | DivUnsigned | DivSigned | RemUnsigned | RemSigned
              | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight | ShiftArithmetic

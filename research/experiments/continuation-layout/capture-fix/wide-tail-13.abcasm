@@ -1,0 +1,12 @@
+.profile memory
+.function main 12 13 iiiiiiiiiiii iiiiiiiiiiiii
+CGETR.A 0 12
+PUSH.A 123
+TCALL echo 12 13
+RET 12 13
+.function echo 13 13 iiiiiiiiiiiii iiiiiiiiiiiii
+JMP end
+end:
+CGETR.A 0 13
+RET 13 13
+.export main

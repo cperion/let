@@ -1,0 +1,1 @@
+Pilot and final-build runner .text, .rodata and .data.rel.ro are byte-identical after shared power-computation extraction.

@@ -1,0 +1,12 @@
+.profile memory
+ .function main 0 1 - i
+ CALLOC 24
+ PUSH.A 287454020
+ FST64.A 24
+ FADDR.A 24
+ PUSH.B 85
+ ST8.A 1
+ FADDR.B 24
+ LD64.B 0
+ CFREE 24
+ RET.B 0 1

@@ -1,0 +1,4 @@
+{"mode": "off", "command": ["build/abc", "run", "/tmp/abc-capacity-frontier.abc", "run", "40", "--jit=off"], "status": 0, "stdout": "42\n", "stderr": ""}
+{"mode": "threaded", "command": ["build/abc", "run", "/tmp/abc-capacity-frontier.abc", "run", "40", "--jit=threaded"], "status": 1, "stdout": "", "stderr": "abc: stack-limit at byte 0x3: stack limit reached\n"}
+{"mode": "lazy", "command": ["build/abc", "run", "/tmp/abc-capacity-frontier.abc", "run", "40", "--jit=lazy"], "status": 0, "stdout": "42\n", "stderr": ""}
+{"mode": "eager", "command": ["build/abc", "run", "/tmp/abc-capacity-frontier.abc", "run", "40", "--jit=eager"], "status": 0, "stdout": "42\n", "stderr": ""}

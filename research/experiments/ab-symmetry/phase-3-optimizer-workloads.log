@@ -1,0 +1,48 @@
+warm-top interpreted: 104000000 PASS
+warm-top compiled: 104000000 PASS
+warm-top lazy: 104000000 PASS
+warm-top: bytes changed = False
+post-call-top interpreted: 104000000 PASS
+post-call-top compiled: 104000000 PASS
+post-call-top lazy: 104000000 PASS
+post-call-top: bytes changed = False
+post-call-mixed interpreted: 84000000 PASS
+post-call-mixed compiled: 84000000 PASS
+post-call-mixed lazy: 84000000 PASS
+post-call-mixed: bytes changed = False
+post-call-deep interpreted: 44000000 PASS
+post-call-deep compiled: 44000000 PASS
+post-call-deep lazy: 44000000 PASS
+post-call-deep: bytes changed = False
+post-free-top interpreted: 104000000 PASS
+post-free-top compiled: 104000000 PASS
+post-free-top lazy: 104000000 PASS
+post-free-top: bytes changed = False
+ab-control interpreted: 0 PASS
+ab-control compiled: 0 PASS
+ab-control lazy: 0 PASS
+ab-control: bytes changed = False
+fib28 interpreted: 317811 PASS
+fib28 compiled: 317811 PASS
+fib28 lazy: 317811 PASS
+fib28: bytes changed = True
+frame-alias interpreted: 2500000 PASS
+frame-alias compiled: 2500000 PASS
+frame-alias lazy: 2500000 PASS
+frame-alias: bytes changed = False
+global-memory interpreted: 1000000 PASS
+global-memory compiled: 1000000 PASS
+global-memory lazy: 1000000 PASS
+global-memory: bytes changed = False
+escaped-caller-block interpreted: 41 PASS
+escaped-caller-block compiled: 41 PASS
+escaped-caller-block lazy: 41 PASS
+escaped-caller-block: bytes changed = False
+partial-frame-write interpreted: 287462724 PASS
+partial-frame-write compiled: 287462724 PASS
+partial-frame-write lazy: 287462724 PASS
+partial-frame-write: bytes changed = False
+frame-copy-overlap interpreted: 22 PASS
+frame-copy-overlap compiled: 22 PASS
+frame-copy-overlap lazy: 22 PASS
+frame-copy-overlap: bytes changed = False

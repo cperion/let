@@ -1,0 +1,179 @@
+--- a/src/symbolic.h
++++ b/src/symbolic.h
+@@ -66,6 +66,10 @@
+ } abc_symbolic_exit;
+ enum { ABC_SYM_TRANSFER_STACK=1u, ABC_SYM_TRANSFER_VALUE=2u, ABC_SYM_TRANSFER_CONTROL=4u, ABC_SYM_TRANSFER_EFFECT=8u };
+ 
++/* Capture a value before a stack transfer. Native HOME values are mutable
++   storage reads; sinks whose inputs name immutable definitions need no binding.
++   Constants/backend values already denote captured values and may rename. */
++typedef int (*abc_symbolic_capture_fn)(void *sink, uint32_t origin, abc_symbolic_value *value);
+ typedef int (*abc_symbolic_emit_binary_fn)(void *sink, uint32_t origin, unsigned opcode,
+     unsigned destination, int folded, abc_symbolic_value left, abc_symbolic_value right,
+     abc_symbolic_value *result);
+@@ -123,7 +127,7 @@
+ 
+ typedef struct abc_symbolic_machine {
+     const abc_module *module; const uint8_t *code, *blocks; uint32_t pc, end, extra_advance; unsigned opcode, transfer_mask;
+-    abc_symbolic_context *context; void *sink; abc_symbolic_emit_binary_fn emit_binary;
++    abc_symbolic_context *context; void *sink; abc_symbolic_capture_fn capture; abc_symbolic_emit_binary_fn emit_binary;
+     abc_symbolic_emit_binary_fn emit_float_binary, emit_c_operand, emit_pow;
+     abc_symbolic_emit_unary_fn emit_unary; abc_symbolic_emit_immediate_fn emit_immediate;
+     abc_symbolic_emit_float_unary_fn emit_float_unary; abc_symbolic_emit_check_fn emit_check;
+--- a/src/symbolic.c
++++ b/src/symbolic.c
+@@ -129,12 +129,25 @@
+     m->exit=ABC_SYM_EXIT_FAILURE; abc_fail(m->error,ABC_NOMEM,m->pc,"%s",message); return 0;
+ }
+ 
++/* The interpreter captures a push's input before consuming its source or
++   changing cache ownership. In particular, copying a HOME descriptor is not a
++   value capture. Keep this obligation in the shared transfers, not at a later
++   block-conformance boundary. */
++static int machine_capture(abc_symbolic_machine *m,abc_symbolic_value *value) {
++    if(value->kind!=ABC_SYM_HOME||!m->capture)return 1;
++    if(m->capture(m->sink,m->pc,value))return 1;
++    m->exit=ABC_SYM_EXIT_FAILURE;
++    if(!m->error||m->error->status==ABC_OK)abc_fail(m->error,ABC_NOMEM,m->pc,"symbolic value capture failed");
++    return 0;
++}
++
+ int abc_symbolic_machine_push(abc_symbolic_machine *m,unsigned stack,uint64_t value) {
+     abc_symbolic_value v=abc_symbolic_constant(value,stack,(int32_t)m->context->n[stack]);
+     return abc_symbolic_push(m->context,stack,v)||machine_fail(m,"symbolic stack allocation failed");
+ }
+ int abc_symbolic_machine_dup(abc_symbolic_machine *m,unsigned stack) {
+     abc_symbolic_value v=*abc_symbolic_top(m->context,stack,0);
++    if(!machine_capture(m,&v))return 0;
+     v.dst_stack=(uint8_t)stack; v.dst_home=(int32_t)m->context->n[stack];
+     return abc_symbolic_push(m->context,stack,v)||machine_fail(m,"symbolic stack allocation failed");
+ }
+@@ -142,12 +155,16 @@
+     (void)m; (void)abc_symbolic_pop(m->context,stack); return 1;
+ }
+ int abc_symbolic_machine_transfer(abc_symbolic_machine *m,unsigned from,unsigned to,int consume) {
+-    abc_symbolic_value v=consume?abc_symbolic_pop(m->context,from):*abc_symbolic_top(m->context,from,0);
++    abc_symbolic_value v=*abc_symbolic_top(m->context,from,0);
++    if(!machine_capture(m,&v))return 0;
++    if(consume)(void)abc_symbolic_pop(m->context,from);
+     v.dst_stack=(uint8_t)to; v.dst_home=(int32_t)m->context->n[to];
+     return abc_symbolic_push(m->context,to,v)||machine_fail(m,"symbolic stack allocation failed");
+ }
+ int abc_symbolic_machine_cpush(abc_symbolic_machine *m,unsigned from) {
+-    abc_symbolic_value v=abc_symbolic_pop(m->context,from);
++    abc_symbolic_value v=*abc_symbolic_top(m->context,from,0);
++    if(!machine_capture(m,&v))return 0;
++    (void)abc_symbolic_pop(m->context,from);
+     v.dst_stack=ABC_SYM_C; v.dst_home=m->context->c_bias+(int32_t)m->context->n[ABC_SYM_C]-m->context->c_origin;
+     return abc_symbolic_push(m->context,ABC_SYM_C,v)||machine_fail(m,"symbolic stack allocation failed");
+ }
+@@ -160,6 +177,7 @@
+ }
+ int abc_symbolic_machine_cget(abc_symbolic_machine *m,unsigned to,unsigned depth) {
+     abc_symbolic_value v=*abc_symbolic_top(m->context,ABC_SYM_C,depth);
++    if(!machine_capture(m,&v))return 0;
+     v.dst_stack=(uint8_t)to; v.dst_home=(int32_t)m->context->n[to];
+     return abc_symbolic_push(m->context,to,v)||machine_fail(m,"symbolic stack allocation failed");
+ }
+@@ -168,7 +186,9 @@
+     return 1;
+ }
+ int abc_symbolic_machine_cset(abc_symbolic_machine *m,unsigned from,unsigned depth) {
+-    abc_symbolic_value v=abc_symbolic_pop(m->context,from);
++    abc_symbolic_value v=*abc_symbolic_top(m->context,from,0);
++    if(!machine_capture(m,&v))return 0;
++    (void)abc_symbolic_pop(m->context,from);
+     abc_symbolic_value *to=abc_symbolic_top(m->context,ABC_SYM_C,depth);
+     v.dst_stack=to->dst_stack; v.dst_home=to->dst_home; *to=v; return 1;
+ }
+@@ -499,12 +519,14 @@
+     if(!m->emit_call(m->sink,m->pc,&effect)){if(m->exit==ABC_SYM_EXIT_BOUNDARY)return 0;m->exit=ABC_SYM_EXIT_FAILURE;return 0;}
+     if(effect.virtualize) {
+         new_bias+=(int32_t)effect.reserve_return;
+-        abc_symbolic_value args[255];for(unsigned i=0;i<arguments;i++)args[i]=x->s[ABC_SYM_A][abase+i];x->n[ABC_SYM_A]=abase;
+-        for(unsigned i=arguments;i;i--){unsigned index=i-1;abc_symbolic_value q=args[index];q.dst_stack=ABC_SYM_C;q.dst_home=new_bias-1-(int32_t)index;if(!abc_symbolic_push(x,ABC_SYM_C,q))return machine_fail(m,"symbolic call argument allocation failed");}
++        x->c_bias+=(int32_t)effect.reserve_return;
++        for(unsigned i=0;i<arguments;i++)if(!abc_symbolic_machine_cpush(m,ABC_SYM_A))return 0;
+         x->c_origin=(int32_t)x->n[ABC_SYM_C];x->c_bias=new_bias;if(!abc_symbolic_push_continuation(x,effect.continuation))return machine_fail(m,"symbolic continuation allocation failed");
+         if(!m->emit_edge||!m->emit_edge(m->sink,m->pc,target)){m->exit=ABC_SYM_EXIT_FAILURE;return 0;}m->exit=ABC_SYM_EXIT_CONTROL;return 0;
+     }
+-    x->n[ABC_SYM_A]=abase;for(unsigned i=0;i<effect.results;i++){abc_symbolic_value q=effect.result[i];q.dst_stack=(uint8_t)destination;q.dst_home=(int32_t)x->n[destination];if(!abc_symbolic_push(x,destination,q))return machine_fail(m,"symbolic call result allocation failed");}
++    x->n[ABC_SYM_A]=abase;for(unsigned i=0;i<effect.results;i++){abc_symbolic_value q=effect.result[i];
++        if(q.kind==ABC_SYM_HOME&&(q.stack!=destination||q.home!=(int32_t)x->n[destination])&&!machine_capture(m,&q))return 0;
++        q.dst_stack=(uint8_t)destination;q.dst_home=(int32_t)x->n[destination];if(!abc_symbolic_push(x,destination,q))return machine_fail(m,"symbolic call result allocation failed");}
+     return 1;
+ }
+ 
+@@ -512,9 +534,9 @@
+     if(!m->emit_tail){m->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}abc_symbolic_context *x=m->context;
+     if(x->n[ABC_SYM_A]<arguments||x->n[ABC_SYM_C]<frame_cells)return machine_fail(m,"symbolic tail-call shape mismatch");
+     abc_symbolic_tail effect={.target=target,.frame_cells=frame_cells,.arguments=arguments};if(!m->emit_tail(m->sink,m->pc,&effect)){if(m->exit==ABC_SYM_EXIT_BOUNDARY)return 0;m->exit=ABC_SYM_EXIT_FAILURE;return 0;}if(effect.residualize){m->exit=ABC_SYM_EXIT_TERMINATED;return 0;}
+-    uint32_t abase=x->n[ABC_SYM_A]-arguments,cbase=x->n[ABC_SYM_C]-frame_cells;int32_t coff=x->c_bias+(int32_t)cbase-x->c_origin,new_bias=coff+(int32_t)arguments;
+-    abc_symbolic_value args[255];for(unsigned i=0;i<arguments;i++)args[i]=x->s[ABC_SYM_A][abase+i];x->n[ABC_SYM_A]=abase;x->n[ABC_SYM_C]=cbase;
+-    for(unsigned i=arguments;i;i--){unsigned index=i-1;abc_symbolic_value q=args[index];q.dst_stack=ABC_SYM_C;q.dst_home=new_bias-1-(int32_t)index;if(!abc_symbolic_push(x,ABC_SYM_C,q))return machine_fail(m,"symbolic tail argument allocation failed");}
++    uint32_t cbase=x->n[ABC_SYM_C]-frame_cells;int32_t coff=x->c_bias+(int32_t)cbase-x->c_origin,new_bias=coff+(int32_t)arguments;
++    x->n[ABC_SYM_C]=cbase;
++    for(unsigned i=0;i<arguments;i++)if(!abc_symbolic_machine_cpush(m,ABC_SYM_A))return 0;
+     x->c_origin=(int32_t)x->n[ABC_SYM_C];x->c_bias=new_bias;
+     if(!m->emit_edge||!m->emit_edge(m->sink,m->pc,target)){m->exit=ABC_SYM_EXIT_FAILURE;return 0;}m->exit=ABC_SYM_EXIT_CONTROL;return 0;
+ }
+@@ -524,9 +546,19 @@
+     if(x->ncont) {
+         abc_symbolic_continuation frame=x->cont[x->ncont-1];
+         if(x->n[ABC_SYM_A]!=frame.abase+results_count||x->n[ABC_SYM_B]!=frame.bbase||x->n[ABC_SYM_C]!=frame.cbase+frame_cells)return machine_fail(m,"symbolic return shape mismatch");
+-        abc_symbolic_value results[255];for(unsigned i=0;i<results_count;i++)results[i]=x->s[ABC_SYM_A][frame.abase+i];
+-        x->n[ABC_SYM_A]=frame.abase;x->n[ABC_SYM_B]=frame.bbase;x->n[ABC_SYM_C]=frame.cbase;x->c_origin=frame.old_origin;x->c_bias=frame.old_bias;x->ncont--;
+-        for(unsigned i=0;i<results_count;i++){abc_symbolic_value q=results[i];q.dst_stack=frame.dst;q.dst_home=(int32_t)x->n[frame.dst];if(!abc_symbolic_push(x,frame.dst,q))return machine_fail(m,"symbolic return result allocation failed");}
++        /* Keep result sources live while routing in bottom-to-top order.
++           A results already occupy their caller slots; B results capture the
++           corresponding A values before those slots or the frame are retired. */
++        if(frame.dst==ABC_SYM_B){
++            for(unsigned i=0;i<results_count;i++){
++                abc_symbolic_value q=x->s[ABC_SYM_A][frame.abase+i];
++                if(!machine_capture(m,&q))return 0;
++                q.dst_stack=ABC_SYM_B;q.dst_home=(int32_t)x->n[ABC_SYM_B];
++                if(!abc_symbolic_push(x,ABC_SYM_B,q))return machine_fail(m,"symbolic return result allocation failed");
++            }
++            x->n[ABC_SYM_A]=frame.abase;
++        }
++        x->n[ABC_SYM_C]=frame.cbase;x->c_origin=frame.old_origin;x->c_bias=frame.old_bias;x->ncont--;
+         if(!m->emit_return||!m->emit_return(m->sink,m->pc,&effect)){m->exit=ABC_SYM_EXIT_FAILURE;return 0;}
+         if(!m->emit_edge||!m->emit_edge(m->sink,m->pc,frame.return_pc)){m->exit=ABC_SYM_EXIT_FAILURE;return 0;}
+         m->exit=ABC_SYM_EXIT_CONTROL;return 0;
+--- a/src/residualize.c
++++ b/src/residualize.c
+@@ -367,6 +367,11 @@
+ }
+ 
+ typedef struct { Compiler *compiler; abc_symbolic_machine *machine; } NativeSymbolicSink;
++
++static int native_capture(void *opaque,uint32_t pc,abc_symbolic_value *value) {
++    NativeSymbolicSink *sink=opaque;sink->compiler->current_pc=pc;
++    return materialize(sink->compiler,sink->machine->context,value)>=0;
++}
+ static int native_emit_binary(void *opaque,uint32_t origin,unsigned opcode,unsigned destination,int folded,
+         JValue left,JValue right,JValue *result) {
+     NativeSymbolicSink *sink=opaque; Compiler *c=sink->compiler; Context *x=sink->machine->context;
+@@ -669,7 +674,12 @@
+         return emit_jump(c,edge(c,origin,chosen,x));
+     }
+     if(control->target==control->fallthrough)return emit_jump(c,edge(c,origin,control->target,x));
+-    JValue left=control->left,right=control->right; int rl=materialize(c,x,&left),rr=-1;
++    /* The shared branch has consumed these cells, but both captured inputs
++       remain live until the comparison. Do not reuse the right input's
++       register while materializing the left (which may be a constant/home). */
++    JValue left=control->left,right=control->right;
++    unsigned right_live=control->kind!=ABC_SYM_CONTROL_ZERO&&right.kind==VK_REG?1u<<right.reg:0;
++    int rl=materialize_mask(c,x,&left,right_live),rr=-1;
+     if(rl<0)return 0;
+     if(control->kind!=ABC_SYM_CONTROL_ZERO) { rr=materialize_mask(c,x,&right,1u<<(unsigned)rl); if(rr<0)return 0; }
+     unsigned stencil;
+@@ -999,7 +1009,7 @@
+         if(pc!=v->pc && c->block[pc]) { Version *to=edge(c,pc-1,pc,&x); if(!emit_jump(c,to)) goto failed; break; }
+         abc_symbolic_machine machine={.module=c->module,.code=code,.blocks=c->block,.pc=pc,.end=c->module->code_size,
+             .context=&x,.error=c->error,.transfer_mask=ABC_SYM_TRANSFER_STACK|ABC_SYM_TRANSFER_VALUE|ABC_SYM_TRANSFER_CONTROL|ABC_SYM_TRANSFER_EFFECT};
+-        NativeSymbolicSink native_sink={c,&machine}; machine.sink=&native_sink;
++        NativeSymbolicSink native_sink={c,&machine}; machine.sink=&native_sink;machine.capture=native_capture;
+         machine.emit_binary=native_emit_binary; machine.emit_float_binary=native_emit_float_binary;
+         machine.emit_pow=native_emit_pow; machine.emit_check=native_emit_check;
+         machine.emit_unary=native_emit_unary; machine.emit_float_unary=native_emit_float_unary;

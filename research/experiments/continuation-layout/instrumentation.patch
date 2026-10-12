@@ -1,0 +1,25 @@
+--- a/src/residualize.c
++++ b/src/residualize.c
+@@ -588,7 +588,10 @@
+     v->next=c->versions[pc]; c->versions[pc]=v;
+     if(!c->lazy){if(!grow((void **)&c->queue,&c->qcap,c->nq+1,sizeof *c->queue)) { c->status=abc_fail(c->error,ABC_NOMEM,pc,"compiler queue allocation failed"); return NULL; }c->queue[c->nq++]=v;} return v;
+ }
++#include "layout_probe.inc"
+ static Version *edge(Compiler *c,uint32_t from,uint32_t target,Context *x) {
++    const char *probe_pc=getenv("ABC_LAYOUT_PROBE_PC");
++    if(probe_pc&&target==(uint32_t)strtoul(probe_pc,NULL,0)&&!emit_layout_probe(c,x,target))return NULL;
+     if(target<=from) for(unsigned s=0;s<3;s++) for(uint32_t i=0;i<x->n[s];i++) {
+         JValue *v=&x->s[s][i]; if(v->kind==VK_CONST) { if(materialize(c,x,v)<0 || !save_value(c,x,v)) return NULL; *v=rehome_value(*v,v->dst_stack,v->dst_home); }
+     }
+--- a/gen/stencils.lua
++++ b/gen/stencils.lua
+@@ -291,6 +291,9 @@
+     abc_value roots[8]={r0,r1,r2,r3,r4,r5,r6,r7};
+     ((abc_gc_poll_fn)(uintptr_t)jit_final())(asp+(int32_t)(intptr_t)HOLE_IMM,bsp+(int32_t)(intptr_t)HOLE_IMM2,csp+(int32_t)(intptr_t)HOLE_BIAS,roots);
+   }NEXT]])
++emit('typedef void (*abc_layout_probe_fn)(abc_value *,abc_value *,abc_value *,abc_value);')
++layout:write(('#define ABC_STENCIL_LAYOUT_PROBE %d\n'):format(n))
++stencil('layout_probe','((abc_layout_probe_fn)(uintptr_t)jit_final())(asp,bsp,csp,(abc_value)(uintptr_t)HOLE_IMM);NEXT')
+ layout:write('#endif\n')
+ names:write(('#define ABC_STENCIL_COUNT %d\n'):format(n))
+ assert(c:close()); assert(order:close()); assert(names:close()); assert(layout:close())

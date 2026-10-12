@@ -1,0 +1,51 @@
+
+research/experiments/ab-symmetry/investigation/new-memory-runtime-counter-lazy.bin:     file format binary
+
+
+Disassembly of section .data:
+
+0000000000000000 <.data>:
+   0:	49 bf 00 00 00 00 00 	movabs $0x0,%r15
+   7:	00 00 00 
+   a:	4c 89 3d ef 6f 25 01 	mov    %r15,0x1256fef(%rip)        # 0x1257000
+  11:	49 bf 40 42 0f 00 00 	movabs $0xf4240,%r15
+  18:	00 00 00 
+  1b:	4c 89 3d e6 6f 25 01 	mov    %r15,0x1256fe6(%rip)        # 0x1257008
+  22:	4c 8b 3d df 6f 25 01 	mov    0x1256fdf(%rip),%r15        # 0x1257008
+  29:	e9 ca 9e 03 00       	jmp    0x39ef8
+  2e:	48 bf 00 00 00 00 00 	movabs $0x0,%rdi
+  35:	00 00 00 
+  38:	49 39 ff             	cmp    %rdi,%r15
+  3b:	0f 84 33 9e 03 00    	je     0x39e74
+  41:	e9 aa 9d 03 00       	jmp    0x39df0
+  46:	48 8b 3d b3 6f 25 01 	mov    0x1256fb3(%rip),%rdi        # 0x1257000
+  4d:	48 81 c7 01 00 00 00 	add    $0x1,%rdi
+  54:	48 89 3d a5 6f 25 01 	mov    %rdi,0x1256fa5(%rip)        # 0x1257000
+  5b:	4c 89 ff             	mov    %r15,%rdi
+  5e:	48 81 ef 01 00 00 00 	sub    $0x1,%rdi
+  65:	e9 02 9d 03 00       	jmp    0x39d6c
+  6a:	49 bf 00 00 00 00 00 	movabs $0x0,%r15
+  71:	00 00 00 
+  74:	4c 39 ff             	cmp    %r15,%rdi
+  77:	0f 84 6b 9c 03 00    	je     0x39ce8
+  7d:	e9 e2 9b 03 00       	jmp    0x39c64
+  82:	4c 8b 3d 77 6f 25 01 	mov    0x1256f77(%rip),%r15        # 0x1257000
+  89:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+  90:	4c 89 3d 69 6f 25 01 	mov    %r15,0x1256f69(%rip)        # 0x1257000
+  97:	49 89 ff             	mov    %rdi,%r15
+  9a:	49 81 ef 01 00 00 00 	sub    $0x1,%r15
+  a1:	e9 52 9e 03 00       	jmp    0x39ef8
+  a6:	4c 8b 3d 53 6f 25 01 	mov    0x1256f53(%rip),%r15        # 0x1257000
+  ad:	49 8b be f8 ff ff ff 	mov    -0x8(%r14),%rdi
+  b4:	48 be ff ff ff ff 00 	movabs $0xffffffff,%rsi
+  bb:	00 00 00 
+  be:	48 39 f7             	cmp    %rsi,%rdi
+  c1:	0f 84 13 00 00 00    	je     0xda
+  c7:	4d 8d b6 f8 ff ff ff 	lea    -0x8(%r14),%r14
+  ce:	48 be 00 00 00 00 00 	movabs $0x0,%rsi
+  d5:	00 00 00 
+  d8:	ff e7                	jmp    *%rdi
+  da:	4d 89 bc 24 00 00 00 	mov    %r15,0x0(%r12)
+  e1:	00 
+  e2:	31 c0                	xor    %eax,%eax
+  e4:	c3                   	ret

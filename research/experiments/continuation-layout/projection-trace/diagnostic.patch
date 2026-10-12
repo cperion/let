@@ -1,0 +1,31 @@
+--- a/gen/symbolic.lua
++++ b/gen/symbolic.lua
+@@ -10,6 +10,7 @@
+ 
+ emit('#include "symbolic.h"')
+ emit('#include "opcodes.h"')
++emit('#include "projection_trace.inc"')
+ emit('typedef abc_symbolic_exit (*abc_symbolic_handler)(abc_symbolic_machine *);')
+ emit('static const abc_symbolic_handler handlers[OP_COUNT];')
+ emit('#define SYM_NEXT(N) do { m->pc+=(N)+m->extra_advance; m->extra_advance=0; if(m->pc>=m->end || (m->blocks&&m->blocks[m->pc])) return ABC_SYM_EXIT_BLOCK; ABC_MUSTTAIL return handlers[m->code[m->pc]](m); } while(0)')
+@@ -89,7 +90,7 @@
+     local effects=effect.kind=='effect' or effect.kind=='memory' or effect.kind=='return' or effect.kind=='call' or effect.kind=='indirect' or effect.kind=='indirect_tail' or effect.kind=='tail' or effect.kind=='ext' or effect.kind=='foreign'
+     local mask=control and 'ABC_SYM_TRANSFER_CONTROL' or effects and 'ABC_SYM_TRANSFER_EFFECT' or value and 'ABC_SYM_TRANSFER_VALUE' or 'ABC_SYM_TRANSFER_STACK'
+     local length=op.name=='EXT' and 'abc_instruction_length(p)' or tostring(op.len)
+-    emit(('static abc_symbolic_exit h_%s(abc_symbolic_machine *m){const uint8_t*p=m->code+m->pc;(void)p;if(m->transfer_mask&&!(m->transfer_mask&%s))return boundary(m);if(!(%s))return m->exit;SYM_NEXT(%s);}'):format(lower,mask,a,length))
++    emit(('static abc_symbolic_exit h_%s(abc_symbolic_machine *m){const uint8_t*p=m->code+m->pc;(void)p;if(m->transfer_mask&&!(m->transfer_mask&%s))return boundary(m);projection_trace(m,"BEFORE");if(!(%s)){projection_trace(m,"EXIT");return m->exit;}projection_trace(m,"AFTER");SYM_NEXT(%s);}'):format(lower,mask,a,length))
+   else error('symbolic transfer has no generator action: '..op.name)
+   end
+ end
+--- a/src/residualize.c
++++ b/src/residualize.c
+@@ -589,6 +589,9 @@
+     if(!c->lazy){if(!grow((void **)&c->queue,&c->qcap,c->nq+1,sizeof *c->queue)) { c->status=abc_fail(c->error,ABC_NOMEM,pc,"compiler queue allocation failed"); return NULL; }c->queue[c->nq++]=v;} return v;
+ }
+ static Version *edge(Compiler *c,uint32_t from,uint32_t target,Context *x) {
++    /* Diagnostic only: exercise the existing operation at the traced boundary. */
++    const char *forced=getenv("ABC_FORCE_HOME_PC");
++    if(forced&&!x->ncont&&target==(uint32_t)strtoul(forced,NULL,0)&&!conform_generic(c,x))return NULL;
+     if(target<=from) for(unsigned s=0;s<3;s++) for(uint32_t i=0;i<x->n[s];i++) {
+         JValue *v=&x->s[s][i]; if(v->kind==VK_CONST) { if(materialize(c,x,v)<0 || !save_value(c,x,v)) return NULL; *v=rehome_value(*v,v->dst_stack,v->dst_home); }
+     }

@@ -1,0 +1,200 @@
+[
+  {
+    "destination": "A",
+    "config": "original",
+    "mode": "interpreted",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "mode": "compiled",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "A",
+    "config": "original",
+    "mode": "lazy",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "mode": "interpreted",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "mode": "compiled",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "A",
+    "config": "reserved",
+    "mode": "lazy",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "mode": "interpreted",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "mode": "compiled",
+    "status": 1,
+    "output": "",
+    "diagnostic": "abc: abort at byte 0x33d: language abort 12",
+    "expected_counterexample": true,
+    "general_entries": 7,
+    "materialized_returns": 12
+  },
+  {
+    "destination": "A",
+    "config": "transfer",
+    "mode": "lazy",
+    "status": 1,
+    "output": "",
+    "diagnostic": "abc: abort at byte 0x33d: language abort 12",
+    "expected_counterexample": true,
+    "general_entries": 8,
+    "materialized_returns": 14
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "mode": "interpreted",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "mode": "compiled",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "B",
+    "config": "original",
+    "mode": "lazy",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "mode": "interpreted",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "mode": "compiled",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "B",
+    "config": "reserved",
+    "mode": "lazy",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "mode": "interpreted",
+    "status": 0,
+    "output": "101",
+    "diagnostic": "",
+    "expected_counterexample": false,
+    "general_entries": 0,
+    "materialized_returns": 0
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "mode": "compiled",
+    "status": 1,
+    "output": "",
+    "diagnostic": "abc: abort at byte 0x33d: language abort 12",
+    "expected_counterexample": true,
+    "general_entries": 7,
+    "materialized_returns": 12
+  },
+  {
+    "destination": "B",
+    "config": "transfer",
+    "mode": "lazy",
+    "status": 1,
+    "output": "",
+    "diagnostic": "abc: abort at byte 0x33d: language abort 12",
+    "expected_counterexample": true,
+    "general_entries": 8,
+    "materialized_returns": 14
+  }
+]

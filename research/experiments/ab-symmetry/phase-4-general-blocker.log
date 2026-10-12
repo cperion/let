@@ -1,0 +1,8 @@
+luajit: tools/validate.lua:73: /tmp/lua_hfGk9I/floats.abc compiled: status 1, expected 0
+actual: abc: out-of-memory at byte 0x56: symbolic control emission failed
+expected: 5 5 1 1 7 7 1 1 0 0 0 0 0 0 -3 -7 7 3 3 0 0 0
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate.lua:73: in function 'same'
+	tools/validate.lua:104: in main chunk
+	[C]: at 0x62214cec8120

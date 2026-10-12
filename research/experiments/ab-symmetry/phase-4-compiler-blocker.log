@@ -1,0 +1,13 @@
+luajit: TODO [abc-lowering] ABC lowering is not implemented for dynamic binary execution
+stack traceback:
+	[C]: in function 'error'
+	tests/../let/diag.lua:22: in function 'todo'
+	tests/../let/abc.lua:112: in function 'unsupported'
+	tests/../let/abc.lua:546: in function 'expr'
+	tests/../let/abc.lua:690: in function 'dynamic'
+	tests/../let/abc.lua:705: in function 'statements'
+	tests/../let/abc.lua:877: in function 'lower'
+	tests/../let/abc.lua:1023: in function 'lower'
+	tests/../let/compiler.lua:119: in function 'compile'
+	tests/compiler.lua:475: in main chunk
+	[C]: at 0x56ea90e5b120

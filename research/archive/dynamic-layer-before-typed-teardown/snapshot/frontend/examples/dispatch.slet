@@ -1,0 +1,61 @@
+-- Threaded dispatch by reified continuations. An opcode is one alternative of a sum, a step decodes
+-- it with an exhaustive keyed match, and the handlers return the next machine rather than calling the
+-- loop. One tail self-call drives it, so the recursive call is `run`'s own body and lowers to a back
+--
+-- edge (`for (;;) { ... continue; }`) instead of a call: dispatch is constant stack.
+-- A handler that called `run` instead would be a different code instance, so that call would be an
+-- ordinary call and the stack would grow one frame per instruction. Return the state instead.
+--
+-- Expected: main() = 7
+
+let op = oneof { push: u32, add: unit, halt: unit }
+
+let machine = {
+  code: array(op, 4),
+  pc: u32,
+  top: u32,
+  stack: array(u32, 4),
+  done: bool,
+}
+
+-- Decode and apply one opcode, returning the machine to run next.
+let advance(m: machine): machine =
+  m.code[m.pc] {
+    push = |value: u32| -> do
+      m.stack[m.top] = value
+      m.top += 1
+      m.pc += 1
+      return m
+    end,
+    add = |u: unit| -> do
+      let right = m.stack[m.top - 1]
+      let left = m.stack[m.top - 2]
+      m.stack[m.top - 2] = left + right
+      m.top -= 1
+      m.pc += 1
+      return m
+    end,
+    halt = |u: unit| -> do
+      m.done = true
+      return m
+    end,
+  }
+
+-- The loop. `run(next)` is in tail position of `run`, so it is a back edge.
+let run(m: machine): u32 = do
+  let next = advance(m)
+  if next.done then return next.stack[next.top - 1] end
+  return run(next)
+end
+
+let initial(): machine = machine {
+  code = [op.push(3), op.push(4), op.add(), op.halt()],
+  pc = 0,
+  top = 0,
+  stack = [0, 0, 0, 0],
+  done = false,
+}
+
+let main(): u32 = run(initial())
+
+return { functions = { main } }

@@ -32,32 +32,53 @@ Dynamic facts keep semantic tag sets and scalar widths separate from physical re
 
 A symbolic copy can retain its source register or home until one alias is overwritten. Context flushing is therefore a parallel-copy problem, not permission to assign every value a permanent home. The native sink preserves older C-stack aliases before writing newer A/B scratch destinations. This order is required when a `CSET` renames a call result whose source A home will be reused by the next call.
 
-At dynamic and foreign boundaries, the sink materializes required representations and roots. Managed interior pointers remain visible through stack homes before allocation or collection. Unknown dynamic operations continue through `vm_dynamic_native()`.
+At object/call and foreign boundaries, the sink materializes required representations and roots. Managed interior pointers remain visible through stack homes before allocation or collection. Object construction, open-word operations and dynamic calls retain the runtime ABI; scalar uncertainty does not use it.
 
 ## Check-driven scalar specialization
 
-The native sink exposes `DADD` through `DXOR` as local numeric dispatch CFGs.
-The concrete runtime and symbolic executor share operand validity, signedness
-and width-promotion rules in `src/dynamic.h`. Unknown operands pass through a
-nonallocating classifier. Checked successors refine currently live aliases and
-carry result facts into the existing block versions. Proven narrow-integer arms
-decode their operands and emit ordinary register-addressed arithmetic stencils.
-Known checks disappear; no new DCE pass, allocator or target-independent IR is
-involved. The original dynamic helper handles wide integers, floats and errors.
-A successful helper return supplies a result postcondition, not an entry proof.
-The classifier's invalid-type arm is terminal.
+Scalar dynamic instructions are lowered to checks, typed bodies and specified
+error edges in the existing register-bearing context. This covers binary and
+literal arithmetic, unary operations, comparisons, conditions, boxing, casts
+and type tests. `gen/scalar_semantics.lua` defines the complete control flow,
+including checks, representation steps, selected typed operations and errors.
+`gen/scalar_banked.lua` and `gen/scalar_symbolic.lua` bind that same computation
+to concrete cache operations and ordinary symbolic ABC respectively.
+`src/symbolic_scalar.inc` abstracts predicates and binds representation/control;
+it does not independently orchestrate EXT algorithms. Typed expressions and
+conversion recipes remain in `gen/semantics.lua`.
+`src/native_scalar.inc` supplies only representation placement and branch-arm
+binding; `src/residualize.c` drives the existing block versions. Neither engine
+uses a scalar execution-handler fallback, including at version saturation.
+
+Operand validity, promotion, literal adoption and equality rules live in
+`src/scalar_rules.h`; descriptor projection lives in `src/dynamic.h`.
+Representation bit operations and object layouts live in `src/any_repr.h`,
+inlined into concrete operations and extracted stencils. Unknown
+operands get register tag projections and ordinary branches. A possible object
+address is checked with the collector's nonallocating membership predicate
+before its header is read; this is not a language-operation dispatcher and
+requires no whole-context publication. Proven tags skip the projections.
+Checked successors refine live aliases. Narrow integers, wide integers and
+`f64` use ordinary typed arithmetic. Failed arithmetic checks abort directly;
+equality has its distinct mixed-signedness and unequal-type rules. No new IR,
+allocator, placement pass or interpreter excursion is involved.
 
 Primitive `ANY_IS` folds from existing facts. An adjacent `ANY_IS; JZ.A/JNZ.A`
 also refines positive and negative successor contexts. Alias occurrences are
-captured before stack publication. Stored, combined or delayed predicates do
-not carry persistent identities and therefore do not refine successors.
-Aggregate descriptor and layout-token predicates remain opaque.
+captured before register placement changes. Stored, combined or delayed
+predicates do not carry persistent identities and therefore do not refine
+successors. Aggregate/managed descriptor checks and unboxing use checked header
+and field accesses, but descriptor proofs are not yet carried in version keys.
 
-Scalar helpers preserve facts about unchanged live values while publishing
-all required representations and roots. Opaque dynamic calls and object effects
-keep the conservative boundary. Unit boxing becomes an encoded constant.
-Real call arguments, returns, stores and incompatible edges encode raw `any`
-values before crossing their represented ABI.
+Unit boxing is an encoded constant; numeric boxing initially carries raw bits
+and a tag fact, including when normalization is unproved. Raw wide integers and
+floats survive compatible edges and spills. Real call arguments, returns,
+stores and incompatible edges encode raw `any` values before crossing their
+represented ABI. Float encoding never allocates. Integer escapes check payload
+fit; only the non-fitting edge publishes roots and calls the scalar allocator.
+That entry allocates an object, not an arithmetic or tag-dispatch operation.
+Raw numbers need no boxes merely to make other roots visible to collection.
+NaNs are canonicalized when encoded or exposed by an identity float cast.
 
 Tag, width, range and encoding are distinct proofs. `SX32` is not an unsigned
 range proof for immediate boxing. Exact-tag casts preserve even oversized
@@ -73,7 +94,26 @@ register spills to distinct canonical homes can precede it: they neither
 clobber the predicate nor overwrite a live home source. This keeps ordinary
 typed branches on their original direct stencil path.
 
-See [production measurements and reproduction](../research/experiments/type-versions/README.md).
+The interpreter generates a separate handler and continuation site for each
+scalar selector, without quickening or a second arithmetic-selector dispatch.
+It preserves its banked cache through scalar instructions, publishing roots
+only on allocation or pending-collection edges. It stores canonical dynamic
+cells rather than the native executor's raw representations.
+Both engines use the allocation-only `vm_scalar_allocate`; `src/dynamic.c`
+retains object/call effects, not scalar opcode execution.
+
+Validation links tripwires rejecting scalar entry into both `vm_dynamic` and
+`vm_dynamic_native`, including unary operations, casts and descriptor tests,
+and a separate native allocation tripwire for a wide loop without escapes.
+Both bindings poll the VM's pending-request flag at scalar boundaries. Native
+code exposes live physical homes and its register bank only on the collection
+edge, without reallocation or boxing raw integers. Tests cover pending requests
+with/without a heap and a live register root after its module root is cleared.
+A structural test also compares all semantic binding events of the two
+generators. Repeated cold collection paths currently cause substantial native
+code growth, and the checked-lazy benchmark regresses; see
+[check-first measurements](../research/experiments/engines/check-first.md) and the
+[historical type-version measurements](../research/experiments/type-versions/README.md).
 
 ## Versioning and termination
 

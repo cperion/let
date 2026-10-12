@@ -1,0 +1,12 @@
+warm-top: 104000000 PASS
+warm-top-mirror: 104000000 PASS
+/tmp/abc-phase3-builder/aot/post-call-top.c:214:72: error: use of undeclared identifier 'error'
+  214 |     int call_status_27=abc_aot_function_1(call_args_27,call_results_27,error);
+      |                                                                        ^
+/tmp/abc-phase3-builder/aot/post-call-top.c:301:75: error: use of undeclared identifier 'error'
+  301 |     int call_status_119=abc_aot_function_1(call_args_119,call_results_119,error);
+      |                                                                           ^
+/tmp/abc-phase3-builder/aot/post-call-top.c:385:74: error: unused parameter 'results' [-Werror,-Wunused-parameter]
+  385 | static inline int abc_aot_function_1(const uint64_t *arguments,uint64_t *results,abc_aot_error *error) {
+      |                                                                          ^
+3 errors generated.

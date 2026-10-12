@@ -1,0 +1,8 @@
+let loop(n: u32, x: u32, acc: u32): u32 = do
+    if n == 0 then return acc end
+    let q = x / 3
+    let r = x - q * 3
+    return loop(n - 1, q + 2654435769, acc + r)
+end
+let main(n: u32): u32 = loop(n, 1985229328, 0)
+

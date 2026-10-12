@@ -1,6 +1,5 @@
 #include "residual_builder.h"
 
-#include "dynamic.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -222,20 +221,9 @@ static abc_residual_type kind_type(unsigned kind) {
         return ABC_ASDL_RESIDUAL_TYPE_ADDRESS;
     case ABC_KIND_FLOAT:
         return ABC_ASDL_RESIDUAL_TYPE_F64;
-    case ABC_KIND_ANY:
-        return ABC_ASDL_RESIDUAL_TYPE_ANY;
     default:
         return ABC_ASDL_RESIDUAL_TYPE_CELL;
     }
-}
-
-static abc_residual_facts symbolic_facts(abc_symbolic_value value) {
-    abc_residual_facts result = {
-        .dynamic_tags = value.dynamic_tags,
-        .dynamic_width = value.dynamic_width,
-        .representation = (abc_residual_representation)value.dynamic_repr
-    };
-    return result;
 }
 
 static abc_residual_value *find_value(builder *b, uint64_t id) {
@@ -274,19 +262,11 @@ static abc_residual_type symbolic_type(builder *b, abc_symbolic_value value,
         if (known) return known->type;
     }
     if (value.kind == ABC_SYM_HOME) return fallback;
-    if (value.dynamic_tags) return ABC_ASDL_RESIDUAL_TYPE_ANY;
     return fallback;
 }
 
-static abc_symbolic_value symbolic_result(abc_residual_id id, unsigned stack,
-                                          abc_residual_facts facts) {
-    abc_symbolic_value result =
-        abc_symbolic_backend((uint32_t)id.value, stack, 0);
-
-    result.dynamic_tags = (uint16_t)facts.dynamic_tags;
-    result.dynamic_width = (uint8_t)facts.dynamic_width;
-    result.dynamic_repr = (uint8_t)facts.representation;
-    return result;
+static abc_symbolic_value symbolic_result(abc_residual_id id, unsigned stack) {
+    return abc_symbolic_backend((uint32_t)id.value, stack, 0);
 }
 
 static int append_value(builder *b, abc_residual_value value) {
@@ -313,7 +293,6 @@ static abc_residual_id add_constant(builder *b, abc_symbolic_value symbolic,
     memset(&value, 0, sizeof(value));
     value.id = id;
     value.type = type;
-    value.facts = symbolic_facts(symbolic);
     value.definition.tag = ABC_ASDL_RESIDUAL_DEFINITION_CONSTANT;
     value.definition.value.constant.low = symbolic.constant;
     value.definition.value.constant.high = 0;
@@ -455,7 +434,7 @@ static int add_results(builder *b, abc_residual_node *node,
         value.origin = make_origin(origin);
         if (!append_value(b, value)) return 0;
         if (results)
-            results[i] = symbolic_result(ids[i], stack, value.facts);
+            results[i] = symbolic_result(ids[i], stack);
     }
     node->results.count = count;
     node->results.items = copy_ids(b, ids, count, origin);
@@ -495,25 +474,25 @@ static int set_terminator(builder *b,
 static int integer_binary(unsigned opcode,
                           abc_asdl_residual_binary_op *operation) {
     switch (opcode) {
-    case OP_ADD_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_ADD; return 1;
-    case OP_SUB_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_SUB; return 1;
-    case OP_MUL_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_MUL; return 1;
-    case OP_DIVU_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_DIV_UNSIGNED; return 1;
-    case OP_DIVS_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_DIV_SIGNED; return 1;
-    case OP_REMU_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_REM_UNSIGNED; return 1;
-    case OP_REMS_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_REM_SIGNED; return 1;
-    case OP_AND_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_BIT_AND; return 1;
-    case OP_OR_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_BIT_OR; return 1;
-    case OP_XOR_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_BIT_XOR; return 1;
-    case OP_SHL_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_SHIFT_LEFT; return 1;
-    case OP_SHR_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_SHIFT_RIGHT; return 1;
-    case OP_SAR_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_SHIFT_ARITHMETIC; return 1;
-    case OP_EQ_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_EQUAL; return 1;
-    case OP_NE_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_NOT_EQUAL; return 1;
-    case OP_LT_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_LESS_SIGNED; return 1;
-    case OP_LE_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_LESS_EQUAL_SIGNED; return 1;
-    case OP_LTU_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_LESS_UNSIGNED; return 1;
-    case OP_LEU_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_LESS_EQUAL_UNSIGNED; return 1;
+    case ABC_OPERATION_ADD: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_ADD; return 1;
+    case ABC_OPERATION_SUB: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_SUB; return 1;
+    case ABC_OPERATION_MUL: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_MUL; return 1;
+    case ABC_OPERATION_DIVU: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_DIV_UNSIGNED; return 1;
+    case ABC_OPERATION_DIVS: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_DIV_SIGNED; return 1;
+    case ABC_OPERATION_REMU: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_REM_UNSIGNED; return 1;
+    case ABC_OPERATION_REMS: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_REM_SIGNED; return 1;
+    case ABC_OPERATION_AND: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_BIT_AND; return 1;
+    case ABC_OPERATION_OR: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_BIT_OR; return 1;
+    case ABC_OPERATION_XOR: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_BIT_XOR; return 1;
+    case ABC_OPERATION_SHL: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_SHIFT_LEFT; return 1;
+    case ABC_OPERATION_SHR: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_SHIFT_RIGHT; return 1;
+    case ABC_OPERATION_SAR: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_SHIFT_ARITHMETIC; return 1;
+    case ABC_OPERATION_EQ: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_EQUAL; return 1;
+    case ABC_OPERATION_NE: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_NOT_EQUAL; return 1;
+    case ABC_OPERATION_LT: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_LESS_SIGNED; return 1;
+    case ABC_OPERATION_LE: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_LESS_EQUAL_SIGNED; return 1;
+    case ABC_OPERATION_LTU: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_LESS_UNSIGNED; return 1;
+    case ABC_OPERATION_LEU: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_LESS_EQUAL_UNSIGNED; return 1;
     default: return 0;
     }
 }
@@ -521,13 +500,13 @@ static int integer_binary(unsigned opcode,
 static int float_binary(unsigned opcode,
                         abc_asdl_residual_binary_op *operation) {
     switch (opcode) {
-    case OP_FADD_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_ADD; return 1;
-    case OP_FSUB_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_SUB; return 1;
-    case OP_FMUL_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_MUL; return 1;
-    case OP_FDIV_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_DIV; return 1;
-    case OP_FLT_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_LESS; return 1;
-    case OP_FLE_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_LESS_EQUAL; return 1;
-    case OP_FEQ_A: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_EQUAL; return 1;
+    case ABC_OPERATION_FADD: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_ADD; return 1;
+    case ABC_OPERATION_FSUB: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_SUB; return 1;
+    case ABC_OPERATION_FMUL: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_MUL; return 1;
+    case ABC_OPERATION_FDIV: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_DIV; return 1;
+    case ABC_OPERATION_FLT: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_LESS; return 1;
+    case ABC_OPERATION_FLE: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_LESS_EQUAL; return 1;
+    case ABC_OPERATION_FEQ: *operation = ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_EQUAL; return 1;
     default: return 0;
     }
 }
@@ -535,16 +514,18 @@ static int float_binary(unsigned opcode,
 static int unary_operation(unsigned opcode,
                            abc_asdl_residual_unary_op *operation) {
     switch (opcode) {
-    case OP_NEG_A: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_NEG; return 1;
-    case OP_NOT_A: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_BIT_NOT; return 1;
-    case OP_LNOT_A: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_LOGICAL_NOT; return 1;
-    case OP_ZX32_A: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND32; return 1;
-    case OP_SX32_A: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_SIGN_EXTEND32; return 1;
-    case OP_FNEG: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_NEG; return 1;
-    case OP_I2FS: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_SIGNED_TO_FLOAT; return 1;
-    case OP_I2FU: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_UNSIGNED_TO_FLOAT; return 1;
-    case OP_F2IS: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_SIGNED; return 1;
-    case OP_F2IU: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_UNSIGNED; return 1;
+    case ABC_OPERATION_NEG: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_NEG; return 1;
+    case ABC_OPERATION_NOT: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_BIT_NOT; return 1;
+    case ABC_OPERATION_LNOT: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_LOGICAL_NOT; return 1;
+    case ABC_OPERATION_ZX8: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND8; return 1;
+    case ABC_OPERATION_ZX16: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND16; return 1;
+    case ABC_OPERATION_ZX32: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND32; return 1;
+    case ABC_OPERATION_SX32: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_SIGN_EXTEND32; return 1;
+    case ABC_OPERATION_FNEG: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_NEG; return 1;
+    case ABC_OPERATION_I2FS: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_SIGNED_TO_FLOAT; return 1;
+    case ABC_OPERATION_I2FU: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_UNSIGNED_TO_FLOAT; return 1;
+    case ABC_OPERATION_F2IS: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_SIGNED; return 1;
+    case ABC_OPERATION_F2IU: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_UNSIGNED; return 1;
     default: return 0;
     }
 }
@@ -552,43 +533,55 @@ static int unary_operation(unsigned opcode,
 static int check_operation(unsigned opcode,
                            abc_asdl_residual_check_op *operation) {
     switch (opcode) {
-    case OP_CHKU8: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_UNSIGNED8; return 1;
-    case OP_CHKU16: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_UNSIGNED16; return 1;
-    case OP_CHKU32: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_UNSIGNED32; return 1;
-    case OP_CHKI32: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_SIGNED32; return 1;
-    case OP_CHKNN: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_NONNEGATIVE; return 1;
+    case ABC_OPERATION_CHKU8: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_UNSIGNED8; return 1;
+    case ABC_OPERATION_CHKU16: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_UNSIGNED16; return 1;
+    case ABC_OPERATION_CHKU32: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_UNSIGNED32; return 1;
+    case ABC_OPERATION_CHKI32: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_SIGNED32; return 1;
+    case ABC_OPERATION_CHKNN: *operation = ABC_ASDL_RESIDUAL_CHECK_OP_NONNEGATIVE; return 1;
     default: return 0;
     }
 }
 
 static unsigned immediate_base(unsigned opcode) {
     switch (opcode) {
-    case OP_ADDI_A: return OP_ADD_A;
-    case OP_SUBI_A: return OP_SUB_A;
-    case OP_MULI_A: return OP_MUL_A;
-    case OP_ANDI_A: return OP_AND_A;
-    case OP_ORI_A: return OP_OR_A;
-    case OP_XORI_A: return OP_XOR_A;
-    case OP_SHLI_A: return OP_SHL_A;
-    case OP_SHRI_A: return OP_SHR_A;
-    case OP_SARI_A: return OP_SAR_A;
+    case ABC_OPERATION_ADDI: return ABC_OPERATION_ADD;
+    case ABC_OPERATION_SUBI: return ABC_OPERATION_SUB;
+    case ABC_OPERATION_MULI: return ABC_OPERATION_MUL;
+    case ABC_OPERATION_ANDI: return ABC_OPERATION_AND;
+    case ABC_OPERATION_ORI: return ABC_OPERATION_OR;
+    case ABC_OPERATION_XORI: return ABC_OPERATION_XOR;
+    case ABC_OPERATION_SHLI: return ABC_OPERATION_SHL;
+    case ABC_OPERATION_SHRI: return ABC_OPERATION_SHR;
+    case ABC_OPERATION_SARI: return ABC_OPERATION_SAR;
     default: return UINT_MAX;
     }
 }
 
 static unsigned c_operand_base(unsigned opcode) {
     switch (opcode) {
-    case OP_ADDC_A: return OP_ADD_A;
-    case OP_SUBC_A: return OP_SUB_A;
-    case OP_MULC_A: return OP_MUL_A;
-    case OP_XORC_A: return OP_XOR_A;
+    case ABC_OPERATION_ADDC: return ABC_OPERATION_ADD;
+    case ABC_OPERATION_SUBC: return ABC_OPERATION_SUB;
+    case ABC_OPERATION_MULC: return ABC_OPERATION_MUL;
+    case ABC_OPERATION_XORC: return ABC_OPERATION_XOR;
     default: return UINT_MAX;
     }
 }
 
 static int comparison_operation(abc_asdl_residual_binary_op operation) {
-    return operation >= ABC_ASDL_RESIDUAL_BINARY_OP_EQUAL &&
-           operation <= ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_EQUAL;
+    switch (operation) {
+    case ABC_ASDL_RESIDUAL_BINARY_OP_EQUAL:
+    case ABC_ASDL_RESIDUAL_BINARY_OP_NOT_EQUAL:
+    case ABC_ASDL_RESIDUAL_BINARY_OP_LESS_SIGNED:
+    case ABC_ASDL_RESIDUAL_BINARY_OP_LESS_EQUAL_SIGNED:
+    case ABC_ASDL_RESIDUAL_BINARY_OP_LESS_UNSIGNED:
+    case ABC_ASDL_RESIDUAL_BINARY_OP_LESS_EQUAL_UNSIGNED:
+    case ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_LESS:
+    case ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_LESS_EQUAL:
+    case ABC_ASDL_RESIDUAL_BINARY_OP_FLOAT_EQUAL:
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 static int emit_binary(builder *b, uint32_t origin,
@@ -627,8 +620,8 @@ static int on_binary(void *opaque, uint32_t origin, unsigned opcode,
 
     if (folded) return 1;
     if (!integer_binary(opcode, &operation))
-        return not_supported(b, origin, "unsupported integer operation %s",
-                             op_name[opcode]);
+        return not_supported(b, origin, "unsupported integer operation %u",
+                             opcode);
     if (operation == ABC_ASDL_RESIDUAL_BINARY_OP_DIV_UNSIGNED ||
         operation == ABC_ASDL_RESIDUAL_BINARY_OP_DIV_SIGNED ||
         operation == ABC_ASDL_RESIDUAL_BINARY_OP_REM_UNSIGNED ||
@@ -652,8 +645,8 @@ static int on_float_binary(void *opaque, uint32_t origin, unsigned opcode,
 
     if (folded) return 1;
     if (!float_binary(opcode, &operation))
-        return not_supported(b, origin, "unsupported float operation %s",
-                             op_name[opcode]);
+        return not_supported(b, origin, "unsupported float operation %u",
+                             opcode);
     type = comparison_operation(operation)
         ? ABC_ASDL_RESIDUAL_TYPE_CELL
         : ABC_ASDL_RESIDUAL_TYPE_F64;
@@ -674,11 +667,13 @@ static int on_unary(void *opaque, uint32_t origin, unsigned opcode,
 
     if (folded) return 1;
     if (!unary_operation(opcode, &operation))
-        return not_supported(b, origin, "unsupported unary operation %s",
-                             op_name[opcode]);
+        return not_supported(b, origin, "unsupported unary operation %u",
+                             opcode);
     input_id = value_id(b, input, ABC_ASDL_RESIDUAL_TYPE_CELL, origin);
     if (!input_id.value) return 0;
-    if (operation == ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND32)
+    if (operation == ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND8 ||
+        operation == ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND16 ||
+        operation == ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND32)
         type = ABC_ASDL_RESIDUAL_TYPE_U32;
     else if (operation == ABC_ASDL_RESIDUAL_UNARY_OP_SIGN_EXTEND32)
         type = ABC_ASDL_RESIDUAL_TYPE_I32;
@@ -691,7 +686,7 @@ static int on_unary(void *opaque, uint32_t origin, unsigned opcode,
 }
 
 static int on_float_unary(void *opaque, uint32_t origin, unsigned opcode,
-                          int folded, int trapped,
+                          unsigned selected_stack, int folded, int trapped,
                           abc_symbolic_value input,
                           abc_symbolic_value *result) {
     builder *b = opaque;
@@ -704,8 +699,8 @@ static int on_float_unary(void *opaque, uint32_t origin, unsigned opcode,
     abc_residual_terminator terminator;
 
     if (!unary_operation(opcode, &operation))
-        return not_supported(b, origin, "unsupported float operation %s",
-                             op_name[opcode]);
+        return not_supported(b, origin, "unsupported float operation %u",
+                             opcode);
     if (trapped) {
         memset(&terminator, 0, sizeof(terminator));
         terminator.tag = ABC_ASDL_RESIDUAL_TERMINATOR_ABORT;
@@ -714,11 +709,11 @@ static int on_float_unary(void *opaque, uint32_t origin, unsigned opcode,
         return set_terminator(b, terminator);
     }
     if (folded) return 1;
-    input_type = opcode == OP_I2FS || opcode == OP_I2FU
+    input_type = opcode == ABC_OPERATION_I2FS || opcode == ABC_OPERATION_I2FU
         ? ABC_ASDL_RESIDUAL_TYPE_CELL
         : ABC_ASDL_RESIDUAL_TYPE_F64;
-    result_type = opcode == OP_FNEG || opcode == OP_I2FS ||
-                          opcode == OP_I2FU
+    result_type = opcode == ABC_OPERATION_FNEG || opcode == ABC_OPERATION_I2FS ||
+                          opcode == ABC_OPERATION_I2FU
         ? ABC_ASDL_RESIDUAL_TYPE_F64
         : ABC_ASDL_RESIDUAL_TYPE_CELL;
     input_id = value_id(b, input, input_type, origin);
@@ -727,9 +722,9 @@ static int on_float_unary(void *opaque, uint32_t origin, unsigned opcode,
     residual.tag = ABC_ASDL_RESIDUAL_OPERATION_UNARY;
     residual.value.unary.operation = operation;
     residual.value.unary.input = input_id;
-    effect.may_trap = opcode == OP_F2IS || opcode == OP_F2IU;
+    effect.may_trap = opcode == ABC_OPERATION_F2IS || opcode == ABC_OPERATION_F2IU;
     return emit_operation(b, residual, effect, &result_type, NULL, 1,
-                          origin, result, ABC_SYM_A);
+                          origin, result, selected_stack);
 }
 
 static int on_immediate(void *opaque, uint32_t origin, unsigned opcode,
@@ -744,8 +739,8 @@ static int on_immediate(void *opaque, uint32_t origin, unsigned opcode,
     if (folded) return 1;
     if (base == UINT_MAX || !integer_binary(base, &operation))
         return not_supported(b, origin,
-                             "unsupported immediate operation %s",
-                             op_name[opcode]);
+                             "unsupported immediate operation %u",
+                             opcode);
     constant = abc_symbolic_constant(immediate, stack, 0);
     return emit_binary(b, origin, operation, input, constant, stack,
                        result, ABC_ASDL_RESIDUAL_TYPE_CELL,
@@ -765,8 +760,8 @@ static int on_c_operand(void *opaque, uint32_t origin, unsigned opcode,
     if (folded) return 1;
     if (base == UINT_MAX || !integer_binary(base, &operation))
         return not_supported(b, origin,
-                             "unsupported C-operand operation %s",
-                             op_name[opcode]);
+                             "unsupported C-operand operation %u",
+                             opcode);
     return emit_binary(b, origin, operation, left, right, destination,
                        result, ABC_ASDL_RESIDUAL_TYPE_CELL,
                        ABC_ASDL_RESIDUAL_TYPE_CELL,
@@ -780,29 +775,31 @@ static int on_pow(void *opaque, uint32_t origin, unsigned opcode,
                   abc_symbolic_value *result) {
     builder *b = opaque;
     abc_asdl_residual_binary_op operation =
-        opcode == OP_POW
+        opcode == ABC_OPERATION_POW
             ? ABC_ASDL_RESIDUAL_BINARY_OP_POW_UNSIGNED
             : ABC_ASDL_RESIDUAL_BINARY_OP_POW_SIGNED;
     abc_residual_effect effect = {0};
 
     if (folded) return 1;
-    effect.may_trap = opcode == OP_POWS;
+    effect.may_trap = opcode == ABC_OPERATION_POWS;
     return emit_binary(b, origin, operation, left, right, destination,
                        result, ABC_ASDL_RESIDUAL_TYPE_CELL,
                        ABC_ASDL_RESIDUAL_TYPE_CELL, effect);
 }
 
 static int on_check(void *opaque, uint32_t origin, unsigned opcode,
-                    int known, int trapped, abc_symbolic_value input) {
+                    unsigned selected_stack, int known, int trapped,
+                    abc_symbolic_value input) {
     builder *b = opaque;
     abc_asdl_residual_check_op operation;
     abc_residual_operation residual;
     abc_residual_id input_id;
     abc_residual_terminator terminator;
 
+    (void)selected_stack; /* The callback supplies the captured selected input. */
     if (!check_operation(opcode, &operation))
-        return not_supported(b, origin, "unsupported check %s",
-                             op_name[opcode]);
+        return not_supported(b, origin, "unsupported check %u",
+                             opcode);
     if (trapped) {
         memset(&terminator, 0, sizeof(terminator));
         terminator.tag = ABC_ASDL_RESIDUAL_TERMINATOR_ABORT;
@@ -852,23 +849,14 @@ static void canonicalize(abc_symbolic_context *context,
     for (stack = 0; stack < 3; stack++) {
         for (i = 0; i < context->n[stack]; i++) {
             abc_symbolic_value *value = &context->s[stack][i];
-            uint8_t width;
-            uint8_t representation;
-            uint16_t tags;
             int32_t home;
 
             if (!forget_constants && value->kind == ABC_SYM_CONST)
                 continue;
-            width = value->dynamic_width;
-            representation = value->dynamic_repr;
-            tags = value->dynamic_tags;
             home = stack == ABC_SYM_C
                 ? context->c_bias + (int32_t)i - context->c_origin
                 : (int32_t)i;
             *value = abc_symbolic_home(stack, home);
-            value->dynamic_width = width;
-            value->dynamic_repr = representation;
-            value->dynamic_tags = tags;
         }
     }
 }
@@ -895,15 +883,8 @@ static size_t parameter_count(const abc_symbolic_context *context) {
 static void canonicalize_value(abc_symbolic_context *context,
                                unsigned stack, uint32_t index) {
     abc_symbolic_value *value = &context->s[stack][index];
-    uint8_t width = value->dynamic_width;
-    uint8_t representation = value->dynamic_repr;
-    uint16_t tags = value->dynamic_tags;
-
     *value = abc_symbolic_home(
         stack, logical_home(context, stack, index));
-    value->dynamic_width = width;
-    value->dynamic_repr = representation;
-    value->dynamic_tags = tags;
 }
 
 static void canonicalize_virtual_entry(builder *b, uint32_t pc,
@@ -944,21 +925,6 @@ static void canonicalize_virtual_entry(builder *b, uint32_t pc,
     }
 }
 
-static void join_symbolic_facts(abc_symbolic_value *value,
-                                abc_symbolic_value incoming) {
-    if (!value->dynamic_tags || !incoming.dynamic_tags) {
-        abc_symbolic_forget_dynamic(value);
-        return;
-    }
-    value->dynamic_tags =
-        (uint16_t)(value->dynamic_tags | incoming.dynamic_tags);
-    if (value->dynamic_width != incoming.dynamic_width)
-        value->dynamic_width = 0;
-    if (value->dynamic_repr != incoming.dynamic_repr)
-        value->dynamic_repr = ABC_SYM_REPR_UNKNOWN;
-    value->zero_extended = value->zero_extended && incoming.zero_extended;
-}
-
 static void widen_recursive_key(build_function *function, uint32_t pc,
                                 abc_symbolic_context *key) {
     size_t vi;
@@ -977,23 +943,12 @@ static void widen_recursive_key(build_function *function, uint32_t pc,
                 abc_symbolic_value *value = &key->s[stack][i];
                 abc_symbolic_value prior =
                     version->key.s[stack][i];
-                uint8_t width = value->dynamic_width;
-                uint8_t representation = value->dynamic_repr;
-                uint16_t tags = value->dynamic_tags;
-
-                join_symbolic_facts(value, prior);
-                width = value->dynamic_width;
-                representation = value->dynamic_repr;
-                tags = value->dynamic_tags;
                 if (value->kind == ABC_SYM_CONST &&
                     prior.kind == ABC_SYM_CONST &&
                     value->constant == prior.constant)
                     continue;
                 *value = abc_symbolic_home(
                     stack, logical_home(key, stack, i));
-                value->dynamic_width = width;
-                value->dynamic_repr = representation;
-                value->dynamic_tags = tags;
             }
         }
     }
@@ -1076,10 +1031,7 @@ static int create_version(builder *b, uint32_t pc,
             memset(&value, 0, sizeof(value));
             value.id = id;
             value.type = symbolic_type(
-                b, source, source.dynamic_tags
-                    ? ABC_ASDL_RESIDUAL_TYPE_ANY
-                    : ABC_ASDL_RESIDUAL_TYPE_CELL);
-            value.facts = symbolic_facts(source);
+                b, source, ABC_ASDL_RESIDUAL_TYPE_CELL);
             value.definition.tag =
                 ABC_ASDL_RESIDUAL_DEFINITION_BLOCK_ARGUMENT;
             value.definition.value.block_argument.block = block->ir.id;
@@ -1091,7 +1043,7 @@ static int create_version(builder *b, uint32_t pc,
                 .home = logical_home(key, stack, i),
                 .value = id
             };
-            replacement = symbolic_result(id, stack, value.facts);
+            replacement = symbolic_result(id, stack);
             replacement.dst_stack = source.dst_stack;
             replacement.dst_home = source.dst_home;
             version->entry.s[stack][i] = replacement;
@@ -1149,12 +1101,7 @@ static build_version *version_for(builder *b, uint32_t pc,
     }
     versions = family_count(b->function, pc, &key);
     if (versions >= ABC_BLOCK_VERSION_LIMIT - 1) {
-        unsigned stack;
-        uint32_t i;
         canonicalize(&key, 1);
-        for (stack = 0; stack < 3; stack++)
-            for (i = 0; i < key.n[stack]; i++)
-                abc_symbolic_forget_dynamic(&key.s[stack][i]);
         version = find_version(b->function, pc, &key);
         if (version) {
             abc_symbolic_context_free(&key);
@@ -1204,9 +1151,7 @@ static int make_edge(builder *b, uint32_t origin, uint32_t target_pc,
                 continue;
             }
             type = symbolic_type(
-                b, actual, actual.dynamic_tags
-                    ? ABC_ASDL_RESIDUAL_TYPE_ANY
-                    : ABC_ASDL_RESIDUAL_TYPE_CELL);
+                b, actual, ABC_ASDL_RESIDUAL_TYPE_CELL);
             if (actual.kind == ABC_SYM_CONST) {
                 abc_residual_value *formal_value = find_value(
                     b, target->block->ir.arguments.items[at].value);
@@ -1406,17 +1351,17 @@ static int on_abort(void *opaque, uint32_t origin, unsigned reason) {
     return set_terminator(b, terminator);
 }
 
-static int on_halt(void *opaque, uint32_t origin, unsigned unused) {
+static int on_halt(void *opaque, uint32_t origin, unsigned source_stack) {
     builder *b = opaque;
     abc_symbolic_context *context = b->machine->context;
     abc_residual_id values[255];
     abc_residual_terminator terminator;
     uint32_t i;
 
-    if (context->n[ABC_SYM_A] > 255)
+    if (context->n[source_stack] > 255)
         return malformed(b, origin, "HALT has too many result cells");
-    for (i = 0; i < context->n[ABC_SYM_A]; i++) {
-        abc_symbolic_value value = context->s[ABC_SYM_A][i];
+    for (i = 0; i < context->n[source_stack]; i++) {
+        abc_symbolic_value value = context->s[source_stack][i];
 
         values[i] = value_id(
             b, value,
@@ -1426,24 +1371,14 @@ static int on_halt(void *opaque, uint32_t origin, unsigned unused) {
     }
     memset(&terminator, 0, sizeof(terminator));
     terminator.tag = ABC_ASDL_RESIDUAL_TERMINATOR_HALT;
-    terminator.value.halt.values.count = context->n[ABC_SYM_A];
+    terminator.value.halt.values.count = context->n[source_stack];
     terminator.value.halt.values.items =
-        copy_ids(b, values, context->n[ABC_SYM_A], origin);
+        copy_ids(b, values, context->n[source_stack], origin);
     terminator.origin = make_origin(origin);
-    if (context->n[ABC_SYM_A] &&
+    if (context->n[source_stack] &&
         !terminator.value.halt.values.items)
         return 0;
-    (void)unused;
     return set_terminator(b, terminator);
-}
-
-static int on_effect(void *opaque, uint32_t origin, unsigned opcode) {
-    builder *b = opaque;
-
-    return not_supported(
-        b, origin,
-        "internal rewritten opcode %s cannot enter persistent residual IR",
-        op_name[opcode]);
 }
 
 static abc_residual_id emit_address(builder *b,
@@ -1509,31 +1444,15 @@ static int relocation_function(const abc_module *module, uint32_t offset) {
     return -1;
 }
 
-static int emit_managed_write(builder *b, uint32_t origin,
-                              abc_residual_id address,
-                              uint64_t offset, uint64_t bytes) {
-    abc_residual_operation operation;
-
-    if (!b->module->dynamic_profile || !bytes) return 1;
-    memset(&operation, 0, sizeof(operation));
-    operation.tag = ABC_ASDL_RESIDUAL_OPERATION_MANAGED_WRITE;
-    operation.value.managed_write.address = address;
-    operation.value.managed_write.offset = offset;
-    operation.value.managed_write.bytes = bytes;
-    return emit_operation(
-        b, operation,
-        (abc_residual_effect){.writes_memory = true},
-        NULL, NULL, 0, origin, NULL, ABC_SYM_A);
-}
-
 static int on_memory(void *opaque, uint32_t origin,
                      abc_symbolic_memory *memory) {
     builder *b = opaque;
-    abc_memory_op metadata = op_memory[memory->opcode];
     const uint8_t *p = b->module->code + origin;
-    uint64_t offset = op_len[memory->opcode] == 5
+    const abc_instruction_metadata *metadata = abc_instruction_info(p);
+    unsigned action = metadata->memory_action;
+    uint64_t offset = metadata->operand_layout == ABC_LAYOUT_U32
         ? abc_u32(p + 1)
-        : op_len[memory->opcode] == 3
+        : metadata->operand_layout == ABC_LAYOUT_U16
             ? abc_u16(p + 1)
             : 0;
     abc_residual_operation operation;
@@ -1543,7 +1462,7 @@ static int on_memory(void *opaque, uint32_t origin,
     abc_residual_type type;
     abc_asdl_residual_address_space space;
 
-    if (metadata.action == M_ALLOC) {
+    if (action == M_ALLOC) {
         int32_t first =
             b->machine->context->c_bias +
             (int32_t)b->machine->context->n[ABC_SYM_C] -
@@ -1559,10 +1478,10 @@ static int on_memory(void *opaque, uint32_t origin,
             (abc_residual_effect){.writes_memory = true},
             NULL, NULL, 0, origin, NULL, ABC_SYM_C);
     }
-    if (metadata.action == M_FREE) return 1;
+    if (action == M_FREE) return 1;
 
-    if (metadata.action == M_GLOAD &&
-        metadata.width == 8) {
+    if (action == M_GLOAD &&
+        metadata->memory_width == 8) {
         int function = relocation_function(b->module, (uint32_t)offset);
 
         if (function >= 0) {
@@ -1581,9 +1500,9 @@ static int on_memory(void *opaque, uint32_t origin,
         }
     }
 
-    if (metadata.action == M_FLOAD ||
-        metadata.action == M_FSTORE ||
-        metadata.action == M_FADDR) {
+    if (action == M_FLOAD ||
+        action == M_FSTORE ||
+        action == M_FADDR) {
         int64_t frame_top = (
             b->machine->context->c_bias +
             (int32_t)b->machine->context->n[ABC_SYM_C] -
@@ -1593,25 +1512,25 @@ static int on_memory(void *opaque, uint32_t origin,
         address = emit_address(
             b, ABC_ASDL_RESIDUAL_OPERATION_FRAME_ADDRESS,
             frame_offset, origin, &address_value);
-    } else if (metadata.action == M_GLOAD ||
-               metadata.action == M_GSTORE ||
-               metadata.action == M_GADDR) {
+    } else if (action == M_GLOAD ||
+               action == M_GSTORE ||
+               action == M_GADDR) {
         address = emit_address(
             b, ABC_ASDL_RESIDUAL_OPERATION_IMAGE_ADDRESS,
             offset, origin, &address_value);
-    } else if (metadata.action == M_PLOAD ||
-               metadata.action == M_PSTORE) {
+    } else if (action == M_PLOAD ||
+               action == M_PSTORE) {
         address = value_id(
             b, memory->first,
             ABC_ASDL_RESIDUAL_TYPE_ADDRESS, origin);
-    } else if (metadata.action == M_XLOAD ||
-               metadata.action == M_INDEX) {
-        uint64_t scale = metadata.action == M_INDEX
+    } else if (action == M_XLOAD ||
+               action == M_INDEX) {
+        uint64_t scale = action == M_INDEX
             ? abc_u16(p + 1)
-            : metadata.width;
+            : metadata->memory_width;
         address = emit_index(
             b, origin, memory->first, memory->second, scale);
-    } else if (metadata.action == M_COPY) {
+    } else if (action == M_COPY) {
         abc_residual_id destination = value_id(
             b, memory->first, ABC_ASDL_RESIDUAL_TYPE_ADDRESS, origin);
         abc_residual_id source = value_id(
@@ -1632,43 +1551,35 @@ static int on_memory(void *opaque, uint32_t origin,
                 },
                 NULL, NULL, 0, origin, NULL, ABC_SYM_A))
             return 0;
-        return emit_managed_write(b, origin, destination, 0, bytes);
+        return 1;
     } else {
         return malformed(b, origin, "unknown memory action");
     }
 
     if (!address.value) return 0;
-    if (metadata.action == M_FADDR ||
-        metadata.action == M_GADDR ||
-        metadata.action == M_INDEX) {
-        memory->result = symbolic_result(
-            address,
-            metadata.action == M_INDEX ? ABC_SYM_A : memory->stack,
-            (abc_residual_facts){0});
+    if (action == M_FADDR ||
+        action == M_GADDR ||
+        action == M_INDEX) {
+        memory->result = symbolic_result(address, memory->stack);
         return 1;
     }
 
-    space = metadata.action == M_FLOAD ||
-                    metadata.action == M_FSTORE
+    space = action == M_FLOAD || action == M_FSTORE
         ? ABC_ASDL_RESIDUAL_ADDRESS_SPACE_FRAME
-        : metadata.action == M_GLOAD ||
-                  metadata.action == M_GSTORE
+        : action == M_GLOAD || action == M_GSTORE
             ? ABC_ASDL_RESIDUAL_ADDRESS_SPACE_IMAGE
             : ABC_ASDL_RESIDUAL_ADDRESS_SPACE_POINTER;
 
-    if (metadata.action == M_FLOAD ||
-        metadata.action == M_GLOAD ||
-        metadata.action == M_PLOAD ||
-        metadata.action == M_XLOAD) {
+    if (action == M_FLOAD || action == M_GLOAD ||
+        action == M_PLOAD || action == M_XLOAD) {
         memset(&operation, 0, sizeof(operation));
         operation.tag = ABC_ASDL_RESIDUAL_OPERATION_LOAD;
         operation.value.load.space = space;
-        operation.value.load.width = metadata.width;
-        operation.value.load.signed_value = metadata.sign != 0;
+        operation.value.load.width = metadata->memory_width;
+        operation.value.load.signed_value = metadata->sign_extend != 0;
         operation.value.load.address = address;
-        operation.value.load.offset =
-            metadata.action == M_PLOAD ? offset : 0;
-        type = load_type(b, origin, metadata.width, metadata.sign);
+        operation.value.load.offset = action == M_PLOAD ? offset : 0;
+        type = load_type(b, origin, metadata->memory_width, metadata->sign_extend);
         if (!emit_operation(
                 b, operation,
                 (abc_residual_effect){.reads_memory = true},
@@ -1680,7 +1591,7 @@ static int on_memory(void *opaque, uint32_t origin,
 
     {
         abc_symbolic_value stored =
-            metadata.action == M_PSTORE
+            action == M_PSTORE
                 ? memory->second
                 : memory->first;
         abc_residual_id stored_id = value_id(
@@ -1688,13 +1599,13 @@ static int on_memory(void *opaque, uint32_t origin,
             symbolic_type(b, stored, ABC_ASDL_RESIDUAL_TYPE_CELL),
             origin);
         uint64_t store_offset =
-            metadata.action == M_PSTORE ? offset : 0;
+            action == M_PSTORE ? offset : 0;
 
         if (!stored_id.value) return 0;
         memset(&operation, 0, sizeof(operation));
         operation.tag = ABC_ASDL_RESIDUAL_OPERATION_STORE;
         operation.value.store.space = space;
-        operation.value.store.width = metadata.width;
+        operation.value.store.width = metadata->memory_width;
         operation.value.store.address = address;
         operation.value.store.offset = store_offset;
         operation.value.store.value = stored_id;
@@ -1703,228 +1614,8 @@ static int on_memory(void *opaque, uint32_t origin,
                 (abc_residual_effect){.writes_memory = true},
                 NULL, NULL, 0, origin, NULL, ABC_SYM_A))
             return 0;
-        if (metadata.action == M_PSTORE)
-            return emit_managed_write(
-                b, origin, address, store_offset, metadata.width);
         return 1;
     }
-}
-
-static abc_residual_type dynamic_result_type(
-    builder *b, const abc_symbolic_dynamic *dynamic, unsigned index) {
-    unsigned selector = dynamic->selector;
-
-    if (selector == EXT_ANY_CAST) {
-        const abc_descriptor *descriptor =
-            &b->module->descriptors[dynamic->descriptor];
-
-        if (descriptor->tag == ABC_DESC_PRIMITIVE) {
-            unsigned primitive = descriptor->payload[0];
-            if (primitive == ABC_PRIM_F64)
-                return ABC_ASDL_RESIDUAL_TYPE_F64;
-            if (primitive == ABC_PRIM_ANY ||
-                primitive == ABC_PRIM_WORD)
-                return ABC_ASDL_RESIDUAL_TYPE_ANY;
-            if (primitive == ABC_PRIM_STRING)
-                return index
-                    ? ABC_ASDL_RESIDUAL_TYPE_CELL
-                    : ABC_ASDL_RESIDUAL_TYPE_ADDRESS;
-            return ABC_ASDL_RESIDUAL_TYPE_CELL;
-        }
-        if (descriptor->tag == ABC_DESC_SLICE)
-            return index
-                ? ABC_ASDL_RESIDUAL_TYPE_CELL
-                : ABC_ASDL_RESIDUAL_TYPE_ADDRESS;
-        return ABC_ASDL_RESIDUAL_TYPE_ADDRESS;
-    }
-    if (selector == EXT_ANY_IS ||
-        selector == EXT_DEQ || selector == EXT_DNE ||
-        selector == EXT_DLT || selector == EXT_DLE ||
-        selector == EXT_DREQUIRE_BOOL ||
-        selector == EXT_WORD_HAS ||
-        selector == EXT_WORD_COUNT)
-        return ABC_ASDL_RESIDUAL_TYPE_CELL;
-    if (selector == EXT_MANAGED_NEW ||
-        selector == EXT_MANAGED_COPY)
-        return ABC_ASDL_RESIDUAL_TYPE_ADDRESS;
-    return ABC_ASDL_RESIDUAL_TYPE_ANY;
-}
-
-static int on_dynamic(void *opaque, uint32_t origin,
-                      abc_symbolic_dynamic *dynamic) {
-    builder *b = opaque;
-    abc_symbolic_context *context = b->machine->context;
-    const uint8_t *instruction = b->module->code + origin;
-    abc_residual_id arguments[255];
-    abc_residual_type types[255];
-    abc_residual_facts facts[255];
-    abc_residual_operation operation;
-    abc_residual_terminator terminator;
-    uint32_t base;
-    unsigned i;
-
-    if (context->n[ABC_SYM_A] < dynamic->pops)
-        return malformed(b, origin,
-                         "dynamic operation underflows symbolic A");
-    base = context->n[ABC_SYM_A] - dynamic->pops;
-    for (i = 0; i < dynamic->pops; i++) {
-        abc_symbolic_value value = context->s[ABC_SYM_A][base + i];
-        arguments[i] = value_id(
-            b, value, symbolic_type(
-                b, value, ABC_ASDL_RESIDUAL_TYPE_ANY), origin);
-        if (!arguments[i].value) return 0;
-    }
-    for (i = 0; i < dynamic->pushes; i++) {
-        types[i] = dynamic_result_type(b, dynamic, i);
-        facts[i] = symbolic_facts(dynamic->result[i]);
-    }
-
-    if (dynamic->selector == EXT_WORD_DIRECT ||
-        dynamic->selector == EXT_CLOSURE_NEW) {
-        uint32_t target_entry = abc_u32(instruction + 2);
-        int target_function = target_entry < b->module->function_count
-            ? (int)target_entry : abc_find_function(b->module, target_entry);
-        uint32_t target;
-        uint32_t descriptor = dynamic->descriptor;
-        uint32_t signature = descriptor;
-        abc_residual_id *environment = NULL;
-
-        if (target_function < 0) goto generic_dynamic;
-        target = (uint32_t)target_function;
-        if (dynamic->selector == EXT_CLOSURE_NEW) {
-            const abc_descriptor *closure =
-                &b->module->descriptors[descriptor];
-
-            if (closure->tag != ABC_DESC_CLOSURE ||
-                dynamic->pops != 1)
-                goto generic_dynamic;
-            signature = abc_u32(closure->payload);
-            environment = abc_residual_allocate(
-                b->arena, 1, sizeof(*environment));
-            if (!environment) return no_memory(b, origin);
-            *environment = arguments[0];
-        } else if (dynamic->direct_environment || dynamic->pops) {
-            goto generic_dynamic;
-        }
-
-        memset(&operation, 0, sizeof(operation));
-        operation.tag =
-            ABC_ASDL_RESIDUAL_OPERATION_CALLABLE_CONSTRUCTOR;
-        operation.value.callable_constructor.target =
-            b->function_ids[target];
-        operation.value.callable_constructor.signature = signature;
-        operation.value.callable_constructor.descriptor = descriptor;
-        operation.value.callable_constructor.environment_cells =
-            dynamic->selector == EXT_CLOSURE_NEW ? 1 : 0;
-        operation.value.callable_constructor.environment = environment;
-        return emit_operation(
-            b, operation,
-            (abc_residual_effect){.safepoint = true},
-            types, facts, dynamic->pushes, origin,
-            dynamic->result, ABC_SYM_A);
-    }
-
-    if (dynamic->selector == EXT_DCALL ||
-        dynamic->selector == EXT_DTCALL) {
-        abc_asdl_residual_call_abi abi = {
-            .arguments = instruction[2],
-            .results = instruction[3],
-            .frame_cells = 0,
-            .hidden_result_bytes = 0
-        };
-        uint64_t adjustment = instruction[4];
-
-        if (dynamic->pops != abi.arguments + 1)
-            return malformed(b, origin,
-                             "dynamic call metadata disagrees with its operands");
-        if (dynamic->tail) {
-            memset(&terminator, 0, sizeof(terminator));
-            terminator.tag =
-                ABC_ASDL_RESIDUAL_TERMINATOR_DYNAMIC_TAIL_CALL;
-            terminator.value.dynamic_tail_call.abi = abi;
-            terminator.value.dynamic_tail_call.adjustment = adjustment;
-            terminator.value.dynamic_tail_call.arguments.count =
-                dynamic->pops;
-            terminator.value.dynamic_tail_call.arguments.items =
-                copy_ids(b, arguments, dynamic->pops, origin);
-            terminator.origin = make_origin(origin);
-            if (dynamic->pops &&
-                !terminator.value.dynamic_tail_call.arguments.items)
-                return 0;
-            return set_terminator(b, terminator);
-        }
-
-        memset(&operation, 0, sizeof(operation));
-        operation.tag = ABC_ASDL_RESIDUAL_OPERATION_DYNAMIC_CALL;
-        operation.value.dynamic_call.abi = abi;
-        operation.value.dynamic_call.adjustment = adjustment;
-        operation.value.dynamic_call.arguments.count = dynamic->pops;
-        operation.value.dynamic_call.arguments.items =
-            copy_ids(b, arguments, dynamic->pops, origin);
-        if (dynamic->pops &&
-            !operation.value.dynamic_call.arguments.items)
-            return 0;
-        return emit_operation(
-            b, operation,
-            (abc_residual_effect){
-                .may_trap = true,
-                .calls = true,
-                .safepoint = true
-            },
-            types, facts, dynamic->pushes, origin,
-            dynamic->result, ABC_SYM_A);
-    }
-
-generic_dynamic:
-    memset(&operation, 0, sizeof(operation));
-    operation.tag = ABC_ASDL_RESIDUAL_OPERATION_DYNAMIC_OPERATION;
-    operation.value.dynamic_operation.selector = dynamic->selector;
-    operation.value.dynamic_operation.descriptor = dynamic->descriptor;
-    if (dynamic->selector >= EXT_DADDL &&
-        dynamic->selector <= EXT_DXORL) {
-        uint32_t constant_index = abc_u32(instruction + 2);
-        const abc_dynamic_constant *constant;
-        abc_asdl_residual_dynamic_literal *literal;
-        size_t low_bytes;
-        size_t high_bytes;
-
-        if (constant_index >= b->module->dynamic_constant_count)
-            return malformed(b, origin,
-                             "dynamic literal index is invalid");
-        constant = &b->module->dynamic_constants[constant_index];
-        literal = abc_residual_allocate(
-            b->arena, 1, sizeof(*literal));
-        if (!literal) return no_memory(b, origin);
-        memset(literal, 0, sizeof(*literal));
-        literal->primitive = constant->kind;
-        literal->flags = constant->flags;
-        low_bytes = constant->length < 8 ? constant->length : 8;
-        high_bytes = constant->length > 8
-            ? constant->length - 8 : 0;
-        if (high_bytes > 8) high_bytes = 8;
-        if (low_bytes)
-            memcpy(&literal->low, constant->payload, low_bytes);
-        if (high_bytes)
-            memcpy(&literal->high, constant->payload + 8, high_bytes);
-        operation.value.dynamic_operation.literal = literal;
-        operation.value.dynamic_operation.reverse =
-            instruction[6] != 0;
-    }
-    operation.value.dynamic_operation.arguments.count = dynamic->pops;
-    operation.value.dynamic_operation.arguments.items =
-        copy_ids(b, arguments, dynamic->pops, origin);
-    if (dynamic->pops &&
-        !operation.value.dynamic_operation.arguments.items)
-        return 0;
-    return emit_operation(
-        b, operation,
-        (abc_residual_effect){
-            .may_trap = true,
-            .calls = true,
-            .safepoint = true
-        },
-        types, facts, dynamic->pushes, origin,
-        dynamic->result, ABC_SYM_A);
 }
 
 static int append_call_fact(builder *b, uint32_t target, unsigned count,
@@ -1961,12 +1652,12 @@ static int on_foreign(void *opaque, uint32_t origin,
     abc_residual_id arguments[255];
     abc_residual_operation operation;
     abc_residual_type type;
-    uint32_t base = context->n[ABC_SYM_A] - foreign->arguments;
+    uint32_t base = context->n[foreign->selected_stack] - foreign->arguments;
     unsigned i;
 
     for (i = 0; i < foreign->arguments; i++) {
         arguments[i] = value_id(
-            b, context->s[ABC_SYM_A][base + i],
+            b, context->s[foreign->selected_stack][base + i],
             kind_type(external->argument_kinds[i]), origin);
         if (!arguments[i].value) return 0;
     }
@@ -1994,7 +1685,7 @@ static int on_foreign(void *opaque, uint32_t origin,
         b, operation,
         (abc_residual_effect){.calls = true, .safepoint = true},
         foreign->results ? &type : NULL, NULL,
-        foreign->results, origin, foreign->result, ABC_SYM_A);
+        foreign->results, origin, foreign->result, foreign->selected_stack);
 }
 
 static int on_call(void *opaque, uint32_t origin,
@@ -2013,10 +1704,10 @@ static int on_call(void *opaque, uint32_t origin,
         return malformed(b, origin,
                          "direct call target is not a source function");
     target = &b->module->functions[target_index];
-    base = context->n[ABC_SYM_A] - call->arguments;
+    base = context->n[call->destination] - call->arguments;
     for (i = 0; i < call->arguments; i++) {
         arguments[i] = value_id(
-            b, context->s[ABC_SYM_A][base + i],
+            b, context->s[call->destination][base + i],
             kind_type(target->argument_kinds[i]), origin);
         if (!arguments[i].value) return 0;
     }
@@ -2024,7 +1715,7 @@ static int on_call(void *opaque, uint32_t origin,
         types[i] = kind_type(target->result_kinds[i]);
     if (!append_call_fact(
             b, (uint32_t)target_index, call->arguments,
-            context->s[ABC_SYM_A] + base, origin))
+            context->s[call->destination] + base, origin))
         return 0;
 
     memset(&operation, 0, sizeof(operation));
@@ -2052,8 +1743,7 @@ static int on_call(void *opaque, uint32_t origin,
     return emit_operation(
         b, operation,
         (abc_residual_effect){
-            .calls = true,
-            .safepoint = !target->allocation_free
+            .calls = true
         },
         types, NULL, call->results, origin,
         call->result, call->destination);
@@ -2076,10 +1766,10 @@ static int on_indirect(void *opaque, uint32_t origin,
     if (!site)
         return malformed(b, origin,
                          "indirect call lacks site metadata");
-    base = context->n[ABC_SYM_A] - call->arguments;
+    base = context->n[call->argument_stack] - call->arguments;
     for (i = 0; i < call->arguments; i++) {
         arguments[i] = value_id(
-            b, context->s[ABC_SYM_A][base + i],
+            b, context->s[call->argument_stack][base + i],
             kind_type(site->argument_kinds[i]), origin);
         if (!arguments[i].value) return 0;
     }
@@ -2179,7 +1869,7 @@ static int on_tail(void *opaque, uint32_t origin,
                          "tail target is not a source function");
 
     target = &b->module->functions[target_index];
-    base = context->n[ABC_SYM_A] - tail->arguments;
+    base = context->n[tail->argument_stack] - tail->arguments;
     if (!target->hidden_bytes) {
         int first_arrival = !b->embedded[target_index];
 
@@ -2197,7 +1887,7 @@ static int on_tail(void *opaque, uint32_t origin,
             if (target->max_c > metadata->max_c) metadata->max_c = target->max_c;
             if (!append_call_fact(
                     b, (uint32_t)target_index, tail->arguments,
-                    context->s[ABC_SYM_A] + base, origin))
+                    context->s[tail->argument_stack] + base, origin))
                 return 0;
             b->pending_edge = 1;
             b->pending_edge_target = tail->target;
@@ -2209,13 +1899,13 @@ static int on_tail(void *opaque, uint32_t origin,
     }
     for (i = 0; i < tail->arguments; i++) {
         arguments[i] = value_id(
-            b, context->s[ABC_SYM_A][base + i],
+            b, context->s[tail->argument_stack][base + i],
             kind_type(target->argument_kinds[i]), origin);
         if (!arguments[i].value) return 0;
     }
     if (!append_call_fact(
             b, (uint32_t)target_index, tail->arguments,
-            context->s[ABC_SYM_A] + base, origin))
+            context->s[tail->argument_stack] + base, origin))
         return 0;
 
     memset(&terminator, 0, sizeof(terminator));
@@ -2263,7 +1953,7 @@ static int on_return(void *opaque, uint32_t origin,
         abc_residual_value *actual;
 
         values[i] = value_id(
-            b, context->s[ABC_SYM_A][i], expected, origin);
+            b, context->s[returned->source_stack][i], expected, origin);
         if (!values[i].value) return 0;
         actual = find_value(b, values[i].value);
         if (actual && actual->type == ABC_ASDL_RESIDUAL_TYPE_CELL &&
@@ -2279,7 +1969,7 @@ static int on_return(void *opaque, uint32_t origin,
             cast.value.binary.left = values[i];
             cast.value.binary.right = zero_id;
             if (!emit_operation(b, cast, (abc_residual_effect){0},
-                    &expected, NULL, 1, origin, &cast_result, ABC_SYM_A))
+                    &expected, NULL, 1, origin, &cast_result, returned->source_stack))
                 return 0;
             values[i] = (abc_residual_id){cast_result.reg};
             actual = find_value(b, values[i].value);
@@ -2362,31 +2052,36 @@ static int discover_leaders(builder *b) {
 
         b->leaders[function->entry] = 1;
         for (pc = function->entry; pc < function->end;) {
-            const uint8_t *p = b->module->code + pc;
-            unsigned kind = op_kind[p[0]];
-            uint32_t next = pc + abc_instruction_length(p);
+            abc_decoded_instruction instruction;
+            abc_decode_instruction(b->module->code + pc,
+                function->end - pc, &instruction);
+            const uint8_t *operands = instruction.operands;
+            unsigned kind = instruction.metadata->kind;
+            unsigned operation = instruction.metadata->operation;
+            uint32_t next = pc + instruction.length;
 
             if (kind == K_BRANCH || kind == K_BRI ||
                 kind == K_JMP32) {
                 int32_t displacement = kind == K_JMP32
-                    ? abc_i32(p + 1)
-                    : abc_i16(p + (kind == K_BRI ? 2 : 1));
+                    ? abc_i32(operands)
+                    : abc_i16(operands + (kind == K_BRI ? 1 : 0));
                 uint32_t target =
                     (uint32_t)((int64_t)next + displacement);
                 b->leaders[target] = 1;
                 if (target <= pc)
                     b->loop_headers[target] = 1;
-                if (p[0] != OP_JMP && p[0] != OP_JMP32 &&
+                if (operation != ABC_OPERATION_JMP &&
+                    operation != ABC_OPERATION_JMP32 &&
                     next < function->end)
                     b->leaders[next] = 1;
             } else if (kind == K_SWITCH) {
-                unsigned count = abc_u16(p + 1);
+                unsigned count = abc_u16(operands);
                 unsigned i;
 
                 for (i = 0; i < count; i++) {
                     uint32_t target = (uint32_t)(
                         (int64_t)next +
-                        abc_i32(p + 3 + 4 * i));
+                        abc_i32(operands + 2 + 4 * i));
                     b->leaders[target] = 1;
                     if (target <= pc)
                         b->loop_headers[target] = 1;
@@ -2568,13 +2263,11 @@ static void configure_machine(builder *b, abc_symbolic_machine *machine,
     machine->emit_control = on_control;
     machine->emit_abort = on_abort;
     machine->emit_halt = on_halt;
-    machine->emit_effect = on_effect;
     machine->emit_memory = on_memory;
     machine->emit_return = on_return;
     machine->emit_call = on_call;
     machine->emit_indirect = on_indirect;
     machine->emit_tail = on_tail;
-    machine->emit_dynamic = on_dynamic;
     machine->emit_foreign = on_foreign;
     machine->emit_edge = on_edge;
 }

@@ -1,0 +1,13 @@
+.profile memory
+ .function main 0 1 - i
+ CALLOC 8
+ FADDR.B 8
+ CALL.B writer 1
+ FLD64.A 8
+ CFREE 8
+ RET.A 0 1
+ .function writer 1 0 a -
+ CGET.A 0
+ PUSH.B 41
+ ST64.A 0
+ RET.B 1 0

@@ -1,0 +1,2 @@
+29 encoding/header/example/budget-evidence checks pass; 28 local documentation links resolve.
+All recorded runtime/generator/frontend/tool/header/Makefile source hashes are unchanged.

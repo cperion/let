@@ -1,0 +1,13 @@
+.profile memory
+.function main 1 1 i i
+PUSH.A 101
+CGET.B 0
+BEQ equal
+PUSH.A 42
+JMP end
+equal:
+PUSH.A 99
+end:
+RET 1 1
+
+.export main

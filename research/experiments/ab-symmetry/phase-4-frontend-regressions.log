@@ -1,0 +1,2 @@
+PASS: checked ASDL Ir -> ABC lowering (78 checks)
+PASS: VM-backed compile-time execution (24 checks)

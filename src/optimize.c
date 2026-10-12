@@ -1,6 +1,5 @@
 #include "abc_tool.h"
 #include "symbolic.h"
-#include "dynamic.h"
 
 /* The ABC optimizer is the second symbolic-VM sink. It builds integer value
  * and ordered trap/check/abort DAGs, then canonically re-projects them to A/B/C
@@ -8,10 +7,12 @@
  * The optimizer path limit bounds speculative analysis memory; reaching it
  * retains the original function and does not limit generated code. */
 
-typedef enum { N_INPUT, N_LOOP_HOME, N_BINARY, N_UNARY, N_CHECK, N_ABORT, N_EFFECT, N_MEMORY, N_DYNAMIC, N_FOREIGN, N_CALLABLE, N_DYNCALLABLE, N_CALL, N_TAIL, N_RESULT } NodeKind;
+typedef enum { N_INPUT, N_LOOP_HOME, N_BINARY, N_UNARY, N_CHECK, N_ABORT, N_EFFECT, N_MEMORY, N_FOREIGN, N_CALLABLE, N_CALL, N_TAIL, N_RESULT } NodeKind;
 typedef struct {
     NodeKind kind;
     uint32_t origin, left, right;
+    /* Scalar/check nodes carry semantic operations; memory nodes retain their
+       encoded instruction identity. NodeKind determines the payload contract. */
     uint16_t opcode;
     uint8_t input;
     uint16_t ershov;
@@ -30,14 +31,14 @@ typedef struct {
     uint32_t count, capacity;
     EffectPayload *payloads; uint32_t payload_count, payload_capacity;
     abc_symbolic_value results[255];
-    uint32_t result_count, control_target, root_entry, root_arguments, backedge_target, loop_target;
-    int unsupported, follow_control, terminal_abort, unknown_control, callable_safe, dynamic_callable_safe, backedge, nested_backedge, loop_candidate, loop_captured, loop_stable; uint32_t pending_origin;
+    uint32_t result_count, result_stack, control_target, root_entry, root_arguments, backedge_target, loop_target;
+    int unsupported, follow_control, terminal_abort, terminal_halt, unknown_control, callable_safe, backedge, nested_backedge, loop_candidate, loop_captured, loop_stable; uint32_t pending_origin;
     abc_symbolic_context loop_initial; abc_symbolic_value loop_header[255]; uint32_t loop_home[255], loop_count;
     abc_symbolic_control pending_control; size_t paths;
     ResidualCall *calls; uint32_t call_count, call_capacity; uint32_t terminal_tail;
 } DagSink;
 typedef struct DagTree {
-    unsigned leaf, backedge, nested_backedge, tail; uint32_t origin, tail_node; abc_symbolic_control control; uint32_t result_count; abc_symbolic_value results[255];
+    unsigned leaf, backedge, nested_backedge, tail, halt; uint32_t origin, tail_node; abc_symbolic_control control; uint32_t result_count, result_stack; abc_symbolic_value results[255];
     struct DagTree *fallthrough, *taken; struct DagTree **arms; uint32_t arm_count;
 } DagTree;
 
@@ -50,10 +51,7 @@ typedef struct { uint8_t *data; size_t size, capacity; FunctionCode *function; }
 
 static void free_call_graph(CallGraph *g){free(g->offsets);free(g->edges);free(g->component);free(g->recursive);free(g->nested_eligible);memset(g,0,sizeof *g);}
 static int direct_target(const abc_module *m,uint32_t pc,uint32_t *target){
-    const uint8_t *p=m->code+pc;unsigned kind=op_kind[p[0]];if(kind!=K_CALL&&kind!=K_TCALL)return 0;uint32_t length=abc_instruction_length(p);*target=(uint32_t)((int64_t)(pc+length)+abc_i32(p+1));return 1;
-}
-static int dynamic_callable_target(const abc_module *m,uint32_t pc,uint32_t *target){
-    const uint8_t *p=m->code+pc;if(p[0]!=OP_EXT||(p[1]!=EXT_WORD_DIRECT&&p[1]!=EXT_CLOSURE_NEW))return 0;*target=abc_u32(p+2);return *target<m->function_count;
+    const uint8_t *p=m->code+pc;unsigned kind=abc_instruction_info(p)->kind;if(kind!=K_CALL&&kind!=K_TCALL)return 0;uint32_t length=abc_instruction_length(p);*target=(uint32_t)((int64_t)(pc+length)+abc_i32(p+1));return 1;
 }
 static int build_call_graph(const abc_module *m,CallGraph *g){
     uint32_t n=m->function_count;
@@ -109,7 +107,7 @@ static int build_call_graph(const abc_module *m,CallGraph *g){
     for(uint32_t from=0;from<n;from++){
         int self=0,nontail=0;
         for(uint32_t i=g->offsets[from];i<g->offsets[from+1];i++)if(g->component[g->edges[i]]==g->component[from]&&g->edges[i]==from)self=1;
-        for(uint32_t pc=m->functions[from].entry;pc<m->functions[from].end;pc+=abc_instruction_length(m->code+pc)){uint32_t target;if(direct_target(m,pc,&target)&&op_kind[m->code[pc]]==K_CALL){int to=abc_find_function(m,target);if(to>=0&&g->component[to]==g->component[from])nontail=1;}}
+        for(uint32_t pc=m->functions[from].entry;pc<m->functions[from].end;pc+=abc_instruction_length(m->code+pc)){uint32_t target;if(direct_target(m,pc,&target)&&abc_instruction_info(m->code+pc)->kind==K_CALL){int to=abc_find_function(m,target);if(to>=0&&g->component[to]==g->component[from])nontail=1;}}
         g->recursive[from]=(uint8_t)(sizes[g->component[from]]>1||self);
         g->nested_eligible[from]=(uint8_t)(g->recursive[from]&&sizes[g->component[from]]==1&&!nontail);
     }
@@ -133,21 +131,26 @@ static int grow_nodes(DagSink *s) {
 static uint32_t dag_value(DagSink *s,abc_symbolic_value value,uint32_t origin);
 static EffectPayload *find_payload(const DagSink *s,uint32_t node_id){for(uint32_t i=0;i<s->payload_count;i++)if(s->payloads[i].node==node_id)return &s->payloads[i];return NULL;}
 static int add_payload(DagSink *s,uint32_t node_id,unsigned count,const abc_symbolic_value *values,uint32_t origin,unsigned results){
-    /* Raw symbolic any values cannot cross represented bytecode effects. */
-    for(unsigned i=0;i<count;i++)if(values[i].dynamic_repr==ABC_SYM_REPR_RAW){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}
     if(s->payload_count==s->payload_capacity){uint32_t capacity=s->payload_capacity?s->payload_capacity*2:8;EffectPayload *p=realloc(s->payloads,(size_t)capacity*sizeof *p);if(!p)return 0;s->payloads=p;s->payload_capacity=capacity;}
     EffectPayload *p=&s->payloads[s->payload_count++];*p=(EffectPayload){.node=node_id,.count=count,.results=(uint8_t)results};p->operands=calloc(count?count:1,sizeof *p->operands);if(!p->operands)return 0;
     for(unsigned i=0;i<count;i++){p->operands[i]=dag_value(s,values[i],origin);if(!p->operands[i])return 0;}return 1;
 }
-static int same_node(const Node *a,const Node *b) {
+static int same_node(const DagSink *sink,const Node *a,const Node *b) {
     if(a->effect||b->effect||a->kind!=b->kind||a->kind==N_TAIL)return 0;
+    if(a->kind==N_MEMORY) {
+        /* Pure image addresses include their immutable encoded offset. Equal
+         * opcodes and value inputs alone do not identify the same location. */
+        const uint8_t *left=sink->module->code+a->origin,*right=sink->module->code+b->origin;
+        uint32_t length=abc_instruction_length(left);
+        if(length!=abc_instruction_length(right)||memcmp(left,right,length))return 0;
+    }
     if(a->kind==N_INPUT||a->kind==N_LOOP_HOME)return a->input==b->input&&a->left==b->left&&a->right==b->right;
     if(a->kind==N_RESULT)return a->left==b->left&&a->input==b->input;
     if(a->opcode!=b->opcode||a->left!=b->left)return 0;
     return a->kind==N_UNARY||a->kind==N_CHECK||a->right==b->right;
 }
 static uint32_t node(DagSink *s,Node n) {
-    for(uint32_t i=0;i<s->count;i++)if(same_node(&s->nodes[i],&n))return i+1;
+    for(uint32_t i=0;i<s->count;i++)if(same_node(s,&s->nodes[i],&n))return i+1;
     if(!grow_nodes(s))return 0;s->nodes[s->count]=n;return ++s->count;
 }
 static abc_symbolic_value backend(uint32_t id,unsigned stack,int32_t home) {
@@ -161,14 +164,16 @@ static uint32_t dag_value(DagSink *s,abc_symbolic_value value,uint32_t origin) {
 }
 static int pure_binary(unsigned opcode) {
     switch(opcode) {
-    case OP_ADD_A: case OP_SUB_A: case OP_MUL_A: case OP_AND_A: case OP_OR_A: case OP_XOR_A:
-    case OP_SHL_A: case OP_SHR_A: case OP_SAR_A: case OP_EQ_A: case OP_NE_A:
-    case OP_LT_A: case OP_LE_A: case OP_LTU_A: case OP_LEU_A:return 1;
+    case ABC_OPERATION_ADD: case ABC_OPERATION_SUB: case ABC_OPERATION_MUL:
+    case ABC_OPERATION_AND: case ABC_OPERATION_OR: case ABC_OPERATION_XOR:
+    case ABC_OPERATION_SHL: case ABC_OPERATION_SHR: case ABC_OPERATION_SAR:
+    case ABC_OPERATION_EQ: case ABC_OPERATION_NE: case ABC_OPERATION_LT:
+    case ABC_OPERATION_LE: case ABC_OPERATION_LTU: case ABC_OPERATION_LEU:return 1;
     default:return 0;
     }
 }
 static int trapping_binary(unsigned opcode) {
-    return opcode==OP_DIVU_A||opcode==OP_DIVS_A||opcode==OP_REMU_A||opcode==OP_REMS_A;
+    return opcode==ABC_OPERATION_DIVU||opcode==ABC_OPERATION_DIVS||opcode==ABC_OPERATION_REMU||opcode==ABC_OPERATION_REMS;
 }
 /* A division/remainder traps only on a zero divisor; signed -1 is defined as
  * wrapping, so a known nonzero constant divisor cannot trap and is a pure op. */
@@ -177,9 +182,18 @@ static int trapping_op(unsigned opcode,const Node *divisor) {
     if(divisor->kind==N_INPUT&&divisor->input==255&&((uint64_t)divisor->left|((uint64_t)divisor->right<<32)))return 0;
     return 1;
 }
-static int dag_check(void *opaque,uint32_t origin,unsigned opcode,int known,int trapped,abc_symbolic_value input) {
-    DagSink *s=opaque;if(known&&!trapped)return 1;uint32_t value=dag_value(s,input,origin);if(!value)return 0;
-    if(trapped)s->terminal_abort=1;return node(s,(Node){N_CHECK,origin,value,0,(uint16_t)opcode,0,0,1})!=0;
+static int dag_check(void *opaque,uint32_t origin,unsigned opcode,unsigned selected_stack,int known,int trapped,abc_symbolic_value input) {
+    (void)selected_stack; /* input is the captured selected value. */
+    DagSink *s=opaque;if(known&&!trapped)return 1;
+    if(trapped) {
+        /* The shared check has already proved numeric-range failure. Like
+         * the residual-IR binding, emit its terminal abort, not a CHECK that
+         * the bytecode verifier would still require a continuation after. */
+        uint32_t id=node(s,(Node){N_ABORT,origin,0,0,0,3,0,1});
+        if(id)s->terminal_abort=1;return id!=0;
+    }
+    uint32_t value=dag_value(s,input,origin);if(!value)return 0;
+    return node(s,(Node){N_CHECK,origin,value,0,(uint16_t)opcode,0,0,1})!=0;
 }
 static int dag_binary(void *opaque,uint32_t origin,unsigned opcode,unsigned destination,int folded,
         abc_symbolic_value left,abc_symbolic_value right,abc_symbolic_value *result) {
@@ -196,10 +210,19 @@ static int dag_unary(void *opaque,uint32_t origin,unsigned opcode,unsigned stack
 }
 static int dag_immediate(void *opaque,uint32_t origin,unsigned opcode,unsigned stack,uint64_t immediate,
         int folded,abc_symbolic_value input,abc_symbolic_value *result) {
-    static const uint8_t imm_base[]={OP_ADD_A,OP_SUB_A,OP_MUL_A,OP_AND_A,OP_OR_A,OP_XOR_A,OP_SHL_A,OP_SHR_A,OP_SAR_A};
-    DagSink *s=opaque;if(folded)return 1;unsigned index=(opcode-OP_ADDI_A)/2;
-    if(index>=sizeof imm_base/sizeof imm_base[0]){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}
-    unsigned base=imm_base[index];
+    DagSink *s=opaque;if(folded)return 1;unsigned base;
+    switch(opcode){
+    case ABC_OPERATION_ADDI:base=ABC_OPERATION_ADD;break;
+    case ABC_OPERATION_SUBI:base=ABC_OPERATION_SUB;break;
+    case ABC_OPERATION_MULI:base=ABC_OPERATION_MUL;break;
+    case ABC_OPERATION_ANDI:base=ABC_OPERATION_AND;break;
+    case ABC_OPERATION_ORI:base=ABC_OPERATION_OR;break;
+    case ABC_OPERATION_XORI:base=ABC_OPERATION_XOR;break;
+    case ABC_OPERATION_SHLI:base=ABC_OPERATION_SHL;break;
+    case ABC_OPERATION_SHRI:base=ABC_OPERATION_SHR;break;
+    case ABC_OPERATION_SARI:base=ABC_OPERATION_SAR;break;
+    default:s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;
+    }
     if(!pure_binary(base)){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}
     uint32_t value=dag_value(s,input,origin);if(!value)return 0;
     uint32_t constant=node(s,(Node){N_INPUT,origin,(uint32_t)immediate,(uint32_t)(immediate>>32),0,255,0,0});
@@ -208,23 +231,24 @@ static int dag_immediate(void *opaque,uint32_t origin,unsigned opcode,unsigned s
 }
 static int dag_c_operand(void *opaque,uint32_t origin,unsigned opcode,unsigned destination,int folded,
         abc_symbolic_value left,abc_symbolic_value right,abc_symbolic_value *result) {
-    static const unsigned base[]={OP_ADD_A,OP_SUB_A,OP_MUL_A,OP_XOR_A};
-    DagSink *s=opaque;if(folded)return 1;unsigned index=(opcode-OP_ADDC_A)/2;
-    if(index>=4){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}
+    DagSink *s=opaque;if(folded)return 1;unsigned base;
+    switch(opcode){
+    case ABC_OPERATION_ADDC:base=ABC_OPERATION_ADD;break;
+    case ABC_OPERATION_SUBC:base=ABC_OPERATION_SUB;break;
+    case ABC_OPERATION_MULC:base=ABC_OPERATION_MUL;break;
+    case ABC_OPERATION_XORC:base=ABC_OPERATION_XOR;break;
+    default:s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;
+    }
     uint32_t l=dag_value(s,left,origin),r=dag_value(s,right,origin);if(!l||!r)return 0;
-    uint32_t id=node(s,(Node){N_BINARY,origin,l,r,(uint16_t)base[index],0,0,0});
+    uint32_t id=node(s,(Node){N_BINARY,origin,l,r,(uint16_t)base,0,0,0});
     if(!id)return 0;*result=backend(id,destination,0);return 1;
 }
 static int dag_abort(void *opaque,uint32_t origin,unsigned reason) {
     DagSink *s=opaque;uint32_t id=node(s,(Node){N_ABORT,origin,0,0,0,(uint8_t)reason,0,1});if(!id)return 0;s->terminal_abort=1;return 1;
 }
 static int memory_result(unsigned action){return action==M_FLOAD||action==M_FADDR||action==M_GLOAD||action==M_GADDR||action==M_PLOAD||action==M_XLOAD||action==M_INDEX;}
-static int dynamic_callable_module_safe(const abc_module *m){
-    if(!m->dynamic_profile||m->foreign_profile)return 0;for(uint32_t pc=0;pc<m->code_size;pc+=abc_instruction_length(m->code+pc)){unsigned action=op_memory[m->code[pc]].action;if(action==M_FSTORE||action==M_GSTORE||action==M_PSTORE||action==M_COPY)return 0;}return 1;
-}
 static int dag_memory(void *opaque,uint32_t origin,abc_symbolic_memory *memory) {
-    DagSink *s=opaque;if(s->callable_safe&&memory->action==M_GLOAD&&memory->opcode==OP_GLD64){uint32_t offset=abc_u32(s->module->code+origin+1);for(uint32_t i=0;i<s->module->reloc_count;i++)if(s->module->relocs[i].offset==offset){uint32_t id=node(s,(Node){N_CALLABLE,origin,s->module->relocs[i].function,0,0,0,0,0});if(!id)return 0;memory->result=backend(id,memory->stack,0);return 1;}}
-    if(memory->first.dynamic_repr==ABC_SYM_REPR_RAW||memory->second.dynamic_repr==ABC_SYM_REPR_RAW){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}
+    DagSink *s=opaque;if(s->callable_safe&&memory->action==M_GLOAD&&abc_instruction_info(s->module->code+origin)->operation==ABC_OPERATION_GLD64){uint32_t offset=abc_u32(s->module->code+origin+1);for(uint32_t i=0;i<s->module->reloc_count;i++)if(s->module->relocs[i].offset==offset){uint32_t id=node(s,(Node){N_CALLABLE,origin,s->module->relocs[i].function,0,0,0,0,0});if(!id)return 0;memory->result=backend(id,memory->stack,0);return 1;}}
     if(memory->action==M_ALLOC||memory->action==M_FREE)return node(s,(Node){N_EFFECT,origin,0,0,(uint16_t)memory->opcode,0,0,1})!=0;
     uint32_t first=0,second=0;
     if(memory->action==M_FSTORE||memory->action==M_GSTORE||memory->action==M_PLOAD||memory->action==M_PSTORE||memory->action==M_XLOAD||memory->action==M_INDEX||memory->action==M_COPY){first=dag_value(s,memory->first,origin);if(!first)return 0;}
@@ -232,36 +256,13 @@ static int dag_memory(void *opaque,uint32_t origin,abc_symbolic_memory *memory) 
     unsigned ordered=memory->action!=M_GADDR;uint32_t id=node(s,(Node){N_MEMORY,origin,first,second,(uint16_t)memory->opcode,(uint8_t)memory->action,0,(uint8_t)ordered});if(!id)return 0;
     if(memory_result(memory->action))memory->result=backend(id,memory->stack,0);return 1;
 }
-static int dag_dynamic(void *opaque,uint32_t origin,abc_symbolic_dynamic *effect){
-    DagSink *s=opaque;if(effect->tail||effect->pushes>1){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}abc_symbolic_context *x=s->machine->context;uint32_t base=x->n[ABC_SYM_A]-effect->pops;
-    if(effect->selector==EXT_ANY_BOX&&effect->pops==1&&effect->pushes==1&&abc_symbolic_dynamic_box_specialization(s->module,effect->descriptor,x->s[ABC_SYM_A][base])){
-        abc_symbolic_value fact=effect->result[0];effect->result[0]=x->s[ABC_SYM_A][base];effect->result[0].dynamic_tags=fact.dynamic_tags;effect->result[0].dynamic_width=fact.dynamic_width;effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;effect->result[0].zero_extended=0;return 1;
-    }
-    if(effect->selector==EXT_ANY_CAST&&effect->pops==1&&effect->pushes==1&&abc_symbolic_dynamic_cast_matches(s->module,effect->descriptor,x->s[ABC_SYM_A][base])){
-        effect->result[0]=x->s[ABC_SYM_A][base];abc_symbolic_forget_dynamic(&effect->result[0]);return 1;
-    }
-    unsigned opcode;if(effect->pops==2&&effect->pushes==1&&abc_symbolic_dynamic_binary_specialization(effect->selector,x->s[ABC_SYM_A][base],x->s[ABC_SYM_A][base+1],&opcode)){
-        abc_symbolic_value left=x->s[ABC_SYM_A][base],right=x->s[ABC_SYM_A][base+1],result=left;uint32_t id;unsigned unary=left.dynamic_tags==(uint16_t)(1u<<ABC_ANY_I32)?OP_SX32_A:OP_ZX32_A;
-        if(left.kind==ABC_SYM_CONST&&right.kind==ABC_SYM_CONST){int ok=0;result.constant=abc_symbolic_fold_binary(opcode,left.constant,right.constant,&ok);if(!ok)return 0;if(left.dynamic_width==32)result.constant=abc_symbolic_fold_unary(unary,result.constant);effect->result[0]=result;return 1;}
-        uint32_t l=dag_value(s,left,origin),r=dag_value(s,right,origin);id=l&&r?node(s,(Node){N_BINARY,origin,l,r,(uint16_t)opcode,0,0,0}):0;id=id?node(s,(Node){N_UNARY,origin,id,0,(uint16_t)unary,0,0,0}):0;if(!id)return 0;effect->result[0]=backend(id,ABC_SYM_A,0);effect->result[0].dynamic_tags=left.dynamic_tags;effect->result[0].dynamic_width=left.dynamic_width;effect->result[0].dynamic_repr=ABC_SYM_REPR_RAW;return 1;
-    }
-    for(uint32_t i=0;i<effect->pops;i++)if(x->s[ABC_SYM_A][base+i].dynamic_repr==ABC_SYM_REPR_RAW){s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY;return 0;}
-    uint32_t id=node(s,(Node){N_DYNAMIC,origin,0,0,(uint16_t)effect->selector,(uint8_t)effect->pops,0,1});if(!id||!add_payload(s,id,effect->pops,x->s[ABC_SYM_A]+base,origin,effect->pushes))return 0;if(effect->pushes)effect->result[0]=backend(id,ABC_SYM_A,0);return 1;
-}
 static int dag_foreign(void *opaque,uint32_t origin,abc_symbolic_foreign *effect){
-    DagSink *s=opaque;abc_symbolic_context *x=s->machine->context;uint32_t base=x->n[ABC_SYM_A]-effect->arguments;uint32_t id=node(s,(Node){N_FOREIGN,origin,0,0,(uint16_t)effect->index,(uint8_t)effect->arguments,0,1});
-    if(!id||!add_payload(s,id,effect->arguments,x->s[ABC_SYM_A]+base,origin,effect->results))return 0;if(effect->results)effect->result[0]=backend(id,ABC_SYM_A,0);return 1;
+    DagSink *s=opaque;abc_symbolic_context *x=s->machine->context;unsigned selected_stack=effect->selected_stack;uint32_t base=x->n[selected_stack]-effect->arguments;uint32_t id=node(s,(Node){N_FOREIGN,origin,0,0,(uint16_t)effect->index,(uint8_t)effect->arguments,0,1});
+    if(!id||!add_payload(s,id,effect->arguments,x->s[selected_stack]+base,origin,effect->results))return 0;if(effect->results)effect->result[0]=backend(id,selected_stack,0);return 1;
 }
 static void unsupported(DagSink *s) { s->unsupported=1;s->machine->exit=ABC_SYM_EXIT_BOUNDARY; }
-static int same_dynamic_fact(abc_symbolic_value a,abc_symbolic_value b){return a.dynamic_tags==b.dynamic_tags&&a.dynamic_width==b.dynamic_width&&a.dynamic_repr==b.dynamic_repr&&a.zero_extended==b.zero_extended;}
-static void join_dynamic_fact(abc_symbolic_value *out,abc_symbolic_value a,abc_symbolic_value b){
-    if(!a.dynamic_tags||!b.dynamic_tags){abc_symbolic_forget_dynamic(out);return;}
-    out->dynamic_tags=(uint16_t)(a.dynamic_tags|b.dynamic_tags);out->dynamic_width=a.dynamic_width==b.dynamic_width?a.dynamic_width:0;
-    out->dynamic_repr=a.dynamic_repr==b.dynamic_repr?a.dynamic_repr:ABC_SYM_REPR_UNKNOWN;
-    out->zero_extended=a.zero_extended&&b.zero_extended;
-}
 static int same_value(abc_symbolic_value a,abc_symbolic_value b){
-    if(!same_dynamic_fact(a,b)||a.kind!=b.kind)return 0;if(a.kind==ABC_SYM_CONST)return a.constant==b.constant;
+    if(a.kind!=b.kind)return 0;if(a.kind==ABC_SYM_CONST)return a.constant==b.constant;
     if(a.kind==ABC_SYM_BACKEND)return a.reg==b.reg;return a.home==b.home&&a.dst_stack==b.dst_stack&&a.dst_home==b.dst_home;
 }
 static int dag_control(void *opaque,uint32_t origin,const abc_symbolic_control *control) {
@@ -276,14 +277,10 @@ static int dag_control(void *opaque,uint32_t origin,const abc_symbolic_control *
     if(target<=origin){s->unsupported=1;return 1;}s->control_target=target;s->follow_control=1;return 1;
 }
 
-static int dag_effect(void *opaque,uint32_t origin,unsigned opcode) {
-    DagSink *s=opaque;(void)origin;(void)opcode;unsupported(s);return 0;
-}
-
 static int dag_call(void *opaque,uint32_t origin,abc_symbolic_call *effect) {
     DagSink *s=opaque;int fi=abc_find_function(s->module,effect->target);if(fi<0||s->module->functions[fi].hidden_bytes){unsupported(s);return 0;}int recursive=s->graph->recursive[fi];
     if(recursive&&effect->target!=s->root_entry&&s->graph->nested_eligible[fi]&&!s->loop_candidate){s->loop_candidate=1;s->loop_target=effect->target;effect->virtualize=1;return 1;}
-    if(recursive){abc_symbolic_context *x=s->machine->context;uint32_t base=x->n[ABC_SYM_A]-effect->arguments;if(!record_call(s,(uint32_t)fi,effect->arguments,x->s[ABC_SYM_A]+base))return 0;uint32_t call=node(s,(Node){N_CALL,origin,(uint32_t)fi,0,(uint16_t)s->module->code[origin],(uint8_t)effect->destination,0,1});if(!call||!add_payload(s,call,effect->arguments,x->s[ABC_SYM_A]+base,origin,effect->results))return 0;EffectPayload *p=find_payload(s,call);p->destination=(uint8_t)effect->destination;p->result_nodes=calloc(effect->results?effect->results:1,sizeof *p->result_nodes);if(!p->result_nodes)return 0;for(unsigned i=0;i<effect->results;i++){uint32_t result=node(s,(Node){N_RESULT,origin,call,0,0,(uint8_t)i,0,0});if(!result)return 0;p->result_nodes[i]=result;effect->result[i]=backend(result,effect->destination,0);}return 1;}effect->virtualize=1;return 1;
+    if(recursive){abc_symbolic_context *x=s->machine->context;unsigned selected_stack=effect->destination;uint32_t base=x->n[selected_stack]-effect->arguments;if(!record_call(s,(uint32_t)fi,effect->arguments,x->s[selected_stack]+base))return 0;uint32_t call=node(s,(Node){N_CALL,origin,(uint32_t)fi,0,(uint16_t)s->module->code[origin],(uint8_t)effect->destination,0,1});if(!call||!add_payload(s,call,effect->arguments,x->s[selected_stack]+base,origin,effect->results))return 0;EffectPayload *p=find_payload(s,call);p->destination=(uint8_t)effect->destination;p->result_nodes=calloc(effect->results?effect->results:1,sizeof *p->result_nodes);if(!p->result_nodes)return 0;for(unsigned i=0;i<effect->results;i++){uint32_t result=node(s,(Node){N_RESULT,origin,call,0,0,(uint8_t)i,0,0});if(!result)return 0;p->result_nodes[i]=result;effect->result[i]=backend(result,effect->destination,0);}return 1;}effect->virtualize=1;return 1;
 }
 
 static int dag_indirect(void *opaque,uint32_t origin,abc_symbolic_indirect *effect) {
@@ -295,15 +292,23 @@ static int dag_tail(void *opaque,uint32_t origin,abc_symbolic_tail *effect) {
     if(effect->target!=s->root_entry){
         if(s->loop_candidate&&effect->target==s->loop_target)return 1;
         if(recursive&&s->graph->nested_eligible[fi]&&!s->loop_candidate){s->loop_candidate=1;s->loop_target=effect->target;return 1;}
-        if(recursive){abc_symbolic_context *x=s->machine->context;uint32_t base=x->n[ABC_SYM_A]-effect->arguments;if(!record_call(s,(uint32_t)fi,effect->arguments,x->s[ABC_SYM_A]+base))return 0;uint32_t tail=node(s,(Node){N_TAIL,origin,(uint32_t)fi,0,(uint16_t)s->module->code[origin],0,0,0});if(!tail||!add_payload(s,tail,effect->arguments,x->s[ABC_SYM_A]+base,origin,0))return 0;s->terminal_tail=tail;s->pending_origin=origin;effect->residualize=1;return 1;}
+        if(recursive){abc_symbolic_context *x=s->machine->context;unsigned selected_stack=effect->argument_stack;uint32_t base=x->n[selected_stack]-effect->arguments;if(!record_call(s,(uint32_t)fi,effect->arguments,x->s[selected_stack]+base))return 0;uint32_t tail=node(s,(Node){N_TAIL,origin,(uint32_t)fi,0,(uint16_t)s->module->code[origin],0,0,0});if(!tail||!add_payload(s,tail,effect->arguments,x->s[selected_stack]+base,origin,0))return 0;s->terminal_tail=tail;s->pending_origin=origin;effect->residualize=1;return 1;}
     }
-    if(recursive&&effect->target==s->root_entry){abc_symbolic_context *x=s->machine->context;uint32_t base=x->n[ABC_SYM_A]-effect->arguments;if(!record_call(s,(uint32_t)fi,effect->arguments,x->s[ABC_SYM_A]+base))return 0;}
+    if(recursive&&effect->target==s->root_entry){abc_symbolic_context *x=s->machine->context;unsigned selected_stack=effect->argument_stack;uint32_t base=x->n[selected_stack]-effect->arguments;if(!record_call(s,(uint32_t)fi,effect->arguments,x->s[selected_stack]+base))return 0;}
     return 1;
 }
 
 static int dag_return(void *opaque,uint32_t origin,const abc_symbolic_return *effect) {
-    DagSink *s=opaque;(void)origin;if(!effect->terminal)return 1;abc_symbolic_context *x=s->machine->context;
-    s->result_count=effect->results;for(unsigned i=0;i<effect->results;i++)s->results[i]=x->s[ABC_SYM_A][i];return 1;
+    DagSink *s=opaque;if(!effect->terminal)return 1;abc_symbolic_context *x=s->machine->context;
+    s->terminal_halt=0;s->pending_origin=origin;
+    s->result_count=effect->results;s->result_stack=effect->source_stack;for(unsigned i=0;i<effect->results;i++)s->results[i]=x->s[effect->source_stack][i];return 1;
+}
+static int dag_halt(void *opaque,uint32_t origin,unsigned source_stack) {
+    DagSink *s=opaque;abc_symbolic_context *context=s->machine->context;
+    s->terminal_halt=1;s->pending_origin=origin;s->result_stack=source_stack;
+    s->result_count=context->n[source_stack];
+    for(unsigned i=0;i<s->result_count;i++)s->results[i]=context->s[source_stack][i];
+    return 1;
 }
 static int dag_edge(void *opaque,uint32_t origin,uint32_t target) {
     DagSink *s=opaque;abc_symbolic_context *x=s->machine->context;
@@ -312,7 +317,7 @@ static int dag_edge(void *opaque,uint32_t origin,uint32_t target) {
         if(target>origin||x->n[ABC_SYM_A]||x->n[ABC_SYM_B]||x->n[ABC_SYM_C]!=s->loop_count){unsupported(s);return 0;}
         if(!s->loop_stable){
             for(uint32_t depth=0;depth<s->loop_count;depth++){abc_symbolic_value initial=*abc_symbolic_top(&s->loop_initial,ABC_SYM_C,depth),current=*abc_symbolic_top(x,ABC_SYM_C,depth);
-                if(same_value(initial,current)){s->loop_header[depth]=initial;continue;}uint32_t value=dag_value(s,initial,origin);uint32_t home=value?node(s,(Node){N_LOOP_HOME,origin,value,0,0,(uint8_t)depth,0,0}):0;if(!home){unsupported(s);return 0;}s->loop_home[depth]=home;s->loop_header[depth]=backend(home,ABC_SYM_C,0);join_dynamic_fact(&s->loop_header[depth],initial,current);
+                if(same_value(initial,current)){s->loop_header[depth]=initial;continue;}uint32_t value=dag_value(s,initial,origin);uint32_t home=value?node(s,(Node){N_LOOP_HOME,origin,value,0,0,(uint8_t)depth,0,0}):0;if(!home){unsupported(s);return 0;}s->loop_home[depth]=home;s->loop_header[depth]=backend(home,ABC_SYM_C,0);
             }
             for(uint32_t depth=0;depth<s->loop_count;depth++)*abc_symbolic_top(x,ABC_SYM_C,depth)=s->loop_header[depth];
             s->loop_stable=1;s->control_target=target;s->follow_control=1;return 1;
@@ -340,7 +345,7 @@ static int simulate_tree(DagSink *sink,abc_symbolic_machine *machine,abc_symboli
         sink->follow_control=0;sink->unknown_control=0;sink->backedge=0;sink->terminal_tail=0;abc_symbolic_exit exit=abc_symbolic_dispatch(machine);
         if(sink->unsupported||exit==ABC_SYM_EXIT_FAILURE||exit==ABC_SYM_EXIT_BOUNDARY||exit==ABC_SYM_EXIT_BLOCK)return 0;
         if(exit==ABC_SYM_EXIT_TERMINATED){
-            if(sink->paths>=ABC_OPTIMIZER_PATH_LIMIT)return 0;sink->paths++;DagTree *leaf=calloc(1,sizeof *leaf);if(!leaf)return 0;leaf->leaf=1;leaf->tail=sink->terminal_tail!=0;leaf->tail_node=sink->terminal_tail;leaf->origin=sink->pending_origin;leaf->result_count=sink->result_count;
+            if(sink->paths>=ABC_OPTIMIZER_PATH_LIMIT)return 0;sink->paths++;DagTree *leaf=calloc(1,sizeof *leaf);if(!leaf)return 0;leaf->leaf=1;leaf->tail=sink->terminal_tail!=0;leaf->tail_node=sink->terminal_tail;leaf->origin=sink->pending_origin;leaf->result_count=sink->result_count;leaf->result_stack=sink->result_stack;leaf->halt=(unsigned)sink->terminal_halt;
             for(uint32_t i=0;i<leaf->result_count;i++)leaf->results[i]=sink->results[i];*out=leaf;return 1;
         }
         if(exit!=ABC_SYM_EXIT_CONTROL)return 0;
@@ -375,6 +380,21 @@ static int record_origin(Bytes *b,uint32_t origin) {
     f->provenance[f->provenance_count++]=(abc_provenance){(uint32_t)b->size,origin};return 1;
 }
 static int emit_origin_opcode(Bytes *b,uint32_t origin,unsigned opcode){return record_origin(b,origin)&&emit8(b,(uint8_t)opcode);}
+/* Bind semantic identities through the authoritative manifest metadata. This
+ * build-time lookup emits one complete core/EXT operation and one origin; it
+ * neither decodes old bytecode nor adds a runtime execution path. */
+static int emit_operation(Bytes *b,uint32_t origin,unsigned operation,unsigned selected_stack) {
+    for(unsigned opcode=0;opcode<OP_COUNT;opcode++) {
+        const abc_instruction_metadata *metadata=&abc_core_instructions[opcode];
+        if(metadata->kind!=K_EXT&&metadata->operation==operation&&metadata->selected_stack==selected_stack)
+            return emit_origin_opcode(b,origin,opcode);
+    }
+    for(unsigned selector=0;selector<EXT_COUNT;selector++) {
+        if(abc_extended_instructions[selector].operation==operation)
+            return emit_origin_opcode(b,origin,selected_stack==ABC_SYM_A?OP_EXT_A:OP_EXT_B)&&emit8(b,(uint8_t)selector);
+    }
+    return 0;
+}
 static int signed8(uint64_t x){return abc_imm8((uint8_t)x)==x;}
 static int signed32(uint64_t x){return (uint64_t)(int64_t)(int32_t)x==x;}
 static int emit_constant(Bytes *b,unsigned stack,uint64_t value) {
@@ -391,29 +411,37 @@ static int emit_cset(Bytes *b,unsigned stack,unsigned depth) {
     if(depth==0)return emit8(b,(uint8_t)(stack==ABC_SYM_A?OP_CSET0_A:OP_CSET0_B));
     return depth<=255&&emit8(b,(uint8_t)(stack==ABC_SYM_A?OP_CSETN_A:OP_CSETN_B))&&emit8(b,(uint8_t)depth);
 }
-static int immediate_opcode(unsigned base,unsigned stack) {
+static int immediate_operation(unsigned base) {
     switch(base) {
-    case OP_ADD_A:return stack==ABC_SYM_A?OP_ADDI_A:OP_ADDI_B;
-    case OP_SUB_A:return stack==ABC_SYM_A?OP_SUBI_A:OP_SUBI_B;
-    case OP_MUL_A:return stack==ABC_SYM_A?OP_MULI_A:OP_MULI_B;
-    case OP_AND_A:return stack==ABC_SYM_A?OP_ANDI_A:OP_ANDI_B;
-    case OP_OR_A:return stack==ABC_SYM_A?OP_ORI_A:OP_ORI_B;
-    case OP_XOR_A:return stack==ABC_SYM_A?OP_XORI_A:OP_XORI_B;
-    case OP_SHL_A:return stack==ABC_SYM_A?OP_SHLI_A:OP_SHLI_B;
-    case OP_SHR_A:return stack==ABC_SYM_A?OP_SHRI_A:OP_SHRI_B;
-    case OP_SAR_A:return stack==ABC_SYM_A?OP_SARI_A:OP_SARI_B;
+    case ABC_OPERATION_ADD:return ABC_OPERATION_ADDI;
+    case ABC_OPERATION_SUB:return ABC_OPERATION_SUBI;
+    case ABC_OPERATION_MUL:return ABC_OPERATION_MULI;
+    case ABC_OPERATION_AND:return ABC_OPERATION_ANDI;
+    case ABC_OPERATION_OR:return ABC_OPERATION_ORI;
+    case ABC_OPERATION_XOR:return ABC_OPERATION_XORI;
+    case ABC_OPERATION_SHL:return ABC_OPERATION_SHLI;
+    case ABC_OPERATION_SHR:return ABC_OPERATION_SHRI;
+    case ABC_OPERATION_SAR:return ABC_OPERATION_SARI;
     default:return -1;
     }
 }
-static int branch_immediate_opcode(unsigned base){
-    switch(base){case OP_BEQ:return OP_BEQI;case OP_BNE:return OP_BNEI;case OP_BLT:return OP_BLTI;case OP_BLE:return OP_BLEI;case OP_BLTU:return OP_BLTUI;case OP_BLEU:return OP_BLEUI;default:return -1;}
-    }
-static int c_opcode(unsigned base,unsigned stack) {
+static int branch_immediate_operation(unsigned base) {
     switch(base) {
-    case OP_ADD_A:return stack==ABC_SYM_A?OP_ADDC_A:OP_ADDC_B;
-    case OP_SUB_A:return stack==ABC_SYM_A?OP_SUBC_A:OP_SUBC_B;
-    case OP_MUL_A:return stack==ABC_SYM_A?OP_MULC_A:OP_MULC_B;
-    case OP_XOR_A:return stack==ABC_SYM_A?OP_XORC_A:OP_XORC_B;
+    case ABC_OPERATION_BEQ:return ABC_OPERATION_BEQI;
+    case ABC_OPERATION_BNE:return ABC_OPERATION_BNEI;
+    case ABC_OPERATION_BLT:return ABC_OPERATION_BLTI;
+    case ABC_OPERATION_BLE:return ABC_OPERATION_BLEI;
+    case ABC_OPERATION_BLTU:return ABC_OPERATION_BLTUI;
+    case ABC_OPERATION_BLEU:return ABC_OPERATION_BLEUI;
+    default:return -1;
+    }
+}
+static int c_operation(unsigned base) {
+    switch(base) {
+    case ABC_OPERATION_ADD:return ABC_OPERATION_ADDC;
+    case ABC_OPERATION_SUB:return ABC_OPERATION_SUBC;
+    case ABC_OPERATION_MUL:return ABC_OPERATION_MULC;
+    case ABC_OPERATION_XOR:return ABC_OPERATION_XORC;
     default:return -1;
     }
 }
@@ -421,7 +449,7 @@ static uint16_t compute_ershov(DagSink *s,uint32_t id) {
     if(!id||id>s->count)return 0;Node *n=&s->nodes[id-1];if(n->ershov)return n->ershov;
     if(n->kind==N_ABORT||n->kind==N_EFFECT)return n->ershov=1;
     if(n->kind==N_MEMORY){uint16_t left=n->left?compute_ershov(s,n->left):1,right=n->right?compute_ershov(s,n->right):1;return n->ershov=left==right?(uint16_t)(left+1):(left>right?left:right);}
-    if(n->kind==N_DYNAMIC||n->kind==N_FOREIGN||n->kind==N_CALL||n->kind==N_TAIL){EffectPayload *p=find_payload(s,id);uint16_t max=1;if(!p)return 0;for(uint32_t i=0;i<p->count;i++){uint16_t e=compute_ershov(s,p->operands[i]);if(!e)return 0;if(e>max)max=e;}return n->ershov=max;}
+    if(n->kind==N_FOREIGN||n->kind==N_CALL||n->kind==N_TAIL){EffectPayload *p=find_payload(s,id);uint16_t max=1;if(!p)return 0;for(uint32_t i=0;i<p->count;i++){uint16_t e=compute_ershov(s,p->operands[i]);if(!e)return 0;if(e>max)max=e;}return n->ershov=max;}
     if(n->kind==N_RESULT)return compute_ershov(s,n->left)?(n->ershov=1):0;
     if(n->kind==N_INPUT||n->kind==N_CALLABLE)return n->ershov=1;uint16_t left=compute_ershov(s,n->left);
     if(n->kind==N_LOOP_HOME||n->kind==N_CHECK)return n->ershov=left;
@@ -433,7 +461,7 @@ typedef struct { const DagSink *sink; int32_t *homes; uint32_t temps, loop_temps
 static int mark_uses(const DagSink *sink,uint32_t id,uint32_t *uses,uint8_t *expanded) {
     if(!id||id>sink->count)return 0;uses[id-1]++;if(expanded[id-1])return 1;expanded[id-1]=1;const Node *n=&sink->nodes[id-1];
     if(n->kind==N_INPUT||n->kind==N_CALLABLE||n->kind==N_ABORT||n->kind==N_EFFECT)return 1;
-    if(n->kind==N_DYNAMIC||n->kind==N_FOREIGN||n->kind==N_CALL||n->kind==N_TAIL){EffectPayload *p=find_payload(sink,id);if(!p)return 0;for(uint32_t i=0;i<p->count;i++)if(!mark_uses(sink,p->operands[i],uses,expanded))return 0;return 1;}
+    if(n->kind==N_FOREIGN||n->kind==N_CALL||n->kind==N_TAIL){EffectPayload *p=find_payload(sink,id);if(!p)return 0;for(uint32_t i=0;i<p->count;i++)if(!mark_uses(sink,p->operands[i],uses,expanded))return 0;return 1;}
     if(n->left&&!mark_uses(sink,n->left,uses,expanded))return 0;
     if(n->kind==N_MEMORY)return !n->right||mark_uses(sink,n->right,uses,expanded);
     if(n->kind==N_RESULT)return mark_uses(sink,n->left,uses,expanded);
@@ -453,7 +481,7 @@ static int mark_tree(DagSink *sink,const DagTree *tree,uint32_t *uses,uint8_t *e
 static int mark_path_node(const DagSink *sink,uint32_t id,uint32_t *counts,uint8_t *expanded){
     if(!id||id>sink->count)return 0;counts[id-1]++;if(expanded[id-1])return 1;expanded[id-1]=1;const Node *n=&sink->nodes[id-1];
     if(n->kind==N_INPUT||n->kind==N_CALLABLE||n->kind==N_ABORT||n->kind==N_EFFECT)return 1;
-    if(n->kind==N_DYNAMIC||n->kind==N_FOREIGN||n->kind==N_CALL||n->kind==N_TAIL){EffectPayload *p=find_payload(sink,id);if(!p)return 0;for(uint32_t i=0;i<p->count;i++)if(!mark_path_node(sink,p->operands[i],counts,expanded))return 0;return 1;}
+    if(n->kind==N_FOREIGN||n->kind==N_CALL||n->kind==N_TAIL){EffectPayload *p=find_payload(sink,id);if(!p)return 0;for(uint32_t i=0;i<p->count;i++)if(!mark_path_node(sink,p->operands[i],counts,expanded))return 0;return 1;}
     if(n->left&&!mark_path_node(sink,n->left,counts,expanded))return 0;
     if(n->kind==N_MEMORY)return !n->right||mark_path_node(sink,n->right,counts,expanded);
     if(n->kind==N_RESULT)return mark_path_node(sink,n->left,counts,expanded);
@@ -470,7 +498,7 @@ static int mark_path_tree(const DagSink *sink,const DagTree *tree,uint32_t *coun
 }
 static unsigned rematerialization_cost(const DagSink *sink,uint32_t id){
     if(!id||id>sink->count)return UINT_MAX;const Node *n=&sink->nodes[id-1];if(n->effect)return UINT_MAX;if(n->kind==N_INPUT||n->kind==N_LOOP_HOME)return 0;
-    if(n->kind==N_UNARY){unsigned left=rematerialization_cost(sink,n->left),cost=n->opcode==OP_ZX32_A||n->opcode==OP_SX32_A?0u:1u;return left==UINT_MAX||left+cost>1?UINT_MAX:left+cost;}
+    if(n->kind==N_UNARY){unsigned left=rematerialization_cost(sink,n->left),cost=n->opcode==ABC_OPERATION_ZX32||n->opcode==ABC_OPERATION_SX32?0u:1u;return left==UINT_MAX||left+cost>1?UINT_MAX:left+cost;}
     if(n->kind==N_BINARY){unsigned left=rematerialization_cost(sink,n->left),right=rematerialization_cost(sink,n->right);return left==UINT_MAX||right==UINT_MAX||left+right>=2?UINT_MAX:left+right+1;}return UINT_MAX;
 }
 static int branch_rematerializable(const DagSink *sink,uint32_t id,const uint32_t *uses,const uint32_t *path_uses){
@@ -488,11 +516,11 @@ static int c_reference(const Schedule *schedule,uint32_t id,unsigned *depth) {
 static int emit_node(Bytes *b,const Schedule *schedule,uint32_t id,unsigned stack);
 static int emit_operand_shortcut(Bytes *b,const Schedule *schedule,const Node *n,unsigned stack) {
     const DagSink *s=schedule->sink;const Node *right=&s->nodes[n->right-1];int op;unsigned depth;
-    if(c_reference(schedule,n->right,&depth)&&(op=c_opcode(n->opcode,stack))>=0)
-        return emit_node(b,schedule,n->left,stack)&&emit_origin_opcode(b,n->origin,(unsigned)op)&&emit8(b,(uint8_t)depth);
+    if(c_reference(schedule,n->right,&depth)&&(op=c_operation(n->opcode))>=0)
+        return emit_node(b,schedule,n->left,stack)&&emit_operation(b,n->origin,(unsigned)op,stack)&&emit8(b,(uint8_t)depth);
     if(right->kind==N_INPUT&&right->input==255) {
-        uint64_t value=(uint64_t)right->left|((uint64_t)right->right<<32);op=immediate_opcode(n->opcode,stack);
-        if(op>=0&&signed8(value))return emit_node(b,schedule,n->left,stack)&&emit_origin_opcode(b,n->origin,(unsigned)op)&&emit8(b,(uint8_t)value);
+        uint64_t value=(uint64_t)right->left|((uint64_t)right->right<<32);op=immediate_operation(n->opcode);
+        if(op>=0&&signed8(value))return emit_node(b,schedule,n->left,stack)&&emit_operation(b,n->origin,(unsigned)op,stack)&&emit8(b,(uint8_t)value);
     }
     return 0;
 }
@@ -510,18 +538,27 @@ static int emit_node(Bytes *b,const Schedule *schedule,uint32_t id,unsigned stac
     if(n->kind==N_ABORT)return emit_origin_opcode(b,n->origin,OP_ABORT)&&emit8(b,n->input);
     if(n->kind==N_MEMORY){
         if(memory_result(n->input)&&c_reference(schedule,id,&depth))return emit_cget(b,stack,depth);
-        unsigned action=n->input,operand_stack=op_memory[n->opcode].to_b?ABC_SYM_B:ABC_SYM_A;
-        if((action==M_FSTORE||action==M_GSTORE||action==M_PLOAD)&&!emit_node(b,schedule,n->left,operand_stack))return 0;
-        if((action==M_PSTORE||action==M_XLOAD||action==M_INDEX||action==M_COPY)&&(!emit_node(b,schedule,n->left,ABC_SYM_A)||!emit_node(b,schedule,n->right,ABC_SYM_B)))return 0;
-        const uint8_t *p=s->module->code+n->origin;uint32_t length=abc_instruction_length(p);if(!record_origin(b,n->origin))return 0;for(uint32_t i=0;i<length;i++)if(!emit8(b,p[i]))return 0;return 1;
+        const uint8_t *p=s->module->code+n->origin;
+        unsigned action=n->input;
+        unsigned selected_stack=memory_result(action)?stack:abc_instruction_info(p)->selected_stack;
+        unsigned opposite_stack=selected_stack==ABC_SYM_A?ABC_SYM_B:ABC_SYM_A;
+        if((action==M_FSTORE||action==M_GSTORE||action==M_PLOAD)&&!emit_node(b,schedule,n->left,selected_stack))return 0;
+        if((action==M_PSTORE||action==M_XLOAD||action==M_INDEX||action==M_COPY)&&
+           (!emit_node(b,schedule,n->left,selected_stack)||!emit_node(b,schedule,n->right,opposite_stack)))return 0;
+        uint32_t length=abc_instruction_length(p);
+        if(!record_origin(b,n->origin)||!emit8(b,(uint8_t)((n->opcode&~1u)|selected_stack)))return 0;
+        for(uint32_t i=1;i<length;i++)if(!emit8(b,p[i]))return 0;
+        return 1;
     }
-    if(n->kind==N_DYNAMIC||n->kind==N_FOREIGN){
+    if(n->kind==N_FOREIGN){
         EffectPayload *payload=find_payload(s,id);if(!payload)return 0;if(payload->results&&c_reference(schedule,id,&depth))return emit_cget(b,stack,depth);
-        for(uint32_t i=0;i<payload->count;i++)if(!emit_node(b,schedule,payload->operands[i],ABC_SYM_A))return 0;
-        const uint8_t *p=s->module->code+n->origin;uint32_t length=abc_instruction_length(p);if(!record_origin(b,n->origin))return 0;for(uint32_t i=0;i<length;i++)if(!emit8(b,p[i]))return 0;return 1;
+        for(uint32_t i=0;i<payload->count;i++)if(!emit_node(b,schedule,payload->operands[i],stack))return 0;
+        const uint8_t *p=s->module->code+n->origin;uint32_t length=abc_instruction_length(p);
+        if(!emit_operation(b,n->origin,ABC_OPERATION_FCALL,stack))return 0;
+        for(uint32_t i=1;i<length;i++)if(!emit8(b,p[i]))return 0;return 1;
     }
-    if(n->kind==N_CALL){EffectPayload *payload=find_payload(s,id);if(!payload)return 0;for(uint32_t i=0;i<payload->count;i++)if(!emit_node(b,schedule,payload->operands[i],ABC_SYM_A))return 0;const uint8_t *p=s->module->code+n->origin;uint32_t length=abc_instruction_length(p);if(!record_origin(b,n->origin))return 0;for(uint32_t i=0;i<length;i++)if(!emit8(b,p[i]))return 0;return 1;}
-    if(n->kind==N_RESULT){if(c_reference(schedule,id,&depth))return emit_cget(b,stack,depth);EffectPayload *payload=find_payload(s,n->left);if(!payload||payload->results!=1||n->input||!emit_node(b,schedule,n->left,payload->destination))return 0;return payload->destination==stack||emit8(b,(uint8_t)(payload->destination==ABC_SYM_A?OP_MOVE_AB:OP_MOVE_BA));}
+    if(n->kind==N_CALL){EffectPayload *payload=find_payload(s,id);if(!payload)return 0;for(uint32_t i=0;i<payload->count;i++)if(!emit_node(b,schedule,payload->operands[i],payload->destination))return 0;const uint8_t *p=s->module->code+n->origin;uint32_t length=abc_instruction_length(p);if(!record_origin(b,n->origin))return 0;for(uint32_t i=0;i<length;i++)if(!emit8(b,p[i]))return 0;return 1;}
+    if(n->kind==N_RESULT){if(c_reference(schedule,id,&depth))return emit_cget(b,stack,depth);EffectPayload *payload=find_payload(s,n->left);if(!payload||payload->results!=1||n->input||!emit_node(b,schedule,n->left,payload->destination))return 0;return payload->destination==stack||emit8(b,(uint8_t)(payload->destination==ABC_SYM_A?OP_MOVE_A:OP_MOVE_B));}
     if(c_reference(schedule,id,&depth))return emit_cget(b,stack,depth);
     if(n->kind==N_LOOP_HOME)return emit_node(b,schedule,n->left,stack);
     if(n->kind==N_INPUT) {
@@ -529,13 +566,17 @@ static int emit_node(Bytes *b,const Schedule *schedule,uint32_t id,unsigned stac
         return 0;
     }
     if(n->kind==N_CALLABLE)return 0;
-    if(n->kind==N_CHECK)return emit_node(b,schedule,n->left,stack)&&emit_origin_opcode(b,n->origin,n->opcode);
-    if(n->kind==N_UNARY)return emit_node(b,schedule,n->left,stack)&&emit_origin_opcode(b,n->origin,n->opcode+(stack==ABC_SYM_B));
-    if(same_operand_binary(s,id)&&!c_reference(schedule,n->left,&depth))return emit_node(b,schedule,n->left,ABC_SYM_A)&&emit8(b,OP_COPY_AB)&&emit_origin_opcode(b,n->origin,n->opcode+(stack==ABC_SYM_B));
-    size_t before=b->size;if(emit_operand_shortcut(b,schedule,n,stack))return 1;b->size=before;
+    if(n->kind==N_CHECK||n->kind==N_UNARY)
+        return emit_node(b,schedule,n->left,stack)&&emit_operation(b,n->origin,n->opcode,stack);
+    unsigned opposite_stack=stack==ABC_SYM_A?ABC_SYM_B:ABC_SYM_A;
+    if(same_operand_binary(s,id)&&!c_reference(schedule,n->left,&depth))
+        return emit_node(b,schedule,n->left,stack)&&emit8(b,stack==ABC_SYM_A?OP_COPY_A:OP_COPY_B)&&emit_operation(b,n->origin,n->opcode,stack);
+    size_t before=b->size;uint32_t origins=b->function?b->function->provenance_count:0;
+    if(emit_operand_shortcut(b,schedule,n,stack))return 1;
+    b->size=before;if(b->function)b->function->provenance_count=origins;
     if(s->nodes[n->right-1].ershov>s->nodes[n->left-1].ershov)
-        return emit_node(b,schedule,n->right,ABC_SYM_B)&&emit_node(b,schedule,n->left,ABC_SYM_A)&&emit_origin_opcode(b,n->origin,n->opcode+(stack==ABC_SYM_B));
-    return emit_node(b,schedule,n->left,ABC_SYM_A)&&emit_node(b,schedule,n->right,ABC_SYM_B)&&emit_origin_opcode(b,n->origin,n->opcode+(stack==ABC_SYM_B));
+        return emit_node(b,schedule,n->right,opposite_stack)&&emit_node(b,schedule,n->left,stack)&&emit_operation(b,n->origin,n->opcode,stack);
+    return emit_node(b,schedule,n->left,stack)&&emit_node(b,schedule,n->right,opposite_stack)&&emit_operation(b,n->origin,n->opcode,stack);
 }
 
 static int emit_value(Bytes *b,const Schedule *schedule,abc_symbolic_value value,unsigned stack) {
@@ -545,9 +586,10 @@ static int emit_value(Bytes *b,const Schedule *schedule,abc_symbolic_value value
 static int emit_tail_transfer(Bytes *b,const Schedule *schedule,const abc_function *f,uint32_t id){
     const Node *n=&schedule->sink->nodes[id-1];EffectPayload *payload=find_payload(schedule->sink,id);
     if(!payload||(uint32_t)f->arguments+schedule->temps>255)return 0;
-    for(uint32_t i=0;i<payload->count;i++)if(!emit_node(b,schedule,payload->operands[i],ABC_SYM_A))return 0;
     const uint8_t *p=schedule->sink->module->code+n->origin;uint32_t length=abc_instruction_length(p);
-    if(length<5||!record_origin(b,n->origin)||!emit8(b,OP_TCALL))return 0;
+    unsigned argument_stack=abc_instruction_info(p)->selected_stack;
+    for(uint32_t i=0;i<payload->count;i++)if(!emit_node(b,schedule,payload->operands[i],argument_stack))return 0;
+    if(length<5||!emit_operation(b,n->origin,ABC_OPERATION_TCALL,argument_stack))return 0;
     for(uint32_t i=1;i<5;i++)if(!emit8(b,p[i]))return 0;
     return emit8(b,(uint8_t)(f->arguments+schedule->temps))&&emit8(b,(uint8_t)payload->count);
 }
@@ -583,46 +625,28 @@ static uint32_t direct_return_call(const DagSink *sink,const DagTree *tree){
 }
 static int fused_boolean_control(const Schedule *schedule,const abc_symbolic_control *input,abc_symbolic_control *output){
     if(input->kind!=ABC_SYM_CONTROL_ZERO||input->left.kind!=ABC_SYM_BACKEND||!input->left.reg||input->left.reg>schedule->sink->count||schedule->homes[input->left.reg-1]>=0)return 0;
-    const Node *n=&schedule->sink->nodes[input->left.reg-1];if(n->kind!=N_BINARY)return 0;unsigned opcode=n->opcode;int truth=input->opcode==OP_JNZ_A||input->opcode==OP_JNZ_B,swap=0;
-    if(truth){switch(opcode){case OP_EQ_A:opcode=OP_BEQ;break;case OP_NE_A:opcode=OP_BNE;break;case OP_LT_A:opcode=OP_BLT;break;case OP_LE_A:opcode=OP_BLE;break;case OP_LTU_A:opcode=OP_BLTU;break;case OP_LEU_A:opcode=OP_BLEU;break;default:return 0;}}
-    else {switch(opcode){case OP_EQ_A:opcode=OP_BNE;break;case OP_NE_A:opcode=OP_BEQ;break;case OP_LT_A:opcode=OP_BLE;swap=1;break;case OP_LE_A:opcode=OP_BLT;swap=1;break;case OP_LTU_A:opcode=OP_BLEU;swap=1;break;case OP_LEU_A:opcode=OP_BLTU;swap=1;break;default:return 0;}}
+    const Node *n=&schedule->sink->nodes[input->left.reg-1];if(n->kind!=N_BINARY)return 0;unsigned opcode=n->opcode;int truth=input->opcode==ABC_OPERATION_JNZ,swap=0;
+    if(truth){switch(opcode){case ABC_OPERATION_EQ:opcode=ABC_OPERATION_BEQ;break;case ABC_OPERATION_NE:opcode=ABC_OPERATION_BNE;break;case ABC_OPERATION_LT:opcode=ABC_OPERATION_BLT;break;case ABC_OPERATION_LE:opcode=ABC_OPERATION_BLE;break;case ABC_OPERATION_LTU:opcode=ABC_OPERATION_BLTU;break;case ABC_OPERATION_LEU:opcode=ABC_OPERATION_BLEU;break;default:return 0;}}
+    else {switch(opcode){case ABC_OPERATION_EQ:opcode=ABC_OPERATION_BNE;break;case ABC_OPERATION_NE:opcode=ABC_OPERATION_BEQ;break;case ABC_OPERATION_LT:opcode=ABC_OPERATION_BLE;swap=1;break;case ABC_OPERATION_LE:opcode=ABC_OPERATION_BLT;swap=1;break;case ABC_OPERATION_LTU:opcode=ABC_OPERATION_BLEU;swap=1;break;case ABC_OPERATION_LEU:opcode=ABC_OPERATION_BLTU;swap=1;break;default:return 0;}}
     uint32_t left=swap?n->right:n->left,right=swap?n->left:n->right;*output=*input;output->kind=ABC_SYM_CONTROL_INTEGER;output->opcode=opcode;output->left=backend(left,ABC_SYM_A,0);const Node *r=&schedule->sink->nodes[right-1];output->right=r->kind==N_INPUT&&r->input==255?abc_symbolic_constant((uint64_t)r->left|((uint64_t)r->right<<32),ABC_SYM_B,0):backend(right,ABC_SYM_B,0);return 1;
 }
 static int append(Bytes *b,const void *data,size_t size);
-static int descriptor_operand(const uint8_t *p,uint32_t *offset,uint32_t *index){
-    if(p[0]!=OP_EXT)return 0;switch(p[1]){
-    case EXT_ANY_BOX:case EXT_ANY_CAST:case EXT_ANY_IS:case EXT_WORD_NEW:case EXT_MANAGED_NEW:case EXT_MANAGED_COPY:*offset=2;break;
-    case EXT_WORD_DIRECT:case EXT_CLOSURE_NEW:*offset=6;break;default:return 0;}*index=abc_u32(p+*offset);return 1;
-}
-static int mark_descriptor(const abc_module *m,uint32_t index,uint8_t *live){
-    if(index>=m->descriptor_count)return 0;if(live[index])return 1;live[index]=1;const abc_descriptor *d=&m->descriptors[index];const uint8_t *p=d->payload;
-    if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE)return mark_descriptor(m,abc_u32(p+4),live);
-    if(d->tag==ABC_DESC_SIGNATURE){unsigned n=(unsigned)p[0]+p[1];for(unsigned i=0;i<n;i++)if(!mark_descriptor(m,abc_u32(p+2+4*i),live))return 0;}
-    else if(d->tag==ABC_DESC_RECORD){for(uint32_t i=0;i<abc_u32(p+4);i++)if(!mark_descriptor(m,abc_u32(p+8+16*i+12),live))return 0;}
-    else if(d->tag==ABC_DESC_ARRAY){if(!mark_descriptor(m,abc_u32(p+8),live))return 0;}
-    else if(d->tag==ABC_DESC_SUM){for(unsigned i=0;i<p[9];i++)if(!mark_descriptor(m,abc_u32(p+12+16*i+12),live))return 0;}
-    else if(d->tag==ABC_DESC_CLOSURE){if(!mark_descriptor(m,abc_u32(p),live)||!mark_descriptor(m,abc_u32(p+4),live))return 0;}return 1;
-}
-static void rewrite_u32(uint8_t *p,uint32_t value){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(value>>(8*i));}
-static int rewrite_descriptor_table(Bytes *out,const abc_module *m,const uint8_t *live,const uint32_t *new_index,uint32_t live_count){
-    if(!emit32(out,live_count))return 0;
-    for(uint32_t i=0;i<m->descriptor_count;i++){
-        if(!live[i])continue;const abc_descriptor *d=&m->descriptors[i];uint8_t *payload=malloc(d->length?d->length:1);if(!payload)return 0;memcpy(payload,d->payload,d->length);
-        if(d->tag==ABC_DESC_POINTER||d->tag==ABC_DESC_SLICE)rewrite_u32(payload+4,new_index[abc_u32(payload+4)]);
-        else if(d->tag==ABC_DESC_SIGNATURE){unsigned n=(unsigned)payload[0]+payload[1];for(unsigned j=0;j<n;j++)rewrite_u32(payload+2+4*j,new_index[abc_u32(payload+2+4*j)]);}
-        else if(d->tag==ABC_DESC_RECORD){for(uint32_t j=0;j<abc_u32(payload+4);j++)rewrite_u32(payload+8+16*j+12,new_index[abc_u32(payload+8+16*j+12)]);}
-        else if(d->tag==ABC_DESC_ARRAY)rewrite_u32(payload+8,new_index[abc_u32(payload+8)]);
-        else if(d->tag==ABC_DESC_SUM){for(unsigned j=0;j<payload[9];j++)rewrite_u32(payload+12+16*j+12,new_index[abc_u32(payload+12+16*j+12)]);}
-        else if(d->tag==ABC_DESC_CLOSURE){rewrite_u32(payload,new_index[abc_u32(payload)]);rewrite_u32(payload+4,new_index[abc_u32(payload+4)]);}
-        int ok=emit8(out,d->tag)&&emit8(out,d->flags)&&emit8(out,(uint8_t)d->length)&&emit8(out,(uint8_t)(d->length>>8))&&append(out,payload,d->length);free(payload);if(!ok)return 0;
+/* Control operands are captured values. Preserve the source's selected bank
+ * while sharing one projection for ordinary and joined result trees. */
+static int emit_condition(Bytes *b,const Schedule *schedule,const abc_symbolic_control *control,uint32_t origin) {
+    /* EXT's selector metadata is bank-neutral; the original prefix owns it. */
+    unsigned selected_stack=abc_core_instructions[schedule->sink->module->code[origin]].selected_stack;
+    unsigned opposite_stack=selected_stack==ABC_SYM_A?ABC_SYM_B:ABC_SYM_A;
+    if(!emit_value(b,schedule,control->left,selected_stack))return 0;
+    if(control->kind==ABC_SYM_CONTROL_SWITCH)
+        return control->count<=UINT16_MAX&&emit_operation(b,origin,ABC_OPERATION_SWITCH,selected_stack)&&emit8(b,(uint8_t)control->count)&&emit8(b,(uint8_t)(control->count>>8));
+    unsigned operation=control->opcode;int immediate=control->kind==ABC_SYM_CONTROL_IMMEDIATE;
+    if(control->kind==ABC_SYM_CONTROL_INTEGER&&control->right.kind==ABC_SYM_CONST&&signed8(control->right.constant)) {
+        int form=branch_immediate_operation(operation);
+        if(form>=0){operation=(unsigned)form;immediate=1;}
     }
-    return 1;
-}
-static int rewrite_gc_roots(Bytes *out,const abc_module *m,const uint32_t *new_index){
-    if(!emit32(out,m->gc_root_count))return 0;for(uint32_t i=0;i<m->gc_root_count;i++)if(!emit32(out,m->gc_roots[i].offset)||!emit32(out,new_index[m->gc_roots[i].descriptor]))return 0;return 1;
-}
-static int descriptor_dce_sections_safe(const void *input,size_t input_size){
-    const uint8_t *bytes=input;if(input_size<16)return 0;uint32_t count=abc_u32(bytes+8);size_t at=16;for(uint32_t i=0;i<count;i++){if(at+8>input_size)return 0;uint32_t tag=abc_u32(bytes+at),length=abc_u32(bytes+at+4);if(tag<1||tag>12||length>input_size-at-8)return 0;at+=8+length;}return at==input_size;
+    if(control->kind==ABC_SYM_CONTROL_INTEGER&&!immediate&&!emit_value(b,schedule,control->right,opposite_stack))return 0;
+    return emit_operation(b,origin,operation,selected_stack)&&(!immediate||emit8(b,(uint8_t)control->right.constant));
 }
 static int emit_tree(Bytes *b,const Schedule *schedule,const abc_function *f,const DagTree *tree) {
     if(tree->backedge){
@@ -638,21 +662,21 @@ static int emit_tree(Bytes *b,const Schedule *schedule,const abc_function *f,con
     }
     if(tree->leaf){
         if(tree->tail)return emit_tail_transfer(b,schedule,f,tree->tail_node);
-        uint32_t direct=direct_return_call(schedule->sink,tree);if(direct){const Node *call=&schedule->sink->nodes[direct-1];EffectPayload *payload=find_payload(schedule->sink,direct);if(call->left==schedule->sink->root_function)return emit_root_backedge_operands(b,schedule,f,payload,call->origin);return emit_tail_transfer(b,schedule,f,direct);}
-        for(uint32_t i=0;i<tree->result_count;i++)if(!emit_value(b,schedule,tree->results[i],ABC_SYM_A))return 0;
-        return (uint32_t)f->arguments+schedule->temps<=255&&tree->result_count<=255&&emit8(b,OP_RET)&&emit8(b,(uint8_t)(f->arguments+schedule->temps))&&emit8(b,(uint8_t)tree->result_count);
+        uint32_t direct=tree->halt?0:direct_return_call(schedule->sink,tree);if(direct){const Node *call=&schedule->sink->nodes[direct-1];EffectPayload *payload=find_payload(schedule->sink,direct);if(call->left==schedule->sink->root_function)return emit_root_backedge_operands(b,schedule,f,payload,call->origin);return emit_tail_transfer(b,schedule,f,direct);}
+        for(uint32_t i=0;i<tree->result_count;i++)if(!emit_value(b,schedule,tree->results[i],tree->result_stack))return 0;
+        if(tree->halt){
+            for(uint32_t i=0;i<(uint32_t)f->arguments+schedule->temps;i++)if(!emit8(b,OP_CPOP))return 0;
+            return emit_operation(b,tree->origin,ABC_OPERATION_HALT,tree->result_stack);
+        }
+        return (uint32_t)f->arguments+schedule->temps<=255&&tree->result_count<=255&&emit_operation(b,tree->origin,ABC_OPERATION_RET,tree->result_stack)&&emit8(b,(uint8_t)(f->arguments+schedule->temps))&&emit8(b,(uint8_t)tree->result_count);
     }
-    abc_symbolic_control fused;const abc_symbolic_control *c=fused_boolean_control(schedule,&tree->control,&fused)?&fused:&tree->control;unsigned stack=(c->opcode==OP_JZ_B||c->opcode==OP_JNZ_B)?ABC_SYM_B:ABC_SYM_A;
-    if(!emit_value(b,schedule,c->left,stack))return 0;
+    abc_symbolic_control fused;const abc_symbolic_control *c=fused_boolean_control(schedule,&tree->control,&fused)?&fused:&tree->control;
+    if(!emit_condition(b,schedule,c,tree->origin))return 0;
     if(c->kind==ABC_SYM_CONTROL_SWITCH){
-        if(c->count>UINT16_MAX||!emit_origin_opcode(b,tree->origin,OP_SWITCH)||!emit8(b,(uint8_t)c->count)||!emit8(b,(uint8_t)(c->count>>8)))return 0;size_t table=b->size;
+        size_t table=b->size;
         for(uint32_t i=0;i<c->count;i++)if(!emit32(b,0))return 0;size_t next=b->size;if(!emit_tree(b,schedule,f,tree->fallthrough))return 0;
         for(uint32_t i=0;i<c->count;i++){int64_t relative=(int64_t)b->size-(int64_t)next;if(relative<INT32_MIN||relative>INT32_MAX)return 0;for(unsigned j=0;j<4;j++)b->data[table+4*i+j]=(uint8_t)((uint32_t)(int32_t)relative>>(8*j));if(!emit_tree(b,schedule,f,tree->arms[i]))return 0;}return 1;
     }
-    int branch_opcode=(int)c->opcode,branch_immediate=0;
-    if(c->kind==ABC_SYM_CONTROL_INTEGER&&c->right.kind==ABC_SYM_CONST&&signed8(c->right.constant)){int op=branch_immediate_opcode(c->opcode);if(op>=0){branch_opcode=op;branch_immediate=1;}}
-    if(c->kind==ABC_SYM_CONTROL_INTEGER&&!branch_immediate&&!emit_value(b,schedule,c->right,ABC_SYM_B))return 0;
-    if(!emit_origin_opcode(b,tree->origin,(unsigned)branch_opcode))return 0;if((c->kind==ABC_SYM_CONTROL_IMMEDIATE||branch_immediate)&&!emit8(b,(uint8_t)c->right.constant))return 0;
     size_t displacement=b->size;if(!emit8(b,0)||!emit8(b,0))return 0;size_t next=b->size;
     if(!emit_tree(b,schedule,f,tree->fallthrough))return 0;int64_t relative=(int64_t)b->size-(int64_t)next;if(relative<INT16_MIN||relative>INT16_MAX)return 0;
     b->data[displacement]=(uint8_t)(uint16_t)relative;b->data[displacement+1]=(uint8_t)((uint16_t)relative>>8);
@@ -666,25 +690,24 @@ static int append_phi_patch(PhiPatches *patches,size_t at) {
 }
 static int emit_phi_tree(Bytes *b,const Schedule *schedule,const DagTree *tree,uint32_t results,PhiPatches *patches) {
     if(tree->leaf){
-        if(tree->result_count!=results)return 0;for(uint32_t i=0;i<results;i++)if(!emit_value(b,schedule,tree->results[i],ABC_SYM_A)||!emit_cset(b,ABC_SYM_A,results-1-i))return 0;
+        if(tree->result_count!=results)return 0;for(uint32_t i=0;i<results;i++)if(!emit_value(b,schedule,tree->results[i],tree->result_stack)||!emit_cset(b,tree->result_stack,results-1-i))return 0;
         if(!emit8(b,OP_JMP32)||!append_phi_patch(patches,b->size))return 0;return emit32(b,0);
     }
-    abc_symbolic_control fused;const abc_symbolic_control *c=fused_boolean_control(schedule,&tree->control,&fused)?&fused:&tree->control;unsigned stack=(c->opcode==OP_JZ_B||c->opcode==OP_JNZ_B)?ABC_SYM_B:ABC_SYM_A;if(!emit_value(b,schedule,c->left,stack))return 0;
+    abc_symbolic_control fused;const abc_symbolic_control *c=fused_boolean_control(schedule,&tree->control,&fused)?&fused:&tree->control;
+    if(!emit_condition(b,schedule,c,tree->origin))return 0;
     if(c->kind==ABC_SYM_CONTROL_SWITCH){
-        if(!emit_origin_opcode(b,tree->origin,OP_SWITCH)||!emit8(b,(uint8_t)c->count)||!emit8(b,(uint8_t)(c->count>>8)))return 0;size_t table=b->size;for(uint32_t i=0;i<c->count;i++)if(!emit32(b,0))return 0;size_t next=b->size;
+        size_t table=b->size;for(uint32_t i=0;i<c->count;i++)if(!emit32(b,0))return 0;size_t next=b->size;
         if(!emit_phi_tree(b,schedule,tree->fallthrough,results,patches))return 0;for(uint32_t i=0;i<c->count;i++){int64_t relative=(int64_t)b->size-(int64_t)next;if(relative<INT32_MIN||relative>INT32_MAX)return 0;for(unsigned j=0;j<4;j++)b->data[table+4*i+j]=(uint8_t)((uint32_t)(int32_t)relative>>(8*j));if(!emit_phi_tree(b,schedule,tree->arms[i],results,patches))return 0;}return 1;
     }
-    int branch_opcode=(int)c->opcode,branch_immediate=0;if(c->kind==ABC_SYM_CONTROL_INTEGER&&c->right.kind==ABC_SYM_CONST&&signed8(c->right.constant)){int op=branch_immediate_opcode(c->opcode);if(op>=0){branch_opcode=op;branch_immediate=1;}}
-    if(c->kind==ABC_SYM_CONTROL_INTEGER&&!branch_immediate&&!emit_value(b,schedule,c->right,ABC_SYM_B))return 0;if(!emit_origin_opcode(b,tree->origin,(unsigned)branch_opcode))return 0;if((c->kind==ABC_SYM_CONTROL_IMMEDIATE||branch_immediate)&&!emit8(b,(uint8_t)c->right.constant))return 0;
     size_t displacement=b->size;if(!emit8(b,0)||!emit8(b,0))return 0;size_t next=b->size;if(!emit_phi_tree(b,schedule,tree->fallthrough,results,patches))return 0;int64_t relative=(int64_t)b->size-(int64_t)next;if(relative<INT16_MIN||relative>INT16_MAX)return 0;
     b->data[displacement]=(uint8_t)(uint16_t)relative;b->data[displacement+1]=(uint8_t)((uint16_t)relative>>8);return emit_phi_tree(b,schedule,tree->taken,results,patches);
 }
 
 static int residualize_function(const abc_module *m,const CallGraph *graph,uint32_t fi,const ArgumentFact *facts,FunctionCode *out) {
     const abc_function *f=&m->functions[fi];if(f->hidden_bytes)return 0;
-    for(uint32_t pc=f->entry;pc<f->end;pc+=abc_instruction_length(m->code+pc)){unsigned action=op_memory[m->code[pc]].action;if(action==M_ALLOC||action==M_FREE)return 0;}
+    for(uint32_t pc=f->entry;pc<f->end;pc+=abc_instruction_length(m->code+pc)){unsigned action=abc_instruction_info(m->code+pc)->memory_action;if(action==M_ALLOC||action==M_FREE)return 0;}
     if(m->memory_profile){for(uint32_t i=0;i<f->arguments;i++)if(f->argument_kinds[i]!=ABC_KIND_INT)return 0;for(uint32_t i=0;i<f->results;i++)if(f->result_kinds[i]!=ABC_KIND_INT)return 0;}
-    DagSink sink={.module=m,.graph=graph,.root_function=fi,.root_entry=f->entry,.root_arguments=f->arguments,.callable_safe=0,.dynamic_callable_safe=dynamic_callable_module_safe(m)};abc_symbolic_context context={0};
+    DagSink sink={.module=m,.graph=graph,.root_function=fi,.root_entry=f->entry,.root_arguments=f->arguments,.callable_safe=0};abc_symbolic_context context={0};
     uint32_t *uses=NULL,*path_uses=NULL;int32_t *homes=NULL;uint8_t *expanded=NULL;Bytes code={.function=out};DagTree *tree=NULL;
     for(uint32_t i=0;i<f->arguments;i++) {
         abc_symbolic_value value;if(facts&&facts[i].kind==FACT_CONSTANT)value=abc_symbolic_constant(facts[i].constant,ABC_SYM_C,-1-(int32_t)i);else {uint32_t id=node(&sink,(Node){N_INPUT,f->entry,0,0,0,(uint8_t)i,0,0});if(!id)goto failed;value=backend(id,ABC_SYM_C,-1-(int32_t)i);}
@@ -697,8 +720,8 @@ static int residualize_function(const abc_module *m,const CallGraph *graph,uint3
         .context=&context,.sink=&sink,.error=&error,
         .transfer_mask=ABC_SYM_TRANSFER_STACK|ABC_SYM_TRANSFER_VALUE|ABC_SYM_TRANSFER_CONTROL|ABC_SYM_TRANSFER_EFFECT};
     sink.machine=&machine;machine.emit_binary=dag_binary;machine.emit_unary=dag_unary;machine.emit_check=dag_check;
-    machine.emit_immediate=dag_immediate;machine.emit_c_operand=dag_c_operand;machine.emit_effect=dag_effect;machine.emit_memory=dag_memory;machine.emit_control=dag_control;machine.emit_abort=dag_abort;
-    machine.emit_return=dag_return;machine.emit_call=dag_call;machine.emit_indirect=dag_indirect;machine.emit_tail=dag_tail;machine.emit_dynamic=dag_dynamic;machine.emit_foreign=dag_foreign;machine.emit_edge=dag_edge;
+    machine.emit_immediate=dag_immediate;machine.emit_c_operand=dag_c_operand;machine.emit_memory=dag_memory;machine.emit_control=dag_control;machine.emit_abort=dag_abort;
+    machine.emit_halt=dag_halt;machine.emit_return=dag_return;machine.emit_call=dag_call;machine.emit_indirect=dag_indirect;machine.emit_tail=dag_tail;machine.emit_foreign=dag_foreign;machine.emit_edge=dag_edge;
     if(!simulate_tree(&sink,&machine,&context,f->entry,&tree)||sink.unsupported||(!sink.terminal_abort&&!tree_arity(tree,f->results)))goto failed;
     if(sink.count){uses=calloc(sink.count,sizeof *uses);path_uses=calloc(sink.count,sizeof *path_uses);homes=malloc((size_t)sink.count*sizeof *homes);expanded=calloc(sink.count,1);if(!uses||!path_uses||!homes||!expanded)goto failed;for(uint32_t i=0;i<sink.count;i++)homes[i]=-1;}
     for(uint32_t id=1;id<=sink.count;id++)if(sink.nodes[id-1].effect){EffectPayload *p=find_payload(&sink,id);if((!p||!p->results)&&(!compute_ershov(&sink,id)||!mark_uses(&sink,id,uses,expanded)))goto failed;}
@@ -706,14 +729,14 @@ static int residualize_function(const abc_module *m,const CallGraph *graph,uint3
     if(sink.paths>1)for(uint32_t id=1;id<=sink.count;id++)if(sink.nodes[id-1].effect&&!branch_local_call(&sink,id,uses))goto failed;
     for(uint32_t id=1;id<=sink.count;id++){EffectPayload *p=find_payload(&sink,id);if(p&&sink.nodes[id-1].kind==N_CALL){if(!uses[id-1]&&(!compute_ershov(&sink,id)||!mark_uses(&sink,id,uses,expanded)))goto failed;continue;}if(p&&p->results){if(uses[id-1]>1)goto failed;if(!uses[id-1]){p->dead=1;if(!compute_ershov(&sink,id)||!mark_uses(&sink,id,uses,expanded))goto failed;}}}
     if(!sink.terminal_abort){uint32_t *path_counts=calloc(sink.count?sink.count:1,sizeof *path_counts);uint8_t *path_expanded=calloc(sink.count?sink.count:1,1);if(!path_counts||!path_expanded||!mark_path_tree(&sink,tree,path_counts,path_expanded,path_uses)){free(path_counts);free(path_expanded);goto failed;}free(path_counts);free(path_expanded);}
-    uint32_t direct_return=direct_return_call(&sink,tree);if(direct_return){EffectPayload *p=find_payload(&sink,direct_return);if(p)p->direct_return=1;}
+    uint32_t direct_return=tree->halt?0:direct_return_call(&sink,tree);if(direct_return){EffectPayload *p=find_payload(&sink,direct_return);if(p)p->direct_return=1;}
     Schedule schedule={.sink=&sink,.homes=homes};
     for(uint32_t id=1;id<=sink.count;id++)if(sink.nodes[id-1].kind==N_LOOP_HOME){
         if((uint32_t)f->arguments+schedule.temps>=255||!emit_node(&code,&schedule,id,ABC_SYM_A)||!emit8(&code,OP_CPUSH_A))goto emit_failed;homes[id-1]=(int32_t)schedule.temps++;
     }
     schedule.loop_temps=schedule.temps;schedule.loop_prologue=code.size;
     for(uint32_t id=1;id<=sink.count;id++)if((sink.nodes[id-1].effect||uses[id-1]>1)&&!branch_rematerializable(&sink,id,uses,path_uses)&&!duplicated_operand_only(&sink,id,uses)&&!branch_local_call(&sink,id,uses)&&sink.nodes[id-1].kind!=N_INPUT&&sink.nodes[id-1].kind!=N_LOOP_HOME) {
-        Node *scheduled=&sink.nodes[id-1];EffectPayload *payload=(scheduled->kind==N_DYNAMIC||scheduled->kind==N_FOREIGN||scheduled->kind==N_CALL)?find_payload(&sink,id):NULL;
+        Node *scheduled=&sink.nodes[id-1];EffectPayload *payload=(scheduled->kind==N_FOREIGN||scheduled->kind==N_CALL)?find_payload(&sink,id):NULL;
         if(scheduled->kind==N_CALL){if(payload&&payload->direct_return)continue;if(!payload||!emit_node(&code,&schedule,id,ABC_SYM_A))goto emit_failed;int live=0;for(uint32_t i=0;i<payload->results;i++)if(uses[payload->result_nodes[i]-1])live=1;if(live){if((uint32_t)f->arguments+schedule.temps+payload->results>255)goto emit_failed;for(uint32_t i=payload->results;i;i--){uint32_t result=payload->result_nodes[i-1];if(!emit8(&code,payload->destination==ABC_SYM_A?OP_CPUSH_A:OP_CPUSH_B))goto emit_failed;homes[result-1]=(int32_t)schedule.temps++;}}else for(uint32_t i=0;i<payload->results;i++)if(!emit8(&code,payload->destination==ABC_SYM_A?OP_DROP_A:OP_DROP_B))goto emit_failed;continue;}
         if(payload&&payload->results&&!payload->dead)continue;
         if(scheduled->kind==N_ABORT||scheduled->kind==N_EFFECT||(scheduled->kind==N_MEMORY&&!memory_result(scheduled->input))||(payload&&!payload->results)){if(!emit_node(&code,&schedule,id,ABC_SYM_A))goto emit_failed;continue;}
@@ -722,13 +745,15 @@ static int residualize_function(const abc_module *m,const CallGraph *graph,uint3
         homes[id-1]=(int32_t)schedule.temps++;
     }
     schedule.loop_header=code.size;
-    if(!sink.terminal_abort&&sink.paths>1&&f->results>1&&!tree_has_backedge(tree)&&!tree_has_tail(tree)){
+    if(!sink.terminal_abort&&!f->has_halt&&sink.paths>1&&f->results>1&&!tree_has_backedge(tree)&&!tree_has_tail(tree)){
         if((uint32_t)f->arguments+schedule.temps+f->results>255)goto emit_failed;
-        for(uint32_t i=0;i<f->results;i++)if(!emit_constant(&code,ABC_SYM_A,0)||!emit8(&code,OP_CPUSH_A))goto emit_failed;
+        const DagTree *first=tree;while(!first->leaf)first=first->fallthrough;
+        unsigned result_stack=first->result_stack;
+        for(uint32_t i=0;i<f->results;i++)if(!emit_constant(&code,result_stack,0)||!emit8(&code,result_stack==ABC_SYM_A?OP_CPUSH_A:OP_CPUSH_B))goto emit_failed;
         schedule.suffix=f->results;PhiPatches patches={0};if(!emit_phi_tree(&code,&schedule,tree,f->results,&patches)){free(patches.at);goto emit_failed;}size_t join=code.size;
         for(size_t i=0;i<patches.count;i++){int64_t relative=(int64_t)join-(int64_t)(patches.at[i]+4);if(relative<INT32_MIN||relative>INT32_MAX){free(patches.at);goto emit_failed;}for(unsigned j=0;j<4;j++)code.data[patches.at[i]+j]=(uint8_t)((uint32_t)(int32_t)relative>>(8*j));}free(patches.at);
-        for(uint32_t i=0;i<f->results;i++)if(!emit_cget(&code,ABC_SYM_A,f->results-1-i))goto emit_failed;
-        if(!emit8(&code,OP_RET)||!emit8(&code,(uint8_t)(f->arguments+schedule.temps+f->results))||!emit8(&code,(uint8_t)f->results))goto emit_failed;
+        for(uint32_t i=0;i<f->results;i++)if(!emit_cget(&code,result_stack,f->results-1-i))goto emit_failed;
+        if(!emit8(&code,result_stack==ABC_SYM_A?OP_RET_A:OP_RET_B)||!emit8(&code,(uint8_t)(f->arguments+schedule.temps+f->results))||!emit8(&code,(uint8_t)f->results))goto emit_failed;
     } else if(!sink.terminal_abort&&!emit_tree(&code,&schedule,f,tree))goto emit_failed;
     out->code=code.data;out->length=(uint32_t)code.size;out->optimized=1;out->calls=sink.calls;out->call_count=sink.call_count;sink.calls=NULL;sink.call_count=0;abc_symbolic_context_free(&context);abc_symbolic_context_free(&sink.loop_initial);free_tree(tree);for(uint32_t i=0;i<sink.payload_count;i++){free(sink.payloads[i].operands);free(sink.payloads[i].result_nodes);}free(sink.payloads);free(sink.nodes);free(uses);free(path_uses);free(homes);free(expanded);return 1;
 emit_failed:free(code.data);
@@ -740,7 +765,6 @@ static int retain_function(const abc_module *m,uint32_t fi,FunctionCode *out){
     uint32_t length=m->functions[fi].end-m->functions[fi].entry;out->code=malloc(length?length:1);if(!out->code)return 0;memcpy(out->code,m->code+m->functions[fi].entry,length);out->length=length;out->optimized=0;
     for(uint32_t pc=m->functions[fi].entry;pc<m->functions[fi].end;pc+=abc_instruction_length(m->code+pc)){
         uint32_t target;if(direct_target(m,pc,&target)){int to=abc_find_function(m,target);if(to<0||!append_unknown_call(out,(uint32_t)to,m->functions[to].arguments))return 0;}
-        else if(dynamic_callable_target(m,pc,&target)&&!append_unknown_call(out,target,m->functions[target].arguments))return 0;
     }return 1;
 }
 
@@ -774,22 +798,16 @@ static int rewrite_code_relocs(Bytes *out,const abc_module *m,const uint32_t *ne
     if(size!=4u+8u*m->reloc_count||abc_u32(p)!=m->reloc_count||!emit32(out,m->reloc_count))return 0;for(uint32_t i=0;i<m->reloc_count;i++){uint32_t at=4+8*i;if(abc_u32(p+at)!=m->relocs[i].offset||abc_u32(p+at+4)!=m->relocs[i].function||!emit32(out,m->relocs[i].offset)||!emit32(out,new_index[m->relocs[i].function]))return 0;}return 1;
 }
 static int write_module(const abc_module *m,FunctionCode *functions,const void *input,size_t input_size,void **out,size_t *out_size,abc_provenance **provenance,size_t *provenance_count) {
-    Bytes code={0},ft={0},xt={0},module={0};abc_provenance *map=NULL;size_t map_count=0,map_at=0;uint32_t live_count=0,descriptor_live_count=0;
-    uint32_t *entries=calloc(m->function_count,sizeof *entries),*new_index=calloc(m->function_count,sizeof *new_index),*descriptor_index=NULL;uint8_t *live=calloc(m->function_count,1),*descriptor_live=NULL;int descriptor_dce=m->dynamic_profile&&descriptor_dce_sections_safe(input,input_size);
-    if(m->dynamic_profile){descriptor_index=calloc(m->descriptor_count?m->descriptor_count:1,sizeof *descriptor_index);descriptor_live=calloc(m->descriptor_count?m->descriptor_count:1,1);}if(!entries||!new_index||!live||(m->dynamic_profile&&(!descriptor_index||!descriptor_live)))goto failed;
+    Bytes code={0},ft={0},xt={0},module={0};abc_provenance *map=NULL;size_t map_count=0,map_at=0;uint32_t live_count=0;
+    uint32_t *entries=calloc(m->function_count,sizeof *entries),*new_index=calloc(m->function_count,sizeof *new_index);uint8_t *live=calloc(m->function_count,1);
+    if(!entries||!new_index||!live)goto failed;
     if(m->export_count||m->reloc_count){if(!mark_live_functions(m,functions,live))goto failed;}else memset(live,1,m->function_count);for(uint32_t i=0;i<m->function_count;i++)if(live[i]){new_index[i]=live_count++;entries[i]=(uint32_t)code.size;if(!append(&code,functions[i].code,functions[i].length))goto failed;}
     if(provenance){for(uint32_t i=0;i<m->function_count;i++)if(live[i]){if(functions[i].optimized)map_count+=functions[i].provenance_count;else for(uint32_t pc=m->functions[i].entry;pc<m->functions[i].end;pc+=abc_instruction_length(m->code+pc))map_count++;}map=calloc(map_count?map_count:1,sizeof *map);if(!map)goto failed;
         for(uint32_t i=0;i<m->function_count;i++)if(live[i]){if(functions[i].optimized){for(uint32_t j=0;j<functions[i].provenance_count;j++)map[map_at++]=(abc_provenance){entries[i]+functions[i].provenance[j].output_offset,functions[i].provenance[j].input_offset};}else for(uint32_t pc=m->functions[i].entry;pc<m->functions[i].end;pc+=abc_instruction_length(m->code+pc))map[map_at++]=(abc_provenance){entries[i]+pc-m->functions[i].entry,pc};}
     }
     for(uint32_t i=0;i<m->function_count;i++)if(live[i])for(uint32_t pc=0;pc<functions[i].length;){
-        const uint8_t *p=functions[i].code+pc;uint32_t length=abc_instruction_length(p);unsigned kind=op_kind[p[0]];if(kind==K_CALL||kind==K_TCALL){uint32_t origin;if(!emitted_origin(m,functions,i,pc,&origin))goto failed;const uint8_t *old=m->code+origin;uint32_t old_length=abc_instruction_length(old),old_target=(uint32_t)((int64_t)(origin+old_length)+abc_i32(old+1));int target=abc_find_function(m,old_target);if(target<0||!live[target])goto failed;uint32_t at=entries[i]+pc+1,next=entries[i]+pc+length;int64_t delta=(int64_t)entries[target]-next;if(delta<INT32_MIN||delta>INT32_MAX)goto failed;int32_t relative=(int32_t)delta;for(unsigned j=0;j<4;j++)code.data[at+j]=(uint8_t)((uint32_t)relative>>(8*j));}
-        else if(p[0]==OP_EXT&&(p[1]==EXT_WORD_DIRECT||p[1]==EXT_CLOSURE_NEW)){uint32_t origin,target;if(!emitted_origin(m,functions,i,pc,&origin)||!dynamic_callable_target(m,origin,&target)||!live[target])goto failed;uint32_t mapped=new_index[target],at=entries[i]+pc+2;for(unsigned j=0;j<4;j++)code.data[at+j]=(uint8_t)(mapped>>(8*j));}pc+=length;
-    }
-    if(descriptor_dce){
-        for(uint32_t pc=0;pc<code.size;pc+=abc_instruction_length(code.data+pc)){uint32_t offset,index;if(descriptor_operand(code.data+pc,&offset,&index)&&!mark_descriptor(m,index,descriptor_live))goto failed;}
-        for(uint32_t i=0;i<m->gc_root_count;i++)if(!mark_descriptor(m,m->gc_roots[i].descriptor,descriptor_live))goto failed;
-        for(uint32_t i=0;i<m->descriptor_count;i++)if(descriptor_live[i])descriptor_index[i]=descriptor_live_count++;
-        for(uint32_t pc=0;pc<code.size;pc+=abc_instruction_length(code.data+pc)){uint32_t offset,index;if(descriptor_operand(code.data+pc,&offset,&index))rewrite_u32(code.data+pc+offset,descriptor_index[index]);}
+        const uint8_t *p=functions[i].code+pc;uint32_t length=abc_instruction_length(p);unsigned kind=abc_instruction_info(p)->kind;if(kind==K_CALL||kind==K_TCALL){uint32_t origin;if(!emitted_origin(m,functions,i,pc,&origin))goto failed;const uint8_t *old=m->code+origin;uint32_t old_length=abc_instruction_length(old),old_target=(uint32_t)((int64_t)(origin+old_length)+abc_i32(old+1));int target=abc_find_function(m,old_target);if(target<0||!live[target])goto failed;uint32_t at=entries[i]+pc+1,next=entries[i]+pc+length;int64_t delta=(int64_t)entries[target]-next;if(delta<INT32_MIN||delta>INT32_MAX)goto failed;int32_t relative=(int32_t)delta;for(unsigned j=0;j<4;j++)code.data[at+j]=(uint8_t)((uint32_t)relative>>(8*j));}
+        pc+=length;
     }
     if(!emit32(&ft,live_count))goto failed;for(uint32_t i=0;i<m->function_count;i++)if(live[i]){const abc_function *f=&m->functions[i];if(!emit32(&ft,entries[i])||!emit32(&ft,f->arguments)||!emit32(&ft,f->results)||!emit32(&ft,f->hidden_bytes))goto failed;if(m->memory_profile&&(!append(&ft,f->argument_kinds,f->arguments)||!append(&ft,f->result_kinds,f->results)))goto failed;}
     if(!emit32(&xt,m->export_count))goto failed;for(uint32_t i=0;i<m->export_count;i++){size_t n=strlen(m->exports[i].name);if(n>UINT16_MAX||!emit32(&xt,new_index[m->exports[i].function])||!emit8(&xt,(uint8_t)n)||!emit8(&xt,(uint8_t)(n>>8))||!append(&xt,m->exports[i].name,n))goto failed;}
@@ -797,12 +815,10 @@ static int write_module(const abc_module *m,FunctionCode *functions,const void *
         if(tag==1){if(!section(&module,tag,ft.data,(uint32_t)ft.size))goto failed;}else if(tag==2){if(!section(&module,tag,code.data,(uint32_t)code.size))goto failed;}else if(tag==3){if(!section(&module,tag,xt.data,(uint32_t)xt.size))goto failed;}
         else if((tag==6&&m->memory_profile)||(tag==7&&m->callable_profile)){Bytes rewritten={0};if(!rewrite_pc_section(&rewritten,tag,bytes+at,length,m,functions,entries,live)||!section(&module,tag,rewritten.data,(uint32_t)rewritten.size)){free(rewritten.data);goto failed;}free(rewritten.data);}
         else if(tag==8&&m->callable_profile){Bytes rewritten={0};if(!rewrite_code_relocs(&rewritten,m,new_index,bytes+at,length)||!section(&module,tag,rewritten.data,(uint32_t)rewritten.size)){free(rewritten.data);goto failed;}free(rewritten.data);}
-        else if(tag==10&&descriptor_dce){Bytes rewritten={0};if(!rewrite_descriptor_table(&rewritten,m,descriptor_live,descriptor_index,descriptor_live_count)||!section(&module,tag,rewritten.data,(uint32_t)rewritten.size)){free(rewritten.data);goto failed;}free(rewritten.data);}
-        else if(tag==12&&descriptor_dce){Bytes rewritten={0};if(!rewrite_gc_roots(&rewritten,m,descriptor_index)||!section(&module,tag,rewritten.data,(uint32_t)rewritten.size)){free(rewritten.data);goto failed;}free(rewritten.data);}
         else if(!section(&module,tag,bytes+at,length))goto failed;at+=length;
     }
-    if(at!=input_size)goto failed;*out=module.data;*out_size=module.size;if(provenance){*provenance=map;*provenance_count=map_at;}free(entries);free(new_index);free(live);free(descriptor_index);free(descriptor_live);free(code.data);free(ft.data);free(xt.data);return 1;
-failed:free(entries);free(new_index);free(live);free(descriptor_index);free(descriptor_live);free(code.data);free(ft.data);free(xt.data);free(module.data);free(map);return 0;
+    if(at!=input_size)goto failed;*out=module.data;*out_size=module.size;if(provenance){*provenance=map;*provenance_count=map_at;}free(entries);free(new_index);free(live);free(code.data);free(ft.data);free(xt.data);return 1;
+failed:free(entries);free(new_index);free(live);free(code.data);free(ft.data);free(xt.data);free(module.data);free(map);return 0;
 }
 
 static int activate_function_facts(const abc_module *m,ArgumentFact **facts,uint8_t *needed,uint8_t *dirty,uint32_t fi,int unknown){

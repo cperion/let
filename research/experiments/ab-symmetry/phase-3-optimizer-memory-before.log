@@ -1,0 +1,33 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/optimize.c -o build/pic/optimize.o
+/tmp/clang20 -shared -O2 -g build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o -lm -o build/libabc-opt.so
+/tmp/lua-compat tools/validate_optimizer_isa.lua build/abc-runtime build/optimizer-isa build/validate-optimizer-foreign
+sub-c: optimized emission and three-mode execution PASS
+sub-c-mirror: optimized emission and three-mode execution PASS
+nested-sub: optimized emission and three-mode execution PASS
+nested-sub-mirror: optimized emission and three-mode execution PASS
+divide: optimized emission and three-mode execution PASS
+divide-mirror: optimized emission and three-mode execution PASS
+shift: optimized emission and three-mode execution PASS
+shift-mirror: optimized emission and three-mode execution PASS
+normalize: optimized emission and three-mode execution PASS
+normalize-mirror: optimized emission and three-mode execution PASS
+capture: optimized emission and three-mode execution PASS
+capture-mirror: optimized emission and three-mode execution PASS
+immediate-branch: optimized emission and three-mode execution PASS
+immediate-branch-mirror: optimized emission and three-mode execution PASS
+fused-branch: optimized emission and three-mode execution PASS
+fused-branch-mirror: optimized emission and three-mode execution PASS
+phi-results: optimized emission and three-mode execution PASS
+phi-results-mirror: optimized emission and three-mode execution PASS
+switch: optimized emission and three-mode execution PASS
+switch-mirror: optimized emission and three-mode execution PASS
+halt: optimized emission and three-mode execution PASS
+halt-mirror: optimized emission and three-mode execution PASS
+halt-argument: optimized emission and three-mode execution PASS
+halt-argument-mirror: optimized emission and three-mode execution PASS
+luajit: tools/validate_optimizer_isa.lua:277: memory-addresses interpreted: 7 77 / 77 0
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate_optimizer_isa.lua:277: in main chunk
+	[C]: at 0x5d929e0bd120
+make: *** [Makefile:134: validate-optimizer-isa] Error 1

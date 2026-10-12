@@ -1,0 +1,7 @@
+arity 0: paired extra call-minus-inline cost new-old ns/iteration median=1.001, range=[0.560,1.289]
+arity 1: paired extra call-minus-inline cost new-old ns/iteration median=2.875, range=[2.443,3.155]
+arity 2: paired extra call-minus-inline cost new-old ns/iteration median=7.199, range=[6.844,7.426]
+old runtime counter compiled: result 1000000, emitted body bytes 240
+old runtime counter lazy: result 1000000, emitted body bytes 203
+new runtime counter compiled: result 1000000, emitted body bytes 292
+new runtime counter lazy: result 1000000, emitted body bytes 229

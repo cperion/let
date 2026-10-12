@@ -48,7 +48,7 @@ local recurse = I.Fn("recurse", I.Entry, 0, L{input(S.u32)}, L{S.u32},
     })
 
 local modules, events = {}, {}
-for _, mode in ipairs{"interpreted", "eager", "lazy"} do
+for _, mode in ipairs{"interpreted", "eager", "lazy", "threaded"} do
     local result = Compiler.stage({calc}, {
         profile = "slet", entry = "calc", mode = mode, arguments = {21},
         progress = function(event) events[#events + 1] = event.phase .. ":" .. event.binding end,
@@ -58,9 +58,10 @@ for _, mode in ipairs{"interpreted", "eager", "lazy"} do
     check(result.values[1].type == S.u32, "static result retains its semantic type")
     modules[#modules + 1] = result.module
 end
-check(modules[1] == modules[2] and modules[2] == modules[3],
+check(modules[1] == modules[2] and modules[2] == modules[3] and modules[3] == modules[4],
     "VM policy does not change emitted module bytes")
-check(#events == 6 and events[1] == "start:calc" and events[2] == "finish:calc",
+check(#events == 8 and events[1] == "start:calc" and events[2] == "finish:calc"
+    and events[7] == "start:calc" and events[8] == "finish:calc",
     "static execution reports binding progress")
 
 local exact = Compiler.stage({huge}, {profile = "slet", entry = "huge", mode = "interpreted"})
@@ -85,7 +86,7 @@ local specializedFile = assert(io.open(specializedPath, "wb")); assert(specializ
 local dis = assert(io.popen(string.format("%q dis %q", root .. "../build/abc", specializedPath), "r")); local listing = dis:read("*a")
 check(dis:close() and listing:match("ADDI_A%s+42"),
     "known VM cells become constants in deterministic shared residual output")
-for _, mode in ipairs({"interpreted", "compiled", "lazy"}) do
+for _, mode in ipairs({"interpreted", "compiled", "lazy", "jit=threaded"}) do
     local run = assert(io.popen(string.format("%q run %q add42 8 --%s", root .. "../build/abc", specializedPath, mode), "r"))
     local output = run:read("*a")
     check(run:close() and output:match("^50%s*$"), "specialized residual agrees in " .. mode .. " mode")

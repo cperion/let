@@ -1,0 +1,326 @@
+[
+  {
+    "workload": "loop",
+    "mode": "interpreted",
+    "old": {
+      "median_seconds": 0.106640027,
+      "read_seconds": 3.4255e-06,
+      "prepare_seconds": 1.28195e-05,
+      "first_call_seconds": 0.106448491,
+      "native_bytes": [
+        0
+      ]
+    },
+    "new": {
+      "median_seconds": 0.106903863,
+      "read_seconds": 4.125e-06,
+      "prepare_seconds": 1.3389e-05,
+      "first_call_seconds": 0.10632177849999999,
+      "native_bytes": [
+        0
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 0.9997608840916248,
+      "min": 0.9860841371125324,
+      "max": 1.3800317299428262
+    }
+  },
+  {
+    "workload": "loop",
+    "mode": "compiled",
+    "old": {
+      "median_seconds": 0.008780444,
+      "read_seconds": 3.4034999999999997e-06,
+      "prepare_seconds": 5.0484e-05,
+      "first_call_seconds": 0.008868721999999999,
+      "native_bytes": [
+        416
+      ]
+    },
+    "new": {
+      "median_seconds": 0.008860601,
+      "read_seconds": 4.1375e-06,
+      "prepare_seconds": 5.48285e-05,
+      "first_call_seconds": 0.0086946,
+      "native_bytes": [
+        627
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 1.0159295266223458,
+      "min": 0.9678893274893279,
+      "max": 1.0284242964515178
+    }
+  },
+  {
+    "workload": "loop",
+    "mode": "lazy",
+    "old": {
+      "median_seconds": 0.008886686500000001,
+      "read_seconds": 3.3995000000000002e-06,
+      "prepare_seconds": 3.2327000000000004e-05,
+      "first_call_seconds": 0.0089534195,
+      "native_bytes": [
+        356
+      ]
+    },
+    "new": {
+      "median_seconds": 0.008750443,
+      "read_seconds": 4.138e-06,
+      "prepare_seconds": 3.2118999999999995e-05,
+      "first_call_seconds": 0.008916514,
+      "native_bytes": [
+        446
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 0.9861033003300095,
+      "min": 0.9272261520840632,
+      "max": 1.006032685074703
+    }
+  },
+  {
+    "workload": "branch",
+    "mode": "interpreted",
+    "old": {
+      "median_seconds": 0.071831684,
+      "read_seconds": 2.7795000000000002e-06,
+      "prepare_seconds": 1.20035e-05,
+      "first_call_seconds": 0.072040329,
+      "native_bytes": [
+        0
+      ]
+    },
+    "new": {
+      "median_seconds": 0.072259132,
+      "read_seconds": 3.873499999999999e-06,
+      "prepare_seconds": 1.3698e-05,
+      "first_call_seconds": 0.0729316165,
+      "native_bytes": [
+        0
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 1.004446783448237,
+      "min": 0.9938340862827993,
+      "max": 1.0404876421016702
+    }
+  },
+  {
+    "workload": "branch",
+    "mode": "compiled",
+    "old": {
+      "median_seconds": 0.003507899,
+      "read_seconds": 2.822e-06,
+      "prepare_seconds": 8.258899999999999e-05,
+      "first_call_seconds": 0.0035975770000000002,
+      "native_bytes": [
+        1631
+      ]
+    },
+    "new": {
+      "median_seconds": 0.003570583,
+      "read_seconds": 3.914e-06,
+      "prepare_seconds": 6.845500000000001e-05,
+      "first_call_seconds": 0.003657416,
+      "native_bytes": [
+        1818
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 1.0026709436094,
+      "min": 0.9326374669419228,
+      "max": 1.0364598484099512
+    }
+  },
+  {
+    "workload": "branch",
+    "mode": "lazy",
+    "old": {
+      "median_seconds": 0.003792582,
+      "read_seconds": 2.8379999999999998e-06,
+      "prepare_seconds": 3.7771e-05,
+      "first_call_seconds": 0.0038908645,
+      "native_bytes": [
+        1191
+      ]
+    },
+    "new": {
+      "median_seconds": 0.0038252175000000003,
+      "read_seconds": 3.9255e-06,
+      "prepare_seconds": 3.1183e-05,
+      "first_call_seconds": 0.003912814000000001,
+      "native_bytes": [
+        1172
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 1.005390289454445,
+      "min": 0.9849600459671467,
+      "max": 1.055896365818273
+    }
+  },
+  {
+    "workload": "fib",
+    "mode": "interpreted",
+    "old": {
+      "median_seconds": 0.0241830965,
+      "read_seconds": 2.3715e-06,
+      "prepare_seconds": 1.30905e-05,
+      "first_call_seconds": 0.024535979,
+      "native_bytes": [
+        0
+      ]
+    },
+    "new": {
+      "median_seconds": 0.027994214,
+      "read_seconds": 3.3169999999999998e-06,
+      "prepare_seconds": 1.32205e-05,
+      "first_call_seconds": 0.027560371,
+      "native_bytes": [
+        0
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 1.1603143047201083,
+      "min": 1.1486496193829714,
+      "max": 1.1721286330736516
+    }
+  },
+  {
+    "workload": "fib",
+    "mode": "compiled",
+    "old": {
+      "median_seconds": 0.006602889000000001,
+      "read_seconds": 2.371e-06,
+      "prepare_seconds": 5.4295e-05,
+      "first_call_seconds": 0.0067712705,
+      "native_bytes": [
+        1072
+      ]
+    },
+    "new": {
+      "median_seconds": 0.0068259555,
+      "read_seconds": 3.309e-06,
+      "prepare_seconds": 4.86275e-05,
+      "first_call_seconds": 0.0069492445,
+      "native_bytes": [
+        1040
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 1.0498277198248944,
+      "min": 0.99484573609709,
+      "max": 1.0916978546030676
+    }
+  },
+  {
+    "workload": "fib",
+    "mode": "lazy",
+    "old": {
+      "median_seconds": 0.008487773,
+      "read_seconds": 2.3260000000000003e-06,
+      "prepare_seconds": 3.8132e-05,
+      "first_call_seconds": 0.008562259,
+      "native_bytes": [
+        715
+      ]
+    },
+    "new": {
+      "median_seconds": 0.0086370595,
+      "read_seconds": 3.258e-06,
+      "prepare_seconds": 3.4303e-05,
+      "first_call_seconds": 0.0086619755,
+      "native_bytes": [
+        798
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 1.0078029859105304,
+      "min": 0.9682674278371033,
+      "max": 1.0699437627184845
+    }
+  },
+  {
+    "workload": "memory",
+    "mode": "interpreted",
+    "old": {
+      "median_seconds": 0.00560202,
+      "read_seconds": 3.684e-06,
+      "prepare_seconds": 1.28675e-05,
+      "first_call_seconds": 0.005637513,
+      "native_bytes": [
+        0
+      ]
+    },
+    "new": {
+      "median_seconds": 0.0042336795,
+      "read_seconds": 3.864e-06,
+      "prepare_seconds": 1.2224e-05,
+      "first_call_seconds": 0.0042215025,
+      "native_bytes": [
+        0
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 0.7679847631507204,
+      "min": 0.7070983603387114,
+      "max": 0.7982864695858968
+    }
+  },
+  {
+    "workload": "memory",
+    "mode": "compiled",
+    "old": {
+      "median_seconds": 0.0016123455,
+      "read_seconds": 3.704e-06,
+      "prepare_seconds": 5.27865e-05,
+      "first_call_seconds": 0.001546733,
+      "native_bytes": [
+        264
+      ]
+    },
+    "new": {
+      "median_seconds": 0.001632296,
+      "read_seconds": 3.8455e-06,
+      "prepare_seconds": 4.7063e-05,
+      "first_call_seconds": 0.0016440585,
+      "native_bytes": [
+        450
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 1.0206079913392996,
+      "min": 0.954976373810014,
+      "max": 1.2062520803861196
+    }
+  },
+  {
+    "workload": "memory",
+    "mode": "lazy",
+    "old": {
+      "median_seconds": 0.0017935124999999999,
+      "read_seconds": 3.7625e-06,
+      "prepare_seconds": 3.86155e-05,
+      "first_call_seconds": 0.0018463400000000001,
+      "native_bytes": [
+        227
+      ]
+    },
+    "new": {
+      "median_seconds": 0.0017490915,
+      "read_seconds": 3.916e-06,
+      "prepare_seconds": 3.349e-05,
+      "first_call_seconds": 0.001826646,
+      "native_bytes": [
+        324
+      ]
+    },
+    "paired_new_over_old": {
+      "median": 0.9790017885767781,
+      "min": 0.8964639556530931,
+      "max": 1.061081676801199
+    }
+  }
+]

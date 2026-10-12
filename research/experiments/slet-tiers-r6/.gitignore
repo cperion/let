@@ -1,0 +1,10 @@
+# Reconstructable local build trees and executables; retain source/timing evidence.
+/run-*/project/
+/run-*/vm
+/run-*/native
+/run-*/native-no-tco
+/run-*/programs/*
+!/run-*/programs/*.slet
+!/run-*/programs/*.abc
+!/run-*/programs/*.c
+!/run-*/programs/*.dis

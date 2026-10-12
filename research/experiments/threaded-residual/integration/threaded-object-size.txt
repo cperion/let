@@ -1,0 +1,20 @@
+build/generated/threaded.o  :
+section                 size   addr
+.text                 111043      0
+.data.rel.ro           60320      0
+.debug_loclists       117707      0
+.debug_abbrev            686      0
+.debug_info           658128      0
+.debug_rnglists         2493      0
+.debug_str_offsets     12224      0
+.debug_str             53667      0
+.debug_addr            56880      0
+.comment                  48      0
+.note.GNU-stack            0      0
+.eh_frame              61480      0
+.debug_line            56571      0
+.debug_line_str          260      0
+.llvm_addrsig           5775      0
+Total                1197282
+
+

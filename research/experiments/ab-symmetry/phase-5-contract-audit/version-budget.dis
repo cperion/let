@@ -1,0 +1,27 @@
+function 0: 0 arguments, 1 results
+  00000000  PUSH8_A        3
+  00000002  CPUSH_A       
+  00000003  CGET0_A       
+  00000004  CALL_A         0x00000032 1
+  0000000a  DROP_A        
+  0000000b  CGET0_A       
+  0000000c  CALL_A         0x00000032 1
+  00000012  DROP_A        
+  00000013  CGET0_A       
+  00000014  CALL_A         0x00000032 1
+  0000001a  DROP_A        
+  0000001b  CGET0_A       
+  0000001c  CALL_A         0x00000032 1
+  00000022  DROP_A        
+  00000023  CGET0_A       
+  00000024  SUBI_A         1
+  00000026  CSET0_A       
+  00000027  CGET0_A       
+  00000028  BNEI_A         0 0x00000003
+  0000002d  PUSH8_A        42
+  0000002f  RET_A          1 1
+function 1: 1 arguments, 1 results
+  00000032  CGET0_A       
+  00000033  ADDI_A         1
+  00000035  RET_A          1 1
+export main = function 0

@@ -1,0 +1,2 @@
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (33 executions)

@@ -1,0 +1,95 @@
+
+research/experiments/ab-symmetry/final-comparison/new-memory-compiled.bin:     file format binary
+
+
+Disassembly of section .data:
+
+0000000000000000 <.data>:
+   0:	49 bf 00 00 00 00 00 	movabs $0x0,%r15
+   7:	00 00 00 
+   a:	4c 89 3d ef 2f d7 00 	mov    %r15,0xd72fef(%rip)        # 0xd73000
+  11:	e9 00 00 00 00       	jmp    0x16
+  16:	e9 00 00 00 00       	jmp    0x1b
+  1b:	4c 8b 3d de 2f d7 00 	mov    0xd72fde(%rip),%r15        # 0xd73000
+  22:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+  29:	4c 89 3d d0 2f d7 00 	mov    %r15,0xd72fd0(%rip)        # 0xd73000
+  30:	49 bf 3f 42 0f 00 00 	movabs $0xf423f,%r15
+  37:	00 00 00 
+  3a:	4d 89 be 00 00 00 00 	mov    %r15,0x0(%r14)
+  41:	e9 00 00 00 00       	jmp    0x46
+  46:	4d 8b be 00 00 00 00 	mov    0x0(%r14),%r15
+  4d:	48 bf 00 00 00 00 00 	movabs $0x0,%rdi
+  54:	00 00 00 
+  57:	49 39 ff             	cmp    %rdi,%r15
+  5a:	0f 84 05 00 00 00    	je     0x65
+  60:	e9 3f 00 00 00       	jmp    0xa4
+  65:	4c 8b 3d 94 2f d7 00 	mov    0xd72f94(%rip),%r15        # 0xd73000
+  6c:	49 8b be f8 ff ff ff 	mov    -0x8(%r14),%rdi
+  73:	48 be ff ff ff ff 00 	movabs $0xffffffff,%rsi
+  7a:	00 00 00 
+  7d:	48 39 f7             	cmp    %rsi,%rdi
+  80:	0f 84 13 00 00 00    	je     0x99
+  86:	4d 8d b6 f8 ff ff ff 	lea    -0x8(%r14),%r14
+  8d:	48 be 00 00 00 00 00 	movabs $0x0,%rsi
+  94:	00 00 00 
+  97:	ff e7                	jmp    *%rdi
+  99:	4d 89 bc 24 00 00 00 	mov    %r15,0x0(%r12)
+  a0:	00 
+  a1:	31 c0                	xor    %eax,%eax
+  a3:	c3                   	ret
+  a4:	4c 8b 3d 55 2f d7 00 	mov    0xd72f55(%rip),%r15        # 0xd73000
+  ab:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+  b2:	4c 89 3d 47 2f d7 00 	mov    %r15,0xd72f47(%rip)        # 0xd73000
+  b9:	4d 8b be 00 00 00 00 	mov    0x0(%r14),%r15
+  c0:	49 81 ef 01 00 00 00 	sub    $0x1,%r15
+  c7:	e9 00 00 00 00       	jmp    0xcc
+  cc:	48 bf 00 00 00 00 00 	movabs $0x0,%rdi
+  d3:	00 00 00 
+  d6:	49 39 ff             	cmp    %rdi,%r15
+  d9:	0f 84 05 00 00 00    	je     0xe4
+  df:	e9 3f 00 00 00       	jmp    0x123
+  e4:	4c 8b 3d 15 2f d7 00 	mov    0xd72f15(%rip),%r15        # 0xd73000
+  eb:	49 8b be f8 ff ff ff 	mov    -0x8(%r14),%rdi
+  f2:	48 be ff ff ff ff 00 	movabs $0xffffffff,%rsi
+  f9:	00 00 00 
+  fc:	48 39 f7             	cmp    %rsi,%rdi
+  ff:	0f 84 13 00 00 00    	je     0x118
+ 105:	4d 8d b6 f8 ff ff ff 	lea    -0x8(%r14),%r14
+ 10c:	48 be 00 00 00 00 00 	movabs $0x0,%rsi
+ 113:	00 00 00 
+ 116:	ff e7                	jmp    *%rdi
+ 118:	4d 89 bc 24 00 00 00 	mov    %r15,0x0(%r12)
+ 11f:	00 
+ 120:	31 c0                	xor    %eax,%eax
+ 122:	c3                   	ret
+ 123:	48 8b 3d d6 2e d7 00 	mov    0xd72ed6(%rip),%rdi        # 0xd73000
+ 12a:	48 81 c7 01 00 00 00 	add    $0x1,%rdi
+ 131:	48 89 3d c8 2e d7 00 	mov    %rdi,0xd72ec8(%rip)        # 0xd73000
+ 138:	4c 89 ff             	mov    %r15,%rdi
+ 13b:	48 81 ef 01 00 00 00 	sub    $0x1,%rdi
+ 142:	e9 00 00 00 00       	jmp    0x147
+ 147:	49 bf 00 00 00 00 00 	movabs $0x0,%r15
+ 14e:	00 00 00 
+ 151:	4c 39 ff             	cmp    %r15,%rdi
+ 154:	0f 84 05 00 00 00    	je     0x15f
+ 15a:	e9 3f 00 00 00       	jmp    0x19e
+ 15f:	4c 8b 3d 9a 2e d7 00 	mov    0xd72e9a(%rip),%r15        # 0xd73000
+ 166:	49 8b be f8 ff ff ff 	mov    -0x8(%r14),%rdi
+ 16d:	48 be ff ff ff ff 00 	movabs $0xffffffff,%rsi
+ 174:	00 00 00 
+ 177:	48 39 f7             	cmp    %rsi,%rdi
+ 17a:	0f 84 13 00 00 00    	je     0x193
+ 180:	4d 8d b6 f8 ff ff ff 	lea    -0x8(%r14),%r14
+ 187:	48 be 00 00 00 00 00 	movabs $0x0,%rsi
+ 18e:	00 00 00 
+ 191:	ff e7                	jmp    *%rdi
+ 193:	4d 89 bc 24 00 00 00 	mov    %r15,0x0(%r12)
+ 19a:	00 
+ 19b:	31 c0                	xor    %eax,%eax
+ 19d:	c3                   	ret
+ 19e:	4c 8b 3d 5b 2e d7 00 	mov    0xd72e5b(%rip),%r15        # 0xd73000
+ 1a5:	49 81 c7 01 00 00 00 	add    $0x1,%r15
+ 1ac:	4c 89 3d 4d 2e d7 00 	mov    %r15,0xd72e4d(%rip)        # 0xd73000
+ 1b3:	49 89 ff             	mov    %rdi,%r15
+ 1b6:	49 81 ef 01 00 00 00 	sub    $0x1,%r15
+ 1bd:	e9 0a ff ff ff       	jmp    0xcc

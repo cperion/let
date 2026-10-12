@@ -1,0 +1,11 @@
+rm -f build/libabc-tool.a
+ar rcs build/libabc-tool.a build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
+cp tools/assembler.lua build/assembler.lua
+cp tools/opcodes.lua build/opcodes.lua
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Iinclude -Isrc -Ibuild tools/validate_isa.c -o build/validate-isa
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Iinclude -Isrc -Ibuild tools/validate_banked_isa.c build/libabc.a -lm -lpthread -o build/validate-banked-isa
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_symbolic.c build/libabc.a -o build/validate-symbolic
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_residual_ir.c build/libabc-tool.a -lm -o build/validate-residual-ir
+cp tools/abc build/abc
+chmod +x build/abc

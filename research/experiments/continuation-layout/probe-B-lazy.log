@@ -1,0 +1,58 @@
+COMPILE pc=793 virtual=2 existing_at_location=0 origin=9 bias=9 end=11
+RUNTIME pc=793 virtual=2 cbase=1 cells=12 holes=3,7 A=111,333,555 B=222,444,666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=5 canonical_cell=6 old_pointer_reads=97103326743608 expected=202 identity=MOVED
+ROOT 2 old_cell=10 canonical_cell=12 old_pointer_reads=97103326743640 expected=303 identity=MOVED
+INSERTION_COUNTEREXAMPLE moved_roots=2 live_state_unmodified=1
+COMPILE pc=793 virtual=2 existing_at_location=1 origin=9 bias=9 end=11
+RUNTIME pc=793 virtual=2 cbase=1 cells=12 holes=3,7 A=111,333,555 B=222,444,666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=5 canonical_cell=6 old_pointer_reads=97103326743608 expected=202 identity=MOVED
+ROOT 2 old_cell=10 canonical_cell=12 old_pointer_reads=97103326743640 expected=303 identity=MOVED
+INSERTION_COUNTEREXAMPLE moved_roots=2 live_state_unmodified=1
+COMPILE pc=793 virtual=2 existing_at_location=2 origin=9 bias=9 end=11
+RUNTIME pc=793 virtual=2 cbase=1 cells=12 holes=3,7 A=111,333,555 B=222,444,666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=5 canonical_cell=6 old_pointer_reads=97103326743608 expected=202 identity=MOVED
+ROOT 2 old_cell=10 canonical_cell=12 old_pointer_reads=97103326743640 expected=303 identity=MOVED
+INSERTION_COUNTEREXAMPLE moved_roots=2 live_state_unmodified=1
+COMPILE pc=793 virtual=2 existing_at_location=3 origin=9 bias=9 end=11
+RUNTIME pc=793 virtual=2 cbase=1 cells=12 holes=3,7 A=111,333,555 B=222,444,666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=5 canonical_cell=6 old_pointer_reads=97103326743608 expected=202 identity=MOVED
+ROOT 2 old_cell=10 canonical_cell=12 old_pointer_reads=97103326743640 expected=303 identity=MOVED
+INSERTION_COUNTEREXAMPLE moved_roots=2 live_state_unmodified=1
+COMPILE pc=793 virtual=2 existing_at_location=4 origin=9 bias=9 end=11
+RUNTIME pc=793 virtual=2 cbase=1 cells=12 holes=3,7 A=111,333,555 B=222,444,666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=5 canonical_cell=6 old_pointer_reads=97103326743608 expected=202 identity=MOVED
+ROOT 2 old_cell=10 canonical_cell=12 old_pointer_reads=97103326743640 expected=303 identity=MOVED
+INSERTION_COUNTEREXAMPLE moved_roots=2 live_state_unmodified=1
+COMPILE pc=793 virtual=2 existing_at_location=5 origin=9 bias=9 end=11
+RUNTIME pc=793 virtual=2 cbase=1 cells=12 holes=3,7 A=111,333,555 B=222,444,666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=5 canonical_cell=6 old_pointer_reads=97103326743608 expected=202 identity=MOVED
+ROOT 2 old_cell=10 canonical_cell=12 old_pointer_reads=97103326743640 expected=303 identity=MOVED
+INSERTION_COUNTEREXAMPLE moved_roots=2 live_state_unmodified=1
+COMPILE pc=793 virtual=2 existing_at_location=6 origin=9 bias=9 end=11
+RUNTIME pc=793 virtual=2 cbase=1 cells=12 holes=3,7 A=111,333,555 B=222,444,666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=5 canonical_cell=6 old_pointer_reads=97103326743608 expected=202 identity=MOVED
+ROOT 2 old_cell=10 canonical_cell=12 old_pointer_reads=97103326743640 expected=303 identity=MOVED
+INSERTION_COUNTEREXAMPLE moved_roots=2 live_state_unmodified=1
+COMPILE pc=793 virtual=0 existing_at_location=7 origin=3 bias=0 end=2
+RUNTIME pc=793 virtual=0 cbase=12 cells=14 holes= A=555 B=666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=6 canonical_cell=6 old_pointer_reads=202 expected=202 identity=stable
+ROOT 2 old_cell=12 canonical_cell=12 old_pointer_reads=303 expected=303 identity=stable
+INSERTION_COUNTEREXAMPLE moved_roots=0 live_state_unmodified=1
+RUNTIME pc=793 virtual=0 cbase=12 cells=14 holes= A=555 B=666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=6 canonical_cell=6 old_pointer_reads=202 expected=202 identity=stable
+ROOT 2 old_cell=12 canonical_cell=12 old_pointer_reads=303 expected=303 identity=stable
+INSERTION_COUNTEREXAMPLE moved_roots=0 live_state_unmodified=1
+RUNTIME pc=793 virtual=0 cbase=12 cells=14 holes= A=555 B=666
+ROOT 0 old_cell=1 canonical_cell=1 old_pointer_reads=101 expected=101 identity=stable
+ROOT 1 old_cell=6 canonical_cell=6 old_pointer_reads=202 expected=202 identity=stable
+ROOT 2 old_cell=12 canonical_cell=12 old_pointer_reads=303 expected=303 identity=stable
+INSERTION_COUNTEREXAMPLE moved_roots=0 live_state_unmodified=1

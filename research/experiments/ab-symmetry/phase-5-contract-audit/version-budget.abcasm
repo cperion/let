@@ -1,0 +1,30 @@
+; Four acyclic call sites reached with constant and register-valued arguments.
+; All helper entry realizations have the same original bytecode PC.
+.function main 0 1
+PUSH.A 3
+CPUSH.A
+loop:
+CGET.A 0
+CALL.A helper 1
+DROP.A
+CGET.A 0
+CALL.A helper 1
+DROP.A
+CGET.A 0
+CALL.A helper 1
+DROP.A
+CGET.A 0
+CALL.A helper 1
+DROP.A
+CGET.A 0
+SUBI.A 1
+CSET.A 0
+CGET.A 0
+BNEI.A 0 loop
+PUSH.A 42
+RET.A 1 1
+.function helper 1 1
+CGET.A 0
+ADDI.A 1
+RET.A 1 1
+.export main

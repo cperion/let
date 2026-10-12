@@ -1,0 +1,21 @@
+executions: 1188 ample-stack: 36
+layout A original first-success: {'interpreted': 15, 'compiled': 14, 'lazy': 15} status-disagreements: 1 diagnostic-disagreements: 1
+layout A reserved first-success: {'interpreted': 15, 'compiled': 15, 'lazy': 15} status-disagreements: 0 diagnostic-disagreements: 0
+layout A transfer first-success: {'interpreted': 15, 'compiled': 15, 'lazy': 15} status-disagreements: 0 diagnostic-disagreements: 0
+layout B original first-success: {'interpreted': 15, 'compiled': 14, 'lazy': 15} status-disagreements: 1 diagnostic-disagreements: 1
+layout B reserved first-success: {'interpreted': 15, 'compiled': 15, 'lazy': 15} status-disagreements: 0 diagnostic-disagreements: 0
+layout B transfer first-success: {'interpreted': 15, 'compiled': 15, 'lazy': 15} status-disagreements: 0 diagnostic-disagreements: 0
+alias A original first-success: {'interpreted': 15, 'compiled': 14, 'lazy': 15} status-disagreements: 1 diagnostic-disagreements: 1
+alias A reserved first-success: {'interpreted': 15, 'compiled': 15, 'lazy': 15} status-disagreements: 0 diagnostic-disagreements: 0
+alias A transfer first-success: {'interpreted': 15, 'compiled': 15, 'lazy': 15} status-disagreements: 0 diagnostic-disagreements: 0
+alias B original first-success: {'interpreted': 15, 'compiled': 14, 'lazy': 15} status-disagreements: 1 diagnostic-disagreements: 1
+alias B reserved first-success: {'interpreted': 15, 'compiled': 15, 'lazy': 15} status-disagreements: 0 diagnostic-disagreements: 0
+alias B transfer first-success: {'interpreted': 15, 'compiled': 15, 'lazy': 15} status-disagreements: 0 diagnostic-disagreements: 0
+{'fixture': 'layout', 'destination': 'A', 'config': 'transfer', 'mode': 'compiled', 'result': 101, 'activations': 10, 'general_entries': 10, 'materialized_returns': 15, 'materializations': 7}
+{'fixture': 'layout', 'destination': 'A', 'config': 'transfer', 'mode': 'lazy', 'result': 101, 'activations': 10, 'general_entries': 10, 'materialized_returns': 14, 'materializations': 7}
+{'fixture': 'layout', 'destination': 'B', 'config': 'transfer', 'mode': 'compiled', 'result': 101, 'activations': 10, 'general_entries': 10, 'materialized_returns': 15, 'materializations': 7}
+{'fixture': 'layout', 'destination': 'B', 'config': 'transfer', 'mode': 'lazy', 'result': 101, 'activations': 10, 'general_entries': 10, 'materialized_returns': 14, 'materializations': 7}
+{'fixture': 'alias', 'destination': 'A', 'config': 'transfer', 'mode': 'compiled', 'result': 101, 'activations': 10, 'general_entries': 10, 'materialized_returns': 15, 'materializations': 7}
+{'fixture': 'alias', 'destination': 'A', 'config': 'transfer', 'mode': 'lazy', 'result': 101, 'activations': 10, 'general_entries': 10, 'materialized_returns': 14, 'materializations': 7}
+{'fixture': 'alias', 'destination': 'B', 'config': 'transfer', 'mode': 'compiled', 'result': 101, 'activations': 10, 'general_entries': 10, 'materialized_returns': 15, 'materializations': 7}
+{'fixture': 'alias', 'destination': 'B', 'config': 'transfer', 'mode': 'lazy', 'result': 101, 'activations': 10, 'general_entries': 10, 'materialized_returns': 14, 'materializations': 7}

@@ -1,0 +1,3 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_backedges.c build/libabc.a -lm -o build/validate-backedges
+validated backedge register placement: three modes, repeated calls and native version bounds
+validated 113 oracle cases / 678 mirrored three-mode executions; assembled all 282 public core/EXT forms

@@ -1,0 +1,48 @@
+--- src/residualize.c	2026-10-11 22:11:03.317449582 +0200
++++ /tmp/abc-version-limits.BkHDOy/32/src/residualize.c	2026-10-11 23:43:49.010109597 +0200
+@@ -10,6 +10,9 @@
+ #include <sys/mman.h>
+ #include <unistd.h>
+ 
++/* Experiment only: existing native family/continuation policy, not a shared cap. */
++enum { EXPERIMENT_NATIVE_LIMIT = 32 };
++
+ enum { VK_CONST=ABC_SYM_CONST, VK_REG=ABC_SYM_BACKEND, VK_HOME=ABC_SYM_HOME };
+ enum { JS_A=ABC_SYM_A, JS_B=ABC_SYM_B, JS_C=ABC_SYM_C };
+ typedef abc_symbolic_value JValue;
+@@ -461,7 +464,7 @@
+     }
+     unsigned continuations=0;
+     for(Version *v=c->versions[target];v;v=v->next) { int first=1; for(Version *u=c->versions[target];u!=v;u=u->next)if(continuation_equal(&u->in,&v->in)){first=0;break;} continuations+=(unsigned)first; }
+-    return continuations<ABC_BLOCK_VERSION_LIMIT;
++    return continuations<EXPERIMENT_NATIVE_LIMIT;
+ }
+ static Version *version_for(Compiler *c,uint32_t pc,const Context *in) {
+     unsigned count=0; for(Version *v=c->versions[pc];v;v=v->next) {
+@@ -469,7 +472,7 @@
+         if(context_equal(&v->in,in)) { int accepts=1; for(unsigned s=0;s<3;s++) accepts&=in->limit[s]>=v->in.limit[s]; if(accepts) return v; }
+         if(context_family_equal(&v->in,in)) count++;
+     }
+-    if(count>=ABC_BLOCK_VERSION_LIMIT) { c->status=abc_fail(c->error,ABC_INVALID,pc,"compiled block version limit reached without compatible generic context"); return NULL; }
++    if(count>=EXPERIMENT_NATIVE_LIMIT) { c->status=abc_fail(c->error,ABC_INVALID,pc,"compiled block version limit reached without compatible generic context"); return NULL; }
+     Version *v=calloc(1,sizeof *v); if(!v || !context_copy(&v->in,in)) { free(v); c->status=abc_fail(c->error,ABC_NOMEM,pc,"block version allocation failed"); return NULL; }
+     v->pc=pc;v->owner=c;
+     if(c->lazy&&!place_lazy_entry(c,v)){context_free(&v->in);free(v);if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_NOMEM,pc,"lazy entry-stub allocation failed");return NULL;}
+@@ -488,7 +491,7 @@
+         }
+     }
+     unsigned versions=0; for(Version *v=c->versions[target];v;v=v->next) versions+=context_family_equal(&v->in,x);
+-    if(versions>=ABC_BLOCK_VERSION_LIMIT-1 && !conform_generic(c,x)) return NULL;
++    if(versions>=EXPERIMENT_NATIVE_LIMIT-1 && !conform_generic(c,x)) return NULL;
+     return version_for(c,target,x);
+ }
+ 
+@@ -534,7 +537,7 @@
+ static int edge_emits_code(const Compiler *c,uint32_t from,uint32_t target,const Context *x) {
+     if(target<=from)for(unsigned s=0;s<3;s++)for(uint32_t i=0;i<x->n[s];i++)if(x->s[s][i].kind==VK_CONST)return 1;
+     unsigned versions=0;for(Version *v=c->versions[target];v;v=v->next)versions+=context_family_equal(&v->in,x);
+-    return versions>=ABC_BLOCK_VERSION_LIMIT-1;
++    return versions>=EXPERIMENT_NATIVE_LIMIT-1;
+ }
+ /* Publishing registers to distinct canonical homes is safe on either edge:
+    it changes neither register bits nor a live home source. Representation

@@ -1,0 +1,55 @@
+make: Nothing to be done for 'all'.
+/tmp/lua-compat tools/validate_optimizer_isa.lua build/abc-runtime build/optimizer-isa build/validate-optimizer-foreign
+sub-c: optimized emission and three-mode execution PASS
+sub-c-mirror: optimized emission and three-mode execution PASS
+nested-sub: optimized emission and three-mode execution PASS
+nested-sub-mirror: optimized emission and three-mode execution PASS
+divide: optimized emission and three-mode execution PASS
+divide-mirror: optimized emission and three-mode execution PASS
+shift: optimized emission and three-mode execution PASS
+shift-mirror: optimized emission and three-mode execution PASS
+normalize: optimized emission and three-mode execution PASS
+normalize-mirror: optimized emission and three-mode execution PASS
+capture: optimized emission and three-mode execution PASS
+capture-mirror: optimized emission and three-mode execution PASS
+immediate-branch: optimized emission and three-mode execution PASS
+immediate-branch-mirror: optimized emission and three-mode execution PASS
+fused-branch: optimized emission and three-mode execution PASS
+fused-branch-mirror: optimized emission and three-mode execution PASS
+phi-results: optimized emission and three-mode execution PASS
+phi-results-mirror: optimized emission and three-mode execution PASS
+switch: optimized emission and three-mode execution PASS
+switch-mirror: optimized emission and three-mode execution PASS
+halt: optimized emission and three-mode execution PASS
+halt-mirror: optimized emission and three-mode execution PASS
+halt-argument: optimized emission and three-mode execution PASS
+halt-argument-mirror: optimized emission and three-mode execution PASS
+memory-addresses: optimized emission and three-mode execution PASS
+memory-addresses-mirror: optimized emission and three-mode execution PASS
+halt-empty: optimized emission and three-mode execution PASS
+halt-empty-mirror: optimized emission and three-mode execution PASS
+trap: optimized emission and three-mode execution PASS
+trap-mirror: optimized emission and three-mode execution PASS
+check: optimized emission and three-mode execution PASS
+check-mirror: optimized emission and three-mode execution PASS
+call-AA: optimized emission and three-mode execution PASS
+call-AA-mirror: optimized emission and three-mode execution PASS
+call-AB: optimized emission and three-mode execution PASS
+call-AB-mirror: optimized emission and three-mode execution PASS
+call-BA: optimized emission and three-mode execution PASS
+call-BA-mirror: optimized emission and three-mode execution PASS
+call-BB: optimized emission and three-mode execution PASS
+call-BB-mirror: optimized emission and three-mode execution PASS
+recursive-b: optimized emission and three-mode execution PASS
+recursive-b-mirror: optimized emission and three-mode execution PASS
+tail-b: optimized emission and three-mode execution PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+tail-b-mirror: optimized emission and three-mode execution PASS
+foreign-difference: optimized emission and three-mode execution PASS
+foreign-difference-mirror: optimized emission and three-mode execution PASS
+foreign-observe: optimized emission and three-mode execution PASS
+foreign-observe-mirror: optimized emission and three-mode execution PASS
+optimizer ISA: 48 mirrored modules, 228 original/optimized execution pairs

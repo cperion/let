@@ -1,0 +1,45 @@
+.profile memory
+.function runA 1 1
+ PUSH.A 0
+ CPUSH.A
+ TCALL.A valueA 2 0
+.function valueA 0 1
+ PUSH.A 42
+ RET.A 0 1
+.function afterA 1 1
+ PUSH.A 0
+ CPUSH.A
+ TCALL.A middleA 2 0
+.function middleA 0 1
+ CALL.A leafA 0
+ RET.A 0 1
+.function leafA 0 1
+ CALLOC 32
+ CFREE 32
+ PUSH.A 42
+ RET.A 0 1
+.function runB 1 1
+ PUSH.B 0
+ CPUSH.B
+ TCALL.B valueB 2 0
+.function valueB 0 1
+ PUSH.B 42
+ RET.B 0 1
+.function afterB 1 1
+ PUSH.B 0
+ CPUSH.B
+ TCALL.B middleB 2 0
+.function middleB 0 1
+ CALL.B leafB 0
+ RET.B 0 1
+.function leafB 0 1
+ CALLOC 32
+ CFREE 32
+ PUSH.B 42
+ RET.B 0 1
+.export runA
+.export runB
+.export afterA
+.export afterB
+.export middleA
+.export middleB

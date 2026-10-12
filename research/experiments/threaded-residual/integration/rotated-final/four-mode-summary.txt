@@ -1,0 +1,4 @@
+loop off: 106.384ms (1.000x off), 0B | threaded: 46.881ms (0.439x off), 1424B | lazy: 8.289ms (0.078x off), 404B | eager: 8.022ms (0.075x off), 581B
+branch off: 69.881ms (1.000x off), 0B | threaded: 32.294ms (0.463x off), 6352B | lazy: 6.651ms (0.095x off), 1321B | eager: 2.344ms (0.033x off), 2779B
+fib off: 26.086ms (1.000x off), 0B | threaded: 32.852ms (1.256x off), 1784B | lazy: 8.633ms (0.331x off), 789B | eager: 5.560ms (0.213x off), 1024B
+memory off: 3.901ms (1.000x off), 0B | threaded: 3.210ms (0.825x off), 672B | lazy: 1.540ms (0.396x off), 246B | eager: 1.543ms (0.396x off), 309B

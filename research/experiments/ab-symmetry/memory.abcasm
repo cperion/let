@@ -1,0 +1,23 @@
+; Old-ISA baseline source. Regenerate explicitly for revision 6 during migration.
+.profile memory
+.datazero 8
+.function main 0 1 - i
+    PUSH.A 0
+    GST64 0
+    PUSH.A 1000000
+    CPUSH.A
+loop:
+    CGET.A 0
+    BEQI 0 done
+    GLD64 0
+    ADDI.A 1
+    GST64 0
+    CGET.A 0
+    SUBI.A 1
+    CSET.A 0
+    JMP loop
+done:
+    CPOP
+    GLD64 0
+    RET 0 1
+.export main

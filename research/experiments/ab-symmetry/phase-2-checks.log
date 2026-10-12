@@ -1,0 +1,4 @@
+revision-6 ISA metadata: byte map, mirror contracts, layouts and decoding passed
+revision-6 concrete handlers: 16 contracts, repeated execution passed
+validated 2400 exact-state handlers with poisoned dead ABI arguments
+revision-6 assembly/verifier/interpreter: 14 original/mirrored contracts passed

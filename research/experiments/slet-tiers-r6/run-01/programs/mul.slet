@@ -1,0 +1,7 @@
+let loop(n: u32, x: u32, acc: u32): u32 = do
+    if n == 0 then return acc end
+    let next = x * 33 + 17
+    return loop(n - 1, next, acc + (next & 65535))
+end
+let main(n: u32): u32 = loop(n, 305419896, 0)
+

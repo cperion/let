@@ -1,0 +1,128 @@
+BEFORE 2f3 CGET0_A origin=3 bias=0 generic=0
+ A=[]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+AFTER 2f3 CGET0_A origin=3 bias=0 generic=0
+ A=[register:r0->A0]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+BEFORE 2f4 CGET1_A origin=3 bias=0 generic=0
+ A=[register:r0->A0]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+AFTER 2f4 CGET1_A origin=3 bias=0 generic=0
+ A=[register:r0->A0,register:r1->A1]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+BEFORE 2f5 CGETN_A origin=3 bias=0 generic=0
+ A=[register:r0->A0,register:r1->A1]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+AFTER 2f5 CGETN_A origin=3 bias=0 generic=0
+ A=[register:r0->A0,register:r1->A1,register:r2->A2]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+BEFORE 2f7 PUSH8_A origin=3 bias=0 generic=0
+ A=[register:r0->A0,register:r1->A1,register:r2->A2]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+AFTER 2f7 PUSH8_A origin=3 bias=0 generic=0
+ A=[register:r0->A0,register:r1->A1,register:r2->A2,constant:123->A3]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+BEFORE 2f9 TCALL origin=3 bias=0 generic=0
+ A=[register:r0->A0,register:r1->A1,register:r2->A2,constant:123->A3]
+ B=[]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1]
+EXIT 2f9 TCALL origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0]
+BEFORE 300 CALLOC origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0]
+AFTER 300 CALLOC origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+BEFORE 303 PUSH32_A origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+AFTER 303 PUSH32_A origin=4 bias=1 generic=0
+ A=[constant:303->A0]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+BEFORE 308 FST64_A origin=4 bias=1 generic=0
+ A=[constant:303->A0]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+AFTER 308 FST64_A origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+BEFORE 30b FADDR_A origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+AFTER 30b FADDR_A origin=4 bias=1 generic=0
+ A=[register:r3->A0]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+BEFORE 30e GST64 origin=4 bias=1 generic=0
+ A=[register:r3->A0]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+AFTER 30e GST64 origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+BEFORE 313 PUSH32_A origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+AFTER 313 PUSH32_A origin=4 bias=1 generic=0
+ A=[constant:999->A0]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+BEFORE 318 CPUSH_A origin=4 bias=1 generic=0
+ A=[constant:999->A0]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1]
+AFTER 318 CPUSH_A origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1,constant:999->C2]
+BEFORE 319 PUSH32_A origin=4 bias=1 generic=0
+ A=[]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1,constant:999->C2]
+AFTER 319 PUSH32_A origin=4 bias=1 generic=0
+ A=[constant:555->A0]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1,constant:999->C2]
+BEFORE 31e PUSH32_B origin=4 bias=1 generic=0
+ A=[constant:555->A0]
+ B=[]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1,constant:999->C2]
+AFTER 31e PUSH32_B origin=4 bias=1 generic=0
+ A=[constant:555->A0]
+ B=[constant:666->B0]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1,constant:999->C2]
+BEFORE 323 JMP origin=4 bias=1 generic=0
+ A=[constant:555->A0]
+ B=[constant:666->B0]
+ C=[constant:123->C-3,register:r2->C-2,register:r1->C-1,register:r0->C0,home:C1->C1,constant:999->C2]
+EXIT 323 JMP origin=4 bias=1 generic=1
+ A=[home:A0->A0]
+ B=[home:B0->B0]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1,home:C0->C0,home:C1->C1,home:C2->C2]
+BEFORE 326 FADDR_B origin=4 bias=1 generic=1
+ A=[home:A0->A0]
+ B=[home:B0->B0]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1,home:C0->C0,home:C1->C1,home:C2->C2]
+AFTER 326 FADDR_B origin=4 bias=1 generic=1
+ A=[home:A0->A0]
+ B=[home:B0->B0,register:r0->B1]
+ C=[home:C-3->C-3,home:C-2->C-2,home:C-1->C-1,home:C0->C0,home:C1->C1,home:C2->C2]

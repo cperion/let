@@ -1,0 +1,3 @@
+let fib(n: u32): u32 = if n < 2 then n else fib(n - 1) + fib(n - 2)
+let main(n: u32): u32 = fib(n)
+

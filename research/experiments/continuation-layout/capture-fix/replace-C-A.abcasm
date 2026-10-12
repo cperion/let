@@ -1,0 +1,32 @@
+.profile memory
+.function main 12 12 iiiiiiiiiiii iiiiiiiiiiii
+CGETR.A 0 12
+PUSH.B 900
+CSET.B 0
+PUSH.B 901
+CSET.B 1
+PUSH.B 902
+CSET.B 2
+PUSH.B 903
+CSET.B 3
+PUSH.B 904
+CSET.B 4
+PUSH.B 905
+CSET.B 5
+PUSH.B 906
+CSET.B 6
+PUSH.B 907
+CSET.B 7
+PUSH.B 908
+CSET.B 8
+PUSH.B 909
+CSET.B 9
+PUSH.B 910
+CSET.B 10
+PUSH.B 911
+CSET.B 11
+JMP end
+end:
+RET 12 12
+
+.export main

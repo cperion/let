@@ -51,9 +51,9 @@ for name in ('u32','source','u8'):
                 print(f'  {comp[0]:x}..{comp[-1]:x}: {len(comp)} instructions, {calls} call sites')
                 if not calls:print('\n'.join(ins[a][2] for a in comp))
 commands='set pagination off\nset confirm off\n'
-for var,func in [('dyn','vm_dynamic_native'),('classify','abc_dynamic_numeric_classify'),('decode','abc_dynamic_numeric_bits')]:
+for var,func in [('effects','vm_dynamic_native'),('allocate','vm_scalar_allocate')]:
     commands+=f'set ${var}=0\nbreak {func}\ncommands\nsilent\nset ${var}=${var}+1\ncontinue\nend\n'
-commands+='run\nprintf "HELPERS %d %d %d\\n", $dyn, $classify, $decode\n'
+commands+='run\nprintf "RUNTIME %d %d\\n", $effects, $allocate\n'
 cmd=out/'count.gdb';cmd.write_text(commands)
 for name,mode in [('u32','compiled'),('u32','lazy'),('source','compiled'),('source','lazy'),('u8','lazy')]:
     counts=[]
@@ -65,8 +65,8 @@ for name,mode in [('u32','compiled'),('u32','lazy'),('source','compiled'),('sour
         module=src.with_suffix('.abc');execute([root/'build/abc',command,src,'-o',module])
         p=execute(['gdb','-q','-batch','-x',cmd,'--args',current,mode,module,'3'])
         (out/f'count-{name}-{mode}-{n}.log').write_text(p.stdout+p.stderr)
-        match=re.search(r'HELPERS (\d+) (\d+) (\d+)',p.stdout);assert match,p.stdout
+        match=re.search(r'RUNTIME (\d+) (\d+)',p.stdout);assert match,p.stdout
         count=tuple(map(int,match.groups()));counts.append(count)
-        print(name,mode,n,'four calls: dynamic/classifier/decoder',count,flush=True)
+        print(name,mode,n,'four calls: object effects/scalar allocations',count,flush=True)
     assert counts[0]==counts[1],(name,mode,counts)
 
