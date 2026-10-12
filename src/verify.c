@@ -186,7 +186,13 @@ abc_status abc_verify_module(abc_module *module,abc_error *error) {
                 if(metadata->transfer_kind==ABC_TRANSFER_BRANCH)branch=1;
                 else *selected=push(&pool,*selected,ABC_KIND_INT);break;
             }
-            case ABC_TRANSFER_UNARY:case ABC_TRANSFER_CHECK:case ABC_TRANSFER_IMMEDIATE:
+            case ABC_TRANSFER_UNARY:
+                if(metadata->unary_input_kind) {
+                    REQUIRE_KIND(*selected,metadata->unary_input_kind-1);POP(*selected);
+                    *selected=push(&pool,*selected,metadata->unary_result_kind-1);
+                } else { REQUIRE_KIND(*selected,ABC_KIND_INT); }
+                break;
+            case ABC_TRANSFER_CHECK:case ABC_TRANSFER_IMMEDIATE:
                 REQUIRE_KIND(*selected,ABC_KIND_INT);break;
             case ABC_TRANSFER_C_OPERAND: {
                 REQUIRE_KIND(*selected,ABC_KIND_INT);uint32_t slot=cslot(&pool,shape.c,operand[0]);

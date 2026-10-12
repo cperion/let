@@ -1,11 +1,13 @@
 # Runtime primitives and resumable execution
 
-**Status: concrete implementation baseline approved; not implemented.** This records
+**Status: approved baseline; initial owner/runtime-call binding implemented, general
+source lifetimes and other primitive families pending.** This records
 the selected data structures and algorithms for the collector-free runtime and tasks.
 Private interface bindings, concrete fields/signatures and lock/state protocols are
 specified in [runtime-interfaces.md](runtime-interfaces.md); file-by-file changes are
-in [implementation-map.md](implementation-map.md). It does not claim an implemented
-ABI, completed concurrency proof or benchmark result. Changes to
+in [implementation-map.md](implementation-map.md). The initial private ABI and its
+qualified costs are recorded in runtime-interfaces §1.1 and WORKLIST E01/E02/O04–O08;
+this is not a completed runtime/concurrency or source-ownership implementation. Changes to
 these choices require discussion, not an undocumented alternate implementation.
 
 Authorities: [ownership](owners-references-ids.md), [tasks](tasks.md),
@@ -90,9 +92,9 @@ Generated TypeOps routines must return to this loop without recursive host relea
 owner header | length | capacity | aligned elements[]
 ```
 
-Type specialization fixes element stride and copy/release operations. `list(u32)`
-has no per-element type dispatch/release; `list(string)` has statically selected
-holding operations; `list(any)` uses its genuinely dynamic representation.
+Type specialization fixes element stride and copy/release operations. `List(U32)`
+has no per-element type dispatch/release; `List(String)` has statically selected
+holding operations; `List(Any)` uses its genuinely dynamic representation.
 
 ### Strings
 

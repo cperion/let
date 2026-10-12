@@ -4,13 +4,16 @@
 checkbox ledger. [REFACTOR.md](../REFACTOR.md) preserves architecture and historical
 implementation evidence; specs below do not establish implementation status.
 
+- **[Designing and writing Let](designing-and-writing-let.md):** the design/style guide: values, ownership, activities, composition, dialects and naming. PascalCase domain types and snake_case words/values; live-place opening and `endall`, with an explicit implementation-status appendix.
+- **`actual-binding-access-conformance.md`:** implementation-conformance findings for actual bindings/captures and higher-order bounds. Its former new-proposal status is withdrawn; existing live-place and ownership contracts govern.
+- **`module-image-copy.md`:** working-tree loaded-image copy API and bounded pointer-free staging transport; higher-order proof remains blocked.
 - **`runtime-interfaces.md`:** implementer-facing private C interfaces, layouts, ownership transport, scheduler state/memory orders, lock hierarchy and VM binding rules. Target, not implemented.
 - **`implementation-map.md`:** existing/new files, responsibilities, tests and removals keyed to live worklist IDs.
 - **`runtime-primitives.md`:** concrete owner/container/task/scheduler data structures and execution algorithms; approved implementation baseline, ABI binding pending, not implemented.
 - **`owners-references-ids.md`:** approved collector-free ownership target, actual-owner proof, containers/ids, capability facts, explicit remaining gates and required tests. Not implemented.
-- **`application-sugar.md`:** literal-led postfix arguments and member-first, closed-interface lexical receiver calls; ordinary ownership semantics, imports and generic/dynamic boundaries. Not implemented.
-- **`operators-and-blocks.md`:** schema-owned operator protocols and trailing block sugar; static-first design, concrete interface/ordering gates and separate dynamic integration. Not implemented.
-- **`spread.md`:** static supply expansion, second-class packs, record updates, name binding and `use module...` sugar; shared vocabulary expansion executes for supported source values; supply expansion and rest packs remain unimplemented.
+- **`application-sugar.md`:** literal-led application, member-first lexical receiver calls and receiver scopes. Typed routing/captures and live-place opening execute within current admission. Ownership/interface limits remain explicit.
+- **`operators-and-blocks.md`:** schema-owned operator protocols, trailing blocks and the precise approved `endall` expansion. Trailing application and `endall` execute; operators remain unimplemented.
+- **`spread.md`:** supplies, packs, record updates and vocabulary opening. Live field places replace snapshot opening in admitted typed contexts; module aggregate storage remains incomplete. Ordered/keyed supplies and source-only rest/template specialization are implemented; broader qualification and the independent optimizer frame-access defect remain open.
 - **`tasks.md`:** approved structured-task/channel/select design, scoped capabilities, cancellation and work stealing; concrete suspension/concurrency ABIs remain pending. Not implemented.
 - **`word-bindings.md`:** shared word computation and binding policy, literal-do recursion/exports, reserved `oneof`, callable keyed entries, implementation limits and validation scope.
 - **`syntax.md`:** integrated target grammar (spread/rest/import sugar/trailing blocks), operator protocols and standard-library navigation for one collector-free Let; implementation status is separate.

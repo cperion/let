@@ -16,17 +16,17 @@ local function rejects(text,code) rejected(code or 'parse',function() expression
 local tokens=Lex.tokens('... .. . -> --> comment\n21.member 1.5 1..2','dots.let')
 local expected={'...','..','.','-','>','21','.','member','1.5','1','..','2'}
 for index,text in ipairs(expected) do check(tokens[index].text==text,'longest-token/numeric boundary '..index) end
-check(expression('do(x: u32) = x + 1').body.kind=='Expression','arrow-free expression lambda')
-check(expression('do() = unit()').kind=='Lambda','nullary expression lambda')
-check(expression('do(x: u32) return x end').body.kind=='Block','parameterized block lambda')
+check(expression('do(x: U32) = x + 1').body.kind=='Expression','arrow-free expression lambda')
+check(expression('do() = Unit()').kind=='Lambda','nullary expression lambda')
+check(expression('do(x: U32) return x end').body.kind=='Block','parameterized block lambda')
 check(expression('do return 1 end').params[1]==nil,'nullary block lambda')
-check(expression('do(x: u32) = do return x end').body.value.kind=='Lambda','expression body returns nested block without grouping')
-check(expression('do(x: u32): u32 = x').result.kind=='Single','explicit lambda result annotation')
-check(expression('do(): (u32, bool) return 1, true end').result.kind=='Many','vector lambda annotation')
+check(expression('do(x: U32) = do return x end').body.value.kind=='Lambda','expression body returns nested block without grouping')
+check(expression('do(x: U32): U32 = x').result.kind=='Single','explicit lambda result annotation')
+check(expression('do(): (U32, Bool) return 1, true end').result.kind=='Many','vector lambda annotation')
 rejects('do = 1');rejects('do(x) == x');rejects('|x| x')
-check(Parse.source('let make(x: u32) = do() = x\nreturn { functions = { make } }').declarations[1].def.body.value.kind=='Lambda','named expression may return a nullary lambda')
-rejects('|x: u32| -> x')
-rejects('|x: u32| do return x end')
+check(Parse.source('let make(x: U32) = do() = x\nreturn { functions = { make } }').declarations[1].def.body.value.kind=='Lambda','named expression may return a nullary lambda')
+rejects('|x: U32| -> x')
+rejects('|x: U32| do return x end')
 rejects('do return 1 end()')
 rejects('do return 1 end.field')
 check(expression('(do return 1 end)()').callee.kind=='Group','group permits immediate block invocation')
@@ -51,9 +51,9 @@ check(spread.arguments[1].kind=='Spread' and spread.arguments[3].kind=='Spread',
 check(expression('point { ...p, x = 1 }').fields[1].kind=='FieldSpread','keyed spread AST')
 check(expression('[...xs, 1]').items[1].kind=='Spread','array spread AST')
 rejects('1 + ...xs','spread-context');rejects('{ ...p }')
-local rest=Parse.source('let f(a: u32, ...args): u32 = a\nreturn { functions = { f } }')
+local rest=Parse.source('let f(a: U32, ...args): U32 = a\nreturn { functions = { f } }')
 check(rest.declarations[1].def.params[2].kind=='RestParam','named final rest AST')
-rejected('rest-position',function() Parse.source('let f(...args, x: u32): u32 = x') end)
+rejected('rest-position',function() Parse.source('let f(...args, x: U32): U32 = x') end)
 check(expression('do(...args) return 0 end').params[1].kind=='RestParam','literal do shares rest requirement syntax')
 local names=Parse.source('use std.text...; let text...; let context... = make(); return { functions = {} }')
 check(names.declarations[1].spread and names.declarations[1].path=='std.text','suffix import spread AST')
@@ -61,7 +61,9 @@ check(names.declarations[2].kind=='SpreadDecl' and names.declarations[2].name.te
 check(names.declarations[3].initial.kind=='Apply' and names.declarations[3].name.text=='context','initialized vocabulary binding AST')
 local vocabulary=expression('do(ctx...: Context) return ctx end')
 check(vocabulary.params[1].kind=='VocabularyParam' and vocabulary.params[1].annotation.name.text=='Context','annotated vocabulary parameter AST')
-check(expression('do(x, ctx...: Context, ...args) return x end').params[3].kind=='RestParam','vocabulary and rest remain distinct')
+check(expression('do(ctx...: Context, x: U32, ...args) return x end').params[3].kind=='RestParam','vocabulary and rest remain distinct')
+check(Parse.source('let f(ctx...: Context) = 1; return { functions = {} }').declarations[1].def.body.kind=='Expression','named expression-body opening')
+check(expression('do(ctx...: Context) = 1').body.kind=='Expression','literal expression-body opening')
 local named=Parse.source('let configure(ctx...) = do let inner... = make(ctx); return end; return { functions = {} }')
 check(named.declarations[1].def.params[1].kind=='VocabularyParam','named block vocabulary parameter')
 local statement=named.declarations[1].def.body.statements[1]
@@ -70,11 +72,9 @@ for _,text in ipairs{'use ...std.text','let ...context'} do
     rejected('spread-context',function() Parse.source(text) end)
 end
 for _,text in ipairs{
-    'let f(ctx...) = 1',
-    'let f = do(ctx...) = 1',
     'let f(a..., b...) = do return end',
     'let f(a...: Context, b...: Context) = do return end',
-    'extern let f(ctx...: Context): unit',
+    'extern let f(ctx...: Context): Unit',
 } do rejected('vocabulary-position',function() Parse.source(text) end) end
 for _,text in ipairs{'let make()...', 'let ctx... = make(), other()', 'use std.text...more'} do
     rejected('parse',function() Parse.source(text) end)
@@ -82,19 +82,27 @@ end
 local indexed=Compiler.source{profile='slet',source='let context... = make(); let context...; return { functions = {} }'}
 check(indexed.bindings.context~=nil,'only initialized context adds an explicit module binding')
 rejected('duplicate-name',function() Compiler.source{profile='slet',source='let context... = make(); let context = 1; return { functions = {} }'} end)
-local captures=require('let.resolve').captureCandidates(expression('do() let ctx... = factory(seed); return ctx end'))
-check(table.concat(captures,',')=='factory,seed','initialized context capture discovery binds its explicit name')
-captures=require('let.resolve').captureCandidates(expression('do() let ctx...; return 0 end'))
-check(table.concat(captures,',')=='ctx','existing-context expansion reads its context')
+local captured=Compiler.typed{profile='slet',source=[[
+let Context = { amount: U32 }
+let factory(seed: U32): Context = Context { amount = seed }
+let main(seed: U32): U32 = do let word = do() let ctx... = factory(seed) return amount end return word() end
+]]}
+check(captured.functions[#captured.functions].hidden==1,'initialized context captures its selected outer seed, not its own binding')
+captured=Compiler.typed{profile='slet',source=[[
+let Context = { amount: U32 }
+let main(): U32 = do let ctx = Context { amount = 42 } let word = do() let ctx... return amount end return word() end
+]]}
+local fn=captured.functions[#captured.functions]
+check(fn.hidden==1 and fn.params[1].kind=='PlaceParam','existing-context expansion captures the actual context place')
 check(expression('a .. b .. c').right.operator=='..','right-associative concatenation syntax')
 for _,case in ipairs{
-    {'spread-unimplemented','let main(): u32 = f(...xs)'},
-    {'spread-source','let unknown...; let main(): u32 = 0'},
-    {'unknown-name','let ctx... = make(); let main(): u32 = 0'},
-    {'import-input','use missing...; let main(): u32 = 0'},
+    {'spread-source','let f(x: U32): U32 = x; let main(): U32 = f(...1)'},
+    {'spread-source','let unknown...; let main(): U32 = 0'},
+    {'unknown-name','let ctx... = make(); let main(): U32 = 0'},
+    {'import-input','use missing...; let main(): U32 = 0'},
     {'parameter-type','let main(ctx...) = do return 0 end'},
-    {'rest-unimplemented','let f(...args): u32 = 0; return { functions = { f } }'},
-    {'concatenation-unimplemented','let main(): u32 = "a" .. "b"'},
+    {'pack-index','let f(...args): U32 = args[0]; let main(): U32 = f(); return { functions = { main } }'},
+    {'concatenation-unimplemented','let main(): U32 = "a" .. "b"'},
 } do rejected(case[1],function() Compiler.typed{profile='slet',source=case[2]} end) end
 
 local function run(source,expected)
@@ -107,59 +115,59 @@ local function run(source,expected)
     return unit
 end
 run('let main = do return 42 end',42)
-run('let main = do(): u32 = 42',42)
-run('let add(x: u32, y: u32): u32 = x + y\nlet main(): u32 = add 20 22',42)
-run('let make(x: u32) = do(y: u32) = y + 2\nlet main(): u32 = make 0 40',42)
-run('let make() = do() = 42\nlet main(): u32 = make()()',42)
-run('let make() = do(): u32 return 42 end\nlet main(): u32 = make()()',42)
-run('let apply(x: u32, f: (): u32): u32 = x + f()\nlet main(): u32 = apply 20 do return 22 end',42)
+run('let main = do(): U32 = 42',42)
+run('let add(x: U32, y: U32): U32 = x + y\nlet main(): U32 = add 20 22',42)
+run('let make(x: U32) = do(y: U32) = y + 2\nlet main(): U32 = make 0 40',42)
+run('let make() = do() = 42\nlet main(): U32 = make()()',42)
+run('let make() = do(): U32 return 42 end\nlet main(): U32 = make()()',42)
+run('let apply(x: U32, f: (): U32): U32 = x + f()\nlet main(): U32 = apply 20 do return 22 end',42)
 run([[
-let pair(): (u32, u32) = do return 20, 22 end
-let take(x: u32): u32 = x
-let add(x: u32, y: u32): u32 = x + y
-let main(): u32 = take((pair())) + add(pair())
+let pair(): (U32, U32) = do return 20, 22 end
+let take(x: U32): U32 = x
+let add(x: U32, y: U32): U32 = x + y
+let main(): U32 = take((pair())) + add(pair())
 ]],62)
 run([[
-let invoke(x: u32, f: (): u32): u32 = x + f()
-let pair(): (u32, u32) = do return 20, 900 end
-let main(): u32 = invoke(pair(), do return 22 end)
+let invoke(x: U32, f: (): U32): U32 = x + f()
+let pair(): (U32, U32) = do return 20, 900 end
+let main(): U32 = invoke(pair(), do return 22 end)
 ]],42)
 run([[
-let invoke(f: (u32): u32): u32 = f(20)
-let main(): u32 = invoke do(n): u32 return n + 22 end
+let invoke(f: (U32): U32): U32 = f(20)
+let main(): U32 = invoke do(n): U32 return n + 22 end
 ]],42)
 run([[
-let cell = { value: u32 }
-let main(): u32 = do
-  let box = cell { value = 0 }
+let Cell = { value: U32 }
+let main(): U32 = do
+  let box = Cell { value = 0 }
   let delayed = do box.value = 42 return box.value end
   if box.value != 0 then return 100 end
   return delayed()
 end
 ]],42)
 run([[
-let id(n: u32): u32 = n
-let main(): u32 = id 40 + (do return 2 end)()
+let id(n: U32): U32 = n
+let main(): U32 = id 40 + (do return 2 end)()
 ]],42)
 run([[
-let pair(): (u32, u32) = do return 20, 22 end
-let forward(): (u32, u32, u32) = do return 1, pair() end
-let main(): u32 = do let first, a, b = forward() return first + a + b end
+let pair(): (U32, U32) = do return 20, 22 end
+let forward(): (U32, U32, U32) = do return 1, pair() end
+let main(): U32 = do let first, a, b = forward() return first + a + b end
 ]],43)
 check(Compiler.typed{profile='slet',source='let main = do return end'}.phase=='typed-ir','entry discovery does not impose a new result ABI')
-run('let main(): i64 = i64(42)',42)
-run('let main = do(): i64 = i64(42)',42)
+run('let main(): I64 = I64(42)',42)
+run('let main = do(): I64 = I64(42)',42)
 rejected('export-callable',function() Compiler.typed{profile='slet',source='let main = 42'} end)
 run([[
-let invoke(f: (u32): u32): u32 = f(21)
-let main(): u32 = invoke do(x): u32 = x * 2
+let invoke(f: (U32): U32): U32 = f(21)
+let main(): U32 = invoke do(x): U32 = x * 2
 ]],42)
 run([[
-let make(): (u32): u32 = (do(y: u32): u32 = 20 + y)
-let main(): u32 = do let f = make() return f(22) end
+let make(): (U32): U32 = (do(y: U32): U32 = 20 + y)
+let main(): U32 = do let f = make() return f(22) end
 return { functions = { main } }
 ]],42)
 rejected('type-mismatch',function() Compiler.typed{profile='slet',source=[[
-let main(): u32 = do let f: (u32): u32 = do(x): bool = true return 0 end
+let main(): U32 = do let f: (U32): U32 = do(x): Bool = true return 0 end
 ]]} end)
 print(('syntax batch: %d checks, %d VM executions'):format(checks,executions))

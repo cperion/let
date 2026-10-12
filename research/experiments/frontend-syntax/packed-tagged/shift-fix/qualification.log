@@ -1,0 +1,31 @@
+luajit: tests/packed_tagged.lua:24: fixture 26 interpreted optimized=false: BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+.profile memory
+.rodata 0000000000000080
+.function main 0 2 - ii
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CSET.A 1
+  PUSH.A 0
+  CSET.A 0
+  PUSH.A 0
+  ZX32.A
+  CGET.B 1
+  OR.A
+  CSET.A 1
+  .loadkind float
+  GLD64.A 0
+  CSET.A 0
+  CGET.A 1
+  CGET.A 0
+  RET.A 2 2
+.export main
+
+stack traceback:
+	[C]: in function 'assert'
+	tests/packed_tagged.lua:24: in function 'run'
+	tests/packed_tagged.lua:102: in main chunk
+	[C]: at 0x59b70e893120
+packed tagged integer/storage subset: 737 checks, 200 VM executions

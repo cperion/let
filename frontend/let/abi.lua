@@ -21,6 +21,7 @@ int abc_module_export_signature(const abc_module *, const char *, abc_signature 
 int abc_vm_create(const abc_limits *, abc_vm **, abc_error *);
 int abc_vm_load(abc_vm *, const abc_module *, abc_error *);
 void abc_vm_free(abc_vm *);
+int abc_vm_read_image(const abc_vm *, const abc_module *, size_t, void *, size_t, abc_error *);
 int abc_vm_call(abc_vm *, const abc_module *, const char *, const uint64_t *, size_t,
                 uint64_t *, size_t, size_t *, abc_error *);
 const char *abc_status_name(int);

@@ -1,0 +1,2 @@
+saved()	REJECT [borrow-store] at higher-order-retention.let:7 Local retained access cannot enter longer-lived storage
+apply(saved)	ACCEPTED (missing retention proof)

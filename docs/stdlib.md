@@ -20,7 +20,7 @@ unknown standard module rejects rather than loading an arbitrary working-directo
 file. The target has `.let` source only.
 
 Predefined constructors and value operations are distinct from imported module
-exports. `store`, `list`, `id`, `table`, `frozen`, `freeze`, `is`, `fmt`, `has`, `remove`
+exports. `Store`, `List`, `id`, `Table`, `Frozen`, `freeze`, `is`, `fmt`, `has`, `remove`
 and `count` are documented predefined names; this does not make them keywords or
 require their algorithms to be compiler intrinsics. `count` is part of the proposed
 table vocabulary, but its exact domain/signature still needs finalization (see §8).
@@ -51,14 +51,14 @@ before implementing those files. Do not expose conflicting spellings accidentall
 | `std.program` | Program startup, scoped argument/string readers and host integration | Complete API/signatures pending; emission flags are not source words |
 | `std.task` | `scope`, `yield`, `select`, `on_after`, channel/handle/result types; group/channel/handle methods | Source contract specified in §7 and tasks.md; concrete ABI/remaining API details identified there |
 
-There is no approved public `std.store`, `std.list`, mutex module or atomic-reference
+There is no approved public `std.Store`, `std.List`, mutex module or atomic-reference
 module. Containers use predefined type constructors and their methods. Standard
 library source executes through the ordinary frontend/ABC path; privileged byte,
 allocation, I/O and scheduler operations bind explicit runtime contracts.
 
 ## 3. Stores and ids: predefined types
 
-`store(T) {}` creates an empty independent-slot store; `id(T)` is a non-owning
+`Store(T) {}` creates an empty independent-slot store; `Id(T)` is a non-owning
 position/generation link. Copies duplicate slot state and values, not addresses.
 
 | Expression | Result/meaning |
@@ -81,8 +81,8 @@ iteration guarantees.
 
 ## 4. Lists, strings and snapshots
 
-`list(T) {}` is a COW growable value sequence. `l[i]` copies/updates a value; it is
-not a stable addressable element. `ref(l[i])` rejects. Local instance aliases differ
+`List(T) {}` is a COW growable value sequence. `l[i]` copies/updates a value; it is
+not a stable addressable element. `Ref(l[i])` rejects. Local instance aliases differ
 from value copies across parameters, returns and field stores.
 
 | List member | Contract |
@@ -100,7 +100,7 @@ from value copies across parameters, returns and field stores.
 method copy-out under reentrant mutation is unresolved and must be specified before
 accepting such calls; do not invoke a method on a stale element address.
 
-A string is a COW byte value, not `slice(u8)`. No Unicode normalization or implicit
+A string is a COW byte value, not `Slice(U8)`. No Unicode normalization or implicit
 numeric formatting is imposed. Literal buffers are immortal; substrings share storage.
 
 | String member/conversion | Contract |
@@ -109,10 +109,10 @@ numeric formatting is imposed. Literal buffers are immortal; substrings share st
 | `append(t)`, `push(b)` | Grow by string/byte, detaching when required |
 | `sub(a,b)` | Shared substring over [a,b) |
 | `compact()` | Explicit copy retaining only selected bytes |
-| `view()` | Immutable snapshot `slice(u8)` |
-| `string(view)` | Copy byte view into a string |
+| `view()` | Immutable snapshot `Slice(U8)` |
+| `String(view)` | Copy byte view into a string |
 
-`ref(s[i])` rejects. Readonly views of **mutable** arrays are not immutable snapshots
+`Ref(s[i])` rejects. Readonly views of **mutable** arrays are not immutable snapshots
 and are not automatically transferable. `..` concatenates strings or same-element
 lists; `..=` derives a compound store. No numeric coercion or spread/reduction into
 `..` is implied.
@@ -126,7 +126,7 @@ one L01 contract; examples in proposals are not authorization to expose both sil
 | Operation names | Contract |
 | --- | --- |
 | `sub`, `prefix`, `suffix` | Shared substrings |
-| `find`, `find_from` | `found(u32)` or `missing` |
+| `find`, `find_from` | `found(U32)` or `missing` |
 | `contains`, `starts_with`, `ends_with` | Bool byte tests |
 | `split` | List of shared substrings; empty-separator policy pending |
 | `join`, `repeat` | Construct resulting string |
@@ -154,8 +154,8 @@ replacement callback rules and resource handling must be settled before implemen
 
 ## 6. Tables and frozen/dynamic values
 
-`table {}` creates an ordered COW value map. `w.name` addresses a named string key;
-`w[k]` accepts string/integer/bool keys. Values are transferable `any`. Missing reads
+`Table {}` creates an ordered COW value map. `w.name` addresses a named string key;
+`w[k]` accepts string/integer/bool keys. Values are transferable `Any`. Missing reads
 abort; `has(w,k)` tests presence and `remove(w,k)` removes. There is no nil, escaped
 entry ref or shared mutable identity across copies.
 
@@ -166,7 +166,7 @@ Map removal creates a gap rather than shifting. Builtin-member versus user-key
 collisions and insertion history during dense/map migration remain explicit gates.
 
 `freeze(v)` copies or safely moves into immutable counted storage; it never invalidates
-surviving mutable aliases. `frozen(T)` access is immutable. `any` holds only transferable
+surviving mutable aliases. `Frozen(T)` access is immutable. `Any` holds only transferable
 values and immutable boxes, not raw pointers, mutable-backed views or group capabilities.
 `is(x,t)` and checked conversions preserve ordinary scalar rules.
 
@@ -191,8 +191,8 @@ handles are scoped capabilities, not unrestricted transferable values.
 | `ch.on_send(v, handler)` | Handler receives send result |
 | `task.on_after(ns, handler)` | Monotonic timer case; handler receives unit |
 
-Library result types: `sent_or_closed = oneof { sent: unit, closed: unit }` and
-`received(t) = oneof { item: t, closed: unit }`; channel type `task.chan(t)`.
+Library result types: `sent_or_closed = oneof { sent: Unit, closed: Unit }` and
+`received(t) = oneof { item: t, closed: Unit }`; channel type `task.chan(t)`.
 Concrete result-vector `task.handle(...)` type construction, time representation/
 limits, empty select and scope multi-result extension remain tasks.md API gates.
 No ambient `task.channel`, old `with_tasks`, detached spawn, public mutex or automatic
@@ -202,7 +202,7 @@ deadline. Other tasks cannot read or write mutable module storage.
 ```let
 use std.task
 
-let total(): u64 = task.scope(u64) do(g)
+let total(): U64 = task.scope(U64) do(g)
   let a = g.spawn() do return sum_range(0, 500) end
   let b = g.spawn() do return sum_range(500, 1000) end
   return a.join() + b.join()
@@ -216,7 +216,7 @@ This uses approved trailing-block sugar and is not a runnable current example.
 `with_buffer`, `with_file` and `with_terminal` lend checked views backed by private
 resources. Views cannot escape their scope. Normal completion performs cleanup;
 abort does not unwind. File-close/terminal-restore failure supersedes the body's
-result. Raw `ptr` combinators do not acquire these guarantees merely by using a
+result. Raw `Ptr` combinators do not acquire these guarantees merely by using a
 trailing block. Byte/stream interfaces and result sums must preserve borrow origins.
 
 Before calling the library reference complete, specify:

@@ -144,8 +144,8 @@ conformance and effects may emit additional work.
 ## Instruction set and module format
 
 The revision-6 core map contains **124 A/B pairs, EXT.A/EXT.B and six neutral
-instructions**. Fourteen families use EXT selectors; there are 282 public selected
-core/extended forms. EXT, selector and operands are one instruction with one
+instructions**. Sixteen families use EXT selectors, including the two raw float/
+integer bitcasts; there are 286 public selected core/extended forms. EXT, selector and operands are one instruction with one
 origin PC. No internal quickening encodings or dynamic selectors are allocated.
 
 CALLI.X is two bytes total (opcode, arguments); TCALLI.X is three (opcode,

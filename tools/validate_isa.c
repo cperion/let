@@ -10,8 +10,15 @@ static abc_decoded_instruction decode(const uint8_t *code, size_t length) {
 }
 
 int main(void) {
-    assert(ABC_ISA_REVISION == 6 && OP_COUNT == 256 && EXT_COUNT == 14);
-    assert(ABC_OPERATION_COUNT == 145);
+    assert(ABC_ISA_REVISION == 6 && OP_COUNT == 256 && EXT_COUNT == 16);
+    assert(ABC_OPERATION_COUNT == 147);
+    assert(EXT_F2BITS == 0x0e && EXT_BITS2F == 0x0f);
+    assert(abc_extended_instructions[EXT_F2BITS].minimum_profile == 2);
+    assert(abc_extended_instructions[EXT_BITS2F].minimum_profile == 2);
+    assert(abc_extended_instructions[EXT_F2BITS].unary_input_kind == 3);
+    assert(abc_extended_instructions[EXT_F2BITS].unary_result_kind == 1);
+    assert(abc_extended_instructions[EXT_BITS2F].unary_input_kind == 1);
+    assert(abc_extended_instructions[EXT_BITS2F].unary_result_kind == 3);
     assert(OP_SUB_A == 0x22 && OP_SUB_B == 0x23);
     assert(OP_CALL_A == 0x86 && OP_RET_B == 0x8b);
     assert(OP_CALLI_A == 0xd4 && OP_TCALLI_B == 0xd7);
@@ -68,6 +75,14 @@ int main(void) {
     assert(instruction.metadata->operation == ABC_OPERATION_BGTI);
     assert(instruction.selected_stack == ABC_STACK_A && instruction.length == 5);
     assert(instruction.operands == immediate_branch + 2);
+
+    const uint8_t bits_to_float[] = {0xf9, 0x0f};
+    instruction = decode(bits_to_float, sizeof bits_to_float);
+    assert(instruction.metadata->operation == ABC_OPERATION_BITS2F);
+    assert(instruction.selected_stack == ABC_STACK_B && instruction.length == 2);
+    assert(!abc_decode_instruction(bits_to_float, 1, &instruction));
+    const uint8_t reserved_selector[] = {0xf8, 0x10};
+    assert(!abc_decode_instruction(reserved_selector, 2, &instruction));
 
     const uint8_t indirect_call[] = {0xd5, 2};
     instruction = decode(indirect_call, sizeof indirect_call);

@@ -30,7 +30,7 @@ No separate native value IR or region allocator file is planned.
 
 | IDs | Existing files | Touch / replace |
 | --- | --- | --- |
-| S01–S03 | `frontend/let/semantic.lua`, `analysis.lua`, `resolve.lua`, `check.lua`, `ir.lua`, `schema/ir.lua`, `specialize.lua` | Introduce specified value/place/state/knowledge/demand identities into the authoritative semantic path; replace AST-kind staticness shortcuts, not the IR with another frontend |
+| S01–S03 | `frontend/let/semantic.lua`, `analysis.lua`, `source_state.lua`, `check.lua`, `ir.lua`, `schema/ir.lua`, `specialize.lua` | Introduce specified value/place/state/knowledge/demand identities into the authoritative semantic path; replace AST-kind staticness shortcuts, not the IR with another frontend |
 | S04 | `frontend/let/compiler.lua`, `stage.lua`, `abi.lua`, `tools/abc`, `tools/slet_frontend.lua`, `src/cli.c` | Thread static policy/session through typed/compile/CLI APIs; keep parsing independent and runtime tier separate |
 | S05–S06 | `frontend/let/stage.lua`, `abi.lua`, `compiler.lua`, `abc.lua`, `src/vm.c`, `src/memory_module.c`, `include/abc.h` | Add explicitly checked aggregate/state transport, persistent initializer images and cleanup; public ABI changes need review |
 | S07–S08 | `frontend/tests/staging.lua`, `staging_sessions.lua`, `staging_no_optimizer.lua`, `compiler.lua`, `tools/validate_staging_abi.c`, `tools/validate_lifetime.c` | End-to-end demand/session/snapshot tests, removal of replaced orchestration, memory/time evidence |
@@ -51,12 +51,19 @@ New tests: `frontend/tests/source_demands.lua`, `source_snapshots.lua`; wire the
 | IDs | Existing files | New files / concrete responsibility |
 | --- | --- | --- |
 | E01 | `tools/opcodes.lua`, `tools/gen_opcodes.lua`, `gen/semantics.lua`, `gen/banked.lua`, `gen/symbolic.lua`, `frontend/let/abc.lua`, `src/verify.c`, `Makefile` | `gen/runtime_primitives.lua`: authoritative effect/holding/layout catalog; generated `build/generated/runtime_primitives.h` and frontend metadata, never hand-edited |
-| E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`, `src/type_ops.h`, `gen/type_ops.lua`: owner/count/iterative release ABI; generated type holding operations bind without recursive VM calls |
+| E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`, `src/type_ops.h`, `gen/type_ops.lua`: initial owner/count/iterative release implemented; `src/runtime_call.h/.c` binds catalog calls to the current VM. `frontend/let/runtime.lua`/`lifetime.lua` emit checked-IR calls and explicit holding slots; source placement/general owning layouts remain rejected, not silently lowered |
 | E03, T03–T04 | `src/execution_emit.h`, `src/residualize.c/.h`, `src/symbolic.c/.h`, `src/vm.c`, `src/vm_internal.h`, `src/threaded.h`, `src/threaded_emit.c`, `src/native_image.c`, `gen/banked.lua`, `gen/cold.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `gen/execution_forms.lua` | `src/task.h/.c`: task-owned state; extend emitter entry/resume contract, generate save/restore from existing placement, remove task stack addresses from shared image constants |
 | E04 | same E03 bindings plus P/T files below | Exact ticket/state/lock protocol in `task.c`, `channel.c`, `task_select.c`, `scheduler.c`; no generic concurrency facade |
 | E05 | `src/native_image.c`, `src/native_emit.c/.h`, `src/execution_emit.h`, `src/residualize.c/.h`, `src/vm.c` | Immutable per-realization publication/entry slots; remove whole-image lazy RW/RX reopening. Preserve emitter-owned relocations/W^X |
 | E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | New `tools/validate_owners.c`, `tools/validate_task_resume.c`; integrate typed owner/suspension fixtures across modes |
-| O01–O03 | `frontend/let/semantic.lua`, `analysis.lua`, `check.lua`, `schema/ir.lua`; S metadata above | `frontend/let/ownership.lua`: root/borrow/strict-edge summaries, SCC solving and diagnostics; `frontend/tests/ownership.lua`: rejected cycles and retained-access cases |
+| O01–O03 | `frontend/let/semantic.lua`, `source_state.lua`, `analysis.lua`, `access.lua`, `check.lua`, `frontend/ir.asdl`, generated `schema/ir.lua`; S metadata above | `frontend/let/ownership.lua` now implements the qualified source-only formal/fresh-root, borrow/count/edge binding and iterative SCC diagnostics; `frontend/tests/ownership.lua` covers that inference. Broader generalization/export contracts and counted execution remain incomplete; see WORKLIST O03 |
+
+Initial runtime evidence: `frontend/tests/runtime_owners.lua`, `tools/validate_owners.c`
+and `research/experiments/runtime-owners/README.md`. The generator emits concrete
+release for its three admitted descriptors; no generic type-plan interpreter exists.
+Container/task operations, source-specialized descriptors, source placement and
+worker/task context separation remain pending. Existing ISA kinds/encodings and
+shared symbolic allocator are unchanged by this binding.
 
 `src/dynamic.c`, `src/dynamic.h`, `src/whippet_types.h` and archived tracing engines
 are not runtime prerequisites. Audit their references before removal; do not add them
@@ -92,11 +99,13 @@ serializing; filenames in this table do not authorize an implicit format extensi
 | --- | --- | --- |
 | U01–U02 | `frontend/let/compiler.lua`, `semantic.lua`, `analysis.lua`, `check.lua`, `schema/ir.lua`, `abc.lua` | Replace `PROFILES` semantic switches and `.managed/.dynamic` ownership assumptions with checked capabilities; new `frontend/let/effects.lua` for summaries, not another evaluator |
 | U03–U05 | `frontend/let/compiler.lua`, `tools/abc`, `tools/slet_frontend.lua`, `src/cli.c`, `Makefile`, `examples/`, `frontend/tests/`, `tools/validate_slet_frontend.lua`, active docs; editor configs if found | Rename active `.slet` fixtures/entry tools and remove dual discovery/ambiguity logic. Archive names stay intact; no `.slet` alias |
-| X01–X03 | `frontend/ast.asdl`, `frontend/let/lex.lua`, `parse.lua`, `schema/ast.lua`, `resolve.lua`, `compiler.lua`, `semantic.lua`, `check.lua`, S metadata | Spread/rest syntax and suffix vocabulary nodes now parse, including initialized contexts; supply expansion/second-class packs remain unimplemented. Shared vocabulary binding, namespace lookup and capture integration execute through `source_state.lua`/`semantic.lua`; semantic coverage: `frontend/tests/vocabulary.lua`. Type/function exports share one public namespace. No runtime pack or namespace tag. Syntax tests: `frontend/tests/syntax_batch.lua`. |
-| X04–X06 | same plus `compiler.lua:indexDeclarations/typedFile` and `resolve.lua` | Keyed override/name-introduction/import-sugar checks; preserve declaration visibility and one module initialization |
+| X01–X03 | `frontend/ast.asdl`, `frontend/let/lex.lua`, `parse.lua`, `schema/ast.lua`, `source_state.lua`, `compiler.lua`, `semantic.lua`, `check.lua`, S metadata | Spread/rest syntax and suffix vocabulary nodes now parse, including initialized contexts; shared ordered/keyed supplies and second-class rest packs execute through source-only templates. `source_state.lua` owns qualified formation anchors; `semantic.lua` builds typed component recipes and invokes the same word elaborator once per specialization. `tests/spread.lua` and `tests/rest_templates.lua` cover admission and execution; templates have no erased variadic ABC entries. Shared vocabulary binding, namespace lookup and capture integration execute through `source_state.lua`/`semantic.lua`; semantic coverage: `frontend/tests/vocabulary.lua`. Type/function exports share one public namespace. No runtime pack or namespace tag. Syntax tests: `frontend/tests/syntax_batch.lua`. |
+| X04–X06 | same plus `compiler.lua:indexDeclarations/typedFile` and binding-resolved semantic lookup | Keyed override/name-introduction/import-sugar checks; preserve declaration visibility and one module initialization |
+| X07 | `frontend/ast.asdl`, `parse.lua`, generated `schema/ast.lua`; `frontend/let/semantic.lua` parameter bindings, opening, reads/stores and capture transport; `source_state.lua` place/value metadata; `check.lua`; `frontend/tests/vocabulary.lua`, `receiver_scopes.lua`, `anonymous_context.lua` | Implemented within admitted typed contexts: eager field snapshots removed; field places of one retained receiver introduced. Optional-name VocabularyParam and CurrentContext support anonymous home, checked-context type, explicit `(...)` reads and expression bodies. One opening, first runtime requirement after leading Type inputs; no whole-home rebinding or public reference holder. Parameters and template recipes return bindings to shared expansion, without fabricated names. Preserve projections, permissions, lifetime/interface information and explicit saved-value reads. No new capture permission, runtime namespace or physical-C0 contract. |
 | Q01–Q04 | `frontend/let/schema.lua`, `semantic.lua`, `check.lua`, `schema/ir.lua`, `abc.lua` | Preserve schema operator authority, resolve ordinary methods, index place-aware read/modify/write; new `frontend/tests/operators.lua` |
 | Q05–Q06 | `frontend/let/parse.lua`, `schema/ast.lua`, `semantic.lua`, `frontend/tests/lambdas.lua` | Desugar one literal-led argument (literal plus member/index/explicit-call chain), block-only application and trailing blocks before argument adjustment; preserve contextual types/captures/return, minus, indexing and keyed supplies. No signature-aware parsing. New `frontend/tests/trailing_blocks.lua` and literal-call cases |
 | Q07 | Q static files plus D type descriptors and callable lowering | Dynamic descriptor dispatch calls ordinary implementations; no per-instance tables or backend scalar copies |
+| Q12 | `frontend/let/lex.lua`, `parse.lua` block/delimiter context; parser/syntax tests and documentation | Implemented `endall`: expand only a bounded trailing-callback spine to ordinary closers; `frontend/tests/endall.lua` qualifies boundaries and execution. Preserve origins, reject other contexts, and prove AST/execution equivalence. No new semantic AST/control node or runtime instruction. |
 | Q08 | `frontend/let/semantic.lua` result inference, method/lambda builders, `Function:build` and defer scopes; `check.lua`, `schema/ir.lua`, `abc.lua`, `frontend/tests/compiler.lua`, `lambdas.lua`, operator tests | Unit fallthrough uses ordinary bare-return cleanup. Add §10's conservative resolved-SCC unit classification before any defaults, excluding nested callable returns and respecting non-unit contracts. Preserve inner-block flow; no last-expression value return |
 
 Q09 touches `frontend/let/lex.lua` (remove `->` token), `parse.lua:lambda` (unified
@@ -121,13 +130,19 @@ Test explicit/contextual result agreement and the existing entry ABI policy.
 An ungrouped block-lambda atom cannot accept postfix/self-delimited continuation;
 Q10 must test post-end newlines, explicit grouping and unchanged infix continuation.
 
-Q11 touches `frontend/let/semantic.lua` invoked-member/call resolution,
-`resolve.lua`, `schema.lua`, `check.lua` and ordinary IR consumers. Existing member
-wins; a closed interface without it enables lexical receiver insertion. Keep table/any
-and namespace paths separate. Resolve generics in definition scope, retain copy/ref
-semantics and add `frontend/tests/receiver_calls.lua` for priorities, imports, failure,
-copy-transform/ref-mutation and effect order. No runtime dispatch node or member table
-is needed solely for this sugar. `fmt` remains the existing lexical operation.
+Q11 uses `frontend/let/semantic.lua` invoked-member/call resolution and actual-binding
+capture registration, plus `source_state.lua` word/capture completion. The syntactic
+`resolve.lua` capture pass is removed. Existing members win; closed-interface lexical
+calls supply a copied value or borrow a writable place according to the first parameter.
+Opening retains an innermost lexical receiver. X07 now replaces snapshots with live
+field places, including scalar captures. Updated tests pass; broader frozen/readonly
+proof remains incomplete. Pointer-free module-root storage has working-tree
+qualification, but higher-order retention bounds are an explicit S05/S06 blocker;
+see `research/experiments/frontend-syntax/module-aggregate-access/`.
+Keep table/any and namespace paths separate. `frontend/tests/receiver_scopes.lua` covers
+priorities, imports, copy/ref effects, recursive captures and noncaptures. Broader generic,
+frozen-place and discarded-copy-write qualification remains open. No new runtime dispatch
+node, member table, ABI or allocator is introduced. `fmt` remains the lexical operation.
 
 Q03 lexical operator fallback uses existing interface/name resolution in
 `semantic.lua` and ordinary operator elaboration/checking; extend

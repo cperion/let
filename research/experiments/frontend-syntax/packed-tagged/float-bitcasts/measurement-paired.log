@@ -1,0 +1,22 @@
+fixture	roundtrip
+before	raw	145	optimized	145	CALLOC	1
+current	raw	144	optimized	144	CALLOC	0
+optimized=false mode=interpreted before_ns=56.9 current_ns=68.1 delta_pct=+19.8 prepare_ms=1.037/0.465 first_us=61.0/67.0
+optimized=false mode=threaded before_ns=44.9 current_ns=34.6 delta_pct=-22.9 prepare_ms=0.914/0.668 first_us=14.0/4.0
+optimized=false mode=eager before_ns=29.3 current_ns=31.3 delta_pct=+6.8 prepare_ms=0.856/0.517 first_us=5.0/5.0
+optimized=false mode=lazy before_ns=32.7 current_ns=35.3 delta_pct=+8.0 prepare_ms=0.448/0.596 first_us=40.0/25.0
+optimized=true mode=interpreted before_ns=58.4 current_ns=69.4 delta_pct=+18.8 prepare_ms=1.270/1.263 first_us=19.0/18.0
+optimized=true mode=threaded before_ns=44.2 current_ns=31.9 delta_pct=-27.8 prepare_ms=1.415/1.111 first_us=10.0/4.0
+optimized=true mode=eager before_ns=29.9 current_ns=30.6 delta_pct=+2.2 prepare_ms=0.661/0.534 first_us=4.0/3.0
+optimized=true mode=lazy before_ns=35.4 current_ns=37.4 delta_pct=+5.5 prepare_ms=1.006/0.473 first_us=32.0/56.0
+fixture	add
+before	raw	164	optimized	164	CALLOC	1
+current	raw	163	optimized	163	CALLOC	0
+optimized=false mode=interpreted before_ns=73.7 current_ns=76.1 delta_pct=+3.3 prepare_ms=0.282/0.320 first_us=16.0/13.0
+optimized=false mode=threaded before_ns=49.4 current_ns=43.0 delta_pct=-13.0 prepare_ms=0.475/0.508 first_us=7.0/3.0
+optimized=false mode=eager before_ns=32.8 current_ns=31.6 delta_pct=-3.8 prepare_ms=0.383/0.414 first_us=5.0/4.0
+optimized=false mode=lazy before_ns=34.9 current_ns=32.3 delta_pct=-7.5 prepare_ms=0.377/0.571 first_us=34.0/25.0
+optimized=true mode=interpreted before_ns=69.5 current_ns=83.1 delta_pct=+19.6 prepare_ms=0.462/0.382 first_us=23.0/10.0
+optimized=true mode=threaded before_ns=49.0 current_ns=35.9 delta_pct=-26.8 prepare_ms=0.505/0.507 first_us=8.0/6.0
+optimized=true mode=eager before_ns=29.9 current_ns=28.2 delta_pct=-5.7 prepare_ms=0.767/0.598 first_us=6.0/4.0
+optimized=true mode=lazy before_ns=34.7 current_ns=31.4 delta_pct=-9.4 prepare_ms=0.551/0.450 first_us=61.0/29.0

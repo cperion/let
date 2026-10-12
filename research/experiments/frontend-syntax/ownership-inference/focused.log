@@ -1,0 +1,5 @@
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+ownership inference: 170 checks, 56 VM executions
+access proofs: 176 checks, 112 VM executions
+receiver scopes before imports: 300 checks, 288 VM executions
+receiver scopes: 407 checks, 384 VM executions

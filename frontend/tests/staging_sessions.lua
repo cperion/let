@@ -27,7 +27,7 @@ for key,value in abiFacts:gmatch('([%w_.]+) (%d+)') do
     if actual==nil then actual=field and ffi.offsetof(ty,field) or ffi.sizeof(key) end
     check(actual==tonumber(value),'FFI declaration matches public header: '..key)
 end
-local function uint(n,ty) return I.Const(ty or S.u64,I.UInt(n)) end
+local function uint(n,ty) return I.Const(ty or S.U64,I.UInt(n)) end
 local function abi(name,results)
     return I.Fn(name,I.Entry,0,L{},L(results),L{},L{I.Return(L{uint(0)})})
 end
@@ -51,17 +51,17 @@ local artifact={profile='slet',lineMap={},assembly=[[
 .export get
 .export fail
 ]]}
-local declarations={abi('bump',{S.u64}),abi('get',{S.u64}),abi('fail',{S.u64})}
+local declarations={abi('bump',{S.U64}),abi('get',{S.U64}),abi('fail',{S.U64})}
 local function call(program,entry) return program:call{entry=entry}.cells[1] end
 local input=I.Value(1)
-local calc=I.Fn('calc',I.Entry,0,L{S.inValue(S.u32)},L{S.u32},L{I.ValueParam(0,input,S.u32)},
-    L{I.Return(L{I.Bin(I.Mul,I.Ref(input,S.u32),uint(2,S.u32),S.u32)})})
-local floatIdentity=I.Fn('float_identity',I.Entry,0,L{S.inValue(S.f64)},L{S.f64},L{I.ValueParam(0,input,S.f64)},
-    L{I.Return(L{I.Ref(input,S.f64)})})
-local floatAdd=I.Fn('float_add',I.Entry,0,L{S.inValue(S.f64)},L{S.f64},L{I.ValueParam(0,input,S.f64)},
-    L{I.Return(L{I.Bin(I.Add,I.Ref(input,S.f64),I.Const(S.f64,I.Float(1.0)),S.f64)})})
+local calc=I.Fn('calc',I.Entry,0,L{S.inValue(S.U32)},L{S.U32},L{I.ValueParam(0,input,S.U32)},
+    L{I.Return(L{I.Bin(I.Mul,I.Ref(input,S.U32),uint(2,S.U32),S.U32)})})
+local floatIdentity=I.Fn('float_identity',I.Entry,0,L{S.inValue(S.F64)},L{S.F64},L{I.ValueParam(0,input,S.F64)},
+    L{I.Return(L{I.Ref(input,S.F64)})})
+local floatAdd=I.Fn('float_add',I.Entry,0,L{S.inValue(S.F64)},L{S.F64},L{I.ValueParam(0,input,S.F64)},
+    L{I.Return(L{I.Bin(I.Add,I.Ref(input,S.F64),I.Const(S.F64,I.Float(1.0)),S.F64)})})
 local floatArtifact=Compiler.lower({floatIdentity,floatAdd},{profile='slet',exports={'float_identity','float_add'}})
-local unitFn=I.Fn('empty',I.Entry,0,L{},L{S.unit},L{},L{I.Return(L{uint(0,S.unit)})})
+local unitFn=I.Fn('empty',I.Entry,0,L{},L{S.Unit},L{},L{I.Return(L{uint(0,S.Unit)})})
 local calcArtifact=Compiler.lower({calc,unitFn},{profile='slet',exports={'calc','empty'}})
 for _,mode in ipairs{'interpreted','eager','lazy','threaded'} do
     for _,optimize in ipairs{false,true} do
@@ -100,19 +100,19 @@ for _,mode in ipairs{'interpreted','eager','lazy','threaded'} do
         check(arithmetic:call{entry='calc',arguments={21}}.cells[1]==42,'VM arithmetic in '..mode)
         local floats=session:prepare(floatArtifact,{floatIdentity,floatAdd})
         for _,bits in ipairs{'0','9223372036854775808','9218868437227405312','9221120237041090626','18442240474082181120'} do
-            local result=floats:call{entry='float_identity',arguments={{type=S.f64,bits=Int.parse(bits)}}}
+            local result=floats:call{entry='float_identity',arguments={{type=S.F64,bits=Int.parse(bits)}}}
             check(Int.format(result.cells[1],false)==bits,'f64 identity preserves exact bits: '..bits)
         end
         check(Int.format(floats:call{entry='float_add',arguments={'4607182418800017408'}}.cells[1],false)=='4611686018427387904',
             'floating arithmetic is performed by VM')
         rejects('static-argument',function() arithmetic:call{entry='calc',arguments={ffi.new('double',21)}} end,'no implicit cdata conversion')
-        local mismatch=session:prepare(calcArtifact,{I.Fn('calc',I.Entry,0,L{S.inValue(S.f64)},L{S.u32},L{},L{})})
+        local mismatch=session:prepare(calcArtifact,{I.Fn('calc',I.Entry,0,L{S.inValue(S.F64)},L{S.U32},L{},L{})})
         rejects('static-signature',function() mismatch:call{entry='calc',arguments={0}} end,'signature kinds checked')
-        local address=session:prepare(artifact,{abi('get',{S.ref(S.unit)})})
+        local address=session:prepare(artifact,{abi('get',{S.Ref(S.Unit)})})
         rejects('static-transport',function() call(address,'get') end,'address transport is not a scalar guess')
         rejects('static-assembly',function() session:prepare({assembly='not an instruction',lineMap={}},{}) end,'malformed assembly rejects')
         rejects(optimize and 'abc-opt-invalid' or 'static-vm-invalid',function()
-            session:prepare({assembly='.function bad 0 1\nRET.A 0 1\n.export bad\n',lineMap={}},{abi('bad',{S.u64})})
+            session:prepare({assembly='.function bad 0 1\nRET.A 0 1\n.export bad\n',lineMap={}},{abi('bad',{S.U64})})
         end,'public loader independently rejects invalid bytecode')
         check(call(first,'get')==99,'prepare errors leave existing images intact')
         session:close(); session:close()

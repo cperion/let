@@ -1,14 +1,20 @@
 # Supplies, spread and packs
 
-**Status: shared vocabulary expansion is implemented for supported source values;
-integrated and four-mode execution validation passes.** Ordered/keyed
-supply expansion and rest packs remain unimplemented. See
+**Status: vocabulary, ordered/keyed supplies and source-only rest/template
+specialization are implemented within current admission and partially qualified.**
+The spread suite passes all unoptimized four-mode cases; eight optimized configurations
+are blocked by the independently reproduced optimizer frame-access defect. Other
+optimized cases pass. Module binding vectors share one accepted initializer execution.
+Rest templates use qualified formation anchors: selected value captures snapshot at
+definition time; opened places remain live. The integrated rest suite validates direct/
+indirect adapters, recursion, captures and source-only imports/exports. See
+[spread evidence](../research/experiments/frontend-syntax/spread/README.md) and
 [the vocabulary evidence](../research/experiments/frontend-syntax/vocabulary/README.md).
 This document specifies
 static spread, packs and name introduction for the unified `.let` language. It
 extends [syntax.md](syntax.md), using the existing value/place/ownership contracts.
-Concrete elaboration interfaces and the open details below require approval before
-implementation. It does not enable runtime-arity calls or restore open-word machinery.
+The ordered/keyed/rest architecture and its source formation-point extension were
+approved and implemented. This does not enable runtime-arity calls or restore open-word machinery.
 
 ## 1. Principle and scope
 
@@ -26,7 +32,7 @@ Spread is not a standalone value operator, tuple constructor or recursive flatte
 
 Runtime-length list expansion is deferred, including its construction syntax.
 Runtime table-key expansion into fixed keyed calls is not included. Neither
-`f(...some_list)` nor spreading an opaque `any` is a runtime argument dispatcher.
+`f(...some_list)` nor spreading an opaque `Any` is a runtime argument dispatcher.
 Spreading into concatenation `..` is also deferred: no implicit reduction, separator
 or empty-input rule is invented. Builtin `..` concatenates two strings or two lists
 of the same element type; it does not accept a runtime-length spread/reduction.
@@ -82,12 +88,12 @@ A word may have one unannotated rest requirement, last in its ordered parameter 
 Named-definition sugar and an equivalent literal-do binding have the same privilege:
 
 ```let
-let logged(t: type, f: t, ...args) = do
+let logged(T: Type, f: T, ...args) = do
   log "calling"
   return f(...args)
 end
 
-let result = logged((u32): u32, twice, 21)
+let result = logged((U32): U32, twice, 21)
 ```
 
 `t` is an explicit static calling requirement; `f` supplies an implementation of
@@ -97,9 +103,9 @@ specialization; a runtime callable with that known signature uses ordinary indir
 transport. The signature fixes the ABI even when the implementation is unknown.
 
 This is the approved generic adapter pattern, not `logged(f, ...args)` with a
-silently generic `f`. An unannotated named parameter still defaults to `any`, with
+silently generic `f`. An unannotated named parameter still defaults to `Any`, with
 its normal dynamic/transferability restrictions. No implicit type parameter, new
-`callable` keyword, runtime pack or special `any` treatment is introduced. `log`
+`callable` keyword, runtime pack or special `Any` treatment is introduced. `log`
 and `twice` above are illustrative definitions supplied by the program.
 
 A pack has a statically known length and per-component types, but its values may
@@ -112,7 +118,7 @@ Permitted operations:
 - `args.length`: static length;
 - `args[i]`: select a component using a static, in-range integer index.
 
-Packs cannot be assigned as ordinary values, placed in records/arrays/`any`, captured
+Packs cannot be assigned as ordinary values, placed in records/arrays/`Any`, captured
 as pack objects or returned as one object. Individual components may be used or
 captured under their normal contracts; `return ...args` returns the components,
 not the pack. No ordinary `pack` runtime type or layout is introduced. Each component
@@ -124,8 +130,9 @@ existing static partial-supply rules still apply. A rest requirement is not an
 unfilled slot that delays invocation indefinitely. There is no keyed rest, rest
 destructuring, C varargs or rest parameter annotation in this first scope.
 Literal-do binding syntax shares this rest form, so naming sugar grants no extra pack capability.
-Pack elaboration still rejects as unimplemented in the current compiler. This does not specify
-first-class erased variadic callable signatures or foreign varargs.
+Pack elaboration uses ordinary typed component inputs. Unspecialized templates remain
+source definitions, including public imports/exports, not erased variadic ABC entries.
+This does not specify first-class erased variadic signatures or foreign varargs.
 
 Packs can support library formatting through specialization. They do not alone
 make every format static: compile-time format checking additionally requires a
@@ -136,7 +143,7 @@ strings retain runtime checks; no second compile-time string evaluator is author
 
 An adapter specializes its static calling requirement and pack shape while retaining
 runtime component values and their ownership/effect facts. For
-`logged((u32): u32, twice, 21)`, the requirement and argument/result shapes are known;
+`logged((U32): U32, twice, 21)`, the requirement and argument/result shapes are known;
 if `twice` retains known code identity, lowering emits an ordinary direct call.
 Otherwise a conforming runtime callable uses the same fixed-signature indirect ABI.
 Neither case needs an allocated tuple, runtime varargs array or dynamic arity scan.
@@ -145,7 +152,7 @@ This does not guarantee call elimination, zero copies or allocation-free callee 
 Ordinary static partial supply specializes the policy's interface:
 
 ```let
-let log_u32 = logged((u32): u32)
+let log_u32 = logged((U32): U32)
 let a = log_u32(twice, 21)
 let b = log_u32(square, 7)
 ```
@@ -161,7 +168,7 @@ Pre-call work and exact tail-result forwarding use `return f(...args)`. Post-cal
 work that does not inspect the result components can use the existing defer contract:
 
 ```let
-let traced(t: type, f: t, ...args) = do
+let traced(T: Type, f: T, ...args) = do
   print "enter"
   defer print "leave"
   return f(...args)
@@ -185,8 +192,8 @@ adjustment applies. Inspecting arbitrary returned components requires a separate
 specified capability; argument packs do not imply result-pack bindings. Retrying
 needs repeatability/failure policy; memoization needs keys, state and cacheability.
 No generic purity, automatic replay or cache semantics are introduced by these examples.
-Erased runtime variadic callable interfaces remain outside this scope; literal-do bindings share
-the named form's source-level rest syntax and its current explicit elaboration rejection.
+Erased runtime variadic callable interfaces remain outside this scope; literal-do bindings
+share the named form's source-level rest syntax and specialization path.
 
 ## 4. Keyed spread and record update
 
@@ -218,8 +225,9 @@ implemented by record spread.
 
 ## 5. Introducing names: `let context...`
 
-Suffix `...` introduces vocabulary; prefix `...` expands supplies or collects rest
-requirements. The approved name-introduction forms are:
+Suffix `...` introduces vocabulary; prefix `...expression` expands supplies or
+collects named rest requirements. Alone, `...` reads the current runtime home.
+In parameters, `...: T` receives and opens one unnamed home. The forms are:
 
 ```let
 let context...             -- expand an existing binding
@@ -228,33 +236,83 @@ use std.text...            -- import, retain text, then expand
 with_context(n) do(ctx...) -- receive one ordinary argument, then expand
   action()
 end
+with_context(n) do(...)    -- same operation, no user-visible context identifier
+  action()
+end
+let squared(...: Point): F64 = x*x + y*y
 ```
 
-The context remains available for qualified access. An initialized context uses
+A named context remains available for qualified access. An unnamed home is read
+explicitly with `(...)`, including `(f)(..., other)` for ordinary explicit calls.
+Type comes from its annotation or a checked callback signature, never from searching
+values by type. One parameter may be opened, at the first runtime position after
+leading static Type parameters; this applies equally to named and unnamed openings.
+Opening is a word-entry operation, so both expression and block bodies are admitted.
+Whole-home assignment rejects; the retained reference holder has no public address.
+Record homes and field places retain ordinary checked borrow/lifetime rules. No
+physical C0 placement, effect row or ownership-by-construction guarantee follows.
+
+An initialized context uses
 ordinary single-binding result adjustment, not a pack or a hidden namespace object.
 To expand a computed expression, give it an explicit context name. The old prefix
 binding/import spellings are rejected, not retained as aliases.
 
-**Implementation status:** suffix forms, shared record/namespace expansion and
-constructor aliases execute. The suite has 92 checks and 64 unoptimized executions
-across four modes, also passing with the pre-packed lowering. Existing initializer,
-capture and executable-profile restrictions remain; this does not complete aggregate
-staging or escaping owned closures. Public type/function exports share one namespace:
-repeated public spellings reject across both sections, an explicitly approved tightening
-of the previous export contract. There are no runtime namespace objects.
+**Implemented within admitted typed contexts:** record opening exposes live field
+places, not field-read snapshots. The rule is **open the context to work with it;
+bind a value to remember it**. This intentionally supersedes the previous snapshot
+contract; no parallel snapshot-opening mode or compatibility spelling is introduced.
+
+The implementation has suffix forms, namespace/constructor aliases, receiver scopes
+and binding-resolved place captures. Updated vocabulary tests pass 92 checks / 64
+executions; receiver tests pass 407 checks / 384 optimized/unoptimized executions.
+Full validation and isolation with pre-packed lowering pass. Evidence:
+`research/experiments/frontend-syntax/live-opening-endall/`. Historical snapshot logs
+remain historical. WORKLIST X07 records remaining admission limits: module aggregate
+storage, broader owned closures and frozen/readonly proofs are not added by opening.
+
+Otherwise-unbound bare calls use the retained receiver; actual members win over lexical
+words, and the selected first parameter determines copy versus borrow. Locally bound
+callables stay ordinary. An opened callable field is read from its live place and
+invoked with its own signature, without an inserted receiver argument. Nested openings
+choose the innermost receiver, never search for a matching signature. `(name)(args)`
+or namespace qualification bypasses implicit receiver insertion. Module/sum openings
+introduce definitions, not runtime receivers or namespaces.
+See [application-sugar.md](application-sugar.md#31-receiver-scopes).
 
 Introduce all eligible names from the context into the current lexical scope:
 
 | Source | Names introduced |
 | --- | --- |
 | Module | Public exported words, types and values, resolving to the same exported definitions |
-| Record | Data fields as immutable bindings holding ordinary field-read copies |
+| Record or reference-to-record | Immutable names for live field places of the retained receiver |
 | Sum type | Its alternative constructors |
 
-Methods are not detached from record receivers. Runtime tables, result vectors,
-packs and arrays cannot introduce names. Record snapshots do not observe later
-writes to the original fields. Modules do not expose private declarations or names
-of their own imports unless those names are explicitly part of the export contract.
+A field name is bound to a logical place, not to its contents at opening time. Reading
+it has the same value-read semantics as qualified access through the retained context.
+Writing it stores to that field if the place is writable; it does not rebind the name.
+Readonly/frozen access remains readonly/frozen. Opening itself does not eagerly read
+or copy all fields. Methods remain attached to the receiver; opening does not introduce
+detached method bindings or change existing explicit bound-method behavior.
+
+Establish the context once. An initializer runs once and a reference context retains
+its actual referent; field access does not reevaluate the initializer. Opening a
+by-value parameter still concerns that parameter's copy, not the caller's object.
+Use a reference parameter when the activity must operate on the caller's actual state.
+Place identity, owner retention and copy-on-write behavior follow ordinary place rules;
+do not freeze a backing-store address or manufacture an independently owned copy.
+
+`let saved = field` reads an ordinary value, like `let saved = context.field`; it
+introduces no second live projection. This does not deep-copy reference referents or
+change ordinary instance-alias rules outside field reading. A nested word using an
+opened field retains access to that field's place, even for a scalar field. Captures
+must preserve the place/owner/lifetime dependency rather than silently snapshotting its
+contents. Existing escape restrictions still apply. Capture a deliberately saved value
+when snapshot behavior is wanted; do not copy a context to bypass borrowing limits.
+
+Runtime tables, result vectors, packs and arrays cannot introduce names. Modules do
+not expose private declarations or their imports unless explicitly exported. Public
+type/function exports share one namespace: repeated public spellings reject across
+both sections.
 
 Spread may not shadow. A collision with any visible name—including builtins,
 parameters and earlier spread names—rejects `spread-shadow`; diagnostics name both
@@ -270,8 +328,9 @@ rules continue to apply to the spread source itself.
 
 A binding spread does not automatically export anything. Ordinary explicit export
 configuration still applies; no wildcard/re-export syntax is added. Module-definition
-aliases require no runtime copying, but record snapshots may allocate or retain.
-No blanket zero-cost claim is made.
+aliases require no runtime copying. Opening a record does not copy its fields, but
+initialization, parameter passing, owner retention, value reads and captures still have
+their ordinary effects and costs. No blanket zero-cost claim is made.
 
 ## 6. Import and spread sugar
 
@@ -307,12 +366,13 @@ supply-item       := expression | spread-item
 supply-list       := supply-item (',' supply-item)* ','?
 keyed-item        := Name '=' expression | spread-item
 binding-spread    := 'let' Name '...' ('=' expression)?
-vocabulary-param := Name '...' (':' expression)?
+vocabulary-param := (Name '...' | '...') (':' expression)?
 rest-requirement  := '...' Name
+current-context   := '...' (bare expression; group before an expression-start token)
 use-declaration   := 'use' dotted-name '...'?
 ```
 
-Argument/return/binding-initializer lists admit `supply-list`; keyed initializers
+Argument/return/binding-initializer lists admit `supply-List`; keyed initializers
 admit `keyed-item`. Existing array construction admits spread elements without
 changing its type/length or empty-construction rules. Named ordered parameters admit
 one optional final rest requirement, including a rest-only list. Ordinary parameter
@@ -325,7 +385,8 @@ to the general expression precedence table.
 
 ## 8. Diagnostics and conformance
 
-Proposed new diagnostic names (not implemented):
+Diagnostic contracts (ordered/keyed spread and vocabulary diagnostics are implemented;
+pack diagnostics are implemented in rest-template elaboration):
 
 | Diagnostic | Cause |
 | --- | --- |
@@ -346,11 +407,13 @@ multiple-result expansion, nonrecursive flattening, parentheses, empty packs and
 preserved rejection of invalid empty-array construction,
 implicit final forwarding, unit results, return/binding differences, partial versus
 rest-saturated calls, heterogeneous runtime pack components and rejected pack erasure.
-Test keyed overlaps/unknown keys/readonly requirements; snapshots versus aliases;
+Test keyed overlaps/unknown keys/readonly requirements; live opened field places versus
+explicit saved values, nested mutation visibility, scalar/aggregate place captures,
+reference-context identity and escape restrictions;
 methods excluded; all module export kinds and sum constructors; builtin/namespace/
 forward-declaration collisions; lexical visibility; sugar equivalence and single
 module initialization. Include hidden owner/group bounds in components and rejected
-runtime lists/tables/`any` call expansion. Verify resulting ordinary IR and all
+runtime lists/tables/`Any` call expansion. Verify resulting ordinary IR and all
 applicable execution bindings, not just parser acceptance.
 
 Adapter acceptance additionally covers explicit callable requirements with known and
@@ -364,5 +427,7 @@ Unannotated `f` must not be silently promoted to the explicit-requirement behavi
 Source elaboration must reuse existing value/place, demand and specialization
 machinery, preserve existing scheduling and VM-only computation, and emit ordinary
 checked IR. No runtime pack object, hidden ABC cells, new scalar engine or allocator
-is authorized. Measure specialization/code growth, copies, retains and initialization
+is authorized. Absolute specialization/code-growth samples are recorded in
+[rest-template evidence](../research/experiments/frontend-syntax/spread/rest-templates/README.md).
+They are not resource or speedup bounds. Measure copies, retains and initialization
 costs before making performance claims.

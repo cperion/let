@@ -1,0 +1,87 @@
+/tmp/lua-compat tools/gen_opcodes.lua build/opcodes.h
+/tmp/lua-compat gen/banked.lua build/generated
+/tmp/lua-compat gen/cold.lua build/generated/cold.inc
+/tmp/lua-compat gen/symbolic.lua build/generated
+/tmp/lua-compat gen/fold.lua build/generated/symbolic_fold.c
+/tmp/lua-compat gen/execution_layout.lua build/generated/execution_forms.h
+/tmp/lua-compat gen/stencils.lua build/generated
+/tmp/lua-compat gen/threaded.lua build/generated/threaded.c
+build/abc-asdlc schema/residual.asdl --header build/generated/residual_ir.h --source build/generated/residual_ir.c
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/optimize.c -o build/optimize.o
+generated 2950 seven-register threaded handlers
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/module.c -o build/pic/module.o
+generated 3770 register-addressed stencils
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/memory_module.c -o build/pic/memory_module.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/verify.c -o build/pic/verify.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -Wno-cast-function-type-strict -Wno-unused-parameter -c build/generated/foreign.c -o build/pic/foreign.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/vm.c -o build/pic/vm.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/semantics.c -o build/pic/semantics.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/symbolic.c -o build/pic/symbolic.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/symbolic_dispatch.c -o build/pic/symbolic_dispatch.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/symbolic_fold.c -o build/pic/symbolic_fold.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/banked_0.c -o build/pic/banked_0.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/banked_1.c -o build/pic/banked_1.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/banked_2.c -o build/pic/banked_2.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/banked_3.c -o build/pic/banked_3.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/banked_4.c -o build/pic/banked_4.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/banked_5.c -o build/pic/banked_5.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/banked_6.c -o build/pic/banked_6.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/banked_7.c -o build/pic/banked_7.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residualize.c -o build/pic/residualize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/native_image.c -o build/pic/native_image.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/threaded_emit.c -o build/pic/threaded_emit.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-unused-parameter -Wno-tautological-compare -fPIC -c build/generated/threaded.c -o build/pic/threaded.o
+cp tools/opcodes.lua build/opcodes.lua
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -Ibuild/generated -c build/generated/residual_ir.c -o build/pic/generated_residual_ir.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residual_ir.c -o build/pic/residual_ir.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residual_validate.c -o build/pic/residual_validate.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residual_analysis.c -o build/pic/residual_analysis.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residual_builder.c -o build/pic/residual_builder.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residual_c.c -o build/pic/residual_c.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/optimize.c -o build/pic/optimize.o
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Iinclude -Isrc -Ibuild tools/validate_isa.c -o build/validate-isa
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/cli.c -o build/cli.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/module.c -o build/module.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/memory_module.c -o build/memory_module.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/verify.c -o build/verify.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict -Wno-unused-parameter -c build/generated/foreign.c -o build/foreign.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/vm.c -o build/vm.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/semantics.c -o build/semantics.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/symbolic.c -o build/symbolic.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/symbolic_dispatch.c -o build/generated/symbolic_dispatch.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/symbolic_fold.c -o build/generated/symbolic_fold.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/banked_0.c -o build/banked_0.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/banked_1.c -o build/banked_1.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/banked_2.c -o build/banked_2.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/banked_3.c -o build/banked_3.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/banked_4.c -o build/banked_4.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/banked_5.c -o build/banked_5.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/banked_6.c -o build/banked_6.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/banked_7.c -o build/banked_7.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residualize.c -o build/residualize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -std=c2x -w -fno-builtin -fno-pic -fno-pie -fcf-protection=none -fno-asynchronous-unwind-tables -ffunction-sections -fno-stack-protector -c build/generated/stencils.c -o build/generated/stencils.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/native_image.c -o build/native_image.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/threaded_emit.c -o build/threaded_emit.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-unused-parameter -Wno-tautological-compare -c build/generated/threaded.c -o build/generated/threaded.o
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Ibuild/generated -c build/generated/residual_ir.c -o build/generated/residual_ir.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_ir.c -o build/residual_ir.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_analysis.c -o build/residual_analysis.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_validate.c -o build/residual_validate.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_dump.c -o build/residual_dump.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_builder.c -o build/residual_builder.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_c.c -o build/residual_c.o
+/tmp/clang20 -shared -O2 -g build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o -lm -o build/libabc-opt.so
+rm -f build/libabc-tool.a
+ar rcs build/libabc-tool.a build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_residual_ir.c build/libabc-tool.a -lm -o build/validate-residual-ir
+/tmp/lua-compat tools/extract_stencils.lua build/generated/stencils.o build/generated/stencils.order build/generated/stencils.h
+build/generated/stencils.h: 3770 stencils, 77472 bytes of code, 3090 tail jumps removed
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/native_emit.c -o build/native_emit.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/native_emit.c -o build/pic/native_emit.o
+/tmp/clang20 -shared -O2 -g -Wl,-z,defs build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/banked_0.o build/pic/banked_1.o build/pic/banked_2.o build/pic/banked_3.o build/pic/banked_4.o build/pic/banked_5.o build/pic/banked_6.o build/pic/banked_7.o build/pic/residualize.o build/pic/native_emit.o build/pic/native_image.o build/pic/threaded_emit.o build/pic/threaded.o -lm -o build/libabc.so
+rm -f build/libabc.a
+ar rcs build/libabc.a build/module.o build/memory_module.o build/verify.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/banked_0.o build/banked_1.o build/banked_2.o build/banked_3.o build/banked_4.o build/banked_5.o build/banked_6.o build/banked_7.o build/residualize.o build/native_emit.o build/native_image.o build/threaded_emit.o build/generated/threaded.o
+/tmp/clang20 -O2 -g build/cli.o build/libabc.a -o build/abc-runtime
+cp tools/abc build/abc
+chmod +x build/abc

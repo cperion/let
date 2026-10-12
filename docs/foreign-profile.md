@@ -18,7 +18,7 @@ Revision 6/profile 4 contains the eight callable-profile sections plus section 9
 
 ## Binding and execution
 
-Bindings are VM-local and must be installed before any module is loaded:
+Ordinary host bindings are VM-local and must be installed before any module is loaded:
 
 ```c
 abc_vm_bind_foreign(vm, "host_mix",
@@ -26,8 +26,20 @@ abc_vm_bind_foreign(vm, "host_mix",
 abc_vm_load(vm, module, &error);
 ```
 
-`abc_vm_load` rejects a module if any named extern is unbound. Bindings cannot change after a module has been loaded into that VM. The host function's actual C signature must exactly match the module declaration. Integer cells use `uint64_t`, address cells use the platform's 64-bit integer/pointer argument class, and float cells use `double`. Results use the corresponding return class.
+`abc_vm_load` rejects a module if any ordinary host extern is unbound. Bindings cannot change after a module has been loaded into that VM. The host function's actual C signature must exactly match the module declaration. Integer cells use `uint64_t`, address cells use the platform's 64-bit integer/pointer argument class, and float cells use `double`. Results use the corresponding return class.
 
 The build generates a finite C-ABI bridge for every permitted integer/float register shape. No compiler or dynamic symbol lookup runs while loading a module. `FCALL` is a full cache synchronization boundary in the interpreter. The native sink synchronizes required homes and emits the foreign boundary using the bound extern index and selected bank. Eager/lazy native preparation follows the chosen execution mode; the extern binding itself is resolved when the VM image is loaded. Neither mode rewrites FCALL bytecode.
 
-Foreign calls are host effects: the host function is responsible for pointer validity, termination and side effects. The in-process staging service prohibits foreign execution; leaving externs unbound rejects preparation of a module that declares them. Supporting runtime foreign calls does not authorize compile-time host effects. Active API and optimizer tests exercise both banks, ordered arguments, live prefixes and single execution of effects; see `REFACTOR.md`.
+Ordinary foreign calls are host effects: the host function is responsible for pointer validity, termination and side effects. The in-process staging service prohibits arbitrary foreign execution; leaving host externs unbound rejects preparation of a module that declares them. Supporting runtime foreign calls does not authorize compile-time host effects.
+
+The private `__let_rt_` namespace is reserved for catalog-generated runtime bindings,
+currently version `__let_rt_v1_`. These use the same extern cells and FCALL transport,
+not a new ownership ISA. Module loading rejects unknown reserved names or mismatched
+signatures; host rebinding and source `extern` declarations of those names reject.
+Exact catalog operations are available during staging through the VM runtime, not
+arbitrary host symbol resolution. This initial family implements owner scopes,
+allocation, retain/drop/move, data access and a generated single-owner field update.
+See [runtime-interfaces §1.1](runtime-interfaces.md#11-implemented-initial-call-binding)
+for failure cleanup and current admission; source counted escapes remain rejected.
+
+Active API and optimizer tests exercise both banks, ordered arguments, live prefixes and single execution of effects; see `REFACTOR.md`.

@@ -1,0 +1,4 @@
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+runtime owner lowering: 29 checks, 24 VM executions; emitted both-bank raw/optimized images
+build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc build/runtime-owners-reentry.abc
+runtime owners: 201268 checks; local/shared/immortal, 100001-owner release, both banks raw/optimized in four modes, failure cleanup and VM reuse

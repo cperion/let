@@ -204,7 +204,10 @@ static int dag_binary(void *opaque,uint32_t origin,unsigned opcode,unsigned dest
 }
 static int dag_unary(void *opaque,uint32_t origin,unsigned opcode,unsigned stack,int folded,
         abc_symbolic_value input,abc_symbolic_value *result) {
-    DagSink *s=opaque;if(folded)return 1;uint32_t value=dag_value(s,input,origin);if(!value)return 0;
+    DagSink *s=opaque;
+    /* A raw constant still needs its explicit bytecode kind transition. */
+    if(folded&&opcode!=ABC_OPERATION_F2BITS&&opcode!=ABC_OPERATION_BITS2F)return 1;
+    uint32_t value=dag_value(s,input,origin);if(!value)return 0;
     uint32_t id=node(s,(Node){N_UNARY,origin,value,0,(uint16_t)opcode,0,0,0});
     if(!id)return 0;*result=backend(id,stack,0);return 1;
 }

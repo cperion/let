@@ -18,13 +18,17 @@ local function definition(functions, name)
 end
 
 local function constant(builder, value, expected)
+    if type(value)=='table' and value.type==expected and value.image~=nil then
+        require('let.snapshot').cells(value) -- validate the durable representation
+        return builder:const(expected,I.Bytes(value.image))
+    end
     if type(value)~="table" or value.type~=expected or value.bits==nil then
         D.reject("specialize-value","Known arguments must be typed values returned by VM staging")
     end
     local bits=Bits();bits.u=value.bits
-    if expected==S.bool then return builder:bool(bits.word[0]~=0) end
-    if expected==S.unit then return builder:const(S.unit,I.UInt(0)) end
-    if expected==S.f64 then return builder:const(S.f64,I.FloatBits(tonumber(bits.word[1]),tonumber(bits.word[0]))) end
+    if expected==S.Bool then return builder:bool(bits.word[0]~=0) end
+    if expected==S.Unit then return builder:const(S.Unit,I.UInt(0)) end
+    if expected==S.F64 then return builder:const(S.F64,I.FloatBits(tonumber(bits.word[1]),tonumber(bits.word[0]))) end
     if expected:isInteger() then
         if expected:isWide() then return builder:int64(expected,tonumber(bits.word[1]),tonumber(bits.word[0])) end
         return builder:int(expected,tonumber(bits.word[0]))

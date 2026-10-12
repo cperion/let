@@ -1,10 +1,14 @@
 # Owners, references and ids
 
-**Status: approved collector-free design direction; not implemented.** This is the
-current ownership target for one Let language. It replaces the tracing-GC target,
-not the behavior of the executable typed checkpoint. Code generation, ownership
-inference, runtime counting and task execution have not been implemented or
-validated by adding this document. Examples below are proposed language examples.
+**Status: approved collector-free design; qualified source inference and initial
+runtime owner/call/cleanup binding implemented; source counted placement pending.**
+This is the ownership target for one Let language, replacing the tracing-GC target.
+WORKLIST O03 records formal/fresh-root, borrow/count/strict-edge inference; E01/E02
+and O04–O08 record the subsequent runtime binding. Explicit checked-IR fixtures now
+execute allocation, retain/move/release and failure cleanup in all four modes.
+General source owning layouts and placement, containers and tasks are not implemented;
+the source checkpoint still rejects inferred counted escapes. Examples below remain target-language examples unless
+explicitly qualified by the worklist.
 
 This revision incorporates the engineering decisions approved after the initial
 proposal. In particular, it does **not** count whole activations, decide safety by
@@ -17,9 +21,9 @@ Let has one value, place, call and ownership semantics. Type precision, lifetime
 proof, allocation, counting and task transferability are separate facts. Adding a
 type annotation does not select a different ownership engine or evaluator.
 
-`count-free`, `allocation-free` and (where required) absence of `any` are separately
+`count-free`, `allocation-free` and (where required) absence of `Any` are separately
 inferred and enforceable requirements. An uncounted local store may allocate;
-a scalar `any` need not allocate or retain anything. Neither property follows
+a scalar `Any` need not allocate or retain anything. Neither property follows
 from a filename. **`.let` is the sole source extension.** SLet is retired as a
 language/profile name; use the precise capability names rather than calling
 count-free code another language. Typed and dynamic code may coexist in one file.
@@ -44,7 +48,7 @@ and concrete migration interfaces still need specification.
 2. **Every addressable place has one root owner.** Subobjects inherit their root's
    owner. Moving storage after publishing an address is forbidden.
 3. **A reference is either a proven borrow or retains its owner.** The program does
-   not choose a different `ref` spelling for the two representations.
+   not choose a different `Ref` spelling for the two representations.
 4. **Mutable owning edges must satisfy a static acyclicity proof.** Immutable value
    graphs have a separate construction proof. Neither uses cycle collection.
 5. **Ids carry no ownership.** They identify occupied store slots through a checked
@@ -67,18 +71,18 @@ and concrete migration interfaces still need specification.
 | closure environment | frame-local if proven nonescaping, otherwise separately counted |
 | value-container buffers | hidden counted storage, not addressable element places |
 
-Counting an escaping `ref(c.child)` retains the root `c`, not an independently
+Counting an escaping `Ref(c.child)` retains the root `c`, not an independently
 promoted child and not every unrelated local in the activation. If the necessary
 root is embedded in a larger addressable aggregate, that aggregate is the root.
 Selection is static and precedes physical placement. There is no stack-to-heap
 promotion after an address has escaped.
 
 ```
-let counter = { value: u32, bump() = do value += 1 end }
-let peek(c: ref(counter)): u32 = c.value
-let make(start: u32): ref(counter) = do
-  let c = counter { value = start }
-  return ref(c)                    -- c has its own owner from the start
+let Counter = { value: U32, bump() = do value += 1 end }
+let peek(c: Ref(Counter)): U32 = c.value
+let make(start: U32): Ref(Counter) = do
+  let c = Counter { value = start }
+  return Ref(c)                    -- c has its own owner from the start
 end
 ```
 
@@ -88,12 +92,12 @@ Foreign pointers supply no lifetime proof by themselves.
 
 ## 3. References, slices and lifetime proofs
 
-A `ref(T)` names a place. Mutating through it mutates that place. References to
+A `Ref(T)` names a place. Mutating through it mutates that place. References to
 fixed-layout parts keep the root owner alive. Replacing a record field's value
 preserves that field's place; existing references observe the replacement.
-`ref(ref(x))` and references to non-addressable temporaries still reject.
+`Ref(Ref(x))` and references to non-addressable temporaries still reject.
 
-A `slice(T)` is a read-only view, not a mutable container. Its lifetime is proved
+A `Slice(T)` is a read-only view, not a mutable container. Its lifetime is proved
 or retained in the same way. A view of mutable array storage can observe writes
 to that storage; it is not therefore an immutable snapshot or transferable value.
 List/string views instead retain immutable snapshots (§6).
@@ -120,7 +124,7 @@ ownership check, or rejection if that cannot be justified. It never means safe.
 
 ## 4. Mutable ownership: exact proof obligation
 
-A finite layout through `ref`, `slice`, `id`, `ptr` or a container indirection does
+A finite layout through `Ref`, `Slice`, `id`, `Ptr` or a container indirection does
 not itself prove safe ownership. A cycle-capable type can be used with bounded
 borrows; that does not authorize counted cycles.
 
@@ -145,7 +149,7 @@ Collect all possible edges at control-flow joins, even mutually exclusive stores
 ranks must remain valid throughout the owners' lifetimes, not only at one moment.
 
 A finite strict-order graph has a solution exactly when it is acyclic. Detect
-strongly connected components/self-edges and reject contradictions as `ref-cycle`;
+strongly connected components/self-edges and reject contradictions as `Ref-cycle`;
 otherwise a topological ordering provides ranks. There are no runtime rank words,
 graph scans, cycle detectors or user lifetime annotations.
 
@@ -158,14 +162,15 @@ without sufficient evidence rejects; it does not erase an ownership obligation.
 
 This is deliberately conservative. Arbitrarily deep mutable owning structures
 that cannot satisfy finite inferred bounds use stores and ids, not a collector or
-a runtime cycle check. The inference/generalization algorithm and summary encoding
-still require implementation design and validation; the obligations above may not
-be weakened to make an example pass.
+a runtime cycle check. The first private inference/summary binding is implemented
+within the admission described in runtime-interfaces §9 and WORKLIST O03. Broader
+generalization and stable export/ABI encoding remain incomplete; the obligations
+above may not be weakened to make an example pass.
 
 ### 4.2 Interior-reference counterexample
 
 If `p` owns both `child` and a reference-valued `saved` field, storing
-`ref(p.child)` into `p.saved` as an owning reference creates H → H. It rejects even
+`Ref(p.child)` into `p.saved` as an owning reference creates H → H. It rejects even
 when the declared child type has no references. A proven nonowning version can
 remain valid within a bounded extent. This is why referent-type reach alone was
 removed from the initial proposal.
@@ -178,10 +183,10 @@ A literal capture list makes this easy to diagnose, but hidden or passed callabl
 must obey exactly the same rule through their summaries.
 
 ```
-let adder(n: u32): (u32): u32 = (do(x: u32) = x + n)
-let tally(): (u32): unit = do
+let adder(n: U32): (U32): U32 = (do(x: U32) = x + n)
+let tally(): (U32): Unit = do
   let c = counter { value = 0 }
-  return do(k: u32) c.value += k end
+  return do(k: U32) c.value += k end
 end
 ```
 
@@ -191,7 +196,7 @@ not transferable, but can escape safely within their own task when ranks permit.
 
 ## 5. Stores and ids
 
-`store(T)` is a value with independent, addressable slots. Growing it adds stable
+`Store(T)` is a value with independent, addressable slots. Growing it adds stable
 segments; existing slots do not move. Copying a store creates independent slots
 and copies their values, preserving slot positions, occupancy and generations so
 copied internal ids continue to work. References never retarget to the copy.
@@ -199,7 +204,7 @@ A move can transfer backing segments only when outstanding access permits it.
 
 | Word | Meaning |
 | --- | --- |
-| `store(T) {}` | empty store |
+| `Store(T) {}` | empty store |
 | `s.add(v)` | copy/store v and return its id; may allocate |
 | `s.try_add(v)` | allocation-free insertion if capacity exists; `added(id)` or `full` |
 | `s.reserve(n)` | reserve capacity for n further additions |
@@ -222,14 +227,14 @@ They are transferable ordinary values but do not transfer their originating stor
 
 ### 5.1 References to slots are temporary borrows
 
-`ref(s[i])` and method receivers borrow a live slot. They cannot escape or become
+`Ref(s[i])` and method receivers borrow a live slot. They cannot escape or become
 counted element references. Growth/reservation is permitted during a borrow because
 segments remain stable. Removal cannot invalidate a live borrow; if slot disjointness
 cannot be proved, reject removal until the borrow ends. Borrow uses determine the
 extent; no new lifetime syntax is added. Removal, store replacement, moves and
 whole-store destruction must all respect these live accesses.
 
-A removed slot therefore has no observable dangling `ref(T)`, no retained dead
+A removed slot therefore has no observable dangling `Ref(T)`, no retained dead
 payload, and no reference that later changes identity upon reuse. Long-lived links
 are ids. Fixed-size array and record-field references keep their existing place
 semantics; they are not vacated slots.
@@ -261,14 +266,14 @@ of one buffer is not evidence that everything reachable from it is immutable.
 
 ### 6.2 Lists
 
-`list(T)` is a growable sequence of values. Its proposed representation is one
+`List(T)` is a growable sequence of values. Its proposed representation is one
 counted buffer reference; the buffer holds length, capacity and contiguous unboxed
 values. Copying shares the buffer; writing copies first when shared. Local aliases
 still designate one list instance. An empty list need not allocate.
 
 | Word | Meaning |
 | --- | --- |
-| `list(T) {}` | empty list |
+| `List(T) {}` | empty list |
 | `l[i]` | u32 position; checked read/copy or store |
 | `l.length` | element count |
 | `l.push(v)`, `l.try_push(v)` | append, possibly allocating / no-allocation `done` or `full` |
@@ -278,8 +283,8 @@ still designate one list instance. An empty list need not allocate.
 | `l.view()` | read-only snapshot retaining the buffer |
 | `l.each(body)` | positions and values in order |
 
-Elements are values, not stable referencable places: `ref(l[i])` rejects
-`element-ref`. Field/compound stores update the element. An element method operates
+Elements are values, not stable referencable places: `Ref(l[i])` rejects
+`element-Ref`. Field/compound stores update the element. An element method operates
 on a temporary and copies its result back on successful return; in-place execution
 requires proof the method cannot reach/mutate the list through another path.
 Precise copy-out behavior under reentrant removal/replacement remains an explicit
@@ -291,7 +296,7 @@ future sharing can never cause a COW allocation.
 
 ### 6.3 Strings
 
-`string` is a byte-sequence value, **not** `slice(u8)`. Proposed representation:
+`String` is a byte-sequence value, **not** `Slice(U8)`. Proposed representation:
 a buffer reference plus one cell packing u32 offset and length. Substrings retain
 the buffer. Literals use immortal module buffers and never change their counts.
 Content equality remains; `<` is not string ordering. No text encoding is imposed.
@@ -302,12 +307,12 @@ Content equality remains; `<` is not string ordering. No text encoding is impose
 | `s.append(t)`, `s.push(b)` | build in place only when unique and ending at buffer end; otherwise copy |
 | `s.sub(a,b)` | bytes in [a,b), sharing storage |
 | `s.compact()` | explicit copy into storage for precisely these bytes |
-| `s.view()` | immutable snapshot `slice(u8)` |
-| `string(view)` | copy a byte view into a string |
+| `s.view()` | immutable snapshot `Slice(U8)` |
+| `String(view)` | copy a byte view into a string |
 
 Writing a substring detaches its own bytes when required, not unrelated prefix
 or suffix bytes. A small substring can retain a large buffer; no heuristic
-compaction is part of the language. `ref(s[i])` rejects. Foreign non-retaining
+compaction is part of the language. `Ref(s[i])` rejects. Foreign non-retaining
 calls can borrow `s.view()`; keeping a foreign view requires a valid ownership
 contract or copying it, not inventing an owner.
 
@@ -329,7 +334,7 @@ not a new observable allocation-count or error-order guarantee.
 | Words | Proposed contract |
 | --- | --- |
 | `sub`, `prefix`, `suffix` | sharing substrings |
-| `find`, `find_from` | `found(u32)` or `missing` |
+| `find`, `find_from` | `found(U32)` or `missing` |
 | `contains`, `starts_with`, `ends_with` | boolean byte tests |
 | `split(sep)` | list of sharing substrings; allocating result metadata, not copied subject bytes |
 | `join(parts,sep)`, `repeat(n)` | build one resulting string |
@@ -350,21 +355,21 @@ Patterns use Lua's byte-pattern syntax: classes/complements, sets/ranges,
 `match`, `find_pattern`, `each_match`, `replace_pattern` (`%0`…`%9` replacements).
 Literals specialize; malformed dynamic patterns abort `bad-pattern`. This is not
 a promise of linear-time matching: Lua-style matching can backtrack. Position
-captures do not fit `list(string)`; their result representation and detailed empty
+captures do not fit `List(String)`; their result representation and detailed empty
 match/separator behavior require resolution before the library contract is final.
 
 ## 7. Tables and any
 
-`table {}` constructs a dynamic ordered map. Tables are values; copies share a
-COW map, while local aliases designate the same table instance. Fields hold `any`,
+`Table {}` constructs a dynamic ordered map. Tables are values; copies share a
+COW map, while local aliases designate the same table instance. Fields hold `Any`,
 which admits only transferable values. Mutable-place-capturing closures cannot
 be table field values. There is no shared mutable table identity across value copies.
 
 `w.name` selects string key `"name"`; `w[k]` uses a string, integer or bool key.
 Integer key identity is numeric across integer widths. Missing reads abort;
 `has(w,k)` tests and `remove(w,k)` removes a key. No nil is introduced. Stores
-preserve the existing target/RHS evaluation order and snapshot rules. `ref(w.k)`
-and `ref(w[i])` reject `element-ref`.
+preserve the existing target/RHS evaluation order and snapshot rules. `Ref(w.k)`
+and `Ref(w[i])` reject `element-Ref`.
 
 A callable field invoked as `w.m(args)` receives the actual table borrowed as a
 receiver. It need not capture that table. Extracted bound methods must retain
@@ -396,7 +401,7 @@ No shared mutation, key interning graph or collector is required for this layout
 
 ### 7.2 Transferable dynamic values
 
-`any` retains type and ordinary scalar semantics; it is not a second scalar engine.
+`Any` retains type and ordinary scalar semantics; it is not a second scalar engine.
 Scalars, ids, strings, tables, transferable aggregates/containers, frozen values,
 transferable closures and slices backed by immutable storage can enter it.
 A borrowed read-only view of mutable storage, mutable reference or raw foreign
@@ -410,15 +415,15 @@ is not silently reinterpreted as a release descriptor.
 
 Statically known violations reject `not-transferable`; a dynamic boundary with
 unproven transferable contents must validate before accepting the value. The
-normal `any` construction invariant does not require repeatedly inspecting every
+normal `Any` construction invariant does not require repeatedly inspecting every
 already-validated value.
 
 ## 8. Freezing and tasks
 
 `freeze(v)` copies, or safely moves, a transferable value into a new immutable
-owner, returning `frozen(T)`. It never freezes aliases in place. A move must account
+owner, returning `Frozen(T)`. It never freezes aliases in place. A move must account
 for every outstanding borrow/address, not just the last textual use of one name.
-Writes through frozen access reject `frozen-write`.
+Writes through frozen access reject `Frozen-write`.
 
 Transferability is transitive absence of access to another world's mutable
 storage, not just absence of syntactically mutable references. Immutable module
@@ -435,9 +440,9 @@ runtime specification before implementation.
 
 [tasks.md](tasks.md) specifies structured groups, channels, select, cooperative
 cancellation and work stealing (not implemented). Ordinary transferable values may
-enter `any`; group-bound capabilities are a separate permission. Groups, channels,
+enter `Any`; group-bound capabilities are a separate permission. Groups, channels,
 task handles and wrappers containing them may cross only within their valid group
-lifetimes, never through unrestricted `any` or frozen boxes. Channel payload bounds
+lifetimes, never through unrestricted `Any` or frozen boxes. Channel payload bounds
 must protect the entire queue lifetime; a child capability cannot enter an ancestor
 queue. Group records are structurally owned, not retained through counted handle
 cycles. Transitive reads as well as writes of another task's mutable module storage
@@ -448,7 +453,7 @@ are forbidden. Allocation, counting and suspension are independent effects.
 Objects remain records with schema methods. A class is a schema; a receiver is a
 borrowed actual place. An owning acyclic link is a checked reference with inferred
 owner constraints. A potentially cyclic link is an id. World records can hold
-stores of bodies and players, connected by `id(body)` and `id(player)`. No vtable,
+stores of bodies and players, connected by `Id(Body)` and `Id(Player)`. No vtable,
 inheritance system, garbage collector or object-specific destructor is introduced.
 
 A stored closure can retain mutable state within its own task, subject to §4.
@@ -534,11 +539,11 @@ trap, continuation, foreign-effect and operand-placement contracts remain bindin
 
 | Name | Meaning |
 | --- | --- |
-| `ref-cycle` | owning constraints are contradictory or cannot establish required acyclicity |
-| `element-ref` | reference to a non-addressable list/string/table element |
+| `Ref-cycle` | owning constraints are contradictory or cannot establish required acyclicity |
+| `element-Ref` | reference to a non-addressable list/string/table element |
 | borrow diagnostic | invalid target, missing provenance, escaping slot borrow or invalidation of a live borrow |
 | `not-transferable` | forbidden mutable/world/foreign access crosses a sharing, any or freezing boundary |
-| `frozen-write` | attempted write through frozen access |
+| `Frozen-write` | attempted write through frozen access |
 | `stale-id` | vacant/wrong-generation slot |
 | bounds abort | invalid extent/index; retains existing `ABORT 2` meaning |
 | `format-mismatch`, `bad-pattern` | static rejection for malformed literals, runtime failure for dynamic forms |
@@ -603,12 +608,16 @@ collector policies are historical, not a second active design.
 
 ## 16. Explicit remaining specification work
 
-The collector-free direction and proof obligations above are approved. These
-items are not silently decided or represented as implemented:
+The collector-free direction and proof obligations above are approved. The owner
+layout, counter/overflow policy, iterative release, allocator and concurrency
+algorithms are also already decided in the runtime contracts; this list does not
+reopen them. Remaining binding/qualification and genuinely open interfaces include:
 
-- concrete inference/generalization and separate-compilation summary format;
-- failure/abort cleanup, reference-count overflow, atomic memory orders and release
-  worklist synchronization;
+- broader inference/generalization and stable separate-compilation summary format
+  beyond the implemented private source binding (runtime-interfaces §9);
+- extend the initial checked-IR runtime binding to source placement and all aggregate/
+  callable/module holdings; qualify broader failure/partial-construction, shared memory
+  orders and foreign teardown beyond the tested initial owner primitives;
 - counted/reference/callable export ABI, raw-pointer capability boundary and dynamic
   encoding/profile revision (foreign code cannot be made safe by a documentation claim);
 - exact copy-out and iteration mutation semantics, empty text/pattern cases, position

@@ -8,14 +8,14 @@ local Util=require('tool_util')
 local D=require('let.diag')
 local abc=root..'/build/abc'
 local source=[=[
-let forms(x, y: i64): i64 = do
-    if i64(3) < x then return (x + i64(5)) ~ y end
-    if x >= i64(-2) then return x - y end
-    return x * i64(7)
+let forms(x, y: I64): I64 = do
+    if I64(3) < x then return (x + I64(5)) ~ y end
+    if x >= I64(-2) then return x - y end
+    return x * I64(7)
 end
-let unsigned(a, b: u32): u32 = if a < b then (a << 3) | 1 else (a >> 2) & 7
-let ordered(x, y: i64): i64 = x - (y / i64(2))
-let main(): i64 = forms(i64(4), i64(1))
+let unsigned(a, b: U32): U32 = if a < b then (a << 3) | 1 else (a >> 2) & 7
+let ordered(x, y: I64): I64 = x - (y / I64(2))
+let main(): I64 = forms(I64(4), I64(1))
 ]=]
 local artifact=Compiler.compile{profile='slet',name='operand-forms.slet',source=source,
     exports={'main','forms','unsigned','ordered'}}
@@ -61,21 +61,21 @@ end
 -- expectations must not hide the implemented static-demand boundary.
 local supported={
     {name='top-level-partial.slet',expected='270369 67634689',source=[[
-let xorshift(a, b, c, state: u32): u32 = do
+let xorshift(a, b, c, state: U32): U32 = do
     let x = state ~ (state << a)
     let y = x ~ (x >> b)
     return y ~ (y << c)
 end
 let next32 = xorshift(13, 17, 5)
-let main(): (u32, u32) = do
+let main(): (U32, U32) = do
     let x = next32(1)
     return x, next32(x)
 end
 ]]},
     {name='computed-partial.slet',expected='42 43',source=[[
-let seed(x: u64): u64 = x
-let add(a, b: u64): u64 = a + b
-let main(): (u64, u64) = do
+let seed(x: U64): U64 = x
+let add(a, b: U64): U64 = a + b
+let main(): (U64, U64) = do
     let base = seed(40)
     let p = add(base)
     let q = add(seed(41))
@@ -91,8 +91,8 @@ for index,case in ipairs(supported) do
 end
 local rejected={
     {name='runtime-partial.slet',code='static-required',source=[[
-let add(a, b: u64): u64 = a + b
-let main(runtime: u64): u64 = do let partial = add(runtime) return partial(2) end
+let add(a, b: U64): U64 = a + b
+let main(runtime: U64): U64 = do let partial = add(runtime) return partial(2) end
 ]]},
     {name='missing-static-policy.slet',code='execution-policy',source=supported[2].source},
 }

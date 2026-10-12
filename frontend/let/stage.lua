@@ -37,19 +37,17 @@ local function definition(functions, name)
     for _,fn in ipairs(functions) do if fn.id==name then return fn end end
     D.bug('static-entry','Static entry `'..tostring(name)..'` is not an Ir.Fn in this lowering unit')
 end
-local function scalarTypes(fn, field)
-    local S=require('let.schema'); local out={}
+local function transportTypes(fn,field)
+    local S=require('let.schema');local Layout=require('let.layout')
+    local Snapshot=require('let.snapshot');local cells,values={},{}
     for _,value in ipairs(fn[field]) do
         local ty=field=='inputs' and value.type or value
         if field=='inputs' and value.kind~='InValue' then D.reject('static-transport','Staging cannot transport borrowed inputs') end
-        if ty~=S.unit then
-            if not ty:isInteger() and ty~=S.bool and ty~=S.f64 then
-                D.reject('static-transport','Staging supports scalar cell transport, not '..S.display(ty))
-            end
-            out[#out+1]=ty
-        end
+        Snapshot.contract(ty)
+        if ty~=S.Unit then values[#values+1]=ty end
+        for _,part in ipairs(Layout.abiComponents(ty)) do cells[#cells+1]=part end
     end
-    return out
+    return cells,values
 end
 local function asCell(value, Int, expected)
     if type(value)=='table' and value.bits~=nil then
@@ -130,7 +128,7 @@ end
 function Session:prepare(artifact, functions)
     usable(self)
     local code='\n'..artifact.assembly
-    if code:match('\n%s*%.extern%s') or code:match('\n%s*FCALL[%.%s]') then
+    if (code:match('\n%s*%.extern%s') or code:match('\n%s*FCALL[%.%s]')) and not require('let.runtime').staging(code) then
         D.reject('static-foreign','Foreign effects cannot execute during compilation')
     end
     local Assembler=dependency('assembler')
@@ -163,27 +161,37 @@ function Program:call(options)
         if options[name]~=nil then D.reject('static-option','Session policy `'..name..'` cannot change per call') end
     end
     local entry=options.entry or 'main'; local fn=definition(self.functions,entry)
-    local argumentTypes,resultTypes=scalarTypes(fn,'inputs'),scalarTypes(fn,'results')
+    local argumentTypes,inputValues=transportTypes(fn,'inputs')
+    local resultTypes,outputValues=transportTypes(fn,'results')
     local supplied=options.arguments or {}
-    if #supplied~=#argumentTypes then D.reject('static-arguments',string.format('Static entry `%s` needs %d cells but received %d',entry,#argumentTypes,#supplied)) end
+    if #supplied~=#inputValues then D.reject('static-arguments',string.format('Static entry `%s` needs %d values but received %d',entry,#inputValues,#supplied)) end
+    local Snapshot=require('let.snapshot');local flattened={}
+    for index,ty in ipairs(inputValues) do
+        if require('let.layout').cellKind(ty) then flattened[#flattened+1]=supplied[index]
+        else
+            local snapshot=supplied[index]
+            if type(snapshot)~='table' or snapshot.type~=ty then D.reject('static-argument','Aggregate argument needs an exact typed snapshot') end
+            for _,cell in ipairs(Snapshot.cells(snapshot)) do flattened[#flattened+1]=cell end
+        end
+    end
     local signature,err=ffi.new('abc_signature[1]'),ffi.new('abc_error[1]')
     if session.C.abc_module_export_signature(self.handle,entry,signature,err)~=0 then executionError(session.C,err[0],self) end
     local sig=signature[0]; local S=require('let.schema')
-    if sig.arguments~=#argumentTypes or sig.results~=#resultTypes or sig.hidden_result_bytes~=0 then D.bug('static-signature','Staging scalar contract disagrees with the module export') end
+    if sig.arguments~=#argumentTypes or sig.results~=#resultTypes or sig.hidden_result_bytes~=0 then D.bug('static-signature','Staging transport contract disagrees with the module export') end
     for _,spec in ipairs{{argumentTypes,sig.argument_kinds},{resultTypes,sig.result_kinds}} do
         for index,ty in ipairs(spec[1]) do
-            if spec[2][index-1]~=(ty==S.f64 and 2 or 0) then D.bug('static-signature','Staging cell kind disagrees with the module export') end
+            if spec[2][index-1]~=(ty==S.F64 and 2 or 0) then D.bug('static-signature','Staging cell kind disagrees with the module export') end
         end
     end
     local Int=dependency('int64')
-    local arguments=ffi.new('uint64_t[?]',math.max(1,#supplied))
-    for index,value in ipairs(supplied) do arguments[index-1]=asCell(value,Int,argumentTypes[index]) end
+    local arguments=ffi.new('uint64_t[?]',math.max(1,#flattened))
+    for index,value in ipairs(flattened) do arguments[index-1]=asCell(value,Int,argumentTypes[index]) end
     local output,count=ffi.new('uint64_t[?]',math.max(1,#resultTypes)),ffi.new('size_t[1]')
     local progress=options.progress
     session.busy=true
     local ok,result=pcall(function()
         if progress then progress{phase='start',binding=entry,mode=session.mode} end
-        local status=session.C.abc_vm_call(session.vm,self.handle,entry,arguments,#supplied,output,#resultTypes,count,err)
+        local status=session.C.abc_vm_call(session.vm,self.handle,entry,arguments,#flattened,output,#resultTypes,count,err)
         if status~=0 then
             -- Preserve the VM failure even if an abort notification also fails.
             if progress then pcall(progress,{phase='abort',binding=entry,mode=session.mode}) end
@@ -191,12 +199,22 @@ function Program:call(options)
         end
         if tonumber(count[0])~=#resultTypes then D.bug('static-results','Static VM returned an unexpected result count') end
         local cells,values={},{}
-        for index,ty in ipairs(resultTypes) do
-            cells[index]=ffi.new('uint64_t',output[index-1]); values[index]={type=ty,bits=cells[index]}
+        for index in ipairs(resultTypes) do cells[index]=ffi.new('uint64_t',output[index-1]) end
+        local at=1
+        for index,ty in ipairs(outputValues) do
+            if require('let.layout').cellKind(ty) then values[index]={type=ty,bits=cells[at]};at=at+1
+            else values[index],at=Snapshot.fromCells(ty,cells,at) end
+        end
+        local moduleData={}
+        for index,data in ipairs(self.artifact.moduleData or {}) do
+            local size=#data.bytes;local bytes=ffi.new('uint8_t[?]',math.max(1,size))
+            local status=session.C.abc_vm_read_image(session.vm,self.handle,self.artifact.moduleOffsets[data.root],bytes,size,err)
+            if status~=0 then executionError(session.C,err[0],self) end
+            moduleData[index]=S.Ir.ModuleData(data.root,ffi.string(bytes,size))
         end
         if progress then progress{phase='finish',binding=entry,mode=session.mode} end
         return {phase='executed',profile=self.artifact.profile,mode=session.mode,entry=entry,
-            artifact=self.artifact,module=self.image,locations=self.locations,cells=cells,values=values}
+            artifact=self.artifact,module=self.image,locations=self.locations,cells=cells,values=values,moduleData=moduleData}
     end)
     session.busy=false
     if not ok then error(result,0) end

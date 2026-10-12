@@ -1,0 +1,86 @@
+
+build/libabc.so:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+000000000023ade0 <handler_a1b0c2_EXT_A>:
+  23ade0:	41 0f b6 44 24 01    	movzbl 0x1(%r12),%eax
+  23ade6:	4c 8d 15 43 7c 17 00 	lea    0x177c43(%rip),%r10        # 3b2a30 <extended_a1b0c2_A>
+  23aded:	49 8b 04 c2          	mov    (%r10,%rax,8),%rax
+  23adf1:	ff e0                	jmp    *%rax
+
+Disassembly of section .fini:
+
+build/libabc.so:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+00000000002575d0 <handler_a1b0c2_F2BITS_A>:
+  2575d0:	41 0f b6 44 24 02    	movzbl 0x2(%r12),%eax
+  2575d6:	49 83 c4 02          	add    $0x2,%r12
+  2575da:	4c 8b 15 1f 79 18 00 	mov    0x18791f(%rip),%r10        # 3def00 <T_a1b0c2@@Base+0x2eed0>
+  2575e1:	49 8b 04 c2          	mov    (%r10,%rax,8),%rax
+  2575e5:	ff e0                	jmp    *%rax
+
+Disassembly of section .fini:
+
+build/libabc.so:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+00000000002575f0 <handler_a1b0c2_BITS2F_A>:
+  2575f0:	41 0f b6 44 24 02    	movzbl 0x2(%r12),%eax
+  2575f6:	49 83 c4 02          	add    $0x2,%r12
+  2575fa:	4c 8b 15 ff 78 18 00 	mov    0x1878ff(%rip),%r10        # 3def00 <T_a1b0c2@@Base+0x2eed0>
+  257601:	49 8b 04 c2          	mov    (%r10,%rax,8),%rax
+  257605:	ff e0                	jmp    *%rax
+
+Disassembly of section .fini:
+
+build/libabc.so:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+0000000000236d20 <handler_a1b0c2_ORI_A>:
+  236d20:	45 0f b6 54 24 01    	movzbl 0x1(%r12),%r10d
+  236d26:	49 8d 82 00 ff ff ff 	lea    -0x100(%r10),%rax
+  236d2d:	45 84 d2             	test   %r10b,%r10b
+  236d30:	4c 0f 48 d0          	cmovs  %rax,%r10
+  236d34:	49 8d 44 24 02       	lea    0x2(%r12),%rax
+  236d39:	4c 09 d7             	or     %r10,%rdi
+  236d3c:	45 0f b6 54 24 02    	movzbl 0x2(%r12),%r10d
+  236d42:	48 8b 1d b7 81 1a 00 	mov    0x1a81b7(%rip),%rbx        # 3def00 <T_a1b0c2@@Base+0x2eed0>
+  236d49:	4e 8b 14 d3          	mov    (%rbx,%r10,8),%r10
+  236d4d:	49 89 c4             	mov    %rax,%r12
+  236d50:	4c 89 d0             	mov    %r10,%rax
+  236d53:	ff e0                	jmp    *%rax
+
+Disassembly of section .fini:

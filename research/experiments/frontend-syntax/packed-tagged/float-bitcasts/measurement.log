@@ -1,0 +1,38 @@
+Frontend: /tmp/let-packed-memory-before.fgo5_4jd/frontend
+fixture	roundtrip	raw module bytes	145	CALLOC	1
+optimized=false mode=interpreted prepare_ms=0.852 first_us=61.000 steady_ns=58.8
+optimized=false mode=threaded prepare_ms=1.261 first_us=26.000 steady_ns=77.4
+optimized=false mode=eager prepare_ms=1.688 first_us=21.000 steady_ns=29.6
+optimized=false mode=lazy prepare_ms=0.926 first_us=58.000 steady_ns=48.1
+optimized=true mode=interpreted prepare_ms=2.602 first_us=19.000 steady_ns=56.6
+optimized=true mode=threaded prepare_ms=1.174 first_us=7.000 steady_ns=54.5
+optimized=true mode=eager prepare_ms=0.915 first_us=6.000 steady_ns=46.7
+optimized=true mode=lazy prepare_ms=1.152 first_us=32.000 steady_ns=62.3
+fixture	add	raw module bytes	164	CALLOC	1
+optimized=false mode=interpreted prepare_ms=0.556 first_us=16.000 steady_ns=88.8
+optimized=false mode=threaded prepare_ms=1.016 first_us=11.000 steady_ns=56.2
+optimized=false mode=eager prepare_ms=0.661 first_us=4.000 steady_ns=29.9
+optimized=false mode=lazy prepare_ms=0.649 first_us=35.000 steady_ns=31.1
+optimized=true mode=interpreted prepare_ms=0.652 first_us=14.000 steady_ns=63.2
+optimized=true mode=threaded prepare_ms=0.684 first_us=7.000 steady_ns=54.0
+optimized=true mode=eager prepare_ms=0.684 first_us=4.000 steady_ns=31.2
+optimized=true mode=lazy prepare_ms=0.489 first_us=27.000 steady_ns=34.8
+Frontend: /home/cperion_ext/dev/let/frontend
+fixture	roundtrip	raw module bytes	144	CALLOC	0
+optimized=false mode=interpreted prepare_ms=2.414 first_us=141.000 steady_ns=103.9
+optimized=false mode=threaded prepare_ms=0.862 first_us=14.000 steady_ns=34.7
+optimized=false mode=eager prepare_ms=2.632 first_us=18.000 steady_ns=33.5
+optimized=false mode=lazy prepare_ms=1.610 first_us=82.000 steady_ns=31.6
+optimized=true mode=interpreted prepare_ms=1.812 first_us=29.000 steady_ns=63.3
+optimized=true mode=threaded prepare_ms=1.006 first_us=7.000 steady_ns=54.7
+optimized=true mode=eager prepare_ms=0.983 first_us=6.000 steady_ns=28.0
+optimized=true mode=lazy prepare_ms=0.607 first_us=27.000 steady_ns=36.1
+fixture	add	raw module bytes	163	CALLOC	0
+optimized=false mode=interpreted prepare_ms=0.492 first_us=15.000 steady_ns=73.2
+optimized=false mode=threaded prepare_ms=1.899 first_us=15.000 steady_ns=61.1
+optimized=false mode=eager prepare_ms=0.827 first_us=5.000 steady_ns=34.9
+optimized=false mode=lazy prepare_ms=0.795 first_us=35.000 steady_ns=35.1
+optimized=true mode=interpreted prepare_ms=0.529 first_us=13.000 steady_ns=74.0
+optimized=true mode=threaded prepare_ms=0.818 first_us=10.000 steady_ns=58.8
+optimized=true mode=eager prepare_ms=0.977 first_us=7.000 steady_ns=30.3
+optimized=true mode=lazy prepare_ms=0.738 first_us=81.000 steady_ns=31.7

@@ -40,9 +40,9 @@ local function neutral(name,layout,kind,profile,memory)
     instruction.opcode=#M.ops
     M.ops[#M.ops+1]=instruction
 end
-local function extended(name,layout,kind,role)
+local function extended(name,layout,kind,role,profile)
     -- The prefix supplies the selected stack; no duplicate selector per bank.
-    local instruction=descriptor(name,layout,kind,1,role,M.stack.NONE,nil,2)
+    local instruction=descriptor(name,layout,kind,profile or 1,role,M.stack.NONE,nil,2)
     instruction.selector=#M.ext_ops
     M.ext_ops[#M.ext_ops+1]=instruction
 end
@@ -101,5 +101,6 @@ neutral('JMP32','I32','JMP32')
 neutral('ABORT','U8','ABORT')
 for _,name in ipairs{'ADDC','SUBC','MULC','XORC'} do extended(name,'U8','OPC','UNARY') end
 for _,name in ipairs{'BEQI','BNEI','BLTI','BLEI','BGTI','BGEI','BLTUI','BLEUI','BGTUI','BGEUI'} do extended(name,'I8_I16','BRI','CONDITION') end
-assert(#M.ops==256 and #M.ext_ops==14 and #M.operations==145,'incomplete revision-6 manifest')
+for _,name in ipairs{'F2BITS','BITS2F'} do extended(name,'NONE',nil,'UNARY',2) end
+assert(#M.ops==256 and #M.ext_ops==16 and #M.operations==147,'incomplete revision-6 manifest')
 return M

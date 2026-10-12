@@ -5,29 +5,29 @@ local Compiler,S=require('let.compiler'),require('let.schema')
 require('let.ir')
 local assembler,util=require('assembler'),require('tool_util')
 local I,L=S.Ir,S.ASDL.List
-local function uint(n,ty)return I.Const(ty or S.u64,I.UInt(n)) end
-local function bin(op,left,right,ty)return I.Bin(op,left,right,ty or S.u64) end
+local function uint(n,ty)return I.Const(ty or S.U64,I.UInt(n)) end
+local function bin(op,left,right,ty)return I.Bin(op,left,right,ty or S.U64) end
 local a,b,c=I.Value(1),I.Value(2),I.Value(3)
-local function ref(v)return I.Ref(v,S.u64) end
-local yes=I.Const(S.bool,I.Boolean(true))
-local scalar=I.Fn('main',I.Entry,0,L{S.inValue(S.u64),S.inValue(S.u64),S.inValue(S.u64)},
- L{S.u64,S.u64,S.u64,S.bool},L{I.ValueParam(0,a,S.u64),I.ValueParam(1,b,S.u64),I.ValueParam(2,c,S.u64)},
+local function ref(v)return I.Ref(v,S.U64) end
+local yes=I.Const(S.Bool,I.Boolean(true))
+local scalar=I.Fn('main',I.Entry,0,L{S.inValue(S.U64),S.inValue(S.U64),S.inValue(S.U64)},
+ L{S.U64,S.U64,S.U64,S.Bool},L{I.ValueParam(0,a,S.U64),I.ValueParam(1,b,S.U64),I.ValueParam(2,c,S.U64)},
  L{I.Return(L{uint(111),bin(I.Sub,ref(a),bin(I.Sub,ref(b),ref(c))),
   bin(I.Div,ref(a),bin(I.Div,ref(b),ref(c))),
-  bin(I.Eq,yes,bin(I.Gt,ref(b),ref(c),S.bool),S.bool)})})
-local function real(n)return I.Const(S.f64,I.Float(n)) end
-local nan=bin(I.Div,real(0),real(0),S.f64)
+  bin(I.Eq,yes,bin(I.Gt,ref(b),ref(c),S.Bool),S.Bool)})})
+local function real(n)return I.Const(S.F64,I.Float(n)) end
+local nan=bin(I.Div,real(0),real(0),S.F64)
 local comparisons,types={},{}
 for _,op in ipairs{I.Gt,I.Ge,I.Lt,I.Le,I.Eq,I.Ne} do
- comparisons[#comparisons+1]=bin(op,nan,real(1),S.bool);types[#types+1]=S.bool
- comparisons[#comparisons+1]=bin(I.Eq,yes,bin(op,real(1),nan,S.bool),S.bool);types[#types+1]=S.bool
+ comparisons[#comparisons+1]=bin(op,nan,real(1),S.Bool);types[#types+1]=S.Bool
+ comparisons[#comparisons+1]=bin(I.Eq,yes,bin(op,real(1),nan,S.Bool),S.Bool);types[#types+1]=S.Bool
 end
 local floating=I.Fn('main',I.Entry,0,L{},L(types),L{},L{I.Return(L(comparisons))})
-local badCast=I.Convert(I.Convert(uint(300),S.u8),S.u64)
+local badCast=I.Convert(I.Convert(uint(300),S.U8),S.U64)
 local traps={}
 for _,op in ipairs{I.Gt,I.Ge} do
- traps[#traps+1]=I.Fn('main',I.Entry,0,L{},L{S.bool},L{},L{
-  I.Return(L{bin(op,bin(I.Div,uint(1),uint(0)),badCast,S.bool)})})
+ traps[#traps+1]=I.Fn('main',I.Entry,0,L{},L{S.Bool},L{},L{
+  I.Return(L{bin(op,bin(I.Div,uint(1),uint(0)),badCast,S.Bool)})})
 end
 local root=here..'../../'
 local base=os.tmpname();os.remove(base)

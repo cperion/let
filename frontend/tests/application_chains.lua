@@ -19,16 +19,16 @@ local function run(text,args,wanted)
     end
     return unit
 end
-local add='let add(x: u32, y: u32): u32 = x + y\n'
-run(add..'let main(n: u32): u32 = add(n)(2)',{40},42)
-run(add..'let main(n: u32): u32 = add(n + 1)(1)',{40},42)
-run(add..'let main(): u32 = do let g = add(40) return g(2) end',{},42)
-run(add..'let main(n: u32): u32 = add()(n)()(2)',{40},42)
-run(add..'let main(n: u32): u32 = (add(n)(2))',{40},42)
-run('let with_value(x: u32, f: (): u32): u32 = x + f()\nlet main(n: u32): u32 = with_value(n) do return 2 end',{40},42)
+local add='let add(x: U32, y: U32): U32 = x + y\n'
+run(add..'let main(n: U32): U32 = add(n)(2)',{40},42)
+run(add..'let main(n: U32): U32 = add(n + 1)(1)',{40},42)
+run(add..'let main(): U32 = do let g = add(40) return g(2) end',{},42)
+run(add..'let main(n: U32): U32 = add()(n)()(2)',{40},42)
+run(add..'let main(n: U32): U32 = (add(n)(2))',{40},42)
+run('let with_value(x: U32, f: (): U32): U32 = x + f()\nlet main(n: U32): U32 = with_value(n) do return 2 end',{40},42)
 local indirect=run(add..[[
-let apply(f: (u32, u32): u32, n: u32): u32 = f(n)(2)
-let main(n: u32): u32 = apply(add, n)
+let apply(f: (U32, U32): U32, n: U32): U32 = f(n)(2)
+let main(n: U32): U32 = apply(add, n)
 ]],{40},42)
 local found=false
 for _,fn in ipairs(indirect.functions) do if fn.id=='apply' then
@@ -38,55 +38,55 @@ for _,fn in ipairs(indirect.functions) do if fn.id=='apply' then
 end end
 check(found,'inspected runtime callable function')
 run([[
-let curried(x: u32) = do(y: u32): u32 = y + 2
-let main(n: u32): u32 = curried(n)(40)
+let curried(x: U32) = do(y: U32): U32 = y + 2
+let main(n: U32): U32 = curried(n)(40)
 ]],{123},42)
 run([[
-let pair(n: u32): (u32, u32) = do return n, 2 end
-let total(a: u32, b: u32, f: (): u32): u32 = a + b + f()
-let main(n: u32): u32 = total(pair(n)) do return 1 end
+let pair(n: U32): (U32, U32) = do return n, 2 end
+let total(a: U32, b: U32, f: (): U32): U32 = a + b + f()
+let main(n: U32): U32 = total(pair(n)) do return 1 end
 ]],{39},42)
 run([[
-let collect(a: u32, b: u32): u32 = a + b
-let trace = {
- value: u32,
- mark(n: u32): u32 = do value = value * 10 + n return n end,
- factory(): (u32, u32): u32 = do value = value * 10 + 1 return collect end,
+let collect(a: U32, b: U32): U32 = a + b
+let Trace = {
+ value: U32,
+ mark(n: U32): U32 = do value = value * 10 + n return n end,
+ factory(): (U32, U32): U32 = do value = value * 10 + 1 return collect end,
 }
-let main(): u32 = do
- let t = trace { value = 0 }
+let main(): U32 = do
+ let t = Trace { value = 0 }
  let result = t.factory()(t.mark(2))(t.mark(3))
  return t.value * 10 + result
 end
 ]],{},1235)
 run([[
-let collect(a: u32, b: u32): u32 = a + b
-let trace = { value: u32, change(): u32 = do value = 99 return 2 end }
-let main(): u32 = do
- let t = trace { value = 40 }
+let collect(a: U32, b: U32): U32 = a + b
+let Trace = { value: U32, change(): U32 = do value = 99 return 2 end }
+let main(): U32 = do
+ let t = Trace { value = 40 }
  return collect(t.value)(t.change())
 end
 ]],{},42)
 run([[
-let trace = {
- value: u32,
- finish(a: u32, b: u32): unit = do value += a + b return end,
+let Trace = {
+ value: U32,
+ finish(a: U32, b: U32): Unit = do value += a + b return end,
 }
-let helper(t: ref(trace), n: u32): unit = do
+let helper(t: Ref(Trace), n: U32): Unit = do
  defer t.finish(n)(2)
  t.value = 1
  return
 end
-let main(n: u32): u32 = do let t = trace { value = 0 } helper(ref(t), n) return t.value end
+let main(n: U32): U32 = do let t = Trace { value = 0 } helper(Ref(t), n) return t.value end
 ]],{40},43)
 run([[
-let counter = { value: u32, add(x: u32, y: u32): u32 = do value += x + y return value end }
-let holder = { current: ref(counter), redirect(next: ref(counter)): u32 = do current = next return 2 end }
-let main(n: u32): u32 = do
- let first = counter { value = 10 }
- let second = counter { value = 100 }
- let h = holder { current = ref(first) }
- let result = h.current.add(n)(h.redirect(ref(second)))
+let Counter = { value: U32, add(x: U32, y: U32): U32 = do value += x + y return value end }
+let Holder = { current: Ref(Counter), redirect(next: Ref(Counter)): U32 = do current = next return 2 end }
+let main(n: U32): U32 = do
+ let first = Counter { value = 10 }
+ let second = Counter { value = 100 }
+ let h = Holder { current = Ref(first) }
+ let result = h.current.add(n)(h.redirect(Ref(second)))
  return result * 1000 + first.value * 10 + second.value
 end
 ]],{30},42520)
@@ -94,22 +94,22 @@ for _,body in ipairs{
  'let g = add(n) return g(2)',
  'return (add(n))(2)',
  'return accept(add(n))',
-} do reject('static-required',add..'let accept(f: (u32): u32): u32 = f(2)\nlet main(n: u32): u32 = do '..body..' end') end
-reject('slet-forbidden',add..'let apply(f: (u32, u32): u32, n: u32): u32 = (f(n))(2)\nlet main(n: u32): u32 = apply(add, n)')
-reject('arity',add..'let main(n: u32): u32 = add(n)(2, 3)')
-reject('arity','let unary(n: u32): u32 = n\nlet main(): u32 = unary(1, 2)')
-reject('type-mismatch','let stop(n: u32): unit = do return end\nlet main(): u32 = stop 1 2')
-reject('arity',add..'let main(n: u32): unit = do defer add(n) return end')
+} do reject('static-required',add..'let accept(f: (U32): U32): U32 = f(2)\nlet main(n: U32): U32 = do '..body..' end') end
+reject('slet-forbidden',add..'let apply(f: (U32, U32): U32, n: U32): U32 = (f(n))(2)\nlet main(n: U32): U32 = apply(add, n)')
+reject('arity',add..'let main(n: U32): U32 = add(n)(2, 3)')
+reject('arity','let unary(n: U32): U32 = n\nlet main(): U32 = unary(1, 2)')
+reject('type-mismatch','let stop(n: U32): Unit = do return end\nlet main(): U32 = stop 1 2')
+reject('arity',add..'let main(n: U32): Unit = do defer add(n) return end')
 -- A trapping argument must execute before the next suffix, not at final CALL.
 -- An explicit checked IR trap uses reason 2; division-by-zero must win instead.
 -- A separate memory-backed callee probe is retained in the experiment evidence.
 local trapped=C.typed{profile='slet',source=add..[[
-let bad(): u32 = 0
-let main(n: u32): u32 = add(1 / n)(bad())
+let bad(): U32 = 0
+let main(n: U32): U32 = add(1 / n)(bad())
 ]]}
 local S=require('let.schema');local I=S.Ir
 for _,fn in ipairs(trapped.functions) do if fn.id=='bad' then
-    table.insert(fn.body,1,I.Trap(I.Const(S.bool,I.Boolean(true)),'index-range'))
+    table.insert(fn.body,1,I.Trap(I.Const(S.Bool,I.Boolean(true)),'index-range'))
 end end
 for _,optimize in ipairs{false,true} do for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do
     local ok,err=pcall(C.stage,trapped.functions,{profile='slet',entry='main',mode=mode,optimize=optimize,arguments={0}})

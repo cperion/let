@@ -45,8 +45,8 @@ no collector eliminates GC pauses, not contention, blocking or synchronization.
 | `ch.on_send(v, handler)` | Send case; handler receives the send result |
 | `task.on_after(ns, handler)` | Timer case, measured from select start by monotonic time; handler receives unit |
 
-Library types include `sent_or_closed = oneof { sent: unit, closed: unit }` and
-`received(t) = oneof { item: t, closed: unit }`, `task.chan(t)` and task handles
+Library types include `sent_or_closed = oneof { sent: Unit, closed: Unit }` and
+`received(t) = oneof { item: t, closed: Unit }`, `task.chan(t)` and task handles
 parameterized by their work's result contract. Concrete handle/result-vector type
 construction remains an interface design gate; the notation is not implemented.
 
@@ -66,11 +66,11 @@ No task can outlive its group. Nested groups finish before their enclosing task.
 
 Two permissions must not be conflated:
 
-- **Transferable values** may cross tasks and enter `any`. They preserve ordinary
+- **Transferable values** may cross tasks and enter `Any`. They preserve ordinary
   copy/move semantics; mutable aliases to another task are forbidden.
 - **Group-bound capabilities** (groups, channels, task handles and values containing
   them) may cross only into task lifetimes contained by their owning group's
-  lifetime. They cannot enter unrestricted `any`, an unrestricted frozen box or
+  lifetime. They cannot enter unrestricted `Any`, an unrestricted frozen box or
   longer-lived storage. Wrapping one in a record, closure or container does not
   erase its group bound.
 
@@ -98,7 +98,7 @@ bounds for group-local work.
 
 Mutable references, readonly views backed by mutable storage, closures retaining
 those paths and raw foreign pointers do not acquire transferability by crossing a
-boundary. `any` already contains only transferable values; channel/group handles
+boundary. `Any` already contains only transferable values; channel/group handles
 cannot be smuggled through it. External ingress still must uphold that invariant.
 
 Spawned work cannot read **or write** another task's mutable module storage, even
@@ -265,7 +265,7 @@ AOT/runtime Emscripten build passes lifecycle, parking, channel and release test
 ```let
 use std.task
 
-let total(): u64 = task.scope(u64, do(g)
+let total(): U64 = task.scope(U64, do(g)
   let weights = freeze(build_weights())
   let a = g.spawn(|| weigh(weights, 0, 500))
   let b = g.spawn(|| weigh(weights, 500, 1000))
@@ -276,8 +276,8 @@ end)
 A channel is explicitly owned, rather than selected from ambient scope:
 
 ```let
-let squares(n: u32): u64 = task.scope(u64, do(g)
-  let ch = g.channel(u64, 16)
+let squares(n: U32): U64 = task.scope(U64, do(g)
+  let ch = g.channel(U64, 16)
   g.spawn(|| produce_and_close(ch, n))
   return consume_until_closed(ch)
 end)
@@ -302,7 +302,7 @@ Required tests:
 
 - Scope joins unobserved children; repeated joins copy independently and release
   retained results exactly once at teardown; nested group lifetimes cannot escape.
-- Reject scoped handles in `any`/unrestricted frozen boxes, child handles in ancestor
+- Reject scoped handles in `Any`/unrestricted frozen boxes, child handles in ancestor
   queues and expired handles hidden in results/closures; accept valid reply channels.
 - Buffered/rendezvous FIFO by commit, full/empty waits, close races, draining and
   repeated closed results, including payload-copy failure and cleanup.

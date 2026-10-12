@@ -326,9 +326,26 @@ static int validate_operation(validator *v, const abc_residual_function *functio
         return fail(v, id, origin, "node has invalid operation tag");
     #define USE(VALUE, ROLE) (validate_value_use(v, (VALUE), function, block, node_ordinal, id, origin, (ROLE)) != NULL)
     switch (operation->tag) {
-    case ABC_ASDL_RESIDUAL_OPERATION_UNARY:
-        return valid_tag(v, abc_asdl_residual_unary_op_tag_name(operation->value.unary.operation), id, origin, "unary operation") &&
-               USE(operation->value.unary.input, "unary operand");
+    case ABC_ASDL_RESIDUAL_OPERATION_UNARY: {
+        if (!valid_tag(v, abc_asdl_residual_unary_op_tag_name(operation->value.unary.operation), id, origin, "unary operation")) return 0;
+        const abc_residual_value *input = validate_value_use(v, operation->value.unary.input, function, block, node_ordinal, id, origin, "unary operand");
+        if (!input) return 0;
+        unsigned op = operation->value.unary.operation;
+        if (op == ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS || op == ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_FLOAT) {
+            if (node->results.count != 1) return fail(v, id, origin, "bitcast must have one result");
+            const entity *result = require_entity(v, node->results.items[0], ENTITY_VALUE, id, origin, "bitcast result");
+            if (!result) return 0;
+            abc_residual_type output = ((const abc_residual_value *)result->object)->type;
+            int integer = input->type == ABC_ASDL_RESIDUAL_TYPE_CELL || input->type == ABC_ASDL_RESIDUAL_TYPE_U32 ||
+                          input->type == ABC_ASDL_RESIDUAL_TYPE_I32 || input->type == ABC_ASDL_RESIDUAL_TYPE_U64 || input->type == ABC_ASDL_RESIDUAL_TYPE_I64;
+            if (op == ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS ? input->type != ABC_ASDL_RESIDUAL_TYPE_F64 || output != ABC_ASDL_RESIDUAL_TYPE_CELL
+                                                            : !integer || output != ABC_ASDL_RESIDUAL_TYPE_F64)
+                return fail(v, id, origin, "bitcast disagrees with operand/result kinds");
+            if (node->effect.may_trap || node->effect.reads_memory || node->effect.writes_memory || node->effect.calls || node->effect.safepoint)
+                return fail(v, id, origin, "bitcast cannot have effects");
+        }
+        return 1;
+    }
     case ABC_ASDL_RESIDUAL_OPERATION_BINARY:
         return valid_tag(v, abc_asdl_residual_binary_op_tag_name(operation->value.binary.operation), id, origin, "binary operation") &&
                USE(operation->value.binary.left, "binary left operand") && USE(operation->value.binary.right, "binary right operand");

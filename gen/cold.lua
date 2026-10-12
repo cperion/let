@@ -37,7 +37,7 @@ abc_status vm_foreign(abc_run *run, unsigned extern_index,
                        unsigned selected_stack, uint32_t pc) {
     abc_vm *vm=run->v;
     abc_image *image=run->image;
-    if(extern_index>=run->m->extern_count || !image->foreign || !image->foreign[extern_index])
+    if(extern_index>=run->m->extern_count || !image->foreign_bridges || !image->foreign_bridges[extern_index])
         return abc_fail(run->e,ABC_INVALID,pc,"unbound foreign call");
     const abc_extern *signature=&run->m->externs[extern_index];
     char argument_stack=selected_stack==ABC_STACK_A?'a':'b';
@@ -45,7 +45,10 @@ abc_status vm_foreign(abc_run *run, unsigned extern_index,
     for(unsigned index=signature->arguments;index;index--)
         arguments[index-1]=vm_pop(vm,argument_stack);
     abc_status status=image->foreign_bridges[extern_index](signature,image->foreign[extern_index],arguments,&result);
-    if(status!=ABC_OK)return abc_fail(run->e,status,pc,"foreign bridge failed");
+    if(status!=ABC_OK){
+        if(run->e&&run->e->status==status) {run->e->offset=pc;return status;}
+        return abc_fail(run->e,status,pc,"foreign bridge failed");
+    }
     if(signature->results)vm_push(vm,argument_stack,result);
     vm_publish_all(vm);
     return ABC_OK;

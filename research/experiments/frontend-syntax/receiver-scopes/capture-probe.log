@@ -1,0 +1,3 @@
+lexical-dot-capture: ACCEPT, result=42
+ordinary-capture-control: ACCEPT, result=42
+member-wins-no-capture-control: ACCEPT, result=42

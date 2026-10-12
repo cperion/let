@@ -19,6 +19,7 @@ module Residual {
 
   UnaryOp = Neg | BitNot | LogicalNot | ZeroExtend8 | ZeroExtend16 | ZeroExtend32 | SignExtend32
             | FloatNeg | SignedToFloat | UnsignedToFloat | FloatToSigned | FloatToUnsigned
+            | FloatToBits | BitsToFloat
   BinaryOp = Add | Sub | Mul | DivUnsigned | DivSigned | RemUnsigned | RemSigned
              | BitAnd | BitOr | BitXor | ShiftLeft | ShiftRight | ShiftArithmetic
              | PowUnsigned | PowSigned

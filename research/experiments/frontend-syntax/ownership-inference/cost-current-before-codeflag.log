@@ -1,0 +1,4 @@
+scalar wrappers=12 typed_ms=4.353 analysis_ms=1.421 live_Lua_delta_KiB=1012.9 contexts=14 evaluations=14
+scalar wrappers=40 typed_ms=6.934 analysis_ms=1.793 live_Lua_delta_KiB=2896.0 contexts=42 evaluations=42
+callback wrappers=12 typed_ms=29.729 analysis_ms=22.342 live_Lua_delta_KiB=3344.4 contexts=121 evaluations=264
+callback wrappers=24 typed_ms=98.337 analysis_ms=77.663 live_Lua_delta_KiB=4953.2 contexts=379 evaluations=804

@@ -3,21 +3,21 @@ module Ty {
   # The fieldless constructors are the language's own primitive words: they are the spellings a
   # source file writes, and diagnostics print them verbatim. The parameterised constructors below
   # them describe representation and are not source syntax.
-  V = u32 | u8 | u16 | i32 | u64 | i64 | f64 | bool | unit | type | any
+  V = U32 | U8 | U16 | I32 | U64 | I64 | F64 | Bool | Unit | Type | Any
     | Record(string meaning, Field* fields) unique
     | Sig(Input* inputs, V* results) unique
     | Owned(string entry, Sig visible, V environment) unique
     | View(Sig visible) unique
     | Sum(string meaning, Field* cases) unique
     | Tagged(Sig visible, Field* arms) unique
-    | ref(V target) unique
+    | Ref(V target) unique
     # An address the compiler does not track: no lifetime, no ownership and no null check. It is a
-    # different type from ref on purpose, so a signature says which guarantee it carries.
-    | ptr(V target) unique
-    | array(V element, number length) unique
-    # A slice is a runtime-length view of storage someone else owns: an element pointer and a
-    # length. It is the only array-like type whose length is not part of the type.
-    | slice(V element) unique
+    # different type from Ref on purpose, so a signature says which guarantee it carries.
+    | Ptr(V target) unique
+    | Array(V element, number length) unique
+    # A Slice is a runtime-length view of storage someone else owns: an element pointer and a
+    # length. It is the only Array-like type whose length is not part of the type.
+    | Slice(V element) unique
     | Named(string cell) unique
   Field = (string name, V type) unique
   Input = InValue(V type) unique | InPlace(V type) unique
@@ -38,6 +38,7 @@ module Surface {
 module Borrow {
   # A route from a storage root to one component: a record field, a sum payload, or an element.
   # `Element` covers any runtime-selected element; a known constant index may be refined later.
+  Access = ReadAccess | WriteAccess
   Path = Root unique | Field(Path base, string name) unique | Element(Path base) unique
        | Case(Path base, string name) unique
 
@@ -50,8 +51,26 @@ module Borrow {
   # contents read through a place parameter: its contents and its address are distinct facts.
   Source = Global(string storage) unique
          | Local(string frame, number storage) unique
+         # A fresh allocation family in a finite call context. Unlike ValueInput,
+         # this names storage, not the target inferred from an input loan.
+         | Instantiated(string frame, number storage, Point* context) unique
+         # A recursive family is finite but does not prove two activations equal.
+         | Recurring(string frame, number storage, Point* context) unique
          | ValueInput(string frame, number parameter, Path path) unique
          | PlaceInput(string frame, number parameter, Path path) unique
+         # A deferred result retains its invocation identity until the actual callable
+         # contract is substituted. This is an obligation, not proof of a global owner.
+         | CallOutput(Point invocation, number result, Path path) unique
+
+  # Function-qualified analysis points/code origins. They carry no executable code,
+  # address, scalar value, placement or ABI cell. Formal origins survive transport
+  # through records, parameters and results until an actual callable is substituted.
+  Point = (string frame, number ordinal) unique
+  Code = KnownCode(Point formation) unique
+       | InstanceCode(Point formation, Point* context, boolean folded) unique
+       | ParameterCode(string frame, number parameter, Path path) unique
+       | ResultCode(Point invocation, number result, Path path) unique
+  Invocation = (Point point, Code callable) unique
 
   # A canonical set of sources. Canonicalise (sort, deduplicate) before constructing: ASDL
   # interns a `unique` list by sequence, and it does not sort.
@@ -62,14 +81,37 @@ module Borrow {
   Component = (Path path, Loans? loans) unique
   Contents = (Component* components) unique
 
-  # A physical location evidenced by a place route, NOT inferred from a loan set. A PlaceInput
-  # root has Root as its source path; projections live in Location.path. ValueInput is not an
-  # address. Footprints are may-writes: unknown means some effects have no resolved location.
-  Location = (Source root, Path path) unique
+  # Physical/symbolic targets are distinct from retained-owner sources. StorageRoot
+  # permits only Global, Local, Instantiated, Recurring or PlaceInput sources (checked by the access pass).
+  # InputTarget/OutputTarget are substitution obligations for the target carried by
+  # that value component, never an address inferred from ValueInput/CallOutput loans.
+  Target = StorageRoot(Source storage) unique
+         | InputTarget(string frame, number parameter, Path path) unique
+         | OutputTarget(Point invocation, number result, Path path) unique
+  Location = (Target root, Path path) unique
   Footprint = (Location* writes, boolean unknown) unique
 
   # One ordering requirement between symbolic sources: `longer` must outlive `shorter`.
   Constraint = Outlives(Source longer, Source shorter) unique
+}
+
+# Source-only owner inference. These are proof variables/obligations, not runtime
+# owners, ranks, placement, cells or another executable IR. Lists are canonical sets.
+module Ownership {
+  Root = Module(Borrow.Source source) unique | Formal(Borrow.Source source) unique
+       | Fresh(Borrow.Source source) unique | Deferred(Borrow.Source source) unique
+  Extent = Activation(string frame, Borrow.Point* context, boolean folded) unique
+  Site = (Borrow.Point point, Extent extent) unique
+  # `activation` is independent evidence that both allocations belong to this
+  # actual activation, even when recursive families share a finite name. It is
+  # invalidated by counting the holder, never used to justify its own retain.
+  Holding = (Root holder, Root target, Site site, Extent? activation) unique
+  Requirement = (Root root, Site site, string reason) unique
+  BorrowProof = (Root target, Extent extent, Site site) unique
+  Edge = (Root holder, Root target, Site site) unique
+  Result = (number index, Borrow.Path path, Root* roots) unique
+  Summary = (Root* roots, Result* results, Holding* holdings, BorrowProof* borrows,
+             Edge* edges, Requirement* counted, boolean unknown) unique
 }
 
 module Ir {
@@ -77,7 +119,8 @@ module Ir {
   # value in the context-wide cache would make two functions' value 1 the same table.
   Value = (number id)
   Storage = (number id)
-  Field = (string name) unique
+  # Pure component selection. Element indices are static and checked in range.
+  Selector = Field(string name) unique | Element(number index) unique
 
   Literal = UInt(number value) unique
           | UInt64(number high, number low) unique
@@ -91,6 +134,8 @@ module Ir {
           | Float(number value)
           # VM-produced f64 bits, including NaN payloads; never round-trip through a host number.
           | FloatBits(number high, number low) unique
+          # Exact durable pointer-free aggregate layout, published by VM transport.
+          | Bytes(string bytes) unique
   Unary = Neg | Not | BitNot
   Binary = Add | Sub | Mul | Div | Rem | Pow
          | BitAnd | BitOr | BitXor | Shl | Shr
@@ -104,10 +149,10 @@ module Ir {
        | Ref(Value value, Ty.V type)
        | Un(Unary op, Expr operand, Ty.V type)
        | Bin(Binary op, Expr left, Expr right, Ty.V type)
-       | Get(Expr aggregate, Field field, Ty.V type)
+       | Get(Expr aggregate, Selector field, Ty.V type)
        | Make(Ty.V type, Expr* fields)
        | Convert(Expr operand, Ty.V type)
-       | Addr(Place place, Ty.V type)
+       | Addr(Place place, Ty.V type, Borrow.Access? access)
        # The length of a slice value. Pure, like a record field projection.
        | SliceLength(Expr view, Ty.V type)
        # A dynamic type test. `operand` is any, `tested` is a concrete run-time type and `type` is bool.
@@ -115,8 +160,14 @@ module Ir {
        # The null pointer of a ptr type. Pure, so it is interned like any other constant.
        | Null(Ty.V type)
 
-  Place = Local(Storage storage)
-        | Project(Place base, Field field)
+  # One persistent module root; identity and initial bytes are independent of its
+  # eventual image offset. No VM/process addresses occur in the initial image.
+  ModuleRoot = (string identity, Ty.V type, boolean writable) unique
+  ModuleData = (ModuleRoot root, string bytes)
+
+  Place = Global(ModuleRoot root)
+        | Local(Storage storage)
+        | Project(Place base, Selector field)
         | Deref(Place base, Ty.V type)
         | Index(Place base, Expr index, Ty.V type)
         # `base[index]` through a slice: base names the slice place, and the element is at data[index]

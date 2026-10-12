@@ -1,9 +1,12 @@
 # Source compilation and static execution API
 
-**Status: API policy approved; implementation pending.** This supplies the API boundary
-needed by [source-virtual-contract.md](source-virtual-contract.md). Current public
-behavior remains documented in `frontend/README.md` until migration is implemented
-and validated. In particular, today's `typedFile` still promises no code generation.
+**Status: API policy approved; scalar source-demand boundary implemented.** This
+supplies the API boundary needed by [source-virtual-contract.md](source-virtual-contract.md).
+Required demands now execute verified ABC under explicit `staticMode`; completed
+`typed`/`typedFile` no longer promise absence of backend work. Broader source
+specialization/ownership remains incomplete. Pointer-free module snapshots have
+working-tree qualification, with a known higher-order proof blocker; see
+[module image copying](module-image-copy.md) and `frontend/README.md`.
 
 ## 1. Meaning of typing
 

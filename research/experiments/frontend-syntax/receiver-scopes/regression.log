@@ -1,0 +1,5 @@
+vocabulary: 92 checks, 64 VM executions
+PASS: Let compiler source ingestion and semantic IR (281 checks)
+word bindings: 105 checks, 84 VM executions
+application chains: 122 checks, 112 VM executions
+PASS: lambda signatures stated once (269 checks, 80 VM executions)

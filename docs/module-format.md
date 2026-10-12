@@ -60,8 +60,10 @@ Signatures describe raw cells, not source-level ownership or integer widths.
 ### 2. Code
 
 Nonempty revision-6 instruction bytes. The core map contains 124 A/B pairs,
-EXT.A/EXT.B, and six neutral instructions. Fourteen families use EXT selectors;
-there are 282 public selected core/extended forms. An EXT prefix, selector and
+EXT.A/EXT.B, and six neutral instructions. Sixteen families use EXT selectors;
+there are 286 public selected core/extended forms. Selectors 0E/0F are explicit
+F2BITS/BITS2F raw bitcasts (profile 2+), added without changing revision 6 or
+existing encodings. Older revision-6 engines reject those new selectors. An EXT prefix, selector and
 operands form one instruction and one provenance PC.
 
 There are no serialized internal quickened instructions or mutable cache words.

@@ -1,0 +1,7 @@
+luajit: tests/packed_tagged.lua:8: threaded cell 2: 0ULL wanted 0x89abcdef
+stack traceback:
+	[C]: in function 'assert'
+	tests/packed_tagged.lua:8: in function 'check'
+	tests/packed_tagged.lua:32: in function 'run'
+	tests/packed_tagged.lua:62: in main chunk
+	[C]: at 0x62bf6a1bc120

@@ -1,0 +1,10 @@
+frontend copy: /tmp/let-receiver-isolation.RuDwmk/frontend
+abc.lua baseline: 9cfd7f65
+shared runtime: current rebuilt build/
+receiver scopes before imports: 300 checks, 288 VM executions
+receiver scopes: 323 checks, 304 VM executions
+vocabulary: 92 checks, 64 VM executions
+word bindings: 105 checks, 84 VM executions
+application chains: 122 checks, 112 VM executions
+source demand checks: 52
+PASS: lambda signatures stated once (269 checks, 80 VM executions)

@@ -12,103 +12,103 @@ local I, L = S.Ir, S.ASDL.List
 local checks = 0
 local function check(ok, message) assert(ok, message); checks = checks + 1 end
 local function ref(value, ty) return I.Ref(value, ty) end
-local function uint(n, ty) return I.Const(ty or S.u32, I.UInt(n)) end
+local function uint(n, ty) return I.Const(ty or S.U32, I.UInt(n)) end
 local function input(ty) return S.inValue(ty) end
 
 local av, bv = I.Value(1), I.Value(2)
-local add = I.Fn("add", I.Body, 0, L{input(S.u32), input(S.u32)}, L{S.u32},
-    L{I.ValueParam(0, av, S.u32), I.ValueParam(1, bv, S.u32)},
-    L{I.Return(L{I.Bin(I.Add, ref(av, S.u32), ref(bv, S.u32), S.u32)})})
+local add = I.Fn("add", I.Body, 0, L{input(S.U32), input(S.U32)}, L{S.U32},
+    L{I.ValueParam(0, av, S.U32), I.ValueParam(1, bv, S.U32)},
+    L{I.Return(L{I.Bin(I.Add, ref(av, S.U32), ref(bv, S.U32), S.U32)})})
 
 -- A loop with mutable local storage exercises fixed C-frame slots and branch joins.
 local nv = I.Value(1)
 local accumulator, counter = I.Storage(1), I.Storage(2)
 local counterValue, resultValue, accumulatorValue = I.Value(2), I.Value(3), I.Value(4)
 local loop = I.Loop(L{
-    I.Read(counterValue, S.u32, I.Local(counter)),
-    I.If(I.Bin(I.Eq, ref(counterValue, S.u32), uint(0), S.bool),
-        L{I.Read(resultValue, S.u32, I.Local(accumulator)), I.Return(L{ref(resultValue, S.u32)})},
-        L{I.Read(accumulatorValue, S.u32, I.Local(accumulator)),
-            I.Store(I.Local(accumulator), I.Bin(I.Add, ref(accumulatorValue, S.u32),
-                ref(counterValue, S.u32), S.u32)),
-            I.Store(I.Local(counter), I.Bin(I.Sub, ref(counterValue, S.u32), uint(1), S.u32)),
+    I.Read(counterValue, S.U32, I.Local(counter)),
+    I.If(I.Bin(I.Eq, ref(counterValue, S.U32), uint(0), S.Bool),
+        L{I.Read(resultValue, S.U32, I.Local(accumulator)), I.Return(L{ref(resultValue, S.U32)})},
+        L{I.Read(accumulatorValue, S.U32, I.Local(accumulator)),
+            I.Store(I.Local(accumulator), I.Bin(I.Add, ref(accumulatorValue, S.U32),
+                ref(counterValue, S.U32), S.U32)),
+            I.Store(I.Local(counter), I.Bin(I.Sub, ref(counterValue, S.U32), uint(1), S.U32)),
             I.Next})
 })
-local sum = I.Fn("sum", I.Body, 0, L{input(S.u32)}, L{S.u32},
-    L{I.ValueParam(0, nv, S.u32)},
-    L{I.Var(accumulator, S.u32, uint(0)), I.Var(counter, S.u32, ref(nv, S.u32)), loop})
+local sum = I.Fn("sum", I.Body, 0, L{input(S.U32)}, L{S.U32},
+    L{I.ValueParam(0, nv, S.U32)},
+    L{I.Var(accumulator, S.U32, uint(0)), I.Var(counter, S.U32, ref(nv, S.U32)), loop})
 
 local addResult, sumResult = I.Value(1), I.Value(2)
-local main = I.Fn("main", I.Entry, 0, L{}, L{S.u32}, L{}, L{
+local main = I.Fn("main", I.Entry, 0, L{}, L{S.U32}, L{}, L{
     I.Call(L{addResult}, "add", L{I.ValueArg(uint(40)), I.ValueArg(uint(2))}),
     I.Call(L{sumResult}, "sum", L{I.ValueArg(uint(10))}),
-    I.Return(L{I.Bin(I.Add, ref(addResult, S.u32), ref(sumResult, S.u32), S.u32)})
+    I.Return(L{I.Bin(I.Add, ref(addResult, S.U32), ref(sumResult, S.U32), S.U32)})
 })
 
 local tailResult = I.Value(1)
-local tail = I.Fn("tail", I.Entry, 0, L{}, L{S.u32}, L{}, L{
+local tail = I.Fn("tail", I.Entry, 0, L{}, L{S.U32}, L{}, L{
     I.Call(L{tailResult}, "add", L{I.ValueArg(uint(20)), I.ValueArg(uint(22))}),
-    I.Return(L{ref(tailResult, S.u32)})
+    I.Return(L{ref(tailResult, S.U32)})
 })
 
 local narrowed = I.Value(1)
-local narrow = I.Fn("narrow", I.Entry, 0, L{input(S.u32)}, L{S.u8},
-    L{I.ValueParam(0, narrowed, S.u32)},
-    L{I.Return(L{I.Convert(ref(narrowed, S.u32), S.u8)})})
+local narrow = I.Fn("narrow", I.Entry, 0, L{input(S.U32)}, L{S.U8},
+    L{I.ValueParam(0, narrowed, S.U32)},
+    L{I.Return(L{I.Convert(ref(narrowed, S.U32), S.U8)})})
 
 local ox, oy = I.Value(1), I.Value(2)
-local function oref(value) return ref(value, S.u32) end
-local function obin(op, result) return I.Bin(op, oref(ox), oref(oy), result or S.u32) end
-local opsResults = {S.u32, S.u32, S.u32, S.u32, S.u32, S.u32, S.u32, S.u32, S.u32,
-    S.u32, S.u32, S.bool, S.bool, S.bool, S.bool, S.bool, S.bool}
-local ops = I.Fn("ops", I.Entry, 0, L{input(S.u32), input(S.u32)}, L(opsResults),
-    L{I.ValueParam(0, ox, S.u32), I.ValueParam(1, oy, S.u32)}, L{I.Return(L{
+local function oref(value) return ref(value, S.U32) end
+local function obin(op, result) return I.Bin(op, oref(ox), oref(oy), result or S.U32) end
+local opsResults = {S.U32, S.U32, S.U32, S.U32, S.U32, S.U32, S.U32, S.U32, S.U32,
+    S.U32, S.U32, S.Bool, S.Bool, S.Bool, S.Bool, S.Bool, S.Bool}
+local ops = I.Fn("ops", I.Entry, 0, L{input(S.U32), input(S.U32)}, L(opsResults),
+    L{I.ValueParam(0, ox, S.U32), I.ValueParam(1, oy, S.U32)}, L{I.Return(L{
         obin(I.Add), obin(I.Sub), obin(I.Mul), obin(I.Div), obin(I.Rem), obin(I.Pow),
         obin(I.BitAnd), obin(I.BitOr), obin(I.BitXor), obin(I.Shl), obin(I.Shr),
-        obin(I.Eq, S.bool), obin(I.Ne, S.bool), obin(I.Lt, S.bool), obin(I.Le, S.bool),
-        obin(I.Gt, S.bool), obin(I.Ge, S.bool)})})
+        obin(I.Eq, S.Bool), obin(I.Ne, S.Bool), obin(I.Lt, S.Bool), obin(I.Le, S.Bool),
+        obin(I.Gt, S.Bool), obin(I.Ge, S.Bool)})})
 
-local wrap = I.Fn("wrap", I.Entry, 0, L{}, L{S.u8}, L{},
-    L{I.Return(L{I.Bin(I.Add, uint(250, S.u8), uint(10, S.u8), S.u8)})})
+local wrap = I.Fn("wrap", I.Entry, 0, L{}, L{S.U8}, L{},
+    L{I.Return(L{I.Bin(I.Add, uint(250, S.U8), uint(10, S.U8), S.U8)})})
 local trapped = I.Value(1)
-local trap = I.Fn("trap", I.Entry, 0, L{input(S.bool)}, L{S.u32},
-    L{I.ValueParam(0, trapped, S.bool)},
-    L{I.Trap(ref(trapped, S.bool), "index-range"), I.Return(L{uint(7)})})
+local trap = I.Fn("trap", I.Entry, 0, L{input(S.Bool)}, L{S.U32},
+    L{I.ValueParam(0, trapped, S.Bool)},
+    L{I.Trap(ref(trapped, S.Bool), "index-range"), I.Return(L{uint(7)})})
 
-local f1, f2, nan = I.Const(S.f64, I.Float(1.5)), I.Const(S.f64, I.Float(2.5)),
-    I.Const(S.f64, I.Float(0 / 0))
+local f1, f2, nan = I.Const(S.F64, I.Float(1.5)), I.Const(S.F64, I.Float(2.5)),
+    I.Const(S.F64, I.Float(0 / 0))
 local function fbin(op, left, right, result)
-    return I.Bin(op, left or f1, right or f2, result or S.f64)
+    return I.Bin(op, left or f1, right or f2, result or S.F64)
 end
-local function ftoi(expr) return I.Convert(expr, S.i32) end
-local floatResults = {S.i32, S.i32, S.i32, S.i32, S.i32, S.bool, S.bool, S.bool, S.bool,
-    S.bool, S.bool, S.bool, S.bool, S.bool, S.bool}
+local function ftoi(expr) return I.Convert(expr, S.I32) end
+local floatResults = {S.I32, S.I32, S.I32, S.I32, S.I32, S.Bool, S.Bool, S.Bool, S.Bool,
+    S.Bool, S.Bool, S.Bool, S.Bool, S.Bool, S.Bool}
 local floatMain = I.Fn("float_main", I.Entry, 0, L{}, L(floatResults), L{}, L{I.Return(L{
     ftoi(fbin(I.Add)), ftoi(fbin(I.Sub)), ftoi(fbin(I.Mul)), ftoi(fbin(I.Div)),
-    ftoi(I.Un(I.Neg, f1, S.f64)),
-    fbin(I.Lt, nil, nil, S.bool), fbin(I.Le, nil, nil, S.bool),
-    fbin(I.Gt, nil, nil, S.bool), fbin(I.Ge, nil, nil, S.bool),
-    fbin(I.Eq, nil, nil, S.bool), fbin(I.Ne, nil, nil, S.bool),
-    fbin(I.Eq, nan, nan, S.bool), fbin(I.Ne, nan, nan, S.bool),
-    fbin(I.Lt, nan, f2, S.bool), fbin(I.Gt, nan, f2, S.bool)})})
+    ftoi(I.Un(I.Neg, f1, S.F64)),
+    fbin(I.Lt, nil, nil, S.Bool), fbin(I.Le, nil, nil, S.Bool),
+    fbin(I.Gt, nil, nil, S.Bool), fbin(I.Ge, nil, nil, S.Bool),
+    fbin(I.Eq, nil, nil, S.Bool), fbin(I.Ne, nil, nil, S.Bool),
+    fbin(I.Eq, nan, nan, S.Bool), fbin(I.Ne, nan, nan, S.Bool),
+    fbin(I.Lt, nan, f2, S.Bool), fbin(I.Gt, nan, f2, S.Bool)})})
 
-local addSignature = S.sig({input(S.u32), input(S.u32)}, {S.u32})
-local addView = S.view(addSignature)
+local addSignature = S.Sig({input(S.U32), input(S.U32)}, {S.U32})
+local addView = S.View(addSignature)
 local callableValue, callableResult = I.Value(1), I.Value(2)
-local virtualMain = I.Fn("virtual_main", I.Entry, 0, L{}, L{S.u32}, L{}, L{
+local virtualMain = I.Fn("virtual_main", I.Entry, 0, L{}, L{S.U32}, L{}, L{
     I.View(callableValue, addView, "add", L{}, nil),
     I.Indirect(L{callableResult}, ref(callableValue, addView),
         L{I.ValueArg(uint(40)), I.ValueArg(uint(2))}),
-    I.Return(L{ref(callableResult, S.u32)})
+    I.Return(L{ref(callableResult, S.U32)})
 })
 
-local pairRecord = S.record{x=S.u32,y=S.u32}
+local pairRecord = S.Record{x=S.U32,y=S.U32}
 local pairValue, pairField = I.Value(1), I.Value(2)
 local madePair = I.Make(pairRecord,L{uint(40),uint(2)})
-local virtualRecord = I.Fn("virtual_record",I.Entry,0,L{},L{S.u32},L{},L{
+local virtualRecord = I.Fn("virtual_record",I.Entry,0,L{},L{S.U32},L{},L{
     I.Let(pairValue,pairRecord,madePair),
-    I.Let(pairField,S.u32,I.Get(ref(pairValue,pairRecord),I.Field("y"),S.u32)),
-    I.Return(L{I.Bin(I.Add,I.Get(ref(pairValue,pairRecord),I.Field("x"),S.u32),ref(pairField,S.u32),S.u32)})
+    I.Let(pairField,S.U32,I.Get(ref(pairValue,pairRecord),I.Field("y"),S.U32)),
+    I.Return(L{I.Bin(I.Add,I.Get(ref(pairValue,pairRecord),I.Field("x"),S.U32),ref(pairField,S.U32),S.U32)})
 })
 
 local functions = {add, sum, main, tail, narrow, ops, wrap, trap, virtualMain, virtualRecord}
@@ -159,110 +159,113 @@ os.remove(asm); os.remove(module)
 
 -- Addressable aggregates use target-C field offsets in live frame blocks. Borrowed scalar
 -- storage is likewise frame-backed, and a borrow cannot become a tail call that releases it.
-local addressRecord=S.record{x=S.u32,y=S.u16}
+local addressRecord=S.Record{x=S.U32,y=S.U16}
 local addressStorage=I.Storage(20)
 local addressX,addressY=I.Value(20),I.Value(21)
-local addressable=I.Fn("addressable",I.Entry,0,L{},L{S.u32},L{},L{
-    I.Var(addressStorage,addressRecord,I.Make(addressRecord,L{uint(40),uint(1,S.u16)})),
-    I.Store(I.Project(I.Local(addressStorage),I.Field("y")),uint(2,S.u16)),
-    I.Read(addressX,S.u32,I.Project(I.Local(addressStorage),I.Field("x"))),
-    I.Read(addressY,S.u16,I.Project(I.Local(addressStorage),I.Field("y"))),
-    I.Return(L{I.Bin(I.Add,ref(addressX,S.u32),I.Convert(ref(addressY,S.u16),S.u32,I.Checked),S.u32)})
+local addressable=I.Fn("addressable",I.Entry,0,L{},L{S.U32},L{},L{
+    I.Var(addressStorage,addressRecord,I.Make(addressRecord,L{uint(40),uint(1,S.U16)})),
+    I.Store(I.Project(I.Local(addressStorage),I.Field("y")),uint(2,S.U16)),
+    I.Read(addressX,S.U32,I.Project(I.Local(addressStorage),I.Field("x"))),
+    I.Read(addressY,S.U16,I.Project(I.Local(addressStorage),I.Field("y"))),
+    I.Return(L{I.Bin(I.Add,ref(addressX,S.U32),I.Convert(ref(addressY,S.U16),S.U32,I.Checked),S.U32)})
 })
 local borrowedParameter=I.Storage(21)
 local borrowedValue=I.Value(22)
-local takeBorrow=I.Fn("take_borrow",I.Body,0,L{S.inPlace(S.u32)},L{S.u32},
-    L{I.PlaceParam(0,borrowedParameter,S.u32)},
-    L{I.Read(borrowedValue,S.u32,I.Local(borrowedParameter)),I.Return(L{ref(borrowedValue,S.u32)})})
+local takeBorrow=I.Fn("take_borrow",I.Body,0,L{S.inPlace(S.U32)},L{S.U32},
+    L{I.PlaceParam(0,borrowedParameter,S.U32)},
+    L{I.Read(borrowedValue,S.U32,I.Local(borrowedParameter)),I.Return(L{ref(borrowedValue,S.U32)})})
 local borrowedLocal=I.Storage(22)
 local borrowedResult=I.Value(23)
-local borrowMain=I.Fn("borrow_main",I.Entry,0,L{},L{S.u32},L{},L{
-    I.Var(borrowedLocal,S.u32,uint(42)),
+local borrowMain=I.Fn("borrow_main",I.Entry,0,L{},L{S.U32},L{},L{
+    I.Var(borrowedLocal,S.U32,uint(42)),
     I.Call(L{borrowedResult},"take_borrow",L{I.BorrowArg(I.Local(borrowedLocal))}),
-    I.Return(L{ref(borrowedResult,S.u32)})
+    I.Return(L{ref(borrowedResult,S.U32)})
 })
-local arrayType=S.array(S.u16,3)
+local arrayType=S.Array(S.U16,3)
 local arrayIndex,arrayResult=I.Value(24),I.Value(25)
 local arrayStorage=I.Storage(23)
-local arrayRead=I.Fn("array_read",I.Entry,0,L{input(S.u32)},L{S.u16},L{I.ValueParam(0,arrayIndex,S.u32)},L{
-    I.Var(arrayStorage,arrayType,I.Make(arrayType,L{uint(1,S.u16),uint(2,S.u16),uint(42,S.u16)})),
-    I.Read(arrayResult,S.u16,I.Index(I.Local(arrayStorage),ref(arrayIndex,S.u32),S.u16)),
-    I.Return(L{ref(arrayResult,S.u16)})
+local arrayRead=I.Fn("array_read",I.Entry,0,L{input(S.U32)},L{S.U16},L{I.ValueParam(0,arrayIndex,S.U32)},L{
+    I.Var(arrayStorage,arrayType,I.Make(arrayType,L{uint(1,S.U16),uint(2,S.U16),uint(42,S.U16)})),
+    I.Read(arrayResult,S.U16,I.Index(I.Local(arrayStorage),ref(arrayIndex,S.U32),S.U16)),
+    I.Return(L{ref(arrayResult,S.U16)})
 })
-local optionType=S.sum{none=S.unit,some=S.u32}
+local optionType=S.Sum{none=S.Unit,some=S.U32}
 local optionValue,optionPayload=I.Value(26),I.Value(27)
-local sumMain=I.Fn("sum_main",I.Entry,0,L{},L{S.u32},L{},L{
+local sumMain=I.Fn("sum_main",I.Entry,0,L{},L{S.U32},L{},L{
     I.ConstructVariant(optionValue,optionType,"some",uint(42)),
     I.Switch(optionValue,optionType,L{
         I.Case("none",false,L{I.Return(L{uint(0)})}),
-        I.Case("some",true,L{I.VariantPayload(optionPayload,optionValue,optionType,"some"),I.Return(L{ref(optionPayload,S.u32)})})
+        I.Case("some",true,L{I.VariantPayload(optionPayload,optionValue,optionType,"some"),I.Return(L{ref(optionPayload,S.U32)})})
     })
 })
-local sliceType=S.slice(S.u16)
+local sliceType=S.Slice(S.U16)
 local sliceParam,sliceParamIndex=I.Value(30),I.Value(31)
 local sliceParamResult=I.Value(32)
-local sliceGet=I.Fn("slice_get",I.Body,0,L{input(sliceType),input(S.u32)},L{S.u16},
-    L{I.ValueParam(0,sliceParam,sliceType),I.ValueParam(1,sliceParamIndex,S.u32)},L{
-        I.Read(sliceParamResult,S.u16,I.SliceIndex(ref(sliceParam,sliceType),ref(sliceParamIndex,S.u32),S.u16)),
-        I.Return(L{ref(sliceParamResult,S.u16)})})
+local sliceGet=I.Fn("slice_get",I.Body,0,L{input(sliceType),input(S.U32)},L{S.U16},
+    L{I.ValueParam(0,sliceParam,sliceType),I.ValueParam(1,sliceParamIndex,S.U32)},L{
+        I.Read(sliceParamResult,S.U16,I.SliceIndex(ref(sliceParam,sliceType),ref(sliceParamIndex,S.U32),S.U16)),
+        I.Return(L{ref(sliceParamResult,S.U16)})})
 local sliceArrayStorage,sliceStorage=I.Storage(30),I.Storage(31)
 local sliceMainIndex=I.Value(38)
 local sliceValue,sliceResult=I.Value(33),I.Value(34)
-local sliceMain=I.Fn("slice_main",I.Entry,0,L{input(S.u32)},L{S.u16},L{I.ValueParam(0,sliceMainIndex,S.u32)},L{
-    I.Var(sliceArrayStorage,S.array(S.u16,3),I.Make(S.array(S.u16,3),L{uint(1,S.u16),uint(2,S.u16),uint(42,S.u16)})),
+local sliceMain=I.Fn("slice_main",I.Entry,0,L{input(S.U32)},L{S.U16},L{I.ValueParam(0,sliceMainIndex,S.U32)},L{
+    I.Var(sliceArrayStorage,S.Array(S.U16,3),I.Make(S.Array(S.U16,3),L{uint(1,S.U16),uint(2,S.U16),uint(42,S.U16)})),
     I.Var(sliceStorage,sliceType,I.Make(sliceType,L{
-        I.Addr(I.Index(I.Local(sliceArrayStorage),uint(0),S.u16),S.ref(S.u16)),uint(3)})),
+        I.Addr(I.Index(I.Local(sliceArrayStorage),uint(0),S.U16),S.Ref(S.U16)),uint(3)})),
     I.Read(sliceValue,sliceType,I.Local(sliceStorage)),
-    I.Call(L{sliceResult},"slice_get",L{I.ValueArg(ref(sliceValue,sliceType)),I.ValueArg(ref(sliceMainIndex,S.u32))}),
-    I.Return(L{ref(sliceResult,S.u16)})})
-local stringType=S.string
+    I.Call(L{sliceResult},"slice_get",L{I.ValueArg(ref(sliceValue,sliceType)),I.ValueArg(ref(sliceMainIndex,S.U32))}),
+    I.Return(L{ref(sliceResult,S.U16)})})
+local stringType=S.String
 local stringValue=I.Value(35)
 local stringByte,stringLength=I.Value(36),I.Value(37)
-local stringMain=I.Fn("string_main",I.Entry,0,L{},L{S.u8,S.u32},L{},L{
+local stringMain=I.Fn("string_main",I.Entry,0,L{},L{S.U8,S.U32},L{},L{
     I.Let(stringValue,stringType,I.Const(stringType,I.Str("A*"))),
-    I.Read(stringByte,S.u8,I.SliceIndex(ref(stringValue,stringType),uint(1),S.u8)),
-    I.Let(stringLength,S.u32,I.SliceLength(ref(stringValue,stringType),S.u32)),
-    I.Return(L{ref(stringByte,S.u8),ref(stringLength,S.u32)})})
+    I.Read(stringByte,S.U8,I.SliceIndex(ref(stringValue,stringType),uint(1),S.U8)),
+    I.Let(stringLength,S.U32,I.SliceLength(ref(stringValue,stringType),S.U32)),
+    I.Return(L{ref(stringByte,S.U8),ref(stringLength,S.U32)})})
 
-local captureRecord=S.record{base=S.any}
+local captureRecord=S.Record{base=S.Any}
 local capturePlace=I.Storage(40)
 local captureArgument=I.Value(40)
 local capturedBase=I.Value(41)
-local captureTarget=I.Fn("captured_add",I.Body,1,L{S.inPlace(captureRecord),input(S.u32)},L{S.u32},
-    L{I.PlaceParam(0,capturePlace,captureRecord),I.ValueParam(1,captureArgument,S.u32)},L{
-        I.Read(capturedBase,S.any,I.Project(I.Local(capturePlace),I.Field("base"))),
-        I.Return(L{I.Bin(I.Add,I.Convert(ref(capturedBase,S.any),S.u32),ref(captureArgument,S.u32),S.u32)})})
-local captureSignature=S.sig({input(S.u32)},{S.u32})
-local captureView=S.view(captureSignature)
+local captureTarget=I.Fn("captured_add",I.Body,1,L{S.inPlace(captureRecord),input(S.U32)},L{S.U32},
+    L{I.PlaceParam(0,capturePlace,captureRecord),I.ValueParam(1,captureArgument,S.U32)},L{
+        I.Read(capturedBase,S.Any,I.Project(I.Local(capturePlace),I.Field("base"))),
+        I.Return(L{I.Bin(I.Add,I.Convert(ref(capturedBase,S.Any),S.U32),ref(captureArgument,S.U32),S.U32)})})
+local captureSignature=S.Sig({input(S.U32)},{S.U32})
+local captureView=S.View(captureSignature)
 local ownedRecord,adapterStorage=I.Storage(41),I.Storage(42)
 local madeView=I.Value(42)
 local makeAdder=I.Fn("make_adder",I.Body,0,L{},L{captureView},L{},L{
-    I.Var(ownedRecord,captureRecord,I.Make(captureRecord,L{I.Convert(uint(40),S.any)})),
+    I.Var(ownedRecord,captureRecord,I.Make(captureRecord,L{I.Convert(uint(40),S.Any)})),
     I.View(madeView,captureView,"captured_add",L{I.BorrowArg(I.Local(ownedRecord))},adapterStorage),
     I.Return(L{ref(madeView,captureView)})})
 local escapedView,capturedResult=I.Value(43),I.Value(44)
-local captureMain=I.Fn("capture_main",I.Entry,0,L{},L{S.u32},L{},L{
+local captureMain=I.Fn("capture_main",I.Entry,0,L{},L{S.U32},L{},L{
     I.Call(L{escapedView},"make_adder",L{}),
     I.Indirect(L{capturedResult},ref(escapedView,captureView),L{I.ValueArg(uint(2))}),
-    I.Return(L{ref(capturedResult,S.u32)})})
+    I.Return(L{ref(capturedResult,S.U32)})})
 local dynamicWord,dynamicLeft,dynamicRight,dynamicResult,dynamicTyped,dynamicIs=I.Value(50),I.Value(51),I.Value(52),I.Value(53),I.Value(54),I.Value(55)
-local anyMain=I.Fn("any_main",I.Entry,0,L{},L{S.u32,S.bool},L{},L{
-    I.View(dynamicWord,S.any,"add",L{},nil),
-    I.Let(dynamicLeft,S.any,I.Convert(uint(40),S.any)),
-    I.Let(dynamicRight,S.any,I.Convert(uint(2),S.any)),
-    I.Indirect(L{dynamicResult},ref(dynamicWord,S.any),L{I.ValueArg(ref(dynamicLeft,S.any)),I.ValueArg(ref(dynamicRight,S.any))}),
-    I.Let(dynamicTyped,S.u32,I.Convert(ref(dynamicResult,S.any),S.u32)),
-    I.Let(dynamicIs,S.bool,I.Is(ref(dynamicResult,S.any),S.u32,S.bool)),
-    I.Return(L{ref(dynamicTyped,S.u32),ref(dynamicIs,S.bool)})})
+local anyMain=I.Fn("any_main",I.Entry,0,L{},L{S.U32,S.Bool},L{},L{
+    I.View(dynamicWord,S.Any,"add",L{},nil),
+    I.Let(dynamicLeft,S.Any,I.Convert(uint(40),S.Any)),
+    I.Let(dynamicRight,S.Any,I.Convert(uint(2),S.Any)),
+    I.Indirect(L{dynamicResult},ref(dynamicWord,S.Any),L{I.ValueArg(ref(dynamicLeft,S.Any)),I.ValueArg(ref(dynamicRight,S.Any))}),
+    I.Let(dynamicTyped,S.U32,I.Convert(ref(dynamicResult,S.Any),S.U32)),
+    I.Let(dynamicIs,S.Bool,I.Is(ref(dynamicResult,S.Any),S.U32,S.Bool)),
+    I.Return(L{ref(dynamicTyped,S.U32),ref(dynamicIs,S.Bool)})})
 local boxedString,castString,stringAnyLength=I.Value(56),I.Value(57),I.Value(58)
-local anyStringMain=I.Fn("any_string_main",I.Entry,0,L{},L{S.u32},L{},L{
-    I.Let(boxedString,S.any,I.Convert(I.Const(S.string,I.Str("abc")),S.any)),
-    I.Let(castString,S.string,I.Convert(ref(boxedString,S.any),S.string)),
-    I.Let(stringAnyLength,S.u32,I.SliceLength(ref(castString,S.string),S.u32)),
-    I.Return(L{ref(stringAnyLength,S.u32)})})
-local managedFunctions={add,captureTarget,makeAdder,captureMain,anyMain,anyStringMain}
+local anyStringMain=I.Fn("any_string_main",I.Entry,0,L{},L{S.U32},L{},L{
+    I.Let(boxedString,S.Any,I.Convert(I.Const(S.String,I.Str("abc")),S.Any)),
+    I.Let(castString,S.String,I.Convert(ref(boxedString,S.Any),S.String)),
+    I.Let(stringAnyLength,S.U32,I.SliceLength(ref(castString,S.String),S.U32)),
+    I.Return(L{ref(stringAnyLength,S.U32)})})
+local escapeOK,escapeError=pcall(require('let.check').program,{add,captureTarget,makeAdder,captureMain})
+check(not escapeOK and D.is(escapeError) and escapeError.code=='borrow-return',
+    'frame-backed adapters cannot escape without an implemented environment owner')
+local managedFunctions={add,anyMain,anyStringMain}
 require('let.check').program(managedFunctions)
-local managedOK,managedError=pcall(Compiler.lower,managedFunctions,{profile="let",exports={"capture_main","any_main","any_string_main"}})
+local managedOK,managedError=pcall(Compiler.lower,managedFunctions,{profile="let",exports={"any_main","any_string_main"}})
 check(not managedOK and D.is(managedError) and managedError.code=='dynamic-lowering',
     'verified managed IR does not produce obsolete dynamic ABC')
 local memoryArtifact=Compiler.lower({addressable,takeBorrow,borrowMain,arrayRead,sumMain,sliceGet,sliceMain,stringMain},{profile="slet",exports={"addressable","borrow_main","array_read","sum_main","slice_main","string_main"}})
@@ -309,16 +312,16 @@ os.remove(asm);os.remove(module)
 
 -- Typed SLet callable transport must survive removal of managed Let emission.
 -- The capture-free view is passed as a real code/environment pair to a callee.
-local typedView=S.view(S.sig({input(S.u32),input(S.u32)},{S.u32}))
+local typedView=S.View(S.Sig({input(S.U32),input(S.U32)},{S.U32}))
 local callable,callLeft,callRight,callResult=I.Value(60),I.Value(61),I.Value(62),I.Value(63)
-local applyTyped=I.Fn('apply_typed',I.Body,0,L{input(typedView),input(S.u32),input(S.u32)},L{S.u32},
- L{I.ValueParam(0,callable,typedView),I.ValueParam(1,callLeft,S.u32),I.ValueParam(2,callRight,S.u32)},
- L{I.Indirect(L{callResult},ref(callable,typedView),L{I.ValueArg(ref(callLeft,S.u32)),I.ValueArg(ref(callRight,S.u32))}),I.Return(L{ref(callResult,S.u32)})})
+local applyTyped=I.Fn('apply_typed',I.Body,0,L{input(typedView),input(S.U32),input(S.U32)},L{S.U32},
+ L{I.ValueParam(0,callable,typedView),I.ValueParam(1,callLeft,S.U32),I.ValueParam(2,callRight,S.U32)},
+ L{I.Indirect(L{callResult},ref(callable,typedView),L{I.ValueArg(ref(callLeft,S.U32)),I.ValueArg(ref(callRight,S.U32))}),I.Return(L{ref(callResult,S.U32)})})
 local codeValue,typedResult=I.Value(64),I.Value(65)
-local typedMain=I.Fn('typed_main',I.Entry,0,L{},L{S.u32},L{},L{
+local typedMain=I.Fn('typed_main',I.Entry,0,L{},L{S.U32},L{},L{
  I.View(codeValue,typedView,'add',L{},nil),
  I.Call(L{typedResult},'apply_typed',L{I.ValueArg(ref(codeValue,typedView)),I.ValueArg(uint(20)),I.ValueArg(uint(22))}),
- I.Return(L{ref(typedResult,S.u32)})})
+ I.Return(L{ref(typedResult,S.U32)})})
 local typedArtifact=Compiler.lower({add,applyTyped,typedMain},{profile='slet',exports={'typed_main'}})
 check(typedArtifact.profile=='callables','SLet retains the typed callable profile')
 check(typedArtifact.assembly:match('CALLI%.A 3 _let_sig') and typedArtifact.assembly:match('TCALL%.A add 3 2'),
@@ -347,7 +350,7 @@ local letOK,letError = pcall(Compiler.lower,{main, add, sum}, {profile = "let", 
 check(not letOK and D.is(letError) and letError.code=='dynamic-lowering',
     "Let is not silently reinterpreted as SLet, even for scalar functions")
 
-local record = S.record {x = S.u32}
+local record = S.Record {x = S.U32}
 local badValue = I.Value(1)
 local unsupportedFn = I.Fn("unsupported", I.Body, 0, L{input(record)}, L{record},
     L{I.ValueParam(0, badValue, record)}, L{I.Return(L{ref(badValue, record)})})

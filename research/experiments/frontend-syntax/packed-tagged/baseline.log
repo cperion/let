@@ -1,0 +1,92 @@
+
+CASE float-construction
+.profile memory
+.rodata 0000000000000080
+.function main 0 2 - ii
+  CALLOC 16
+  PUSH.A 0
+  FADDR.B 16
+  ST32.B 0
+  .loadkind float
+  GLD64.A 0
+  FADDR.B 16
+  ST64.B 8
+  FADDR.A 16
+  LD64.A 0
+  FADDR.A 16
+  LD64.A 8
+  RET.A 2 2
+.export main
+
+interpreted optimize=false PASS 0ULL, 9223372036854775808ULL
+threaded optimize=false PASS 0ULL, 9223372036854775808ULL
+eager optimize=false PASS 0ULL, 9223372036854775808ULL
+lazy optimize=false PASS 0ULL, 9223372036854775808ULL
+interpreted optimize=true PASS 0ULL, 9223372036854775808ULL
+threaded optimize=true PASS 0ULL, 9223372036854775808ULL
+eager optimize=true PASS 0ULL, 9223372036854775808ULL
+lazy optimize=true PASS 0ULL, 9223372036854775808ULL
+
+CASE float-extraction
+.profile memory
+.function main 2 1 ii f
+  PUSH.A 0
+  I2FU.A
+  CPUSH.A
+  CALLOC 16
+  CGET.A 3
+  CGET.A 4
+  FADDR.B 16
+  ST64.B 8
+  FADDR.B 16
+  ST64.B 0
+  FADDR.A 16
+  .loadkind float
+  LD64.A 8
+  CSET.A 2
+  CGET.A 2
+  RET.A 5 1
+.export main
+
+interpreted optimize=false PASS 9223372036854775808ULL
+threaded optimize=false PASS 9223372036854775808ULL
+eager optimize=false PASS 9223372036854775808ULL
+lazy optimize=false PASS 9223372036854775808ULL
+interpreted optimize=true PASS 9223372036854775808ULL
+threaded optimize=true PASS 9223372036854775808ULL
+eager optimize=true PASS 9223372036854775808ULL
+lazy optimize=true PASS 9223372036854775808ULL
+
+CASE nested-extraction
+.function main 2 2
+  CALLOC 16
+  CALLOC 12
+  CGET.A 4
+  CGET.A 5
+  FADDR.B 32
+  ST64.B 8
+  FADDR.B 32
+  ST64.B 0
+  FADDR.A 32
+  LD64.A 4
+  FADDR.A 32
+  LD64.A 12
+  FADDR.B 16
+  ST64.B 8
+  FADDR.B 16
+  ST64.B 0
+  FADDR.A 16
+  LD64.A 0
+  FADDR.A 16
+  LD64.A 8
+  RET.A 6 2
+.export main
+
+interpreted optimize=false BUG [static-assembly] Checked IR produced invalid ABC assembly: line 2: CALLOC requires a higher capability profile
+threaded optimize=false BUG [static-assembly] Checked IR produced invalid ABC assembly: line 2: CALLOC requires a higher capability profile
+eager optimize=false BUG [static-assembly] Checked IR produced invalid ABC assembly: line 2: CALLOC requires a higher capability profile
+lazy optimize=false BUG [static-assembly] Checked IR produced invalid ABC assembly: line 2: CALLOC requires a higher capability profile
+interpreted optimize=true BUG [static-assembly] Checked IR produced invalid ABC assembly: line 2: CALLOC requires a higher capability profile
+threaded optimize=true BUG [static-assembly] Checked IR produced invalid ABC assembly: line 2: CALLOC requires a higher capability profile
+eager optimize=true BUG [static-assembly] Checked IR produced invalid ABC assembly: line 2: CALLOC requires a higher capability profile
+lazy optimize=true BUG [static-assembly] Checked IR produced invalid ABC assembly: line 2: CALLOC requires a higher capability profile

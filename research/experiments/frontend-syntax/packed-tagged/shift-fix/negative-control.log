@@ -1,0 +1,8 @@
+luajit: /tmp/let-shift-negative.QNz6Jh/tools/validate.lua:73: /tmp/lua_WUJ1ET/shift-before-zx32.abc compiled: status 0, expected 0
+actual: 7 878051346 439025673 0 0 0 0 0 0 0 878051346 439025673 0 0 0 0 0 0 0 878051346 1756102692 0 0 0 0 0 0 0 9 -8526495042236973038
+expected: 7 878051346 2586509321 324508638 2309737967 1154868983 1 0 0 0 878051346 2586509321 324508638 2309737967 3302352631 4294967295 4294967295 4294967295 4294967295 878051346 1756102692 0 0 0 0 0 0 0 9 -8526495042236973038
+stack traceback:
+	[C]: in function 'assert'
+	/tmp/let-shift-negative.QNz6Jh/tools/validate.lua:73: in function 'same'
+	/tmp/let-shift-negative.QNz6Jh/tools/validate.lua:113: in main chunk
+	[C]: at 0x583ae4d27120

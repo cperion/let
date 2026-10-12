@@ -1,0 +1,7 @@
+luajit: tests/anonymous_context.lua:4: context-use: REJECT [parse] at anonymous-reject.slet:2 Expected '{' but found "end"
+stack traceback:
+	[C]: in function 'assert'
+	tests/anonymous_context.lua:4: in function 'check'
+	tests/anonymous_context.lua:18: in function 'rejects'
+	tests/anonymous_context.lua:147: in main chunk
+	[C]: at 0x5558b625c120

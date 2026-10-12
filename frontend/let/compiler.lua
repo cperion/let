@@ -64,7 +64,7 @@ end
 local function verifySLet(ast)
     Walk.walk(ast, {
         enter = function(node)
-            if node.kind == "Reference" and node.name.text == "any" then
+            if node.kind == "Reference" and node.name.text == "Any" then
                 D.reject("slet-forbidden", "SLet does not define `any`; use `.let` for dynamic values", node.span)
             end
         end,
@@ -195,6 +195,7 @@ local function typedFile(path, session)
         Semantic.build(unit,{prefix=prefix,namespaces=namespaces,typeCells=typeCells,dependencies=dependencies,foreigns=foreigns,importsResolved=true,demands=session})
         local functions={} for _,fn in ipairs(dependencies) do functions[#functions+1]=fn end
         for _,fn in ipairs(unit.functions) do functions[#functions+1]=fn end
+        functions.moduleData=session:data()
         local loaded={unit=unit,functions=functions,namespace=unit.namespace,typeCells=unit.typeCells,foreigns=unit.foreigns};cache[modulePath]=loaded;active[modulePath]=nil;return loaded
     end
     local loaded=load(path,true)

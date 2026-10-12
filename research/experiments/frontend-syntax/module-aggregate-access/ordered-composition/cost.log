@@ -1,0 +1,5 @@
+Frontend: /tmp/let-access-before.4r4nhxhy/frontend
+access median CPU: 0.004342s; peak Lua delta: 745.3 KiB; last retained Lua delta: 94.0 KiB
+Frontend: /home/cperion_ext/dev/let/frontend
+access median CPU: 0.011681s; peak Lua delta: 1588.6 KiB; last retained Lua delta: 124.3 KiB
+contexts: 120; provenance/state points: 36; worklist evaluations: 263

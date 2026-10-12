@@ -1,0 +1,58 @@
+--- a/gen/semantics.lua
++++ b/gen/semantics.lua
+@@ -44,7 +44,8 @@
+ for _,name in ipairs(M.unary_order) do transfer(name,'unary',{operation=name}) end
+ for _,name in ipairs(M.bitcast_order) do
+  local cast=M.bitcasts[name]
+- transfer(name,'unary',{operation=name,input_kind=cast.input_kind,result_kind=cast.result_kind})
++ -- Physical cell identity is explicit; the verifier still owns the kind change.
++ transfer(name,'unary',{operation=name,input_kind=cast.input_kind,result_kind=cast.result_kind,cell_identity=true})
+ end
+ for _,name in ipairs(M.float_unary_order) do transfer(name,'float_unary',{operation=name}) end
+ for _,name in ipairs(M.immediate_order) do transfer(name..'I','immediate',{operation=name}) end
+--- a/gen/banked.lua
++++ b/gen/banked.lua
+@@ -159,6 +159,19 @@
+  else return false end
+  return true
+ end
++-- Transparent extensions preserve every carried/home cell and the exact cache
++-- state. Derive selectors and length from the shared transfer/format contracts.
++local identity_selectors,identity_length={}
++for _,instruction in ipairs(manifest.ext_ops) do
++ local operation=manifest.operations[instruction.operation+1]
++ local transfer=assert(semantics.transfers[operation])
++ if transfer.cell_identity then
++  assert(transfer.kind=='unary' and semantics.unary[operation]=='x' and instruction.layout_name=='NONE','invalid cell-identity transfer')
++  identity_length=identity_length or instruction.len
++  assert(identity_length==instruction.len,'cell-identity extension lengths disagree')
++  identity_selectors[#identity_selectors+1]='ip[1]==EXT_'..operation
++ end
++end
+ local states=cache.states()
+ local header=assert(io.open(output..'/banked.h.tmp','wb'))
+ header:write('#pragma once\n#include "vm_internal.h"\n#include "handler_abi.h"\n')
+@@ -185,6 +198,10 @@
+  if scalar_transfer(binding,transfer,me,other,instruction) then
+   emit(table.concat(binding.lines,' '));dispatch(binding.state)
+  elseif kind=='ext' then
++  if #identity_selectors>0 then
++   emit('if('..table.concat(identity_selectors,'||')..'){next=ip+'..identity_length..';')
++   dispatch(state);emit('}')
++  end
+   emit(('ABC_HANDLER_TAIL return extended_%s_%s[ip[1]](ABC_HANDLER_PASS);'):format(suffix,me))
+  elseif kind=='abort' then emit('ABORT(operand[0]);')
+  elseif kind=='allocate' or kind=='free' then
+@@ -259,7 +276,11 @@
+  local suffix=('a%db%dc%d'):format(state.a,state.b,state.c)
+  for _,me in ipairs{'A','B'} do
+   local handlers={}
+-  for _,instruction in ipairs(manifest.ext_ops) do handlers[#handlers+1]=emit_handler(state,instruction,me,true,suffix) end
++  for _,instruction in ipairs(manifest.ext_ops) do
++   local transfer=semantics.transfers[manifest.operations[instruction.operation+1]]
++   -- Identity selectors are handled in EXT itself, never through this table.
++   handlers[#handlers+1]=transfer.cell_identity and 'NULL' or emit_handler(state,instruction,me,true,suffix)
++  end
+   emit(('static const abc_handler extended_%s_%s[EXT_COUNT]={%s};'):format(suffix,me,table.concat(handlers,',')))
+  end
+  local handlers={}

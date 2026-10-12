@@ -15,7 +15,8 @@ static void validate_dead_arguments(abc_vm *vm) {
     static const uint8_t ops[]={OP_ADD_A,OP_ADD_B,OP_MUL_A,OP_XOR_B,
         OP_DUP_A,OP_DROP_A,OP_CPUSH_A,OP_CPOP,OP_MOVE_A,OP_COPY_B,
         OP_CGET0_A,OP_CSET0_A,OP_DIVU_A,OP_SHL_A,OP_POW_A,
-        OP_SUB_A,OP_SUB_B,OP_DIVU_B,OP_SHL_B,OP_POW_B};
+        OP_SUB_A,OP_SUB_B,OP_DIVU_B,OP_SHL_B,OP_POW_B,
+        OP_EXT_A,OP_EXT_B,OP_EXT_A,OP_EXT_B};
     unsigned cases=0;
     for(unsigned ca=0;ca<=4;ca++) for(unsigned cb=0;cb<=4-ca;cb++)
     for(unsigned cc=0;cc<=3;cc++) for(unsigned pattern=0;pattern<2;pattern++)
@@ -24,6 +25,13 @@ static void validate_dead_arguments(abc_vm *vm) {
         for(size_t i=0;i<na;i++) a[i]=11+i;
         for(size_t i=0;i<nb;i++) b[i]=21+i;
         for(size_t i=0;i<nc;i++) c[i]=31+i;
+        if(ops[op]==OP_EXT_A||ops[op]==OP_EXT_B) {
+            /* Bitcasts must not touch operand bits even in backing-only states,
+             * with float payloads live on the opposite bank and C as well. */
+            for(size_t i=0;i<na;i++) a[i]=UINT64_C(0x7ff0000000000001)+i;
+            for(size_t i=0;i<nb;i++) b[i]=UINT64_C(0xfff8000000001234)+i;
+            for(size_t i=0;i<nc;i++) c[i]=UINT64_C(0x8000000000000000)+i;
+        }
         vm->na=vm->nb=vm->nc=2;vm->nf=0;vm->ca=ca;vm->cb=cb;vm->cc=cc;
         memcpy(vm->a,a,2*sizeof *a);memcpy(vm->b,b,2*sizeof *b);memcpy(vm->c,c,2*sizeof *c);
         uint64_t poison=pattern?UINT64_C(0x123456789abcdef0):UINT64_MAX;
@@ -53,9 +61,12 @@ static void validate_dead_arguments(abc_vm *vm) {
         case OP_DIVU_B: b[nb-1]/=a[--na];break;
         case OP_SHL_B: b[nb-1]<<=a[--na];break;
         case OP_POW_B: {uint64_t x=b[nb-1],n=a[--na],value=1;while(n--)value*=x;b[nb-1]=value;break;}
+        case OP_EXT_A:case OP_EXT_B:break; /* Raw identity, all cache/home bits untouched. */
         default: abort();
         }
-        uint8_t code[]={ops[op],OP_HALT_A};abc_error e={0};
+        uint8_t code[3]={ops[op],OP_HALT_A,OP_HALT_A};
+        if(ops[op]==OP_EXT_A||ops[op]==OP_EXT_B)code[1]=(uint8_t)(op<sizeof ops/sizeof *ops-2?EXT_F2BITS:EXT_BITS2F);
+        abc_error e={0};
         abc_run run={.v=vm,.code=code,.e=&e};
         abc_run *previous=abc_active_run;abc_active_run=&run;
         unsigned state=(ca*5+cb)*4+cc;

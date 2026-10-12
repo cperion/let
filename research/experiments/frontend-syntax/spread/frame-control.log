@@ -1,0 +1,6 @@
+Frontend /tmp/let-spread-before.93p27p89/frontend
+optimized=false -> 42
+optimized=true BLOCKED: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+Frontend /home/cperion_ext/dev/let/frontend
+optimized=false -> 42
+optimized=true BLOCKED: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block

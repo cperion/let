@@ -1,0 +1,4 @@
+luajit: ...eriments/frontend-syntax/ownership-inference/measure.lua:44: attempt to index local 'stats' (a nil value)
+stack traceback:
+	...eriments/frontend-syntax/ownership-inference/measure.lua:44: in main chunk
+	[C]: at 0x578df5a9b120

@@ -1,0 +1,13 @@
+luajit: BUG [ir-type] Make field type does not match last
+stack traceback:
+	[C]: in function 'error'
+	./let/diag.lua:21: in function 'bug'
+	./let/check.lua:478: in function 'expr'
+	./let/check.lua:291: in function 'checkList'
+	./let/check.lua:386: in function 'function_'
+	./let/check.lua:691: in function 'program'
+	./let/abc.lua:865: in function 'lower'
+	tests/packed_tagged.lua:16: in function 'run'
+	tests/packed_tagged.lua:122: in main chunk
+	[C]: at 0x5bc173580120
+packed tagged integer/storage subset: 737 checks, 200 VM executions

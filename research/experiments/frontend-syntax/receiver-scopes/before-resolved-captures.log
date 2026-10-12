@@ -1,0 +1,7 @@
+receiver scopes before imports: 193 checks, 184 VM executions
+luajit: REJECT [unknown-name] at /tmp/lua_Z4YTEL/main.slet:1 Unknown value `inc`
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:113: in function 'typedFile'
+	tests/receiver_scopes.lua:142: in main chunk
+	[C]: at 0x5e48ebb30120

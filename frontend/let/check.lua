@@ -179,8 +179,8 @@ function M.function_(fn, definitions, seeded)
                 checkList(stmt.body, copy(visible), storages, true, bodyEnd)
                 replace(initialized, bodyEnd)
             elseif kind == "Dynamic" then
-                for _,operand in ipairs(stmt.operands) do if M.expr(operand,visible,storages)~=S.any then D.bug("ir-type","Dynamic word operands must be any values") end end
-                local resultType=stmt.operation.kind=="WordHas" and S.bool or stmt.operation.kind=="WordCount" and S.u32 or S.any
+                for _,operand in ipairs(stmt.operands) do if M.expr(operand,visible,storages)~=S.Any then D.bug("ir-type","Dynamic word operands must be any values") end end
+                local resultType=stmt.operation.kind=="WordHas" and S.Bool or stmt.operation.kind=="WordCount" and S.U32 or S.Any
                 for _,result in ipairs(stmt.results) do bind(visible,result.id,resultType) end
             elseif kind == "Call" or kind == "Indirect" then
                 local target = definitions[stmt.target]
@@ -192,11 +192,11 @@ function M.function_(fn, definitions, seeded)
                 end
                 if kind == "Indirect" then
                     local callable = M.expr(stmt.callable, visible, storages)
-                    if callable==S.any then
+                    if callable==S.Any then
                         for _,arg in ipairs(stmt.arguments) do
-                            if arg.kind~="ValueArg" or M.expr(arg.value,visible,storages)~=S.any then D.bug("ir-type","Dynamic call arguments must be any values") end
+                            if arg.kind~="ValueArg" or M.expr(arg.value,visible,storages)~=S.Any then D.bug("ir-type","Dynamic call arguments must be any values") end
                         end
-                        for _,result in ipairs(stmt.results) do bind(visible,result.id,S.any) end
+                        for _,result in ipairs(stmt.results) do bind(visible,result.id,S.Any) end
                     else
                         if not callable:isView() then D.bug("ir-type", "Indirect needs a view or any callable") end
                         if #stmt.results ~= #callable.visible.results then D.bug("ir-arity", "Indirect result count does not match the view's signature") end
@@ -244,12 +244,12 @@ function M.function_(fn, definitions, seeded)
                 end
                 -- A view binds a known callable's hidden prefix in a local adapter, or represents
                 -- pure code: an owned callable with an empty environment and no bound prefix.
-                if stmt.type~=S.any and not stmt.type:isView() and not (stmt.type:isOwned() and S.environmentOf(stmt.type)==S.unit) then
+                if stmt.type~=S.Any and not stmt.type:isView() and not (stmt.type:isOwned() and S.environmentOf(stmt.type)==S.Unit) then
                     D.bug("ir-type", "View needs a view, any direct word, or an empty-environment callable type")
                 end
                 local target = definitions[stmt.entry]
                 if not target then D.bug("ir-target", "View binds unknown code " .. stmt.entry) end
-                if stmt.type==S.any and #stmt.slots>0 then D.bug("ir-type","An any direct word cannot bind borrowed slots") end
+                if stmt.type==S.Any and #stmt.slots>0 then D.bug("ir-type","An any direct word cannot bind borrowed slots") end
                 if #stmt.slots > #target.inputs then
                     D.bug("ir-arity", "View binds more inputs than " .. stmt.entry .. " has")
                 end
@@ -280,7 +280,7 @@ function M.function_(fn, definitions, seeded)
                 end
                 local caseType = S.caseOf(stmt.type, stmt.tag)
                 if not caseType then D.bug("ir-type", "Sum type has no alternative " .. stmt.tag) end
-                if caseType == S.unit then
+                if caseType == S.Unit then
                     if stmt.payload then
                         D.bug("ir-type", "A unit alternative must not carry a payload")
                     end
@@ -303,11 +303,11 @@ function M.function_(fn, definitions, seeded)
                 if visible[stmt.variant.id] ~= stmt.sum then
                     D.bug("ir-type", "VariantMatches tests a value that is not of that sum type")
                 end
-                bind(visible, stmt.value.id, S.bool)
+                bind(visible, stmt.value.id, S.Bool)
             elseif kind == "VariantPayload" then
                 local caseType = S.caseOf(stmt.sum, stmt.tag)
                 if not caseType then D.bug("ir-type", "Sum type has no alternative " .. stmt.tag) end
-                if caseType == S.unit then
+                if caseType == S.Unit then
                     D.bug("ir-type", "A unit alternative has no payload to project")
                 end
                 if visible[stmt.variant.id] ~= stmt.sum then
@@ -409,15 +409,15 @@ function M.expr(expr, locals, storages)
             elseif expr.literal.value > S.maxOf(expr.type) then
                 D.bug("ir-literal", "A constant does not fit in its own width")
             end
-        elseif expr.type == S.f64 then
+        elseif expr.type == S.F64 then
             if expr.literal.kind=='FloatBits' then
                 for _,word in ipairs{expr.literal.high,expr.literal.low} do
                     if word~=word or word%1~=0 or word<0 or word>4294967295 then D.bug('ir-literal','FloatBits words must be u32') end
                 end
             elseif expr.literal.kind ~= "Float" then D.bug("ir-literal", "f64 constant needs a Float or FloatBits literal") end
-        elseif expr.type == S.bool then
+        elseif expr.type == S.Bool then
             if expr.literal.kind ~= "Boolean" then D.bug("ir-literal", "bool constant needs a Boolean literal") end
-        elseif expr.type == S.unit then
+        elseif expr.type == S.Unit then
             if expr.literal.kind~="UInt" or expr.literal.value~=0 then D.bug("ir-literal","unit constant needs zero") end
         elseif expr.type:isSlice() then
             -- A byte slice is the one aggregate with a literal spelling, and its bytes are the
@@ -427,6 +427,11 @@ function M.expr(expr, locals, storages)
             end
             if not expr.type:isString() then
                 D.bug("ir-literal", "Only a byte slice has a literal spelling")
+            end
+        elseif expr.literal.kind=='Bytes' then
+            local Layout=require('let.layout')
+            if not Layout.pointerFree(expr.type) or #expr.literal.bytes~=Layout.layout(expr.type).size then
+                D.bug('ir-literal','Aggregate snapshot disagrees with its pointer-free layout')
             end
         else
             D.bug("ir-const", "Unsupported constant type " .. S.encode(expr.type))
@@ -446,7 +451,7 @@ function M.expr(expr, locals, storages)
             if not data:isRef() or data.target ~= expr.type.element then
                 D.bug("ir-type", "slice data must be a reference to the element type")
             end
-            if M.expr(expr.fields[2], locals, storages) ~= S.u32 then
+            if M.expr(expr.fields[2], locals, storages) ~= S.U32 then
                 D.bug("ir-type", "A slice length is a u32")
             end
             return expr.type
@@ -489,32 +494,41 @@ function M.expr(expr, locals, storages)
         return expr.type
     elseif kind == "Get" then
         local aggregate = S.environmentOf(M.expr(expr.aggregate, locals, storages))
-        if not aggregate:isRecord() then D.bug("ir-type", "Get needs a record aggregate") end
-        local field = S.field(aggregate, expr.field.name)
-        if not field then D.bug("ir-field", "Get names an unknown field " .. expr.field.name) end
+        local field
+        if expr.field.kind=='Element' then
+            local index=expr.field.index
+            if not aggregate:isArray() or index%1~=0 or index<0 or index>=aggregate.length then
+                D.bug('ir-field','Get needs an in-range static array element')
+            end
+            field=aggregate.element
+        else
+            if not aggregate:isRecord() then D.bug("ir-type", "Get needs a record aggregate") end
+            field=S.field(aggregate,expr.field.name)
+            if not field then D.bug("ir-field", "Get names an unknown field " .. expr.field.name) end
+        end
         if field ~= expr.type then D.bug("ir-type", "Get type does not match the field type") end
         return expr.type
     elseif kind == "Convert" then
         local operand = M.expr(expr.operand, locals, storages)
-        if operand==S.any or expr.type==S.any then
-            if operand==S.any and expr.type==S.any then D.bug("ir-type","Redundant any conversion") end
-            if operand==S.type or expr.type==S.type then D.bug("ir-type","type cannot cross an any boundary") end
+        if operand==S.Any or expr.type==S.Any then
+            if operand==S.Any and expr.type==S.Any then D.bug("ir-type","Redundant any conversion") end
+            if operand==S.Type or expr.type==S.Type then D.bug("ir-type","type cannot cross an any boundary") end
         elseif not ((operand:isInteger() and expr.type:isInteger()) or (operand:isF64() ~= expr.type:isF64())) then
             D.bug("ir-type", "Convert needs numeric widths or one any boundary")
         end
         return expr.type
     elseif kind == "Is" then
-        if M.expr(expr.operand,locals,storages)~=S.any or expr.type~=S.bool or expr.tested==S.any or expr.tested==S.type then D.bug("ir-type","Is needs any, a concrete runtime type, and bool result") end
-        return S.bool
+        if M.expr(expr.operand,locals,storages)~=S.Any or expr.type~=S.Bool or expr.tested==S.Any or expr.tested==S.Type then D.bug("ir-type","Is needs any, a concrete runtime type, and bool result") end
+        return S.Bool
     elseif kind == "Un" then
         local operand = M.expr(expr.operand, locals, storages)
         local op = expr.op.kind
-        if operand==S.any then
-            if op=="Not" then if expr.type~=S.bool then D.bug("ir-type","Dynamic not produces bool") end
-            elseif op=="Neg" or op=="BitNot" then if expr.type~=S.any then D.bug("ir-type","Dynamic unary arithmetic produces any") end
+        if operand==S.Any then
+            if op=="Not" then if expr.type~=S.Bool then D.bug("ir-type","Dynamic not produces bool") end
+            elseif op=="Neg" or op=="BitNot" then if expr.type~=S.Any then D.bug("ir-type","Dynamic unary arithmetic produces any") end
             else D.bug("ir-op","Unknown unary operation "..tostring(op)) end
         elseif op == "Not" then
-            if operand ~= S.bool or expr.type ~= S.bool then D.bug("ir-type", "Not requires bool") end
+            if operand ~= S.Bool or expr.type ~= S.Bool then D.bug("ir-type", "Not requires bool") end
         elseif op == "Neg" or op == "BitNot" then
             local doubleNegation = op == "Neg" and operand:isF64() and operand == expr.type
             if not doubleNegation and (not operand:isInteger() or operand ~= expr.type) then D.bug("ir-type", "Unary " .. op .. " requires one integer width") end
@@ -526,10 +540,10 @@ function M.expr(expr, locals, storages)
         local op = expr.op.kind
         local arithmetic = { Add = true, Sub = true, Mul = true, Div = true, Rem = true, Pow = true,
             BitAnd = true, BitOr = true, BitXor = true }
-        if left==S.any or right==S.any then
-            if left~=S.any or right~=S.any then D.bug("ir-type","Dynamic binary operands must both be any") end
+        if left==S.Any or right==S.Any then
+            if left~=S.Any or right~=S.Any then D.bug("ir-type","Dynamic binary operands must both be any") end
             local comparison=op=="Eq" or op=="Ne" or op=="Lt" or op=="Le" or op=="Gt" or op=="Ge"
-            if expr.type~=(comparison and S.bool or S.any) then D.bug("ir-type","Dynamic binary result type is inconsistent") end
+            if expr.type~=(comparison and S.Bool or S.Any) then D.bug("ir-type","Dynamic binary result type is inconsistent") end
             return expr.type
         end
         if arithmetic[op] then
@@ -543,14 +557,14 @@ function M.expr(expr, locals, storages)
             end
         elseif op == "Shl" or op == "Shr" then
             -- The amount is a plain u32; the value keeps its own width.
-            if not left:isInteger() or right ~= S.u32 or expr.type ~= left then
+            if not left:isInteger() or right ~= S.U32 or expr.type ~= left then
                 D.bug("ir-type", "A shift needs an integer value and a u32 amount")
             end
         elseif op == "Eq" or op == "Ne" then
-            if left ~= right or expr.type ~= S.bool then D.bug("ir-type", "Equality requires matching types") end
+            if left ~= right or expr.type ~= S.Bool then D.bug("ir-type", "Equality requires matching types") end
         elseif op == "Lt" or op == "Le" or op == "Gt" or op == "Ge" then
             -- f64 orders as IEEE does, which is what C's operators already implement.
-            if not (left:isInteger() or left:isF64()) or left ~= right or expr.type ~= S.bool then
+            if not (left:isInteger() or left:isF64()) or left ~= right or expr.type ~= S.Bool then
                 D.bug("ir-type", "Ordering requires two integers or two f64 values")
             end
         else
@@ -564,7 +578,7 @@ function M.expr(expr, locals, storages)
     elseif kind == "SliceLength" then
         local view = S.environmentOf(M.expr(expr.view, locals, storages))
         if not view:isSlice() then D.bug("ir-type", "SliceLength needs a slice view") end
-        if expr.type ~= S.u32 then D.bug("ir-type", "A slice length is a u32") end
+        if expr.type ~= S.U32 then D.bug("ir-type", "A slice length is a u32") end
         return expr.type
     end
     D.bug("ir-expr", "Unknown expression variant " .. tostring(kind))
@@ -573,13 +587,14 @@ end
 -- Returns the type the place refers to, or nil for places without a known type yet.
 function M.place(place, storages, locals)
     local kind = place.kind
+    if kind=='Global' then return place.root.type end
     if kind == "Index" then
         -- The element type is recorded on the node, so the base only has to be an array of it and the
         -- index has to be a u32.
         local base = M.place(place.base, storages, locals)
         if not base:isArray() then D.bug("ir-place", "Index needs an array base") end
         if base.element ~= place.type then D.bug("ir-type", "Index element type does not match") end
-        if M.expr(place.index, locals, storages) ~= S.u32 then
+        if M.expr(place.index, locals, storages) ~= S.U32 then
             D.bug("ir-type", "Index needs a u32 index")
         end
         return place.type
@@ -603,7 +618,7 @@ function M.place(place, storages, locals)
     if kind == "Project" then
         local base = M.place(place.base, storages, locals)
         if base == nil then return nil end
-        if not base:isRecord() then D.bug("ir-type", "Project needs a record base") end
+        if not base:isRecord() or place.field.kind~='Field' then D.bug("ir-type", "Project needs a named record field") end
         local field = S.field(base, place.field.name)
         if not field then D.bug("ir-field", "Project names an unknown field " .. place.field.name) end
         return field
@@ -616,7 +631,7 @@ function M.place(place, storages, locals)
         -- two are checked for shape, not compared by identity.
         local view = S.environmentOf(M.expr(place.view, locals, storages))
         if not view:isPtr() then D.bug("ir-place", "PtrIndex needs a pointer view") end
-        if M.expr(place.index, locals, storages) ~= S.u32 then
+        if M.expr(place.index, locals, storages) ~= S.U32 then
             D.bug("ir-type", "PtrIndex needs a u32 index")
         end
         return place.type
@@ -629,7 +644,7 @@ function M.place(place, storages, locals)
         if view.element ~= place.type then
             D.bug("ir-type", "SliceIndex element type does not match the view")
         end
-        if M.expr(place.index, locals, storages) ~= S.u32 then
+        if M.expr(place.index, locals, storages) ~= S.U32 then
             D.bug("ir-type", "SliceIndex needs a u32 index")
         end
         return place.type
@@ -648,6 +663,7 @@ function M.program(fnList, modules, foreigns)
     -- A foreign target is declared rather than defined, so it has a result contract and no body, which
     -- is all the call check needs to know about it.
     for _, foreign in ipairs(foreigns or {}) do
+        if foreign.target:sub(1,9)=='__let_rt_' then require('let.runtime').validate(foreign) end
         definitions[foreign.target] = { results = foreign.results, inputs = foreign.inputs,
             foreign = true }
     end
@@ -667,11 +683,27 @@ function M.program(fnList, modules, foreigns)
         end
         definitions[fn.id] = { results = fn.results, inputs = fn.inputs, fn = fn }
     end
-    -- Module-level storages are declared outside every function, so the verifier is seeded with
-    -- them rather than expecting a Var in the body.
-    local seeded = {}
-    for _, module in ipairs(modules or {}) do seeded[module.storage.id] = module.type end
-    for _, fn in ipairs(fnList) do M.function_(fn, definitions, seeded) end
+    -- Module roots have their own identities, never function-local storage ordinals.
+    local roots,identities={},{}
+    for _,data in ipairs(modules or fnList.moduleData or {}) do
+        if not Ir.ModuleData:isclassof(data) then D.bug('ir-module','Expected typed module data') end
+        local root=data.root;local Layout=require('let.layout')
+        if identities[root.identity] or not Layout.pointerFree(root.type) or #data.bytes~=Layout.layout(root.type).size then
+            D.bug('ir-module','Duplicate root or invalid durable module image')
+        end
+        identities[root.identity]=root;roots[root]=true
+    end
+    for _,fn in ipairs(fnList) do
+        Walk.walk(fn,{enter=function(node)
+            if node.kind=='Global' and not roots[node.root] then D.bug('ir-module','Global place has no initialized module root') end
+            if S.Ty.V:isclassof(node) then return false end
+        end})
+        M.function_(fn,definitions)
+    end
+    local Access = require('let.access')
+    local queries = Access.program(fnList)
+    require('let.ownership').program(fnList, queries)
+    Access.validate(fnList, queries)
     return true
 end
 

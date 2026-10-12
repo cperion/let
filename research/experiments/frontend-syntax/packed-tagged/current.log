@@ -1,0 +1,91 @@
+
+CASE float-construction
+.profile memory
+.rodata 0000000000000080
+.function main 0 2 - ii
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CSET.A 1
+  PUSH.A 0
+  CSET.A 0
+  PUSH.A 0
+  ZX32.A
+  CGET.B 1
+  OR.A
+  CSET.A 1
+  .loadkind float
+  GLD64.A 0
+  CSET.A 0
+  CGET.A 1
+  CGET.A 0
+  RET.A 2 2
+.export main
+
+interpreted optimize=false BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+threaded optimize=false BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+eager optimize=false BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+lazy optimize=false BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+interpreted optimize=true BUG [abc-opt-invalid] ABC optimization failed at byte 0x1c: RET disagrees with frame or result contract
+threaded optimize=true BUG [abc-opt-invalid] ABC optimization failed at byte 0x1c: RET disagrees with frame or result contract
+eager optimize=true BUG [abc-opt-invalid] ABC optimization failed at byte 0x1c: RET disagrees with frame or result contract
+lazy optimize=true BUG [abc-opt-invalid] ABC optimization failed at byte 0x1c: RET disagrees with frame or result contract
+
+CASE float-extraction
+.profile memory
+.function main 2 1 ii f
+  PUSH.A 0
+  I2FU.A
+  CPUSH.A
+  CGET.A 2
+  CSET.A 0
+  CGET.A 0
+  RET.A 3 1
+.export main
+
+interpreted optimize=false BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+threaded optimize=false BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+eager optimize=false BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+lazy optimize=false BUG [static-vm-invalid] Generated static module failed: RET disagrees with frame or result contract
+interpreted optimize=true BUG [abc-opt-invalid] ABC optimization failed at byte 0x8: RET disagrees with frame or result contract
+threaded optimize=true BUG [abc-opt-invalid] ABC optimization failed at byte 0x8: RET disagrees with frame or result contract
+eager optimize=true BUG [abc-opt-invalid] ABC optimization failed at byte 0x8: RET disagrees with frame or result contract
+lazy optimize=true BUG [abc-opt-invalid] ABC optimization failed at byte 0x8: RET disagrees with frame or result contract
+
+CASE nested-extraction
+.function main 2 2
+  PUSH.A 0
+  CPUSH.A
+  PUSH.A 0
+  CPUSH.A
+  CGET.A 2
+  PUSH.B 32
+  SHR.A
+  ZX32.A
+  CGET.A 3
+  ZX32.A
+  PUSH.B 32
+  SHL.A
+  MOVE.A
+  OR.A
+  CGET.A 3
+  PUSH.B 32
+  SHR.A
+  ZX32.A
+  CSET.A 0
+  CSET.A 1
+  CGET.A 1
+  CGET.A 0
+  RET.A 4 2
+.export main
+
+interpreted optimize=false PASS 3771201815278780416ULL, 2309737967ULL
+threaded optimize=false PASS 3771201815278780416ULL, 2309737967ULL
+eager optimize=false PASS 3771201815278780416ULL, 2309737967ULL
+lazy optimize=false PASS 3771201815278780416ULL, 2309737967ULL
+interpreted optimize=true PASS 3771201815278780416ULL, 2309737967ULL
+threaded optimize=true MISMATCH 3771201815278780416ULL, 0ULL
+eager optimize=true MISMATCH 3771201815278780416ULL, 0ULL
+lazy optimize=true MISMATCH 3771201815278780416ULL, 0ULL

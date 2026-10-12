@@ -10,7 +10,7 @@
 4. No implicit bank-orientation mode, mirrored function bodies, A-only staging engine or operand-order repair adapter.
 5. No internal quickened bytecodes and no opcode reservations for them. Existing cache-state handlers remain.
 6. The core byte is completely allocated: **124 ordinary A/B families × 2 + 2 EXT prefixes + 6 neutral instructions = 256 bytes**.
-7. Four C-operand arithmetic families and ten immediate-branch families use EXT. All other existing typed families retain direct core opcodes, now symmetric. No typed semantic operation is removed.
+7. Four C-operand arithmetic families, ten immediate-branch families and two raw integer/binary64 bitcasts use EXT. All other existing typed families retain direct core opcodes, now symmetric. No typed semantic operation is removed.
 8. Module revision is **6**, with capability profile independently selected from 1–4. Old module revisions are not reinterpreted or supported by a second semantic engine in the migrated runtime.
 9. Remove serialized indirect-call cache words. Observations belong to VM-local records keyed by original instruction identity, not mutable instruction operands.
 
@@ -188,8 +188,10 @@ The selected bank comes from F8/F9. These selectors are revision-6 assignments; 
 | `0B` | `BLEUI.X` | i8 constant, i16 displacement | 5 |
 | `0C` | `BGTUI.X` | i8 constant, i16 displacement | 5 |
 | `0D` | `BGEUI.X` | i8 constant, i16 displacement | 5 |
+| `0E` | `F2BITS.X` | none | 2 |
+| `0F` | `BITS2F.X` | none | 2 |
 
-Selectors 0E–FF are unassigned. No dynamic, word, GC or fused-guard selectors are allocated in this typed revision. EXT executes declared typed operations through the same semantic definitions and cache bindings; it is not an opaque execution fallback. No separate EXT rejection subsystem or dedicated rejection project is part of this migration; normal format verification uses the declared instruction set.
+The bitcasts are additive revision-6 assignments, requiring profile 2+. Existing valid bytecode retains its meaning; earlier engines reject these previously unassigned selectors. Selectors 10–FF are unassigned. No dynamic, word, GC or fused-guard selectors are allocated in this typed revision. EXT executes declared typed operations through the same semantic definitions and cache bindings; it is not an opaque execution fallback. No separate EXT rejection subsystem or dedicated rejection project is part of this migration; normal format verification uses the declared instruction set.
 
 ## 3. Exact instruction layouts
 
@@ -284,7 +286,7 @@ Immediate arithmetic computes `X0 op sign_extend(i8)`, without touching Y. C-ope
 - FNEG toggles the sign bit on X0 without changing the other payload bits.
 - I2FS/I2FU convert signed/unsigned integer X0 to binary64, round-to-nearest ties-to-even.
 - F2IS accepts finite X0 in [-2^63, 2^63); F2IU accepts finite X0 in [0, 2^64). They truncate toward zero and return integer bits on X. Outside the specified input interval, including NaN and infinities, abort reason is 3. This preserves the existing interval check before conversion.
-- There is no implicit boxing, tagging, float normalization or reinterpret cast. Existing memory load-kind annotations and ABI kinds supply floating literals/values.
+- There is no implicit boxing, tagging, float normalization or reinterpret cast. `F2BITS.X` explicitly replaces float-kind X0 with integer-kind X0; `BITS2F.X` performs the inverse. Both preserve all 64 bits, including negative zero and signalling/quiet NaN payloads, without arithmetic, allocation, traps, safepoints or changes to Y/C/live prefixes. Empty or incorrectly typed selected operands reject. Existing memory load-kind annotations and ABI kinds also supply floating literals/values.
 
 These rules retain the existing typed numeric policy while changing operand orientation and providing missing mirrored forms. They do not adopt a new floating environment or error ABI.
 
@@ -410,7 +412,7 @@ Retain the existing profile-specific section payload structures, except that cod
 | 3 | Profile 2 plus indirect callable views | 1–8, adding indirect-site signatures and code-address relocations |
 | 4 | Profile 3 plus named typed foreign calls | 1–9, adding extern signatures |
 
-The six neutral instructions are not automatically legal in every profile: CALLOC/CFREE require profile 2 or higher. Float/memory operations require profile 2, CALLI/TCALLI profile 3, FCALL profile 4. The assigned typed EXT forms are legal in profile 1 and higher. Profile 1 retains integer-only function records; profiles 2–4 retain their explicit kind vectors. Existing section framing, loader size limits, export names, hidden-result storage responsibilities and relocation payload structures are otherwise unchanged.
+The six neutral instructions are not automatically legal in every profile: CALLOC/CFREE require profile 2 or higher. Float/memory operations require profile 2, CALLI/TCALLI profile 3, FCALL profile 4. The C-operand arithmetic and immediate-branch EXT forms are legal in profile 1 and higher; F2BITS/BITS2F require profile 2 and higher. Profile 1 retains integer-only function records; profiles 2–4 retain their explicit kind vectors. Existing section framing, loader size limits, export names, hidden-result storage responsibilities and relocation payload structures are otherwise unchanged.
 
 All function entries, branch targets, site signatures and load-kind annotations refer to the new instruction starts. Indirect signatures cover every CALLI/TCALLI, including unreachable ones. Code-address relocations continue to refer to functions rather than serialized process addresses. They do not become native entry pointers in a portable module.
 
@@ -444,4 +446,4 @@ At implementation boundaries, use the existing focused contract validators for:
 - tail continuation preservation, indirect target/ABI validation and selected-bank foreign transport;
 - branches to complete instruction boundaries, regenerated offsets and representative traps/limits.
 
-Run the full active suite at integration and the fixed baseline/final performance comparison. In particular, measure the extra EXT decoding for the fourteen operand forms and the removal of call quickening; neither is assumed free. Native steady-state operation selection should not require an extra runtime layer for EXT, but code size and timing must be measured rather than inferred from the source design.
+Run the full active suite at integration and the fixed baseline/final performance comparison. In particular, measure the extra EXT decoding for the fourteen operand forms and two bitcasts and the removal of call quickening; neither is assumed free. Native steady-state operation selection should not require an extra runtime layer for EXT, but code size and timing must be measured rather than inferred from the source design.

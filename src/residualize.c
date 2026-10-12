@@ -1,6 +1,7 @@
 #include "residualize.h"
 #include "symbolic.h"
 #include "execution_emit.h"
+#include "runtime_call.h"
 #include "generated/execution_forms.h"
 _Static_assert(ABC_SYM_EQ==ABC_JBR_EQ && ABC_SYM_NE==ABC_JBR_NE &&
                ABC_SYM_LT==ABC_JBR_LT && ABC_SYM_LE==ABC_JBR_LE &&
@@ -64,7 +65,8 @@ static int place_memory_copy(Compiler *c,unsigned destination_register,unsigned 
 }
 static abc_status lazy_prepare(void *state,abc_error *error);
 static int place_fcall(Compiler *c,unsigned id,uint32_t abase,const abc_extern *ext,abc_foreign_address target,uint64_t error) {
-    const abc_exec_operands operands={.value={(uint64_t)abase*8,(uintptr_t)abc_foreign_select(ext),(uintptr_t)ext,(uintptr_t)target,error},.target=ABC_EXEC_NO_LABEL};
+    abc_foreign_bridge_fn bridge=abc_primitive_index(ext->name)>=0?abc_runtime_invoke:abc_foreign_select(ext);
+    const abc_exec_operands operands={.value={(uint64_t)abase*8,(uintptr_t)bridge,(uintptr_t)ext,(uintptr_t)target,error},.target=ABC_EXEC_NO_LABEL};
     return emit_form(c,id,&operands);
 }
 /* Rebase is frame transport, independent of the following transfer. Zero
@@ -216,7 +218,10 @@ static int unary_index(unsigned op);
 static int native_emit_unary(void *opaque,uint32_t origin,unsigned opcode,unsigned stack,int folded,
         JValue input,JValue *result) {
     NativeSymbolicSink *sink=opaque; Compiler *c=sink->compiler; Context *x=sink->machine->context;
-    c->current_pc=origin;if(folded)return 1; int ui=unary_index(opcode); JValue *value=top(x,stack,0); int reg=writable(c,x,value);
+    c->current_pc=origin;if(folded)return 1;
+    /* Kind-only raw identity: the verified value retains its existing placement. */
+    if(opcode==ABC_OPERATION_F2BITS||opcode==ABC_OPERATION_BITS2F) { *result=input;return 1; }
+    int ui=unary_index(opcode); JValue *value=top(x,stack,0); int reg=writable(c,x,value);
     if(ui<0||reg<0||!place(c,ABC_FORM_UNARY(ui,reg),0,NULL)) {
         if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_NOMEM,origin,"native symbolic sink emission failed");
         return 0;
@@ -285,7 +290,11 @@ static int native_emit_immediate(void *opaque,uint32_t origin,unsigned opcode,un
         int folded,JValue input,JValue *result) {
     NativeSymbolicSink *sink=opaque; Compiler *c=sink->compiler; Context *x=sink->machine->context;
     c->current_pc=origin;if(folded)return 1; int ii=immediate_index(opcode); JValue *value=top(x,stack,0); int reg=writable(c,x,value);
-    uint32_t next=origin+abc_instruction_length(c->module->code+origin); int u32=follows_zx32(c,next,stack);
+    uint32_t next=origin+abc_instruction_length(c->module->code+origin);
+    /* Low-result truncation commutes with these arithmetic/bitwise operations
+       and left shift, but not with right shift: high input bits remain observable.
+       Keep SHRI/SARI full-width and let the following ZX32 execute separately. */
+    int u32=ii>=0&&ii<=ABC_JIMM_SHL&&follows_zx32(c,next,stack);
     if(ii<0||reg<0)goto failed; unsigned stencil; uint64_t patched=immediate;
     if(ii>=ABC_JIMM_SHL&&immediate>=(uint64_t)(u32?32:64)) {
         if(ii==ABC_JIMM_SAR) { stencil=u32?ABC_FORM_IMMEDIATE32(ii,reg):ABC_FORM_IMMEDIATE(ii,reg); patched=u32?31:63; }
@@ -576,7 +585,7 @@ static int native_emit_foreign(void *opaque,uint32_t pc,abc_symbolic_foreign *ef
         if(!save_value(c,x,value))return 0;*value=rehome_value(*value,selected_stack,(int32_t)j);
     }
     if(!flush_context(c,x))return 0;abc_foreign_address target=abc_foreign_lookup(c->vm,ext->name);uint64_t error=(uint64_t)ABC_INVALID|((uint64_t)pc<<16);
-    return target&&place_fcall(c,ABC_FORM_FCALL(selected_stack,effect->results),argument_base,ext,target,error);
+    return (target||abc_primitive_index(ext->name)>=0)&&place_fcall(c,ABC_FORM_FCALL(selected_stack,effect->results),argument_base,ext,target,error);
 }
 
 static int native_emit_edge(void *opaque,uint32_t origin,uint32_t target) {

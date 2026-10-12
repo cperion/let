@@ -11,8 +11,12 @@ RUNTIME_OBJ = build/module.o build/memory_module.o build/verify.o build/foreign.
 TOOL_OBJ = build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
 TOOL_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o
 RUNTIME_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o $(addprefix build/pic/banked_,$(addsuffix .o,$(SHARDS))) build/pic/residualize.o build/pic/native_emit.o build/pic/native_image.o build/pic/threaded_emit.o build/pic/threaded.o
+RUNTIME_OBJ += build/owner.o build/runtime_call.o build/generated/type_ops.o build/generated/runtime_primitives.o
+RUNTIME_PIC += build/pic/owner.o build/pic/runtime_call.o build/pic/type_ops.o build/pic/runtime_primitives.o
+TOOL_OBJ += build/generated/runtime_primitives.o
+TOOL_PIC += build/pic/runtime_primitives.o
 ASDLC_SRC = tools/asdlc/main.c tools/asdlc/arena.c tools/asdlc/parser.c tools/asdlc/validate.c tools/asdlc/emit_c.c
-.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet
+.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet validate-owner-runtime
 all: build/abc build/abc-opt build/libabc-opt.so build/libabc.so build/libabc.a build/generated/stencils.h
 build:
 	mkdir -p build
@@ -20,6 +24,21 @@ build/opcodes.h: tools/gen_opcodes.lua tools/opcodes.lua gen/semantics.lua | bui
 	$(LUA) tools/gen_opcodes.lua $@
 build/generated:
 	mkdir -p $@
+build/generated/runtime_primitives.h build/generated/runtime_primitives.c build/generated/runtime_primitives.lua &: gen/runtime_primitives.lua tools/gen_runtime_primitives.lua | build/generated
+	$(LUA) tools/gen_runtime_primitives.lua build/generated
+build/generated/type_ops.h build/generated/type_ops.c build/generated/type_ops.lua &: gen/type_ops.lua | build/generated
+	$(LUA) gen/type_ops.lua build/generated
+build/generated/runtime_primitives.o: build/generated/runtime_primitives.c build/generated/runtime_primitives.h build/opcodes.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
+build/pic/runtime_primitives.o: build/generated/runtime_primitives.c build/generated/runtime_primitives.h build/opcodes.h | build/pic
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
+build/generated/type_ops.o: build/generated/type_ops.c src/owner.h src/type_ops.h build/generated/type_ops.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -c $< -o $@
+build/pic/type_ops.o: build/generated/type_ops.c src/owner.h src/type_ops.h build/generated/type_ops.h | build/pic
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
+$(RUNTIME_OBJ) $(RUNTIME_PIC) $(TOOL_OBJ) $(TOOL_PIC): build/generated/type_ops.h build/generated/runtime_primitives.h
+build/owner.o build/pic/owner.o build/runtime_call.o build/pic/runtime_call.o: src/owner.h src/type_ops.h
+build/runtime_call.o build/pic/runtime_call.o build/vm.o build/pic/vm.o build/residualize.o build/pic/residualize.o: src/runtime_call.h
 build/abc-asdlc: $(ASDLC_SRC) tools/asdlc/asdlc.h | build
 	$(CC) $(CFLAGS) $(WARN) -Itools $(ASDLC_SRC) -o $@
 build/generated/residual_ir.h build/generated/residual_ir.c &: schema/residual.asdl build/abc-asdlc | build/generated
@@ -126,6 +145,11 @@ build/abc: tools/abc build/abc-runtime build/abc-opt build/libabc.so $(addprefix
 	chmod +x $@
 build/embed: examples/embed.c build/libabc.a include/abc.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a -o $@
+build/validate-owners: tools/validate_owners.c build/libabc.a src/owner.h src/runtime_call.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc -lm -lpthread -o $@
+validate-owner-runtime: build/validate-owners build/libabc.so build/libabc-opt.so build/generated/runtime_primitives.lua build/generated/type_ops.lua
+	cd frontend && $(LUA) tests/runtime_owners.lua
+	build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc build/runtime-owners-reentry.abc
 build/validate-lifetime: tools/validate_lifetime.c build/libabc.a include/abc.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a -lm -o $@
 build/validate-capacity-frontiers: tools/validate_capacity_frontiers.c build/libabc.a src/internal.h include/abc.h
@@ -170,27 +194,37 @@ validate-optimizer-isa: build/abc-runtime build/libabc-opt.so build/validate-opt
 	$(LUA) tools/validate_optimizer_isa.lua build/abc-runtime build/optimizer-isa build/validate-optimizer-foreign
 validate-frontend-symmetric: build/abc-runtime build/abc-opt build/libabc-opt.so build/libabc.so
 	cd frontend && $(LUA) tests/symmetric.lua "$(CC)"
-validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi build/validate-lifetime
+validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi build/validate-lifetime build/generated/runtime_primitives.lua build/generated/type_ops.lua
 	build/abc asm tools/validate_lifetime.abcasm -o build/validate-lifetime.abc
 	build/validate-lifetime build/validate-lifetime.abc
 	cd frontend && $(LUA) tools/embed.lua --check
 	cd frontend && $(LUA) tests/schemas.lua
+	cd frontend && $(LUA) tests/type_names.lua
 	cd frontend && $(LUA) tests/walk.lua
 	cd frontend && $(LUA) tests/parse.lua
 	cd frontend && $(LUA) tests/syntax_batch.lua
+	cd frontend && $(LUA) tests/endall.lua
 	cd frontend && $(LUA) tests/word_bindings.lua
 	cd frontend && $(LUA) tests/application_chains.lua
 	cd frontend && $(LUA) tests/vocabulary.lua
+	cd frontend && $(LUA) tests/receiver_scopes.lua
+	cd frontend && $(LUA) tests/anonymous_context.lua
 	cd frontend && $(LUA) tests/compiler.lua
 	cd frontend && $(LUA) tests/lambdas.lua
 	cd frontend && $(LUA) tests/lowering.lua
 	cd frontend && $(LUA) tests/optimize.lua
 	cd frontend && $(LUA) tests/staging.lua
 	cd frontend && $(LUA) tests/source_demands.lua
+	cd frontend && $(LUA) tests/aggregate_staging.lua
+	cd frontend && $(LUA) tests/packed_tagged.lua
+	cd frontend && $(LUA) tests/spread.lua --unoptimized
+	cd frontend && $(LUA) tests/rest_templates.lua
+	cd frontend && $(LUA) tests/access_proofs.lua
+	cd frontend && $(LUA) tests/ownership.lua
 	cd frontend && LUA="$(LUA)" $(LUA) tests/staging_sessions.lua
 	$(LUA) tools/validate_slet_frontend.lua
 	CC="$(CC)" $(LUA) tools/validate_c_aot.lua
-validate: validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
+validate: validate-owner-runtime validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
 	build/abc asm tools/validate_capacity_frontiers.abcasm -o build/validate-capacity-frontiers.abc
 	build/validate-capacity-frontiers build/validate-capacity-frontiers.abc
 	build/validate-execution-emit

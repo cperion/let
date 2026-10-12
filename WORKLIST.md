@@ -5,6 +5,27 @@ work; [REFACTOR.md](REFACTOR.md) retains architectural rationale and chronologic
 implementation evidence. Feature specs define semantics, not completion. Historical
 checkboxes and O1–O9 packages are supporting records, not competing live task lists.
 
+## Guide and latest approved source conventions
+
+`docs/designing-and-writing-let.md` is the design/style guide, not a claim of executable
+coverage. It adopts PascalCase for all types/schemas, including built-ins and their
+constructors, and snake_case for ordinary words, values, fields and alternatives.
+Built-in bindings and canonical frontend descriptors now use capitalized names;
+lowercase compatibility aliases are not retained. Case-sensitive binding lookup,
+ABC encodings and C APIs are unchanged. Live-place context opening (X07) now executes within admitted typed contexts;
+bounded `endall` closing sugar (Q12) is implemented and qualified. Updated tests replace
+snapshot expectations; historical evidence remains unchanged. Module aggregate storage
+and broader ownership/frozen-place qualification remain open.
+
+Naming qualification: regenerated the canonical IR schema, migrated active frontend
+consumers/tests/examples and source documentation, and added `tests/type_names.lua`
+(44 checks/8 executions). It checks both constructor forms, removed lowercase
+built-ins and binding-based grammar. Full validation passed; all 14 frontend examples
+retain their pre-rename admission outcomes, including existing unsupported cases.
+Evidence: `research/experiments/frontend-syntax/type-names/`. The naming pass did
+not close S05/S06 or packed-float lowering; the subsequent higher-order correction
+is recorded under S05 below.
+
 ## How to maintain this record
 
 - Stable item IDs survive reordering. `[x]` means that exact deliverable has evidence;
@@ -211,8 +232,82 @@ Sources: `docs/source-partial-evaluation.md`, `source-virtual-contract.md`,
   optional fold may remain residual; parsing stays backend-independent.
 - [ ] **S05** Design and implement aggregate/borrow/address-bearing snapshot transport
   with ownership provenance, exact bits and failure rollback. Depends on O contracts.
+  **WIP bounded pointer-free batch:** shared `layout.lua` ABI metadata, exact aggregate
+  `snapshot.lua` transport, durable `Ir.Bytes`, and module-root/data descriptors added.
+  Aggregate qualification: 337 checks / 326 executions, including exact mixed-width,
+  negative-zero/NaN and tagged byte roundtrips, known-value specialization, imports,
+  repeated compilation, failed initialization and zero-width indexed bounds. Address-
+  bearing transport stays unsupported; packed float kind transitions are corrected below.
+  User approved rejecting unsupported frame-root escapes in both profiles; compiler
+  and lowering tests now reject returned refs/slices, nested borrows and frame-backed
+  callable environments rather than assuming managed retention. Access suite: 101
+  checks / 64 executions; compiler270, receiver407/384 and lambda269/80 pass.
+  Actual-place facts are state-indexed across branches/loops, preserve saved snapshots,
+  and substitute direct store/retention summaries. **New blocker:** higher-order
+  invocation loses the supplied callable's retention bounds. The retained local store
+  rejects through a direct call but is incorrectly accepted through `apply(saved)`.
+  Full validation passes after admission updates; that does not establish proof
+  completeness. This is implementation drift under the existing live-place/unified
+  callable contracts, not a missing language-design approval. Agent: active correction
+  in `semantic.lua`, `source_state.lua`, `access.lua` and focused tests. Remove eager
+  instance-alias snapshots and raw cross-context capture operands; preserve ABI/VM
+  execution and reject unsupported ownership. Conformance findings (former proposal
+  status withdrawn): `docs/actual-binding-access-conformance.md`.
+  **Conformance checkpoint:** concrete view holdings now freeze value provenance
+  or retain qualified live routes; raw slot IR replay removed, callable facts indexed
+  by component. Finite binding nodes avoid growing nested holding trees at loop
+  fixed points; the cyclic IR control qualifies metadata convergence only, not runtime
+  environment storage reuse. Access120/80 includes concrete opaque-result rejection;
+  full validation passes (`validation-conformance-3.log`). **Historical checkpoint: the reproducer
+  still accepted `apply(saved)` at that revision.** Next at that checkpoint: formal
+  callable/result identities, ordered composition and target/owner audit;
+  do not substitute callback effects after unrelated stores or snapshot live captures.
+  Evidence: `research/experiments/frontend-syntax/module-aggregate-access/`.
+  **Resumed correction — Owner: primary coding agent. State: implemented/qualified
+  for the reproduced defect; broader acceptance remains partial. User approved.**
+  Replace the formal-call unknown-effect shortcut with context-qualified callable
+  identities, ordered invocation/state relations and result linkage in the existing
+  access summaries. Canonical metadata: `frontend/ir.asdl`; implementation:
+  `frontend/let/access.lua`, checker/schema consumers as required; regressions:
+  `frontend/tests/access_proofs.lua` and the retained-store reproducer. Remove lost
+  callable-result facts and loan-as-address assumptions, not sugar or the ordinary
+  call path. No source-body replay, scalar evaluator, runtime/ABC change or blanket
+  higher-order rejection. Validate unsafe/safe callbacks, forwarding/results, live
+  versus saved captures, order, recursion and opaque contracts; measure analysis
+  preparation/storage before claiming closure. Preserve unrelated WIP.
+  **Outcome:** `saved()` and `apply(saved)` both reject `borrow-store`; forwarding,
+  returned callables, components, recursive wrappers and block sugar also reject the
+  unsafe store while safe callbacks execute. Live captures read at each invocation;
+  saved snapshots and callback results survive interleaved stores. Replaced unordered
+  transfer-only composition/opaque formal-call handling with provenance/state relations
+  and a finite query worklist; callable result facts are preserved. Physical targets
+  are Borrow.Target nodes, distinct from loan Sources; uncontracted opaque supplied
+  borrows and unknown projected results reject. Access176/112, aggregate438/422,
+  receiver407/384, compiler270, lambda269/80 and full validation pass. Evidence:
+  `research/experiments/frontend-syntax/module-aggregate-access/ordered-composition/`.
+  Cost regression on the 12-wrapper microfixture: seven-run median analysis CPU
+  4.342→11.681ms, sampled peak Lua delta745.3→1588.6KiB; last retained delta94.0→124.3KiB.
+  This does not close preparation efficiency, all recursive/alias/resource cases,
+  clean/sanitizer/pre-packed isolation, counted ownership or the entire S05/S06 batch.
 - [ ] **S06** Implement persistent module initialization and dependency ordering,
   once-per-session state, durable storage and initializer cycle diagnostics.
+  **WIP:** pointer-free aggregate globals now have logical module roots, ordered VM
+  initializer fragments and compiler-owned accepted image bytes. Opening projects
+  persistent storage rather than per-call copies. The new public image-copy service
+  binds transport only; revision-6 execution/continuations and allocation are unchanged.
+  Probes include mutation across calls, chained local aliases, arrays, initializer
+  effects, imports and fresh compilation state. `abc_vm_read_image` passes direct
+  four-mode bounds/null/unloaded-image/output-preservation checks. Full validation
+  exits0 (`validation-wip-2.log`); the earlier failure is preserved. The S05 correction
+  above closes the reproduced higher-order hole, not all proof acceptance.
+  Publication/resource breadth, clean-build/sanitizer and performance remain incomplete. A top-level `let alias = original` probe exposes
+  another root-identity defect, now corrected: binding supplies select the actual
+  instance before demanding bytes, shared by local and module bindings. The probe
+  returns42 with one root; aggregate438/422 includes chained record/array module
+  aliases, saved/opened-field and function-result copy controls, exact root identity
+  and no eager local-alias reads. Full validation: `validation-conformance-3.log`.
+  Historical result40/two-root evidence is retained.
+  No counted/frozen-owner or complete S06 claim.
 - [ ] **S07** Validate imports/repeated compilation, required versus optional demands,
   recursive specialization, all staging modes and cleanup without partial publication.
 - [ ] **S08** Remove replaced eager/AST-only staticness assumptions; retain VM-only
@@ -238,7 +333,8 @@ assembled bytes 222→290 (+68, about 31%). Both versions return 42 in all four 
 This is a code-size regression; timing/preparation costs are unmeasured. Evidence:
 `research/experiments/frontend-syntax/word-bindings/{README.md,size.lua,size.log}`.
 Canonical AST/parser changes add SumSchema and desugar callable entries to Lambda;
-rest syntax is shared, but pack/spread elaboration still rejects explicitly. ABC,
+rest syntax was shared, but pack/spread elaboration rejected at that historical
+checkpoint (now implemented/partially qualified under X02–X04). ABC,
 continuations and allocation machinery are unchanged. Documentation: `docs/word-bindings.md`.
 Focused checks after the cutover: word bindings 106 checks/84 four-mode executions;
 compiler 280; lambdas 269/80 executions; source demands 52. Integrated `validate-slet`
@@ -257,9 +353,60 @@ need a concrete approved design. Evidence and proposed direction:
 Approved design: `docs/tagged-value-lowering.md`; implementation is in progress.
 User approved fresh-padding canonicalization and compiler-dependent resource footprint
 changes without weakening runtime checks or changing bytecode encoding. The initial
-packed-cell path is implemented in abc.lua and passes the existing integrated suite,
-but dedicated exact-bit/nested-layout/resource tests and performance measurement are
-still pending. No second inliner or optimizer eligibility change has been introduced.
+packed-cell path exposed an integer/binary64 kind boundary and nested cross-cell
+shift defect. Historical failed qualification remains in
+`research/experiments/frontend-syntax/packed-tagged/{README.md,current.log,baseline.log}`.
+The shift defect is corrected without an ISA workaround. The float boundary required
+and received explicit user approval for the following additive extension.
+**Packed-float correction — Owner: primary coding agent. State: implemented; focused/full incremental validation passed.**
+Added explicit F2BITS/BITS2F selected-stack unary EXT selectors0E/0F, profile2+, as an
+additive revision-6 extension. Bits, existing valid encodings, ABI/layout and real
+storage remain unchanged; older engines reject the new selectors. No scratch-memory,
+numeric conversion, verifier weakening, new allocator or scalar algorithm. Files:
+`tools/opcodes.lua`, `gen/semantics.lua`, generated metadata/fold consumers,
+`src/{verify,residualize,optimize,residual_builder,residual_validate}.c`, `schema/residual.asdl`,
+`frontend/let/abc.lua`, ISA/tooling/packed tests and Makefile. Bind raw identity through
+existing interpreter/unary and symbolic sink paths; native/threaded retain placement,
+optimizer preserves typed bytecode casts, tooling publishes typed unary relations.
+Missing packing/extraction kind transitions are replaced. Integrated packed suite:
+1894 checks/496 executions, optimized/unoptimized in four modes; exact negative zero,
+subnormals, infinities, quiet/signalling NaN payloads, float arithmetic, nested mixed
+records/arrays, direct/indirect calls and real storage. ISA oracle:143 cases/1144
+executions, all286 public forms; residual315 checks; cache2880 poisoned exact-state
+handlers. Full incremental validation passed. Evidence:
+`research/experiments/frontend-syntax/packed-tagged/float-bitcasts/`.
+Paired runtime-input measurements against adapted9cfd7f65 lowering (same runtime/IR):
+raw/optimized roundtrip145→144 bytes, arithmetic164→163; artificial CALLOC1→0.
+Interpreted medians regress3–20%; threaded improve13–28%; native eager/lazy vary
+−9% to+8%. These are tiny API-call-inclusive CPU samples, not universal performance
+or preparation/code-image growth bounds. Separate preparation/first-call samples
+are noisy. No hidden claim of a universal speedup. Broader padding/loop/resource
+qualification remains open; separate optimizer frame-access defect is not included.
+No second inliner or optimizer eligibility change has been introduced.
+**Bitcast cost follow-up — investigated; approved fast-path prototypes NOT ADOPTED after measurements.**
+Pinned paired same-runtime probes reproduce interpreted regression9–12%; threaded
+improves24–31% in this run, native differences remain small/noisy. Verified raw
+identity streams in both banks/four modes preserve signalling-NaN bits. Disassembly
+shows EXT selector tail-dispatch followed by an identity handler's next-opcode
+tail-dispatch, with no operand conversion, spill or runtime kind check. Current
+240 cast-handler symbols total5520 symbol bytes, not a relative code-growth bound.
+The metadata-driven transparent EXT binding was approved, implemented in two
+execution-binding variants and validated, then withdrawn: long cast streams improve,
+but ADDC128 regresses roughly15–23% and representative packed cases show no reliable
+benefit. The selector candidate reduces shared-library text by16320 bytes; that gain
+is not retained. A byte-identical dual-library control reveals substantial native/
+threaded harness/load-placement bias; those timings cannot prove candidate effects.
+No new encoding, predecode subsystem, global hot-dispatch check or opaque fallback.
+`gen/banked.lua` and `gen/semantics.lua` restored byte-for-byte to the pre-experiment
+working versions; stronger exact-state NaN/high-bit payload tests remain. Both
+candidates and restored runtime pass full incremental validation. The interpreted
+packed regression is characterized, NOT fixed. No clean/sanitizer/resource bound.
+Initial investigation:
+`research/experiments/frontend-syntax/packed-tagged/float-bitcasts/cost-investigation/`.
+Candidate patches, exact reproduction/measurement limitations and decision:
+`research/experiments/frontend-syntax/packed-tagged/float-bitcasts/transparent-ext/`.
+Collector-free ownership/cutover and final Whippet removal remain next; independent
+optimizer/frame-access and higher-order frontend efficiency remain separate.
 
 **Remaining grammar gate:** named keyed-requirement declarations share the elaborator,
 but no keyed `do` constructor spelling has been approved/added. Do not claim every
@@ -360,9 +507,22 @@ and immutable per-realization publication are selected—not open-ended alternat
   generated frontend/C metadata (runtime-interfaces §1); bind to source lowering, verifier,
   shared computation and emitter consumers: cell/holding layouts, effects, clobbers,
   failure and completion/suspension. Specify required encoding changes explicitly.
+  **Partial runtime binding implemented:** catalog-generated C/frontend declarations
+  for scope/owner operations; versioned `__let_rt_v1_` symbols use existing profile-4
+  FCALL.A/B, with loader signature validation and no ISA ownership kinds/opcodes.
+  Runtime names cannot be rebound as host functions or declared by source `extern`.
+  Staging admits exact catalog operations only; arbitrary foreign execution still
+  rejects. Remaining container/task families and precise specialized boundaries open.
 - [ ] **E02** Implement `src/owner.h/.c` and `type_ops.h` per runtime-interfaces §3;
   bind owner/TypeOps layouts and semantic holding transfers, plain versus
   atomic implementations and iterative release operations across execution backends.
+  **Partial implementation:** `src/owner.h/.c`, `src/type_ops.h`, `gen/type_ops.lua`,
+  `src/runtime_call.h/.c` now implement checked allocation/counts, local/shared/immortal
+  policies, retain-before-replace, move-without-count, generated field release and
+  intrusive allocation-free destruction. Initial generated layouts are pointer-free
+  local/shared payloads and a confined single-owner holding cell, not arbitrary source
+  records/variants. The current synchronous VM owns the holding/release context;
+  the documented task/worker execution-context split is not yet implemented.
 - [ ] **E03** Change `vm_internal.h`, `execution_emit.h`, `vm.c`, residualizer and
   both emitter/generator bindings per runtime-interfaces §§2,5,8; bind task context,
   allocator-generated spill/resume entries, result
@@ -390,16 +550,72 @@ Authority: `docs/owners-references-ids.md`; corresponds to O1–O3 in frontend p
   summaries must preserve bounds without runtime cycle detection.
 - [ ] **O03** Implement these proofs in the existing source place/state model and
   reject unprovable cycles. No second native value IR or placement reconstruction.
+  **Implemented source-inference chunk (O01–O03 remain partial):** canonical
+  `Ownership` metadata in `frontend/ir.asdl`, `frontend/let/ownership.lua`, and the
+  existing access worklist now infer formal/fresh/module/deferred roots, counted
+  requirements, independent activation borrows and strict holding edges. Calls
+  distinguish fresh allocations through nested wrappers; aliases/interior refs
+  preserve roots. Initializers, replacement stores, record copies, environments,
+  returns and joins contribute obligations. Iterative SCC checking rejects concrete
+  cycles with actual-root/source-point witnesses. Formal inequalities remain
+  conditional on actual borrowing/owning bindings; recursive call families fold
+  finitely without treating convergence/equal family names as lifetime evidence.
+  Replaced the hardcoded frame-return/store checks with these inferred requirements;
+  `check.lua` still rejects counted placement as unimplemented. That source-inference
+  chunk alone made no counted ABI, allocation, retain/release, reclamation or GC-removal
+  claim; the later limited runtime binding is tracked separately under E01/E02/O07/O08.
+  **Validation:** ownership170 checks/56 bounded VM executions (four modes,
+  optimized/unoptimized), existing access176/112 and receiver407/384 pass; full
+  incremental `validate` passed after the first recursive-local-environment proof
+  failure was corrected, including the final source/schema binding. Source cases cover interior/self, environment/object,
+  mutually exclusive joined cycles, nested factories, copied holdings, conditional
+  formal self bounds, recursive forwarding/growing chains, modules and raw-pointer
+  exclusion; checked-IR result-state transport and a 1200-root graph are also tested.
+  **Cost/limits:** seven-trial probes show added scalar/callback analysis cost;
+  the final 40-wrapper analysis sample is 3.452ms versus baseline1.008ms. Separate
+  processes/uncontrolled host scheduling do not establish a precise slowdown; timings
+  vary materially across runs. Scalar query counts stay unchanged; sampled callback queries increase by one.
+  No performance acceptance, peak/RSS bound, clean build or sanitizer claim. Broader
+  recursive borrow precision, COW/containers, erased/dynamic and separate-compilation
+  contracts, finalized rank/placement and lifetime execution remain open. Evidence:
+  `research/experiments/frontend-syntax/ownership-inference/README.md`.
 - [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
   allocate escaping roots separately from activations before publishing any address.
+  Runtime allocations now have stable final addresses; general **source** selection,
+  owning-ref/slice/callable representations and ABI transport remain unimplemented.
+  `check.lua` still rejects inferred counted source escapes. Do not mistake the new
+  checked-IR lifetime builder/fixtures for completed source ownership lowering.
 - [ ] **O05** Implement retain/release obligations, borrow elision and alias-aware moves
   through assignments, calls, returns, sums, containers and erased callables.
 - [ ] **O06** Specify overflow, allocation failure, partial construction, abort/teardown
   and FFI retention/handle policies; no wrapping counts or implicit unsafe pointer proof.
 - [ ] **O07** Implement generated allocation-free iterative release and failure cleanup;
   no host-recursive destruction, user finalizers, tracing or collector fallback.
+  **Implemented initial binding:** `frontend/let/lifetime.lua` emits ordinary checked
+  IR calls and explicit frame-storage holding records. Normal paths release/transfer
+  slots; `abc_vm_call` drops abandoned initialized holdings before resetting stacks
+  on allocation failure, abort and stack exhaustion. Persistent module writes remain;
+  no source defer/rollback or root-stack scan. Forgotten normal scope exit rejects
+  rather than publishing unprotected results. Error statuses and originating FCALL
+  PCs propagate through interpreter/threaded/eager/lazy bindings. Arbitrary aggregate
+  copy rollback, module-owned payloads, exported owner handles, tasks and foreign
+  interruption/shutdown remain open; release operations currently cover admitted
+  generated layouts only.
 - [ ] **O08** Validate long graphs, rejected cycles, independent borrows, captures,
   exact lifetimes and all execution bindings; measure count traffic and owner retention.
+  **Initial runtime evidence:** `frontend/tests/runtime_owners.lua`29 checks/24 VM
+  executions plus C checks for A/B live prefixes/C storage, raw/optimized modules in
+  four modes, exact allocation/count/free traffic, failed construction, original
+  errors, unchanged failed outputs and VM reuse. C core tests release a 100001-owner
+  chain without allocator calls/host recursion and exercise shared counts/cross-thread
+  final release. Full incremental validation passes. Focused ASan/UBSan/LSan covers
+  owner/runtime-call/VM C code, not generated engines or the whole project; no race
+  proof/TSan, clean-build, wasm or source-counted-lifetime qualification. API-inclusive
+  final sample costs: normal allocation/retain/release fixture315–489ns versus scalar
+  control21–40ns across runs/modes; not a before/after speedup or acceptance bound.
+  Runtime shared-library text grows10762 bytes and data880 bytes against the retained
+  pre-binding binary (not a native-image/RSS measure).
+  Evidence and exact reproduction: `research/experiments/runtime-owners/README.md`.
 
 ## C — Stores, ids and immutable/COW values
 
@@ -426,7 +642,7 @@ Dependency: O/C and explicit representation/encoding approval; not archived prof
 
 - [ ] **D01** Approve dynamic cell/box/type-witness ABI and bytecode/profile revision
   decisions. Do not reinterpret old tracing metadata or assume new instructions unnecessary.
-- [ ] **D02** Implement transferable-only `any`, exact numeric bits/conversions and
+- [ ] **D02** Implement transferable-only `Any`, exact numeric bits/conversions and
   immutable boxing through the single shared scalar computation and all execution bindings.
 - [ ] **D03** Replace legacy open-word IR producers/consumers/tests (`WordGet/Set/Method`,
   mutable-terminal/runtime-supply assumptions) with the approved value-table contract.
@@ -449,6 +665,10 @@ Dependency: O/C and explicit representation/encoding approval; not archived prof
   not enter the active build. Completion requires an active-dependency/reference
   audit and integrated validation of replacement lifetime/error/foreign boundaries.
   **Whippet absence is a release criterion, not optional cleanup.**
+  Current runtime-binding audit finds no active Whippet/GC allocation/root references
+  in src/include/gen/tools/build/CI; the old dynamic/any/Whippet headers are absent.
+  `vendor/whippet` still exists. D07 is not complete: replacement source lifetime,
+  exported/foreign and module-owner boundaries remain incomplete.
 
 ## L — Text and library contracts
 
@@ -488,7 +708,7 @@ Dependency: O/D semantics and F/S API integration; migration must preserve hones
 Authority: `docs/tasks.md`; depends on O/C/U contracts. No task runtime currently exists.
 
 - [ ] **T01** Implement group-bound capability summaries separate from unrestricted
-  transferability; reject `any`/frozen erasure and child capabilities in ancestor queues
+  transferability; reject `Any`/frozen erasure and child capabilities in ancestor queues
   or longer-lived results, including wrappers and closures.
 - [ ] **T02** Implement transitive mutable-world read/write exclusion and foreign
   concurrent/blocking/affinity effects; allocation-free must not imply no suspension.
@@ -582,18 +802,73 @@ Can start before task runtime; must preserve group bounds when those become avai
 
 - [ ] **X01** Approve lexer/parser/schema/elaboration interfaces and unresolved generic
   forwarding details; distinguish `...`, `..`, `.` and numeric literal edges.
+  **Owner: primary coding agent. State: active; concrete spread design approved.**
+  Priority: X02/X04 ordered/keyed expansion, then X03 rest-template specialization;
+  bitcast cost and collector-free GC removal follow. Preserve one-time source ordering,
+  result adjustment, ordinary component provenance/captures, and fixed ABC calls.
+  Extend pure Get with static array-element selection (no unpacking scratch storage).
+  Module binding vectors share one initializer execution/publication. Packs/templates
+  are source metadata only; templates use the sole word elaborator once per concrete
+  instance, never replay checked bodies. Source-only templates may be imported/exported,
+  but cannot become erased variadic ABC entries. Remove blanket spread/rest rejection
+  and fixed-signature assumptions only as their replacements are qualified. No new
+  evaluator/inliner, runtime pack, ABI/ISA, allocator or lifetime/GC policy.
 - [ ] **X02** Implement one-time ordered nonrecursive expansion of result vectors/fixed
   arrays, including return/binding lists; preserve unmarked final-result adjustment.
+  **Owner: primary coding agent. State: partial — implemented, qualification recorded.**
+  Shared supplies handle marked/nonfinal expansion, sole arrays, nonrecursive multi-results,
+  grouping/final forwarding, arrays and binding/return adjustment. Ordinary Get gains
+  checked static Element selection; access provenance retains conservative element loans;
+  ABC projects existing components without unpacking storage. Source lists snapshot
+  computations before later effects; zero-width values retain no artificial slots.
+  Module binding vectors replace per-binder initialization with one VM request/publication.
+  `tests/spread.lua --unoptimized` is integrated:379 checks/108 four-mode executions.
+  Extended qualification:719 checks/208 executions, eight optimized configurations
+  BLOCKED by the pre-existing frame-access optimizer defect. Baseline/no-spread control
+  confirms that defect at the same byte0xd. Full incremental validation including
+  the integrated unoptimized boundary and final selector/trap tests passed;
+  `git diff --check` is clean.
+  No rest-pack, source-only template export or general ownership/ABI admission is claimed.
 - [ ] **X03** Implement final ordered static-shape rest packs, static index/length and
   saturation rules without runtime pack objects or first-class erasure. Integrate
-  `logged(t: type, f: t, ...args)` through existing explicit type demands: type-only
+  `logged(T: Type, f: T, ...args)` through existing explicit type demands: type-only
   partial supply leaves f outstanding; known f specializes directly, runtime f uses
   its fixed-signature indirect ABI. No implicit generics or special treatment of any.
+  **Owner: primary coding agent. State: partial — implemented, qualification recorded.**
+  Formation anchors were explicitly approved and added to source_state.Context: qualified
+  context/ordinal points splice selected ordinary captures at definition boundaries,
+  share snapshots across instances and update copied structured-body lists. Unused
+  captures emit nothing; opened places remain live. No placeholder reaches checked IR.
+  Replaced fixed-signature-before-body assumptions for rest/explicit Type source templates.
+  Static type arguments, code identity, component types and qualified faces key instances;
+  one ordinary word elaboration builds each concrete body. Known callable holdings use
+  typed parameter recipes and existing capture streams (including late recursive growth),
+  not erased views or runtime packs; unknown implementations use the fixed indirect ABI.
+  Packs support length, VM-demanded static index, expansion and normal component captures;
+  ordinary binding/storage/erasure rejects. Consecutive suffixes preserve pending fixed
+  requirements; once those are met rest saturates, including zero components.
+  Public templates retain source definitions but create no erased variadic ABC export.
+  Integrated rest suite:616 checks/276 executions; final full incremental validation
+  passed (`full-validation-final.log`), with a clean `git diff --check`.
+  Absolute growth samples:32 same-shape calls reuse one instance (643 raw module bytes);
+  32 distinct lengths produce32 instances/2255 bytes/5244 IR nodes. No speedup/resource
+  bound, clean-build/sanitizer or complete general specialization/ownership claim.
+  Keyed static Type templates, general SCC/result inference, broader recursion/resources,
+  module publication failure cleanup and the existing optimizer frame defect remain open.
+  Evidence: `research/experiments/frontend-syntax/spread/rest-templates/README.md`.
 - [ ] **X04** Implement keyed record expansion, explicit override, overlap/unknown-key
   checks, readonly/static protections and effects of overridden contributions.
+  **Owner: primary coding agent. State: partial — implemented with X02.**
+  Shared contribution records serve record/sum constructors, keyed words and handlers.
+  Written-order evaluation precedes effective supply selection; explicit override is
+  position-independent, spreads overlap rejects, unknown fields remain checked, method
+  fields are excluded, and existing outstanding requirement protections remain.
+  Snapshot occurrences preserve overridden trapping work. No dynamic table-key expansion.
+  Evidence/validation: `research/experiments/frontend-syntax/spread/` (see X02).
 - [x] **X05** Implement module/record/sum name binding, no-shadow and file-scope visibility
   rules; add `use module...` sugar without duplicate initialization or automatic re-export.
   Implemented within existing source-value/capture admission; aggregate staging remains S05.
+  This completed the earlier record-snapshot contract; X07 replaces that part.
   See the vocabulary evidence above; rest/supply expansion and broader X06 acceptance remain open.
 - [ ] **X06** Validate diagnostics, copies/owner bounds, lexical resolution, sugar
   equivalence and all applicable modes; measure specialization/copy/retention growth.
@@ -602,6 +877,60 @@ Can start before task runtime; must preserve group bounds when those become avai
   and holdings across clobbers/allocation/suspension where supported. Test type-only
   partial supply, typed indirect f, signature failures, effects/abort order and
   scoped captures. This is source/compiler acceptance, not a new runtime adapter engine.
+
+- [ ] **X07** Replace opened-record field snapshots with live field places.
+  **State: partial — implemented and qualified within admitted typed contexts.**
+  `semantic.lua` now introduces projected places, preserves opened-field capture identity
+  even for scalars, and prevents explicit saved aggregate reads from turning into aliases.
+  Eager snapshot expansion (including its module fallback) is removed. Module aggregate
+  storage remains outside existing static-demand admission; no replacement storage
+  subsystem or escape permission was added. Updated vocabulary: 92 checks / 64 executions;
+  receiver suite: 407 checks / 384 executions across four modes, with/without optimization.
+  Full validation and isolation with `9cfd7f65` lowering pass. Structural cost checks show
+  identical ABC for opened/qualified writes and no reads/copies for an unused opening.
+  No timing, clean-build, sanitizer or broader ownership qualification is claimed.
+  Remaining: module aggregate admission, frozen/readonly proof and broader ownership
+  acceptance. Evidence: `research/experiments/frontend-syntax/live-opening-endall/`.
+  **Anonymous-home follow-up — implemented; focused/full incremental validation passed.**
+  `VocabularyParam` now has an optional name; `CurrentContext` represents bare `...`.
+  `...: T` receives one ordinary typed input; contextual `do(...)` uses a checked
+  callback signature. Named/unnamed entry opening supports expression and block bodies,
+  once per signature at the first runtime requirement after leading static Type inputs.
+  `(...)` reads the retained runtime receiver; explicit `(f)(..., role)` bypasses
+  receiver insertion. No type-search, fabricated identifier, pack/namespace object,
+  new evaluator, runtime encoding or physical-C0 guarantee. Parameter construction
+  returns qualified bindings; expansion consumes those bindings directly. Template
+  recipes preserve opening parameters too; temporary fake pack-component names removed.
+  Whole-home assignment rejects; a reference home's private pointer holder has no
+  public Ref/Ptr address. Field/value borrows and snapshots retain normal lifetime rules.
+  Integrated anonymous suite:221 checks/192 executions, four modes; four aggregate/
+  capture/interface probes deliberately unoptimized only. Named/unnamed field activity
+  has identical executable IR; unused opening has no scalar field reads. Original user
+  snippet parses, not a claim that its omitted APIs/returns/closures execute unchanged.
+  Full incremental validation passed before and after the final rule refinements;
+  focused fixture grouping failure retained honestly. No clean/sanitizer, frontend
+  timing, broader frozen/ownership or optimizer qualification. Evidence:
+  `research/experiments/frontend-syntax/spread/anonymous-context/`.
+  The bitcast runtime follow-up was subsequently prototyped/validated and withdrawn
+  for measured generic-EXT regressions (see bitcast checkpoint above); collector-free
+  cutover remains next.
+  Authority: `docs/spread.md` §5 and
+  `docs/application-sugar.md` §3.1. Use one opening path for `let context...`, initialized
+  contexts and vocabulary parameters. Establish/retain the receiver once; introduce
+  immutable names for its actual fields, not eagerly copied contents. Writes preserve
+  existing writable/frozen/readonly permissions; module/sum definition aliases stay
+  unchanged. Parameter passing still decides value copy versus borrowed referent.
+  Binding-resolved captures must preserve opened projections as places even for scalar
+  fields, while an explicit saved field-read value uses ordinary value semantics.
+  Remove snapshot expansion rather than retaining it behind an adapter or alternate
+  mode. Preserve interface identity, source locations, no-shadow, evaluation order,
+  owner/lifetime/COW rules and existing escape restrictions. No new capture permissions.
+  Update every producer/consumer and the vocabulary/receiver fixtures together. Validate
+  qualified/opened read-write equivalence, mutation after opening and after nested-word
+  formation, scalar/aggregate/callable fields, deliberate saved values, once-only
+  initialization, copied parameters versus references, readonly rejection and escapes.
+  The earlier 92/64 and 323/304 suites validate snapshots, not this replacement. Measure
+  representation/copy/retention changes; a documentation edit does not complete X07.
 
 ## Q — Schema operators and trailing blocks
 
@@ -640,12 +969,12 @@ requires D descriptor/box contracts. Initial scope is static operators and block
 - [ ] **Q06** Validate equal-layout schema authority, dispatch/effect/place ordering,
   explicit-lambda equivalence, captures, spread interaction and applicable execution
   modes at an integrated boundary; measure costs rather than promise free inlining.
-- [ ] **Q07** Separately specify and implement `any` operator dispatch preserving
+- [ ] **Q07** Separately specify and implement `Any` operator dispatch preserving
   schema identity and frozen/value semantics through descriptor-based ordinary calls;
   no per-record method table, table metatables or second dynamic scalar engine.
 - [ ] **Q08** Implement unit fallthrough uniformly for named words, methods and lambdas:
   annotations/context or unconstrained acyclic no-value-return inference establish unit.
-  Before recursive `any` defaults, infer unit for unconstrained members of resolved SCCs
+  Before recursive `Any` defaults, infer unit for unconstrained members of resolved SCCs
   whose members all have block bodies, only own bare returns/fallthrough, discarded
   intra-SCC calls and no non-unit explicit/expected/export contract. Exclude nested
   callable returns; no result-type fixpoint. Valued returns remain outside this shortcut.
@@ -685,19 +1014,55 @@ requires D descriptor/box contracts. Initial scope is static operators and block
   and owned/borrowed captures. Coordinate with S06/F04/F06: current literal-only module
   initialization/direct-word export paths are insufficient. No implicit exit-code coercion.
 
-- [ ] **Q11** Implement lexical receiver-call sugar per `docs/application-sugar.md`:
-  existing member wins; only a closed interface lacking that member falls back to
+- [ ] **Q11** Implement lexical receiver calls and receiver scopes per `docs/application-sugar.md`.
+  **Implemented/qualified snapshot-field baseline within admitted typed interfaces:** receiver-only borrowing,
+  record/ref-record scopes and binding-resolved captures pass 323 checks / 304 four-mode
+  optimized/unoptimized executions. The suite is integrated; full validation and
+  isolation with `abc.lua` from `9cfd7f65` pass. The tested lifted and explicitly
+  referenced mutation produce identical ABC. Import-spread/captured lexical dot calls
+  now work without capturing unrelated lexical words when a member wins.
+  Removed the syntactic capture pass and receiver heuristic. Word completion closes
+  finite capture dependencies and finalizes hidden inputs, recursive/deferred calls
+  and view layouts together; capture-free words remain capture-free. Late captures
+  do not bypass existing ownership rejection. Evidence and pre-fix failures:
+  `research/experiments/frontend-syntax/receiver-scopes/`. Packed work stays paused.
+  No timing claim or whole-Q11 completion claim: live-place opening (X07), frozen-place,
+  discarded-copy-write, broader interfaces and generic qualification remain outstanding.
+  Existing member wins; only a closed interface lacking that member falls back to
   lexical `name(receiver,args)`. Bad signatures/noncallable fields never fall back.
   Table/any calls stay dynamic member calls; module qualification stays namespace lookup.
   Generic resolution is per specialization in definition-site lexical scope, with
   instantiation diagnostics. Preserve ordinary copy/ref semantics, including valid
-  copy-writing transforms; no implicit ref, write-back, overload search, extension
-  registry or lexical bound closure from an uninvoked field. Touch `semantic.lua`
-  call/member resolution, `resolve.lua`, `schema.lua`, `check.lua` and ordinary IR
-  consumers; add `frontend/tests/receiver_calls.lua`. Test builtin remove/has collisions,
+  copy-writing transforms. A receiver supplied to `Ref(T)` borrows its writable place;
+  ordinary arguments remain explicit. Record openings establish an innermost lexical
+  receiver, while local callable bindings and callable fields retain ordinary signatures.
+  Function-value selection and namespace qualification bypass receiver insertion.
+  No write-back, signature retry, overload search, extension registry or lexical bound
+  closure from an uninvoked field. Touch `semantic.lua`
+  call/member resolution, `source_state.lua`, `schema.lua`, `check.lua` and ordinary IR
+  consumers; qualification lives in `frontend/tests/receiver_scopes.lua`. Test builtin remove/has collisions,
   import-spread opt-in, formatting through lexical fmt, member priority, typed failure,
   dynamic no-fallback and exactly-once receiver evaluation. Q05 parses literal chains;
   Q11 resolves their calls without backend-specific operations.
+
+- [x] **Q12** Implement `endall` as bounded trailing-block closing sugar.
+  **Implemented/qualified:** `lex.lua` reserves it; `parse.lua` tracks block/delimiter
+  boundaries and expands ordinary closers without mutating caller tokens. New integrated
+  `frontend/tests/endall.lua`: 57 checks / 16 executions, AST/source-origin/boundary
+  checks and return/defer equivalence across four engines, optimized/unoptimized.
+  Full validation and pre-packed-lowering isolation pass. No runtime/ABI/schema change.
+  Evidence: `research/experiments/frontend-syntax/live-opening-endall/`.
+  Authority: `docs/operators-and-blocks.md`
+  §7. Close the current trailing-block lambda and enclosing trailing-block lambdas,
+  stopping at any other block or explicit delimiter. The current closer must belong to
+  a trailing callback; ordinary word bodies, separately bound/argument lambdas and `if`
+  blocks do not close implicitly. Indentation, arity and types never choose the extent.
+  Reserve the token and retain its origin on the expanded closers. Emit the same ordinary
+  AST as explicit `end`s: no new semantic/control operation, invocation, return, cleanup
+  or lifetime rule. Test one/multiple callbacks, enclosing main remaining open, `if`/
+  argument/keyed/grouping boundaries, invalid contexts, comments/newlines, diagnostics
+  and exact AST/execution equivalence including returns and defers. Update grammar and
+  parser tooling consistently; formatter behavior is a separate implementation concern.
 
 ## Z — Deferred or excluded: do not silently turn into active implementation
 

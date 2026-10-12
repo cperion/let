@@ -1,0 +1,6 @@
+luajit: tests/runtime_owners.lua:79: source foreign words cannot impersonate runtime primitives: REJECT [parse] at <source>:1 Expected 'let' but found "foreign"
+stack traceback:
+	[C]: in function 'assert'
+	tests/runtime_owners.lua:79: in function 'check'
+	tests/runtime_owners.lua:94: in main chunk
+	[C]: at 0x5da47ed37120

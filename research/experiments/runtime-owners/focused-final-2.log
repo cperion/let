@@ -1,0 +1,10 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owners.c build/libabc.a -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc -lm -lpthread -o build/validate-owners
+/tmp/clang20 -shared -O2 -g -Wl,-z,defs build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/banked_0.o build/pic/banked_1.o build/pic/banked_2.o build/pic/banked_3.o build/pic/banked_4.o build/pic/banked_5.o build/pic/banked_6.o build/pic/banked_7.o build/pic/residualize.o build/pic/native_emit.o build/pic/native_image.o build/pic/threaded_emit.o build/pic/threaded.o build/pic/owner.o build/pic/runtime_call.o build/pic/type_ops.o build/pic/runtime_primitives.o -lm -o build/libabc.so
+/tmp/clang20 -shared -O2 -g build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o build/pic/runtime_primitives.o -lm -o build/libabc-opt.so
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+luajit: tests/runtime_owners.lua:121: bad argument #2 to 'write' (string expected, got table)
+stack traceback:
+	[C]: in function 'write'
+	tests/runtime_owners.lua:121: in main chunk
+	[C]: at 0x62f220384120
+make: *** [Makefile:151: validate-owner-runtime] Error 1

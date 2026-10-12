@@ -1,0 +1,7 @@
+rm -f build/libabc.a
+ar rcs build/libabc.a build/module.o build/memory_module.o build/verify.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/banked_0.o build/banked_1.o build/banked_2.o build/banked_3.o build/banked_4.o build/banked_5.o build/banked_6.o build/banked_7.o build/residualize.o build/native_emit.o build/native_image.o build/threaded_emit.o build/generated/threaded.o build/owner.o build/runtime_call.o build/generated/type_ops.o build/generated/runtime_primitives.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owners.c build/libabc.a -Wl,--wrap=aligned_alloc -lm -lpthread -o build/validate-owners
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+runtime owner lowering: 28 checks, 24 VM executions; emitted both-bank raw/optimized images
+build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc
+runtime owners: 200979 checks; local/shared/immortal, 100001-owner release, both banks raw/optimized in four modes, failure cleanup and VM reuse

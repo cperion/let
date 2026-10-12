@@ -21,7 +21,7 @@ No source computation executes in Lua.
 
 - Annotated words, explicit scalar or callable result contracts, direct and indirect calls,
   multiple scalar results, structured conditions, recursion, and continuation-directed tail calls.
-- `u8`, `u16`, `u32`, `u64`, `i32`, `i64`, `f64`, `bool`, `unit`, and checked conversions.
+- `U8`, `U16`, `U32`, `U64`, `I32`, `I64`, `F64`, `Bool`, `Unit`, and checked conversions.
 - Named record schemas, fixed arrays, aggregate-payload sums, references, slices, strings, and
   signature/view types. Local records and arrays use checked frame storage.
 - Record and array literals, field selection, nested addressable places, indexing with bounds
@@ -29,7 +29,7 @@ No source computation executes in Lua.
 - Record and array arguments/results use a deterministic recursively flattened ABC call ABI.
   GC-free sums use their fixed raw layout across calls, including aggregate payloads. Managed or
   address-bearing sum ABIs remain conservative rather than hiding roots in raw cells.
-- `ref(place)`, `slice(array)`, slice/string indexing, and `.length`. References and views use
+- `Ref(place)`, `Slice(Array)`, slice/string indexing, and `.length`. References and views use
   the checked address-then-length ABI where applicable.
 - Sum constructors and exhaustive keyed matching with expression-lambda handlers.
 - Capture-free typed lambdas. Parameter types can come from an expected signature,
@@ -41,7 +41,7 @@ No source computation executes in Lua.
   for the covered scalar, aggregate, sum, slice, reference, and callable fixtures.
 
 Every accepted SLet program is also accepted as Let with the same observable behavior. SLet
-never permits `any`, a managed capture, managed allocation, or a GC root. A lambda that captures
+never permits `Any`, a managed capture, managed allocation, or a GC root. A lambda that captures
 a local value therefore rejects with `slet-forbidden`. Returning a reference or slice of current
 invocation storage rejects with `borrow-return`; the corresponding Let source promotes the backing
 record or array into managed storage.

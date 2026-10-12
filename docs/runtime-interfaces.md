@@ -1,6 +1,6 @@
 # Implementer contract: primitive, owner and task interfaces
 
-**Target private interfaces; not implemented.** This binds the approved choices in
+**Target private interfaces; partial owner/runtime-call binding implemented.** This binds the approved choices in
 [runtime-primitives.md](runtime-primitives.md) to the current source tree. C fragments
 are interface specifications, not drop-in patches. Use the names/responsibilities
 below unless inspection reveals a material mismatch; discuss that mismatch rather
@@ -12,7 +12,8 @@ producers/consumers/tests migrate together, not as unused helper libraries.
 
 ## 1. Authoritative primitive catalog
 
-Create `gen/runtime_primitives.lua`, consumed during generation, not at runtime.
+`gen/runtime_primitives.lua` is implemented for the initial owner/scope family,
+consumed during generation, not at runtime. Container/task entries remain pending.
 Each entry has these fields:
 
 ```text
@@ -40,6 +41,38 @@ select/cancel/cancelled/yield. Families needing ordinary scalar control elaborat
 through existing computation; a single opaque helper per language expression is
 not the design. Do not generate register-specialized forms across the Cartesian
 product of TypeOps, channel types and registers. Types/descriptors are bound operands.
+
+### 1.1 Implemented initial call binding
+
+The private runtime ABI uses reserved `__let_rt_v1_` symbols in the existing extern
+section and existing FCALL.A/B instructions. There are no owner operand kinds,
+owner opcodes, serialized ownership graphs or new module sections. Generated C
+metadata validates the signature at module loading; unknown versions/signatures
+reject. A host cannot override these bindings, and source `extern` declarations
+cannot introduce them. This deliberately reserves the `__let_rt_` namespace; old
+engines have no built-in implementation of these new symbols. Existing ordinary
+externs and revision-6 encodings retain their behavior.
+
+`frontend/let/lifetime.lua` emits ordinary checked IR using the shared builder.
+Generated metadata supplies declarations and the staging allowlist. `runtime_call.c`
+binds those calls through the current `abc_run`/VM context. The existing call-boundary
+synchronization is retained; this initial binding does not claim specialized minimal
+clobbers. Status and original call PC survive all four execution modes.
+
+Each generated scope explicitly initializes a frame-storage record and its holding
+slots. Allocation registers its first holding only after initialization succeeds;
+retain installs a new slot only after checked increment; move transfers between
+initialized scopes without changing the count. Normal scope exit releases slots.
+On a failed VM call, only these registered holdings are released before stack reset.
+No source deferred actions, effect rollback or stack-root scanning occurs. Persistent
+module writes survive, and the VM can run another call. A successful return with an
+unclosed holding scope instead fails without publishing results. Reentry into the
+same executing VM rejects before resetting its stacks. Foreign longjmp/interruption,
+workers/tasks and public exported owner handles are not supported by this binding.
+
+Allocation failure and count-limit exhaustion use existing `ABC_NOMEM` resource
+failure reporting; no new numeric language-abort reason is assigned, and counts
+never wrap. See WORKLIST E01/E02/O04–O08 for admission and measurements.
 
 ## 2. Split runtime, task and execution context
 
@@ -88,7 +121,16 @@ storage are separate; transitive world analysis governs access to the latter.
 
 ## 3. Owner and type operations
 
-New private files: `src/owner.h`, `src/owner.c`, `src/type_ops.h`. Immutable type
+Private files `src/owner.h`, `src/owner.c`, `src/type_ops.h` now implement the initial
+owner core. The code currently takes an `abc_owner_context` plus the existing error
+sink, bound by `runtime_call.c` to the synchronous VM; the task/worker signatures
+below remain the target for §2's unfinished split. There is no second allocator.
+The initial generated descriptors cover pointer-free local/shared payloads and a
+confined single-owner holding cell. Generated initialization explicitly establishes
+its outgoing field; generated release decrements/enqueues, never invokes source code.
+General source-specialized copy/release, variants, buffers and arrays remain pending.
+
+Immutable type
 layouts feed generated holding-operation bindings; their generator is `gen/type_ops.lua`
 with generated output under `build/generated/`, not handwritten per-backend destructors.
 
@@ -149,7 +191,7 @@ of the approved cross-worker-free requirement, not a collector.
 
 New `src/value_buffer.h/.c` and `src/store.h/.c`; generated source type specializations
 supply element operations. Private APIs use pointers plus type metadata, not boxed
-`any` for every operation:
+`Any` for every operation:
 
 ```c
 typedef struct {
@@ -426,8 +468,27 @@ summaries carry formal owner variables and inequalities; instantiate them at cal
 Recursive inference conservatively stabilizes these finite summaries, rejecting
 unprovable demands rather than inventing runtime ranks or a cycle detector. Immutable
 construction/COW has separate proof obligations and cannot point into mutable owners.
-Concrete polymorphic generalization still needs source-S01/O02 examples before coding;
-the finite SCC solver alone is not a complete ownership language implementation.
+The approved first private binding is now implemented in `frontend/ir.asdl`,
+`access.lua`, `ownership.lua` and `check.lua`: function summaries carry formal,
+fresh, module and deferred owner variables, component results, holding obligations,
+independent borrow evidence, strict edges and counted requirements. The existing
+access worklist performs actual-root substitution and call-context qualification;
+owner inference does not replay bodies. Fresh factory results remain distinct through
+wrappers. Recursive allocation families fold at repeated call sites; equal family
+names alone never prove an activation borrow. Actual same-activation formations
+supply independent extent evidence. Relative access-origin markers are cleared at
+call boundaries; formation proofs remain bound to their original extent and become
+invalid when their holder becomes counted.
+Formal-only inequalities remain conditional on borrowing/owning specialization;
+instantiation with concrete counted roots checks their contradictions.
+
+This is qualified source inference, not counted execution or a finalized public
+summary format. `check.lua` rejects inferred counted requirements until source
+placement, layouts and generated lifetime paths exist. The initial explicit checked-IR
+runtime binding in §1.1 does not discharge that source admission. Broader polymorphic/recursive borrowing precision,
+erased/dynamic/container admission and separate-compilation/FFI contracts remain
+incomplete. See WORKLIST O03 and the ownership-inference evidence; a finite SCC
+solver alone is not a complete ownership language implementation.
 
 Packs/spread/operator elaboration stays in `semantic.lua` and ordinary IR builders.
 Owner/effect queries attach to those operations; they must not rerun source computation.
@@ -440,7 +501,9 @@ The following are actual decisions, not ordinary implementation discretion:
 
 - Public encoding/profile revision and metadata validation for new effects/types.
 - Dynamic cell/interface representation and operator authority through structural joins.
-- Polymorphic/recursive owner-summary generalization and public FFI retention contracts.
+- Remaining polymorphic/recursive owner-summary qualification, separate-compilation
+  encoding and public FFI retention contracts; the first private source binding above
+  is approved and implemented, not awaiting another model approval.
 - Exact source abort/embedding shutdown behavior with foreign calls in flight.
 
 Do not silently decide these by assigning a free opcode, adding fallback semantics or

@@ -32,7 +32,7 @@ module Ast {
   Binder = (Name name, Expr? annotation, Span span)
 
   Requirement = Param(Name name, Expr? annotation)
-              | VocabularyParam(Name name, Expr? annotation)
+              | VocabularyParam(Name? name, Expr? annotation)
               | RestParam(Name name)
               attributes (Span span)
   ResultSpec = Single(Expr type) | Many(Expr* types)
@@ -47,6 +47,8 @@ module Ast {
        # A float literal is IEEE-754 double; its value is the number the decimal text denotes.
        | FloatLiteral(number value)
        | Reference(Name name)
+       # Bare `...` reads the innermost retained runtime receiver, not a rest pack.
+       | CurrentContext
        | Group(Expr value)
        # Only parsed as an item of a supported supply list, never as a unary operator.
        | Spread(Expr value)

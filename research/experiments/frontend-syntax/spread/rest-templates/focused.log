@@ -1,0 +1,18 @@
+rest templates: 538 checks, 240 VM executions
+receiver scopes before imports: 300 checks, 288 VM executions
+receiver scopes: 407 checks, 384 VM executions
+access proofs: 176 checks, 112 VM executions
+spread qualification: 379 checks, 108 VM executions, 0 optimized configurations BLOCKED
+family,count,instances,functions,IR_nodes,raw_module_bytes,median_type_ms
+same_shape,1,1,2,30,105,1.423
+same_shape,2,1,2,48,133,1.385
+same_shape,4,1,2,72,167,2.042
+same_shape,8,1,2,120,235,1.544
+same_shape,16,1,2,216,371,2.313
+same_shape,32,1,2,408,643,2.265
+distinct_lengths,1,1,2,30,105,1.076
+distinct_lengths,2,2,3,69,155,1.994
+distinct_lengths,4,4,5,162,239,2.704
+distinct_lengths,8,8,9,456,431,4.806
+distinct_lengths,16,16,17,1476,911,5.612
+distinct_lengths,32,32,33,5244,2255,16.736

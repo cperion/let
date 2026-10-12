@@ -132,7 +132,7 @@ Implement text/format/pattern words only
 after their result, mutation and failure contracts are complete.
 
 Acceptance: transitive reads/writes of another task's mutable globals and mutable-backed
-views reject; group capabilities cannot enter `any` or longer-lived queues/results.
+views reject; group capabilities cannot enter `Any` or longer-lived queues/results.
 Cover repeated join copies, all-child group teardown, close/draining, exactly-once
 select, cancellation/creation races, cooperative completion and controlled-clock tests.
 Validate parking/migration and publication/final-release races in all four execution

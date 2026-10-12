@@ -1,6 +1,14 @@
 # Disciplined application sugar
 
-**Status: literal/postfix application implemented; lexical receiver fallback remains a target.** Extends [syntax.md](syntax.md) and
+**Status: literal/postfix application, typed receiver calls/scopes and binding-resolved
+captures implemented.** Receiver qualification has 323 checks / 304 optimized and
+unoptimized four-mode executions, including recursive transport, import-spread and
+member-wins noncaptures. These results validate the earlier snapshot-field opening.
+The live-field opening in §3.1 now replaces that contract within admitted typed
+contexts: updated tests pass 407 checks / 384 executions, full validation and
+pre-packed-lowering isolation. See `research/experiments/frontend-syntax/live-opening-endall/`. Full baseline validation and pre-packed-lowering isolation pass;
+see `research/experiments/frontend-syntax/receiver-scopes/`. Frozen-place ownership,
+discarded-copy-write effects and broader unimplemented interfaces remain Q11 work. Extends [syntax.md](syntax.md) and
 [operators-and-blocks.md](operators-and-blocks.md). Ordinary application remains the
 semantic operation. No signature-aware parser, implicit conversion search, extension
 registry or additional execution engine is introduced. Live work: Q05 and Q11.
@@ -38,7 +46,7 @@ Keep the syntactic boundary small:
 - `f x` rejects. `f 1 2` means `f(1)(2)`: consecutive suffixes associate left, not by arity.
 - `f(-1)` supplies a negative value. In `f - 1`, minus remains subtraction.
 - `f[1]` remains indexing; pass array literals with `f([1, 2])`.
-- `point { x = 3 }` remains keyed supply; pass a table value with `f(table { x = 3 })`.
+- `point { x = 3 }` remains keyed supply; pass a table value with `f(Table { x = 3 })`.
 - `f "x".g() do ... end` means `f("x".g())(lambda)`. Likewise `f(x) do ... end`
   extends pending requirements or calls f(x)'s result once saturated; no argument list
   is reopened. Use `f(x, do ... end)`
@@ -93,7 +101,7 @@ their boundary. Intrinsic special forms retain their existing argument contracts
 For `defer`, earlier saturated prefixes execute during preparation; only the final
 saturated invocation is deferred. All its supplied arguments and receiver binding
 are established at preparation time. Ordinary capture/lifetime restrictions remain.
-This does not implement escaping runtime closures or the lexical-receiver fallback below.
+This does not implement escaping runtime closures.
 
 ## 2. Lexical receiver-call sugar
 
@@ -112,7 +120,7 @@ resolve in this order:
    and supply `receiver` as its first ordered argument.
 3. If no applicable lexical binding exists, report the ordinary missing-name/callable
    error. Do not search candidates by argument types or insert conversions.
-4. A table or `any` receiver keeps dynamic member invocation, never lexical fallback,
+4. A table or `Any` receiver keeps dynamic member invocation, never lexical fallback,
    whether or not a runtime key happens to exist. See §4.
 
 Presence is decided before argument checking. There is no `call-ambiguity` error
@@ -146,17 +154,24 @@ this sugar applies to value receiver calls. Callable fields retain their defined
 semantics (including the separately specified table receiver convention), not a guessed
 free-function convention.
 
-The explicit `name(receiver, args)` form always selects the lexical callable.
-Member syntax selects an existing member without any qualification workaround.
-This proposal adds no method-disambiguation operator.
+Outside a receiver scope, explicit `name(receiver, args)` selects the lexical callable.
+Inside one, use `(name)(receiver, args)` or namespace qualification for an ordinary
+call when the bare name would select the receiver route below. Member syntax selects
+an existing member without a qualification workaround. No new disambiguation operator
+is introduced.
 
 ## 3. Ownership, evaluation and effects
 
 The lexical route is an ordinary call, including its parameter rules:
 
 - A by-value record parameter copies under ordinary value semantics.
-- A reference parameter requires an actual compatible reference; no hidden `ref(receiver)`.
-- No method-style receiver borrow is invented for a free function.
+- A first parameter `Ref(T)` borrows an actual writable `T` receiver place implicitly.
+  An already-compatible reference passes unchanged; never manufacture `Ref(Ref(T))`.
+- This lifting is confined to the receiver position. Ordinary `nudge(p, 10)` still
+  rejects when `Ref(T)` is required; `nudge(Ref(p), 10)` remains explicit.
+- Borrowing a temporary rejects: bind it first. A frozen receiver must reject with
+  `Frozen-write`; typed frozen-place enforcement remains part of the ownership work,
+  not a capability claimed by this receiver implementation.
 - Actual schema methods retain their own receiver borrowing semantics.
 - Evaluate receiver and written arguments once, in source order, preserving captures,
   errors, allocation/count/suspension effects and source locations.
@@ -166,17 +181,21 @@ The lexical route is an ordinary call, including its parameter rules:
 Writing a copied parameter is legal and does not trigger `receiver-copy-write`:
 
 ```let
-let translated(p: point, dx: i64): point = do
+let translated(p: point, dx: I64): point = do
   p.x += dx
   return p
 end
 let q = p.translated(10)  -- translated(p, 10); p is unchanged
 ```
 
-To mutate through a lexical function, declare its first parameter as `ref(point)`
-and pass that reference explicitly, e.g. `ref(p).nudge(10)` or `nudge(ref(p), 10)`.
-Neither spelling repairs a function still declared with a by-value `point` parameter.
-No implicit write-back or blanket rejection of value transformations is introduced.
+To mutate through a lexical function, declare its first parameter as `Ref(point)`.
+Then `p.nudge(10)` borrows writable `p`; `Ref(p).nudge(10)` and
+`nudge(Ref(p), 10)` remain valid. None repairs a word declared with a by-value `point`
+parameter. There is no implicit write-back or blanket rejection of value transformations.
+`discarded-receiver-write` remains planned only for a by-value receiver whose copy is
+written and discarded without a result. Writes through references stored inside the
+copy are not writes merely to that copy. Effect checking is not implemented by this
+receiver implementation.
 
 Receiver-call sugar is not itself operator rewriting or implicit delegation.
 [operators-and-blocks.md](operators-and-blocks.md#21-scope-supplies-operator-vocabulary)
@@ -187,14 +206,60 @@ invocation** remains ordinary member selection; it does not bind a lexical funct
 into a closure or create a new first-class method value. Existing genuine bound
 method behavior is unchanged.
 
+### 3.1 Receiver scopes
+
+**Live-place contract implemented within admitted typed contexts.** Opening a record or
+reference-to-record with `let ctx...`, `do(ctx...)` or an unnamed parameter
+`...: T`/contextual `do(...)` retains one receiver and introduces names for its live
+field places. A signature opens at most one parameter, first after leading static
+Type parameters. Entry opening works in expression bodies as well as blocks.
+`(...)` explicitly reads the retained runtime home; `(helper)(..., args)` bypasses
+receiver insertion and explicitly supplies that home. The home cannot be rebound,
+and its private reference holder is not a public addressable variable. Names remain bound to those places; their reads observe
+current field contents and writes obey the existing place permissions. Schema methods
+remain attached to that receiver; no detached closure binding is introduced.
+
+A bare call that is not supplied by a local binding or callable field uses
+the innermost receiver: `nudge 10` means `ctx.nudge(10)`. Resolve members before
+lexical words, using the same signature-directed receiver supply as explicit dot calls.
+A selected incompatible word errors: do not retry an ordinary call or another receiver.
+Nested scopes replace the implicit receiver; there is no search through outer scopes.
+Ordinary parameters and locally bound callables retain ordinary invocation semantics.
+`(helper)(args)` selects a function value explicitly and bypasses receiver insertion;
+namespace-qualified calls do too. Intrinsic special forms retain their own contracts.
+
+Parameter passing into the scope is independent. Opening a by-value parameter borrows
+that parameter's copy, not the caller's object. Receive `Ref(T)` to mutate its referent.
+Reference contexts retain their referent once; their field projections observe later
+writes. Opening does not eagerly read/copy fields. `let saved = field` takes an ordinary
+field-read value, not another projection, and does not deep-copy reference referents.
+Module and sum expansion introduce definitions only. Receiver scope is lexical, never
+inherited dynamically from a caller. Nested words using opened fields must transport
+actual place dependencies, including scalar projections, under ordinary lifetime and
+escape restrictions. Selecting an opened callable field reads its current callable
+value without adding a receiver argument. See [spread.md §5](spread.md#5-introducing-names-let-context)
+for the authoritative opening contract. No new owned closure admission is implied.
+
+Capture registration follows selected bindings, not identifier spellings. Interface
+and visibility queries do not capture; actual lookup transports the selected binding
+through intervening lexical frames. Compile-time definitions retain identity without
+runtime captures. The syntactic candidate pass has been removed.
+
+A word reserves its identity and visible signature before body elaboration. Capture
+holdings are deduplicated; nested references to unfinished recursive words retain finite
+capture dependencies. After participating bodies finish, word completion finalizes hidden
+parameters, direct/deferred call arguments and first-class view layouts together. Pending
+transport cannot reach verification or VM execution. This changes no ABI or ownership
+permission and does not replay semantic elaboration.
+
 ## 4. Dynamic and unresolved interfaces: no runtime fallback
 
 Closed interfaces include ordinary scalar/string interfaces, schema-backed records,
 sums, stores and lists where their static member set is known. Closure of a type's
 member set is a semantic fact, not a successful lookup on one runtime instance.
-For `table` and `any`, `.name(...)` always follows dynamic member semantics; a missing
+For `Table` and `Any`, `.name(...)` always follows dynamic member semantics; a missing
 member stays that operation's error. Write `sorted(t)` to select a lexical function.
-An opaque `any` lexical binding is not a statically proven callable candidate; use
+An opaque `Any` lexical binding is not a statically proven callable candidate; use
 explicit ordinary call syntax to request dynamic invocation of that binding.
 
 In generic code resolve per specialization using the substituted receiver interface.
@@ -235,7 +300,13 @@ specialization. It is not a special parser rewrite limited to formatting.
   and group bounds, and no lexical binding closure for uninvoked `.name`.
 - Test table/any dynamic member calls never try a lexical fallback; include missing
   keys and an identically named lexical callable. Test pure copy-writing transforms
-  and explicitly referenced mutation; neither inserts hidden borrows/write-back.
+  and receiver-only reference lifting; ordinary arguments stay explicit and neither
+  route inserts write-back. Test scope nesting, local callable priority, function-value
+  bypass, reference contexts, actual capture dependencies and member-wins noncaptures.
+  Live-opening tests additionally cover qualified/opened read-write equivalence,
+  explicit snapshots, scalar/aggregate/callable/reference place captures and existing
+  escape rejections. Broader frozen/readonly proof remains pending; earlier snapshot
+  logs are not evidence for the replacement semantics.
 
 This feature adds source resolution/elaboration, not new bytecodes, a second allocator
 or backend-specific algorithms. Performance claims require ordinary call/copy/allocation

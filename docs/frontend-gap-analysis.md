@@ -20,8 +20,8 @@ The Lua evaluator and direct source-to-C path are not used.
 Ordinary `.slet` and `.let` source now covers scalar control and calls, local records and arrays,
 addressable places and stores, scalar-payload sums, slices and strings, checked references, raw pointers,
 recursive type sealing, typed and nested words, schema methods with actual receivers, keyed full/static
-partial supply, deferred actions, foreign declarations, Let managed captures, managed aggregate `any`
-boxing/casts/tests, escaping Let references/slices with promoted backing storage, generic `any`, and
+partial supply, deferred actions, foreign declarations, Let managed captures, managed aggregate `Any`
+boxing/casts/tests, escaping Let references/slices with promoted backing storage, generic `Any`, and
 dynamic callable dispatch. Imports preserve the profile asymmetry. End-to-end fixtures compare
 interpreted, eager, and lazy staging and optimizer fixpoints.
 
@@ -37,7 +37,7 @@ The SLet core is not a different language that needs a second parser and type sy
 The prototype already demonstrates several backend choices that should be retained as tests:
 
 - exact LuaJIT integer parsing without conversion through a double;
-- all strict integer widths, `bool`, erased `unit`, wrapping arithmetic and checked conversion;
+- all strict integer widths, `Bool`, erased `Unit`, wrapping arithmetic and checked conversion;
 - literal adoption, signed negative literals and the specified mixed-width rules;
 - ordered multiple results, scalar adjustment and unit padding for bindings;
 - direct calls, direct tail calls and lexical runtime supply of a known word through `CALLI`;
@@ -55,11 +55,11 @@ These are valuable lowering fixtures. They are not substitutes for a complete se
 | Source input | `.let`/`.slet`, spans, deterministic imports, exported types, foreign declarations, and asymmetric profile checks | Value exports and richer imported schema interfaces |
 | Parser | Shared ASDL parser for schemas, records, arrays, indexing, fields, lambdas, signatures, stores, matches, `use`, `extern`, and `defer` forms | Semantic construction for open-word/static-boundary forms |
 | Names and captures | Module words, lexical locals, nested words with explicit hidden capture inputs, deterministic lambda capture discovery, lifted functions, direct receiver methods, and retained Let method values across imported interfaces | Complete interface-evidence lookup |
-| Types | Scalars, `any`, records, arrays, sums, refs, pointers/slices, strings, signatures, callable views, recursive named-cell sealing, and exported type names | Tagged/open source types and complete interface-supply identity |
+| Types | Scalars, `Any`, records, arrays, sums, refs, pointers/slices, strings, signatures, callable views, recursive named-cell sealing, and exported type names | Tagged/open source types and complete interface-supply identity |
 | Calls | Direct/tail calls, exact views, escaping managed captures, indirect calls including retained runtime partial application, dynamic calls, canonical keyed full/static partial supply, methods, recursively flattened record/array ABIs, and GC-free sum ABIs | Managed/address-bearing sum ABIs |
-| Storage | Frame/managed records and arrays, projections, aliases, typed stores, bounds checks, refs/slices/raw pointers including null identity comparisons, aggregate `any` boxing, promoted returned backing storage, and owner-retaining captures | Module mutable storage and provenance through mutation or deeply nested sums |
+| Storage | Frame/managed records and arrays, projections, aliases, typed stores, bounds checks, refs/slices/raw pointers including null identity comparisons, aggregate `Any` boxing, promoted returned backing storage, and owner-retaining captures | Module mutable storage and provenance through mutation or deeply nested sums |
 | Control IR | Checked conditionals, switches, loops, traps, joins, block-bodied lambdas/handlers with inferred or expected results, deferred cleanup, and completion | Broader static path agreement and provenance proofs |
-| Dynamic Let | Boxing/casts/tests including managed aggregates, checked integer/`f64` conversions, generic unary/binary operators, strings, direct word boxing, dynamic calls, retained runtime partial applications, and open-word construction/fields/computed keys/stores/aliasing/removal/freezing | Keyed runtime supply/copy, open-word methods, and structural record/signature boundary conversions |
+| Dynamic Let | Boxing/casts/tests including managed aggregates, checked integer/`F64` conversions, generic unary/binary operators, strings, direct word boxing, dynamic calls, retained runtime partial applications, and open-word construction/fields/computed keys/stores/aliasing/removal/freezing | Keyed runtime supply/copy, open-word methods, and structural record/signature boundary conversions |
 | Modules | Function/type/schema exports, imported schema method interfaces, deterministic private IDs, Let→Let/SLet and SLet→SLet imports | Value initialization and public ABI closure |
 | Static execution | Explicit VM-backed staging/specialization under all three policies | Source static syntax/proofs and persistent staging images |
 | Diagnostics/tests | Stable spans/codes, three-policy source fixtures, import fixtures and optimizer fixpoints | Broader negative lifetime suites and migrated legacy programs |
@@ -128,7 +128,7 @@ A compile-time execution service must enforce these rules:
 - A speculative fold that is abandoned runs in a disposable VM/image or against a checkpoint. VM image writes must not leak from a refused fold into compilation state.
 - Mandatory module initialization executes once, in declaration order, in its module's persistent compile-time VM image. Its accepted final image is the source for residual module initialization.
 - VM-local addresses, callable addresses and collected-object addresses never enter a serialized residual module. Results are copied or re-encoded through type/layout metadata.
-- Static-only values such as `type`, schema/interface identity and specialization descriptors stay compiler metadata. Operations on executable represented values run in the VM.
+- Static-only values such as `Type`, schema/interface identity and specialization descriptors stay compiler metadata. Operations on executable represented values run in the VM.
 - Staging modules and their eager/lazy native images may be cached by deterministic specialization identity so JIT preparation is amortized.
 - Switching the compile-time VM among interpreted, eager and lazy policies must not change known results, diagnostics, accepted residual code or emitted module bytes.
 
@@ -150,7 +150,7 @@ The reused ASDL `Ir` representation is the typed structured boundary between sou
 
 The typed IR is already ANF/SSA: calls are ordered `Ir.Call` effects and their results are named values, so the continuation at a call site is its remaining statement suffix plus the enclosing continuation. Lowering passes that continuation explicitly. If it is the function's existing return continuation unchanged, the transfer is `TCALL`; if work remains, it is `CALL` and the suffix is the return continuation. Defunctionalization gives a known continuation a block label and explicit live cells; runtime-selected or recursive transfers use the VM's C-stack continuation mechanism. The frontend backend never asks whether a target is recursive, computes no call-graph SCC for tailness, and has no function-level `tailCalls()` prepass. Self recursion, mutual recursion and ordinary calls follow the same local tailness rule. Separately, standalone `abc-opt` computes direct-call SCCs only to decide which verified bytecode calls may be virtually inlined; SCC membership never defines tailness.
 
-Tail call modulo accumulation is a separate optional optimization. It may reassociate only a proven pure associative operation with a valid identity under the exact source semantics. Modular integer addition can qualify; `f64`, checked arithmetic, dynamic dispatch and effectful calls do not qualify merely because their operator is spelled `+`.
+Tail call modulo accumulation is a separate optional optimization. It may reassociate only a proven pure associative operation with a valid identity under the exact source semantics. Modular integer addition can qualify; `F64`, checked arithmetic, dynamic dispatch and effectful calls do not qualify merely because their operator is spelled `+`.
 
 ABC's stack layout and generated opcode semantics make typed bytecode lowering small. The standalone C `abc-opt` then uses ABC symbolic semantics to inline eligible acyclic calls, eliminate non-escaping known closures, Reynolds-defunctionalize finite callable sets, fold and canonically re-project residual DAGs onto A/B/C once per produced module. Known captures and receivers remain ordinary symbolic values/homes; only genuinely escaping or dynamic callables retain allocation and indirect dispatch. The interpreter benefits from fewer dispatches and allocations. The JIT consumes that compact bytecode and residualizes directly to register-addressed stencils; it never schedules a residual back to ABC. See `abc-opt.md`.
 
@@ -158,7 +158,7 @@ ABC's stack layout and generated opcode semantics make typed bytecode lowering s
 
 The old stage numbering became misleading once aggregate, callable and profile-5 work landed in parallel. The current dependency order is:
 
-1. **Completed foundation.** The reused ASDL frontend, typed `Ir.Fn` boundary, checked ABC lowering, source maps, deterministic imports, scalar and aggregate ABIs, sums, checked references, raw pointer/null construction and pointer indexing/stores, typed and block-bodied lambdas, block-bodied sum handlers with an expected result, managed captures, generic `any`, dynamic calls, source `extern` declarations and `FCALL`, exported types, three-policy staging, specialization wrappers and optimizer fixpoint checks are integrated.
+1. **Completed foundation.** The reused ASDL frontend, typed `Ir.Fn` boundary, checked ABC lowering, source maps, deterministic imports, scalar and aggregate ABIs, sums, checked references, raw pointer/null construction and pointer indexing/stores, typed and block-bodied lambdas, block-bodied sum handlers with an expected result, managed captures, generic `Any`, dynamic calls, source `extern` declarations and `FCALL`, exported types, three-policy staging, specialization wrappers and optimizer fixpoint checks are integrated.
 2. **Close semantic construction.** Complete interface-evidence proofs and the remaining open-word method/supply/conversion forms. Preserve stable unsupported diagnostics until each form has semantic IR and checked lowering.
 3. **Close ownership and ABI proofs.** Complete SLet lifetime/provenance verification through mutation and deeply nested owners; complete managed/address-bearing sum call ABIs and remaining managed aggregate forms without hiding roots in raw cells.
 4. **Close modules and static semantics.** Implement mutable module storage, declaration-ordered initialization, explicit source static boundaries or sound total/effect-free/no-abort proofs, residual specialization for runtime inputs, and deterministic public ABI closure.

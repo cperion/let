@@ -58,6 +58,7 @@ function Ir.Is:each(fn) fn(self.operand) end
 
 -- An `Ir.Place` hands over the expressions reaching it: its base is a place rather than an
 -- expression, so the base chain is followed and its index or view expressions are the operands.
+function Ir.Global:each(fn) end
 function Ir.Local:each(fn) end
 function Ir.Project:each(fn) self.base:each(fn) end
 function Ir.Deref:each(fn) self.base:each(fn) end
@@ -142,10 +143,10 @@ function Builder:const(ty, literal)
         return Ir.Const(ty, literal)
     end)
 end
-function Builder:u32(n) return self:const(S.u32, Ir.UInt(n)) end
+function Builder:u32(n) return self:const(S.U32, Ir.UInt(n)) end
 function Builder:int(ty, n) return self:const(ty, Ir.UInt(n)) end
 function Builder:int64(ty, high, low) return self:const(ty, Ir.UInt64(high, low)) end
-function Builder:bool(b) return self:const(S.bool, Ir.Boolean(b)) end
+function Builder:bool(b) return self:const(S.Bool, Ir.Boolean(b)) end
 -- A float constant. Its intern key is the value's own exact encoding, so two equal doubles share a
 -- node and two unequal ones do not.
 function Builder:float(ty, n) return self:const(ty, Ir.Float(n)) end
@@ -172,14 +173,16 @@ function Builder:bin(op, left, right, ty)
 end
 
 function Builder:get(aggregate, name, ty)
-    -- Get of a Make is the made component.
+    local selector=type(name)=='number' and Ir.Element(name) or Ir.Field(name)
+    -- Selecting established compiler structure does not execute source operations.
     if aggregate.kind == "Make" then
+        if selector.kind=='Element' then return aggregate.fields[name+1] end
         for index, field in ipairs(aggregate.fields) do
             if aggregate.type.fields[index].name == name then return field end
         end
     end
-    return self:intern("get|" .. aggregate.id .. "|" .. name .. "|" .. S.encode(ty), function()
-        return Ir.Get(aggregate, Ir.Field(name), ty)
+    return self:intern("get|" .. aggregate.id .. "|" .. S.encode(selector) .. "|" .. S.encode(ty), function()
+        return Ir.Get(aggregate, selector, ty)
     end)
 end
 
@@ -187,7 +190,7 @@ end
 function Builder:make(ty, fields)
     local key = { "make", S.encode(ty) }
     for index, field in ipairs(fields) do key[#key + 1] = field.id end
-    return self:intern(table.concat(key, "|"), function() return Ir.Make(ty, S.list(fields)) end)
+    return self:intern(table.concat(key, "|"), function() return Ir.Make(ty, S.List(fields)) end)
 end
 -- An integer conversion, interned like every other pure expression.
 function Builder:convert(operand, ty)
@@ -197,11 +200,11 @@ function Builder:convert(operand, ty)
     end)
 end
 function Builder:isType(operand, tested)
-    return self:intern("is|"..operand.id.."|"..S.encode(tested),function() return Ir.Is(operand,tested,S.bool) end)
+    return self:intern("is|"..operand.id.."|"..S.encode(tested),function() return Ir.Is(operand,tested,S.Bool) end)
 end
-function Builder:addr(place, ty)
-    return self:intern("addr|" .. S.encode(place) .. "|" .. S.encode(ty), function()
-        return Ir.Addr(place, ty)
+function Builder:addr(place, ty, access)
+    return self:intern("addr|" .. S.encode(place) .. "|" .. S.encode(ty)..'|'..S.encode(access), function()
+        return Ir.Addr(place, ty, access)
     end)
 end
 -- The length of a slice value. Pure, like a record field projection, so it is interned and keyed
@@ -261,7 +264,7 @@ function Builder:store(list, place, value)
     self:emit(list, Ir.Store(place, value))
 end
 function Builder:return_(list, values)
-    self:emit(list, Ir.Return(S.list(values)))
+    self:emit(list, Ir.Return(S.List(values)))
 end
 
 return M

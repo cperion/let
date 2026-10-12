@@ -1,0 +1,28 @@
+
+build/libabc.so:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+Disassembly of section .plt:
+
+Disassembly of section .plt.got:
+
+Disassembly of section .text:
+
+00000000002392e0 <handler_a1b0c2_EXT_A>:
+  2392e0:	41 0f b6 44 24 01    	movzbl 0x1(%r12),%eax
+  2392e6:	89 c3                	mov    %eax,%ebx
+  2392e8:	80 e3 fe             	and    $0xfe,%bl
+  2392eb:	80 fb 0e             	cmp    $0xe,%bl
+  2392ee:	75 17                	jne    239307 <handler_a1b0c2_EXT_A+0x27>
+  2392f0:	41 0f b6 44 24 02    	movzbl 0x2(%r12),%eax
+  2392f6:	49 83 c4 02          	add    $0x2,%r12
+  2392fa:	4c 8b 15 ff 1b 1a 00 	mov    0x1a1bff(%rip),%r10        # 3daf00 <T_a1b0c2@@Base+0x2eed0>
+  239301:	49 8b 04 c2          	mov    (%r10,%rax,8),%rax
+  239305:	ff e0                	jmp    *%rax
+  239307:	4c 8d 15 22 57 17 00 	lea    0x175722(%rip),%r10        # 3aea30 <extended_a1b0c2_A>
+  23930e:	49 8b 04 c2          	mov    (%r10,%rax,8),%rax
+  239312:	ff e0                	jmp    *%rax
+
+Disassembly of section .fini:

@@ -78,6 +78,13 @@ abc_status abc_vm_bind_foreign(abc_vm *vm, const char *name,
  * Lazy VMs install stable entry stubs and compile reached contexts during calls. */
 abc_status abc_vm_load(abc_vm *vm, const abc_module *module, abc_error *error);
 void abc_vm_free(abc_vm *vm);
+/* Copy bytes from an already loaded persistent image. No execution, pointer
+ * relocation or ownership transfer is implied. Range checks precede publication;
+ * output is unchanged on failure. Zero length permits a null output pointer.
+ * Output storage must not overlap the image; callers serialize image access
+ * with execution/mutation. This is not an atomic snapshot operation. */
+abc_status abc_vm_read_image(const abc_vm *vm, const abc_module *module,
+                             size_t offset, void *output, size_t size, abc_error *error);
 /* Results are copied in source order. A call resets stacks, even after failure;
  * memory image writes persist. Output capacity is checked before execution.
  * No result is published on failure. Images retain modules until VM destruction.

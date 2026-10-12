@@ -90,6 +90,71 @@ a[#a+1]=(' RET.A 2 %d'):format(#binary*2); a[#a+1]='.export main'
 local arithmetic=write('arithmetic',table.concat(a,'\n')..'\n')
 same(arithmetic,'main 18364758544493064720 7','-81985529216486889 -81985529216486889 -81985529216486903 -81985529216486903 -573898704515408272 -573898704515408272 2623536934927580674 2623536934927580674 -11712218459498128 -11712218459498128 2 2 0 0 0 0 -81985529216486889 -81985529216486889 -81985529216486889 -81985529216486889 7952596333999228928 7952596333999228928 143474676128852068 143474676128852068 -640511947003804 -640511947003804 0 0 1 1 1 1 1 1 0 0 0 0')
 
+-- Result truncation must not turn a 64-bit right shift into a 32-bit one.
+-- Keep live prefixes on both banks and an alias in C; mirror the complete program.
+local shifts={'.function main 1 30',' PUSH.A 7',' PUSH.B 9'}
+local shiftIndex=0
+for _,op in ipairs{'SHRI','SARI','SHLI'} do
+  for _,amount in ipairs{0,1,31,32,33,63,64,127,-1} do
+    shiftIndex=shiftIndex+1;local dst=shiftIndex%2==0 and 'A' or 'B'
+    shifts[#shifts+1]=(' CGET.%s 0\n %s.%s %d\n ZX32.%s'):format(dst,op,dst,amount,dst)
+    if dst=='B' then shifts[#shifts+1]=' MOVE.B' end
+  end
+end
+shifts[#shifts+1]=' MOVE.B\n CGET.A 0\n RET.A 1 30\n.export main'
+local shiftModules=write('shift-before-zx32',table.concat(shifts,'\n')..'\n')
+local optimizedShifts={}
+for _,module in ipairs(shiftModules) do
+  local output=module..'.opt'
+  local message,status=capture(('%q %q -o %q'):format(root..'/build/abc-opt',module,output))
+  assert(status==0,message);optimizedShifts[#optimizedShifts+1]=output
+end
+for _,modules in ipairs{shiftModules,optimizedShifts} do
+  same(modules,'main 0x89abcdef34560012','7 878051346 2586509321 324508638 2309737967 1154868983 1 0 0 0 878051346 2586509321 324508638 2309737967 3302352631 4294967295 4294967295 4294967295 4294967295 878051346 1756102692 0 0 0 0 0 0 0 9 -8526495042236973038')
+  same(modules,'main 0x0123456789abcdef','7 2309737967 3302352631 38177487 19088743 9544371 0 0 0 0 2309737967 3302352631 38177487 19088743 9544371 0 0 0 0 2309737967 324508638 2147483648 0 0 0 0 0 0 9 81985529216486895')
+end
+
+-- Explicit raw-kind changes preserve every bit and both live banks/C aliases.
+local Int=require('int64')
+local bitcasts=write('bitcasts',[[.profile memory
+.function main 1 5 i iiiii
+ PUSH.A 111
+ PUSH.B 222
+ CGET.A 0
+ BITS2F.A
+ F2BITS.A
+ CGET.B 0
+ BITS2F.B
+ F2BITS.B
+ MOVE.B
+ MOVE.B
+ CGET.A 0
+ RET.A 1 5
+.export main
+]])
+local bitcastOptimized={}
+for _,module in ipairs(bitcasts) do
+ local output=module..'.opt';local message,status=capture(('%q %q -o %q'):format(root..'/build/abc-opt',module,output))
+ assert(status==0,message);bitcastOptimized[#bitcastOptimized+1]=output
+end
+for _,bits in ipairs{'0','0x8000000000000000','1','0x000fffffffffffff','0x3ff8000000000000','0x7ff0000000000000','0xfff0000000000000','0x7ff8000012345678','0x7ff0000000000001','0xfff123456789abcd','0xffffffffffffffff'} do
+ local raw=Int.format(Int.parse(bits),true)
+ for _,modules in ipairs{bitcasts,bitcastOptimized} do same(modules,'main '..bits,'111 '..raw..' '..raw..' 222 '..raw) end
+end
+-- Folded producer must retain an explicit float kind in optimized bytecode.
+local bitcastConstant=write('bitcast-constant',[[.profile memory
+.function main 0 1 - f
+ PUSH.B 0x7ff0000000000001
+ BITS2F.B
+ RET.B 0 1
+.export main
+]])
+for _,module in ipairs(bitcastConstant) do
+ local output=module..'.opt';local message,status=capture(('%q %q -o %q'):format(root..'/build/abc-opt',module,output))
+ assert(status==0,message);same({module,output},'',Int.format(Int.parse('0x7ff0000000000001'),true))
+ same({module,output},'--stack=1',Int.format(Int.parse('0x7ff0000000000001'),true))
+end
+
 local floats={'.profile memory','.function floats 2 22 ff '..string.rep('i',22)}
 for _,op in ipairs{'FADD','FSUB','FMUL','FDIV','FLT','FLE','FEQ'} do for _,dst in ipairs{'A','B'} do
   floats[#floats+1]=(' CGET.%s 0'):format(dst); floats[#floats+1]=(' CGET.%s 1'):format(other(dst)); floats[#floats+1]=(' %s.%s'):format(op,dst)
@@ -733,7 +798,7 @@ local function require_opcode(name)
 end
 for _,op in ipairs(manifest.ops) do if op.kind~=manifest.kind.EXT then require_opcode(op.name) end end
 for _,op in ipairs(manifest.ext_ops) do for _,bank in ipairs{'A','B'} do require_opcode(op.name..'_'..bank) end end
-assert(total==282,'revision-6 selected core/EXT coverage inventory changed')
+assert(total==286,'revision-6 selected core/EXT coverage inventory changed')
 assert(#missing==0,'validation misses public opcode forms: '..table.concat(missing,', '))
 print(('validated %d oracle cases / %d mirrored four-mode executions; assembled all %d public core/EXT forms'):format(checks,executions,total))
 -- Source integration lives in validate_slet_frontend.lua and uses only the

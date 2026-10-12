@@ -29,14 +29,14 @@ open-word and descriptor details are preserved in
 
 ## 2. Dynamic values are transferable values
 
-`any` stores a type and a transferable value. Non-fitting values use immutable
+`Any` stores a type and a transferable value. Non-fitting values use immutable
 counted boxes. Mutable references, mutable-backed readonly views, mutable-capturing
 closures and raw foreign pointers are not automatically admissible. A box must
 not retain mutable storage by pretending a borrowed address is a value copy.
 
 Integer/float rules remain the shared typed rules, including checked conversions,
 canonical dynamic NaNs and preserving exact integer bits where required. Scalar
-representation selection must not force allocation for f64 or box known unboxed
+representation selection must not force allocation for F64 or box known unboxed
 values prematurely. These are computation/representation obligations, not approval
 of a particular tagged-bit layout from the retired profile.
 
@@ -67,7 +67,7 @@ validated runtime design.
 ## 4. Tables, strings and layout facts
 
 Tables replace reference-semantic open maps with value semantics and COW maps.
-Values are transferable `any`; methods borrow the actual table as receiver rather
+Values are transferable `Any`; methods borrow the actual table as receiver rather
 than capture it. Table entries cannot be independently referenced.
 
 Integer keys form an exact dense prefix starting at zero. Iteration visits that
@@ -76,7 +76,7 @@ non-owning and independent of array length and integer/float/general element kin
 Copies share tokens; named structural changes renew them. An array push does not
 invalidate named-field facts. A known token is not a known object/value.
 
-Strings are COW byte values with buffer plus packed offset/length, not `slice(u8)`.
+Strings are COW byte values with buffer plus packed offset/length, not `Slice(U8)`.
 Literals use immortal buffers. List/string snapshots retain immutable buffers;
 views of mutable arrays do not acquire immutability just by being read-only.
 

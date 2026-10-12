@@ -1,0 +1,9 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owners.c build/libabc.a -Wl,--wrap=aligned_alloc -lm -lpthread -o build/validate-owners
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+luajit: line 502: unknown instruction PST64_B; selected forms require .A or .B
+stack traceback:
+	[C]: in function 'error'
+	../tools/assembler.lua:153: in function 'assemble'
+	tests/runtime_owners.lua:95: in main chunk
+	[C]: at 0x643814be1120
+make: *** [Makefile:151: validate-owner-runtime] Error 1

@@ -1,5 +1,5 @@
 -- Constant-space tail calls; a block binding exercises C-frame cleanup.
-let sum(n, acc: u64): u64 = do
+let sum(n, acc: U64): U64 = do
     if n == 0 then
         return acc
     else
@@ -8,5 +8,5 @@ let sum(n, acc: u64): u64 = do
     end
 end
 
-let main(): u64 = sum(100_000, 0)
+let main(): U64 = sum(100_000, 0)
 

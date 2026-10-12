@@ -150,7 +150,7 @@ end end
 for _,stack in ipairs{'a','b'} do for results=0,1 do
   local arguments=stack..'sp+(int32_t)(intptr_t)HOLE_IMM'
   local publish=results==1 and stack..'sp[(int32_t)(intptr_t)HOLE_IMM]=out;' or ''
-  stencil(('fcall_%s_%d'):format(stack,results),'abc_value bridge,ext,target,out=0;__asm__("movabsq $HOLE_FINAL,%0":"=r"(bridge));__asm__("movabsq $HOLE_STATE,%0":"=r"(ext));__asm__("movabsq $HOLE_BIAS,%0":"=r"(target));if(((abc_foreign_bridge)(uintptr_t)bridge)((const void *)(uintptr_t)ext,(void(*)(void))(uintptr_t)target,'..arguments..',&out))return jit_error();'..publish..'NEXT')
+  stencil(('fcall_%s_%d'):format(stack,results),'abc_value bridge,ext,target,out=0;__asm__("movabsq $HOLE_FINAL,%0":"=r"(bridge));__asm__("movabsq $HOLE_STATE,%0":"=r"(ext));__asm__("movabsq $HOLE_BIAS,%0":"=r"(target));unsigned status=((abc_foreign_bridge)(uintptr_t)bridge)((const void *)(uintptr_t)ext,(void(*)(void))(uintptr_t)target,'..arguments..',&out);if(status)return (jit_error()&~UINT64_C(255))|status;'..publish..'NEXT')
 end end
 stencil('abort','return jit_error();')
 for _,stack in ipairs({'a','b','c'}) do stencil('guard_'..stack,('abc_value *limit,*next;__asm__("movabsq $HOLE_FINAL,%%0":"=r"(limit));__asm__("leaq HOLE_IMM(%%1),%%0":"=r"(next):"r"(%ssp));if(next>limit)return jit_error();NEXT'):format(stack)) end

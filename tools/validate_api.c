@@ -15,6 +15,27 @@ static uint64_t bits(double d) { uint64_t x; memcpy(&x,&d,8); return x; }
 static int fail(const char *what,const abc_error *e) {
     fprintf(stderr,"validate-api: %s: %s\n",what,e->message); return 1;
 }
+static int image_checks(abc_vm *v,const abc_module *m,abc_error *e) {
+    size_t size=m->image_size;
+    unsigned char *copy=malloc(size+2);
+    if(!copy) return 1;
+    memset(copy,0xa5,size+2);
+    if(abc_vm_read_image(v,m,0,copy+1,size,e)!=ABC_OK || copy[0]!=0xa5 || copy[size+1]!=0xa5 ||
+       (size && memcmp(copy+1,v->images->bytes,size))) {
+        free(copy);return fail("image copy",e);
+    }
+    unsigned char sentinel=0x5a;
+    if(abc_vm_read_image(v,m,size,NULL,0,e)!=ABC_OK ||
+       abc_vm_read_image(v,m,size,&sentinel,1,e)!=ABC_ARGUMENTS || sentinel!=0x5a ||
+       abc_vm_read_image(v,m,SIZE_MAX,&sentinel,1,e)!=ABC_ARGUMENTS || sentinel!=0x5a ||
+       abc_vm_read_image(v,m,0,&sentinel,SIZE_MAX,e)!=ABC_ARGUMENTS || sentinel!=0x5a ||
+       abc_vm_read_image(NULL,m,0,&sentinel,1,e)!=ABC_INVALID || sentinel!=0x5a ||
+       abc_vm_read_image(v,NULL,0,&sentinel,1,e)!=ABC_INVALID || sentinel!=0x5a ||
+       abc_vm_read_image(v,m,0,NULL,1,e)!=ABC_INVALID) {
+        free(copy);return fail("image-copy failure publication",e);
+    }
+    free(copy);return 0;
+}
 int main(int argc,char **argv) {
     if(argc<2||argc>4) { fprintf(stderr,"usage: validate-api callables.abc [virtual.abc] [foreign.abc]\n"); return 2; }
     abc_module *m=NULL; abc_vm *v=NULL; abc_error e; abc_limits limits={.mode=ABC_EXEC_COMPILED};
@@ -24,7 +45,10 @@ int main(int argc,char **argv) {
     const char *entries[]={"invoke","invoke_b","invoke_tail"};
     for(unsigned mode=0;mode<4;mode++) for(unsigned entry=0;entry<3;entry++) {
         limits.mode=(abc_execution_mode)mode; v=NULL;
-        if(abc_vm_create(&limits,&v,&e)!=ABC_OK || abc_vm_load(v,m,&e)!=ABC_OK) return fail("load",&e);
+        if(abc_vm_create(&limits,&v,&e)!=ABC_OK) return fail("create",&e);
+        unsigned char sentinel=0x5a;
+        if(abc_vm_read_image(v,m,0,&sentinel,0,&e)!=ABC_NOT_FOUND || sentinel!=0x5a || v->images) return fail("image copy must not load",&e);
+        if(abc_vm_load(v,m,&e)!=ABC_OK || image_checks(v,m,&e)) return fail("load/image copy",&e);
         if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions || stats.specific || stats.final_generic) return fail("initial stats",&e);
         size_t prepared=v->images->execution?v->images->execution->compiled_versions:0;
         args[0]=(uint64_t)(uintptr_t)&cell; args[1]=2; args[2]=0; result=991;
@@ -77,6 +101,6 @@ int main(int argc,char **argv) {
             abc_vm_free(v);
         } abc_module_free(fm);
     }
-    puts("validated four-mode A/B/tail callable observations, foreign calls, and stable native linkage"); return 0;
+    puts("validated four-mode image copies, A/B/tail callable observations, foreign calls, and stable native linkage"); return 0;
 }
 

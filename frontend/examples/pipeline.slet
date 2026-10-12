@@ -15,50 +15,50 @@
 -- Expected: settle(1,50)=50, settle(0,50)=0, settle(1,500)=0,
 --           summarize(1,50)=50, summarize(1,500)=0
 
-let request = { user: u32, amount: u32 }
-let accepted = { user: u32, amount: u32 }
-let rejection_reason = oneof { unauthenticated: u32, over_limit: u32 }
-let admission_outcome = oneof { accepted: accepted, rejected: rejection_reason }
+let Request = { user: U32, amount: U32 }
+let Accepted = { user: U32, amount: U32 }
+let RejectionReason = oneof { unauthenticated: U32, over_limit: U32 }
+let AdmissionOutcome = oneof { accepted: Accepted, rejected: RejectionReason }
 
-let admission_session = {
-  attempts: u32,
-  limit: u32,
+let AdmissionSession = {
+  attempts: U32,
+  limit: U32,
   admit(
-      r: type,
-      request: request,
-      on_admitted: (accepted): r,
-      on_denied: (rejection_reason): r,
-  ): r = do
+      R: Type,
+      request: Request,
+      on_admitted: (Accepted): R,
+      on_denied: (RejectionReason): R,
+  ): R = do
     attempts += 1
-    if request.user == 0 then return on_denied(rejection_reason.unauthenticated(attempts)) end
-    if request.amount > limit then return on_denied(rejection_reason.over_limit(request.amount)) end
-    return on_admitted(accepted { user = request.user, amount = request.amount })
+    if request.user == 0 then return on_denied(RejectionReason.unauthenticated(attempts)) end
+    if request.amount > limit then return on_denied(RejectionReason.over_limit(request.amount)) end
+    return on_admitted(Accepted { user = request.user, amount = request.amount })
   end,
 }
 
 -- Downward: the parent owns the session and supplies what each exit means; the result is a scalar.
-let settle(user: u32, amount: u32): u32 = do
-  let session = admission_session { attempts = 0, limit = 100 }
-  return session.admit(u32, request { user = user, amount = amount },
-    do(accepted: accepted) = accepted.amount,
-    do(reason: rejection_reason) = 0,
+let settle(user: U32, amount: U32): U32 = do
+  let session = AdmissionSession { attempts = 0, limit = 100 }
+  return session.admit(U32, Request { user = user, amount = amount },
+    do(accepted: Accepted) = accepted.amount,
+    do(reason: RejectionReason) = 0,
   )
 end
 
 -- Upward: the same child returns the outcome as a sum for a caller to dispatch.
-let evaluate(user: u32, amount: u32): admission_outcome = do
-  let session = admission_session { attempts = 0, limit = 100 }
-  return session.admit(admission_outcome, request { user = user, amount = amount },
-    do(accepted: accepted) = admission_outcome.accepted(accepted),
-    do(reason: rejection_reason) = admission_outcome.rejected(reason),
+let evaluate(user: U32, amount: U32): AdmissionOutcome = do
+  let session = AdmissionSession { attempts = 0, limit = 100 }
+  return session.admit(AdmissionOutcome, Request { user = user, amount = amount },
+    do(accepted: Accepted) = AdmissionOutcome.accepted(accepted),
+    do(reason: RejectionReason) = AdmissionOutcome.rejected(reason),
   )
 end
 
-let summarize(user: u32, amount: u32): u32 =
+let summarize(user: U32, amount: U32): U32 =
   evaluate(user, amount) {
-    accepted = do(accepted: accepted) = accepted.amount,
-    rejected = do(reason: rejection_reason) = 0,
+    accepted = do(accepted: Accepted) = accepted.amount,
+    rejected = do(reason: RejectionReason) = 0,
   }
 
-return { types = { request, admission_session, accepted, rejection_reason, admission_outcome },
+return { types = { Request, AdmissionSession, Accepted, RejectionReason, AdmissionOutcome },
     functions = { settle, evaluate, summarize } }

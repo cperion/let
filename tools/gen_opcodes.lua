@@ -50,6 +50,8 @@ typedef struct {
     uint8_t memory_action;
     uint8_t memory_width;
     uint8_t sign_extend;
+    /* Optional selected unary kind transition: abc_cell_kind + 1, zero absent. */
+    uint8_t unary_input_kind, unary_result_kind;
     const char *name;
 } abc_instruction_metadata;
 
@@ -64,10 +66,11 @@ typedef struct {
 local function metadata_initializer(instruction)
     local memory=instruction.mem or {action=0,width=0,sign=0}
     local operation=manifest.operations[instruction.operation+1]
-    return ('{%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,"%s"}'):format(
+    local transfer=semantics.transfers[operation]
+    return ('{%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,"%s"}'):format(
         instruction.operation,transfer_indices[semantics.transfers[operation].kind],instruction.kind,instruction.layout,instruction.profile,
         instruction.role,instruction.stack,instruction.len,memory.action,memory.width,
-        memory.sign,instruction.name)
+        memory.sign,transfer.input_kind or 0,transfer.result_kind or 0,instruction.name)
 end
 emit('static const abc_instruction_metadata abc_core_instructions[256] = {')
 for _,instruction in ipairs(manifest.ops) do

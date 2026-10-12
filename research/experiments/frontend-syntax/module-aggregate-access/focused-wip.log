@@ -1,0 +1,4 @@
+aggregate staging: 128 checks, 128 VM executions
+source demand checks: 52
+PASS: unoptimized staging uses only the in-process VM in all four modes
+PASS: owned staging sessions (280 checks)

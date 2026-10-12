@@ -1,0 +1,10 @@
+access proofs: 176 checks, 112 VM executions
+aggregate staging: 438 checks, 422 VM executions
+receiver scopes before imports: 300 checks, 288 VM executions
+receiver scopes: 407 checks, 384 VM executions
+PASS: Let compiler source ingestion and semantic IR (270 checks)
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+saved()	REJECT [borrow-store] at higher-order-retention.let:7 Local retained access cannot enter longer-lived storage
+apply(saved)	REJECT [borrow-store] at higher-order-retention.let:7 Local retained access cannot enter longer-lived storage
+module alias result	42	expected	42
+physical logical roots	1	expected	1

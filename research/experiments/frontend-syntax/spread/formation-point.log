@@ -1,0 +1,19 @@
+interpreted: captured original reference -> 10
+threaded: captured original reference -> 10
+eager: captured original reference -> 10
+lazy: captured original reference -> 10
+function main
+1	Ir.Let(value = Ir.Value(id = 1),type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}),expr = Ir.Make(type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}),fields = {Ir.Const(type = Ty.U32,literal = Ir.UInt(value = 10))}))
+2	Ir.Var(storage = Ir.Storage(id = 1),type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}),initial = Ir.Ref(value = Ir.Value(id = 1),type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)})))
+3	Ir.Let(value = Ir.Value(id = 2),type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}),expr = Ir.Make(type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}),fields = {Ir.Const(type = Ty.U32,literal = Ir.UInt(value = 20))}))
+4	Ir.Var(storage = Ir.Storage(id = 2),type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}),initial = Ir.Ref(value = Ir.Value(id = 2),type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)})))
+5	Ir.Let(value = Ir.Value(id = 3),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)})),expr = Ir.Addr(place = Ir.Local(storage = Ir.Storage(id = 1)),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}))))
+6	Ir.Var(storage = Ir.Storage(id = 3),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)})),initial = Ir.Ref(value = Ir.Value(id = 3),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}))))
+7	Ir.Read(value = Ir.Value(id = 4),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)})),place = Ir.Local(storage = Ir.Storage(id = 3)))
+8	Ir.Store(place = Ir.Local(storage = Ir.Storage(id = 3)),value = Ir.Addr(place = Ir.Local(storage = Ir.Storage(id = 2)),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}))))
+9	Ir.Call(results = {Ir.Value(id = 5)},target = main_word_1,arguments = {Ir.ValueArg(value = Ir.Ref(value = Ir.Value(id = 4),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}))))})
+10	Ir.Return(values = {Ir.Ref(value = Ir.Value(id = 5),type = Ty.U32)})
+function main_word_1
+1	Ir.Var(storage = Ir.Storage(id = 1),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)})),initial = Ir.Ref(value = Ir.Value(id = 1),type = Ty.Ref(target = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)}))))
+2	Ir.Read(value = Ir.Value(id = 2),type = Ty.U32,place = Ir.Project(base = Ir.Deref(base = Ir.Local(storage = Ir.Storage(id = 1)),type = Ty.Record(meaning = n:U32,fields = {Ty.Field(name = n,type = Ty.U32)})),field = Ir.Field(name = n)))
+3	Ir.Return(values = {Ir.Ref(value = Ir.Value(id = 2),type = Ty.U32)})

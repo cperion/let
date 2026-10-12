@@ -1,0 +1,16 @@
+mode=0 case=plain median_ns=25.57 allocations=0 retains=0 releases=0 live=0
+mode=0 case=normal median_ns=450.40 allocations=1 retains=1 releases=2 live=0
+mode=0 case=nested median_ns=494.76 allocations=1 retains=0 releases=1 live=0
+mode=0 case=held_child median_ns=567.66 allocations=2 retains=1 releases=3 live=0
+mode=1 case=plain median_ns=20.60 allocations=0 retains=0 releases=0 live=0
+mode=1 case=normal median_ns=314.93 allocations=1 retains=1 releases=2 live=0
+mode=1 case=nested median_ns=345.10 allocations=1 retains=0 releases=1 live=0
+mode=1 case=held_child median_ns=414.88 allocations=2 retains=1 releases=3 live=0
+mode=2 case=plain median_ns=41.69 allocations=0 retains=0 releases=0 live=0
+mode=2 case=normal median_ns=334.64 allocations=1 retains=1 releases=2 live=0
+mode=2 case=nested median_ns=377.57 allocations=1 retains=0 releases=1 live=0
+mode=2 case=held_child median_ns=419.78 allocations=2 retains=1 releases=3 live=0
+mode=3 case=plain median_ns=22.84 allocations=0 retains=0 releases=0 live=0
+mode=3 case=normal median_ns=409.88 allocations=1 retains=1 releases=2 live=0
+mode=3 case=nested median_ns=506.83 allocations=1 retains=0 releases=1 live=0
+mode=3 case=held_child median_ns=528.54 allocations=2 retains=1 releases=3 live=0

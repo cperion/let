@@ -1,0 +1,191 @@
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+/tmp/clang20 -O2 -g build/cli.o build/libabc.a -o build/abc-runtime
+rm -f build/libabc-tool.a
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_lifetime.c build/libabc.a -lm -o build/validate-lifetime
+ar rcs build/libabc-tool.a build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o build/generated/runtime_primitives.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict tools/validate_optimizer_foreign.c build/libabc.a -lm -lpthread -o build/validate-optimizer-foreign
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict tools/validate_api.c build/libabc.a -o build/validate-api
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_cache.c build/libabc.a -o build/validate-cache
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_symbolic.c build/libabc.a -o build/validate-symbolic
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_capture.c build/libabc.a -o build/validate-capture
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_residual_ir.c build/libabc-tool.a -lm -o build/validate-residual-ir
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Iinclude -Isrc -Ibuild tools/validate_banked_isa.c build/libabc.a -lm -lpthread -o build/validate-banked-isa
+objcopy --localize-symbol=calloc build/generated/stencils.o build/generated/test_stencils.o
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Iinclude -Isrc -Ibuild tools/validate_call_graph.c build/libabc-tool.a -lm -o build/validate-call-graph
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_backedges.c build/libabc.a -lm -o build/validate-backedges
+runtime owner lowering: 28 checks, 24 VM executions; emitted both-bank raw/optimized images
+build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_native_emit.c build/native_emit.o -o build/validate-native-emit
+runtime owners: 200979 checks; local/shared/immortal, 100001-owner release, both banks raw/optimized in four modes, failure cleanup and VM reuse
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_execution_emit.c build/libabc.a -lm -o build/validate-execution-emit
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_capacity_frontiers.c build/libabc.a -lm -o build/validate-capacity-frontiers
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+/tmp/lua-compat tools/validate_optimizer_isa.lua build/abc-runtime build/optimizer-isa build/validate-optimizer-foreign
+sub-c: optimized emission and four-mode execution PASS
+sub-c-mirror: optimized emission and four-mode execution PASS
+nested-sub: optimized emission and four-mode execution PASS
+nested-sub-mirror: optimized emission and four-mode execution PASS
+divide: optimized emission and four-mode execution PASS
+/tmp/clang20 -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fno-pie -no-pie -Wl,--gc-sections -Wl,--defsym=HOLE_IMM=65539 tools/validate_stencil_operands.c build/generated/test_stencils.o -o build/validate-stencil-operands
+divide-mirror: optimized emission and four-mode execution PASS
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+shift: optimized emission and four-mode execution PASS
+shift-mirror: optimized emission and four-mode execution PASS
+normalize: optimized emission and four-mode execution PASS
+normalize-mirror: optimized emission and four-mode execution PASS
+cp tools/abc build/abc
+chmod +x build/abc
+capture: optimized emission and four-mode execution PASS
+capture-mirror: optimized emission and four-mode execution PASS
+immediate-branch: optimized emission and four-mode execution PASS
+immediate-branch-mirror: optimized emission and four-mode execution PASS
+fused-branch: optimized emission and four-mode execution PASS
+fused-branch-mirror: optimized emission and four-mode execution PASS
+phi-results: optimized emission and four-mode execution PASS
+phi-results-mirror: optimized emission and four-mode execution PASS
+switch: optimized emission and four-mode execution PASS
+switch-mirror: optimized emission and four-mode execution PASS
+halt: optimized emission and four-mode execution PASS
+halt-mirror: optimized emission and four-mode execution PASS
+halt-argument: optimized emission and four-mode execution PASS
+halt-argument-mirror: optimized emission and four-mode execution PASS
+memory-addresses: optimized emission and four-mode execution PASS
+memory-addresses-mirror: optimized emission and four-mode execution PASS
+halt-empty: optimized emission and four-mode execution PASS
+halt-empty-mirror: optimized emission and four-mode execution PASS
+trap: optimized emission and four-mode execution PASS
+trap-mirror: optimized emission and four-mode execution PASS
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)
+build/abc asm tools/validate_lifetime.abcasm -o build/validate-lifetime.abc
+known-check: optimized emission and four-mode execution PASS
+build/validate-lifetime build/validate-lifetime.abc
+validated 48 public module/VM lifetime cases (all mode pairs, uncalled and called images)
+cd frontend && /tmp/lua-compat tools/embed.lua --check
+known-check-mirror: optimized emission and four-mode execution PASS
+schemas up to date
+cd frontend && /tmp/lua-compat tests/schemas.lua
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+cd frontend && /tmp/lua-compat tests/type_names.lua
+check: optimized emission and four-mode execution PASS
+check-mirror: optimized emission and four-mode execution PASS
+call-AA: optimized emission and four-mode execution PASS
+call-AA-mirror: optimized emission and four-mode execution PASS
+call-AB: optimized emission and four-mode execution PASS
+call-AB-mirror: optimized emission and four-mode execution PASS
+call-BA: optimized emission and four-mode execution PASS
+call-BA-mirror: optimized emission and four-mode execution PASS
+call-BB: optimized emission and four-mode execution PASS
+type names: 44 checks, 8 VM executions
+cd frontend && /tmp/lua-compat tests/walk.lua
+PASS: schema-driven traversal (4 checks)
+cd frontend && /tmp/lua-compat tests/parse.lua
+call-BB-mirror: optimized emission and four-mode execution PASS
+PASS: lexer/parser (232 checks)
+cd frontend && /tmp/lua-compat tests/syntax_batch.lua
+recursive-b: optimized emission and four-mode execution PASS
+recursive-b-mirror: optimized emission and four-mode execution PASS
+tail-b: optimized emission and four-mode execution PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+tail-b-mirror: optimized emission and four-mode execution PASS
+foreign-difference: optimized emission and four-mode execution PASS
+foreign-difference-mirror: optimized emission and four-mode execution PASS
+foreign-observe: optimized emission and four-mode execution PASS
+foreign-observe-mirror: optimized emission and four-mode execution PASS
+optimizer ISA: 50 mirrored modules, 308 original/optimized execution pairs
+syntax batch: 149 checks, 68 VM executions
+cd frontend && /tmp/lua-compat tests/endall.lua
+endall: 57 checks, 16 VM executions
+cd frontend && /tmp/lua-compat tests/word_bindings.lua
+word bindings: 107 checks, 84 VM executions
+cd frontend && /tmp/lua-compat tests/application_chains.lua
+application chains: 122 checks, 112 VM executions
+cd frontend && /tmp/lua-compat tests/vocabulary.lua
+vocabulary: 92 checks, 64 VM executions
+cd frontend && /tmp/lua-compat tests/receiver_scopes.lua
+receiver scopes before imports: 300 checks, 288 VM executions
+receiver scopes: 407 checks, 384 VM executions
+cd frontend && /tmp/lua-compat tests/anonymous_context.lua
+anonymous context: 221 checks, 192 VM executions; 4 probes unoptimized only
+cd frontend && /tmp/lua-compat tests/compiler.lua
+PASS: Let compiler source ingestion and semantic IR (270 checks)
+cd frontend && /tmp/lua-compat tests/lambdas.lua
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+cd frontend && /tmp/lua-compat tests/lowering.lua
+PASS: checked ASDL Ir -> ABC lowering (101 checks)
+cd frontend && /tmp/lua-compat tests/optimize.lua
+PASS: shared C residual-DAG optimizer and LuaJIT FFI (118 checks)
+cd frontend && /tmp/lua-compat tests/staging.lua
+PASS: VM-backed compile-time execution (27 checks)
+cd frontend && /tmp/lua-compat tests/source_demands.lua
+source demand checks: 52
+cd frontend && /tmp/lua-compat tests/aggregate_staging.lua
+aggregate staging: 438 checks, 422 VM executions
+cd frontend && /tmp/lua-compat tests/packed_tagged.lua
+packed tagged integer/storage subset: 737 checks, 200 VM executions
+packed tagged: 1894 checks, 496 VM executions
+cd frontend && /tmp/lua-compat tests/spread.lua --unoptimized
+spread qualification: 379 checks, 108 VM executions, 0 optimized configurations BLOCKED
+cd frontend && /tmp/lua-compat tests/rest_templates.lua
+rest templates: 616 checks, 276 VM executions
+cd frontend && /tmp/lua-compat tests/access_proofs.lua
+access proofs: 176 checks, 112 VM executions
+cd frontend && /tmp/lua-compat tests/ownership.lua
+ownership inference: 170 checks, 56 VM executions
+cd frontend && LUA="/tmp/lua-compat" /tmp/lua-compat tests/staging_sessions.lua
+PASS: unoptimized staging uses only the in-process VM in all four modes
+PASS: owned staging sessions (280 checks)
+/tmp/lua-compat tools/validate_slet_frontend.lua
+validated production SLet frontend/optimizer: 112 executions, 2 explicit static-demand diagnostics
+CC="/tmp/clang20" /tmp/lua-compat tools/validate_c_aot.lua
+validated 12 mirrored portable C residual arithmetic, branch, loop, call, and export cases
+build/abc asm tools/validate_capacity_frontiers.abcasm -o build/validate-capacity-frontiers.abc
+build/validate-capacity-frontiers build/validate-capacity-frontiers.abc
+validated 360 capacity-frontier cases: A/B shrink, subsequent allocation, original PCs, tight limits and repeated calls
+build/validate-execution-emit
+execution emitters: native/threaded labels, tape words, growth, continuations, publication and errors pass
+build/validate-native-emit
+native emitter: 4230654 checks, 3770 forms x 4 payloads, specialized bindings and canaries pass
+build/validate-execution-forms
+build/abc asm tools/validate_backedges.abcasm -o build/validate-backedges.abc
+build/validate-backedges build/validate-backedges.abc
+validated backedge register placement: four modes, repeated calls and residual version bounds
+build/abc asm tools/validate_call_graph.abcasm -o build/validate-call-graph.abc
+build/validate-call-graph build/validate-call-graph.abc
+revision-6 call graph: 1 module(s), boundaries and recursion policy passed
+build/validate-stencil-operands
+native selected-first primitives: 27 contracts, other registers preserved
+build/validate-isa
+revision-6 ISA metadata: byte map, mirror contracts, layouts and decoding passed
+build/validate-banked-isa
+revision-6 banked/call contracts: 44 cases, including foreign transport and indirect history in all modes
+/tmp/lua-compat tools/validate_symmetric_interpreter.lua build/abc-runtime
+revision-6 assembly/verifier/interpreter: 24 original/mirrored contracts passed
+/tmp/lua-compat tools/validate_native_returns.lua build/abc-runtime
+residual return transport: 168 interpreter/eager/lazy/threaded checks passed
+build/abc-asdlc --check schema/residual.asdl
+build/validate-asdlc
+validated C ASDL parser, semantics, diagnostics, and C11 emission (32 checks)
+build/validate-residual-ir
+validated residual arena, IDs, whole-program invariants, and readable dumps (315 checks)
+build/validate-symbolic
+validated revision-6 symbolic dispatch: 28 selected-bank contracts, 96 float branch dispatch/fold contracts, narrow folds, existing control/context/fusion regressions
+build/validate-capture
+validated 14 capture contracts (ordering, failure/PC preservation, register/constant renaming)
+/tmp/lua-compat tools/validate_continuations.lua
+validated 660 continuation executions: A/B routing, live caller state, register/home arguments, result arities and stack exhaustion
+build/abc asm examples/callables.abcasm -o build/validate-callables.abc
+build/abc asm examples/virtual.abcasm -o build/validate-virtual.abc
+build/abc asm examples/foreign.abcasm -o build/validate-foreign.abc
+build/validate-api build/validate-callables.abc build/validate-virtual.abc build/validate-foreign.abc
+validated four-mode image copies, A/B/tail callable observations, foreign calls, and stable native linkage
+/tmp/lua-compat tools/validate.lua
+validated 143 oracle cases / 1144 mirrored four-mode executions; assembled all 286 public core/EXT forms
+/tmp/lua-compat tools/validate_cache.lua build/validate-cache.abcasm build/validate-cache.oracle
+generated 655 cache-transition cases
+build/abc asm build/validate-cache.abcasm -o build/validate-cache.abc
+build/validate-cache build/validate-cache.abc build/validate-cache.oracle
+validated 2880 exact-state handlers with poisoned dead ABI arguments
+validated 655 cache-state transitions

@@ -1,0 +1,9 @@
+BLOCKED optimized interpreted: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized threaded: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized eager: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized lazy: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized interpreted: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized threaded: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized eager: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized lazy: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+spread qualification: 706 checks, 200 VM executions, 8 optimized configurations BLOCKED

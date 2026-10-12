@@ -4,6 +4,10 @@
 [source-partial-evaluation.md](source-partial-evaluation.md). The source layer
 owns these contracts; neither `abc-opt` nor native residualization implements them.
 No new scalar evaluator, instruction IR, scheduler or physical allocator is proposed.
+Specific contracts now have executable coverage: source-only rest/template instances
+use qualified formation points, selected capture snapshots and ordinary typed component
+recipes. This is partial conformance, not completion of this whole design. See
+[rest-template evidence](../research/experiments/frontend-syntax/spread/rest-templates/README.md).
 
 ## 1. Identity and records
 
@@ -42,6 +46,13 @@ Immutable definitions can be shared. Facts about mutable place contents are
 state-indexed. A scalar snapshot already read at one point is not changed when
 another alias later writes its source place.
 
+Deferred template checking records its formation PointId before later source operations.
+Binding-resolved value captures request ordinary snapshot occurrences at that point;
+multiple instances share the selected snapshot. Compiler-owned emission anchors update
+ordered body copies, but are not runtime IR nodes. Place captures keep qualified live
+routes instead. A template cannot import replacement contents at first invocation, nor
+capture every visible binding merely because its body is not checked yet.
+
 `StaticValueHandle` references one of:
 
 - an already checked literal/static definition;
@@ -59,7 +70,7 @@ retains its actual root-owner identity. Escaping roots are placed separately fro
 activations before any address is published. Record independent borrow extents,
 possible owning dependencies, destination-owner constraints and callable world
 access in the existing state/provenance domain. Higher-order/erased callables must
-preserve environment ownership bounds; the source type `ref(T)` alone cannot
+preserve environment ownership bounds; the source type `Ref(T)` alone cannot
 identify the owner of an interior `T`.
 
 Unify branch possibilities conservatively and check strict owner-rank constraints

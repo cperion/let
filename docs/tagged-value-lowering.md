@@ -1,12 +1,18 @@
 # Packed tagged values and explicit storage
 
-Status: **approved; implementation in progress, dedicated qualification incomplete**.
-The user approved the padding and resource policies below. Initial working-copy
-lowering edits (separate from the application-chain checkpoint) use packed cells
-and pass the existing integrated suite, but this is not full validation
-of nested layouts, exact bits, resource boundaries or performance. See WORKLIST.md.
-This is a frontend
-lowering change, not a new source feature, bytecode revision or runtime optimizer.
+Status: **packed lowering and approved explicit float-bitcast extension implemented;
+focused and full incremental validation passed**. The earlier nested-extraction
+shift defect is corrected. F2BITS/BITS2F now supply exact integer/binary64 kind
+transitions, using additive revision-6 EXT selectors 0E/0F (profile 2+); earlier
+engines reject those selectors. No numeric conversion or scratch-memory fallback
+is used. The user approved this ISA extension after the original frontend-only
+qualification exposed the missing contract.
+The focused suite is integrated; broader resource/padding/loop qualification and
+the separate optimizer frame-access defect remain open. Measurements show mixed
+runtime results, including interpreted regressions; this is not a universal speedup
+or completion of F04. See WORKLIST.md and
+[qualification evidence](../research/experiments/frontend-syntax/packed-tagged/float-bitcasts/README.md).
+This is not a new source feature, bytecode revision or replacement optimizer.
 Investigation and measured probes:
 [composition investigation](../research/experiments/frontend-syntax/word-bindings/composition-investigation.md).
 
@@ -65,7 +71,7 @@ emission, not require a new placement-reconstruction pass.
 
 One set of layout-driven packing/extraction helpers serves construction, payload
 access and value/place bridges. These are static layout operations emitted using
-existing ABC instructions, not host evaluation of source values.
+ABC instructions, including the approved raw-kind bitcasts, not host evaluation of source values.
 
 - Preserve the existing little-endian layout, tag numbering and packed ABI order.
 - Match existing narrow-load zero/sign extension and store truncation exactly.
@@ -119,9 +125,15 @@ checks to simulate the old compiler's resource footprint.
 - `docs/slet-subset.md`, this document, `WORKLIST.md` and experiment evidence: actual
   support, compatibility decisions, measured results and unresolved failures.
 
-No planned changes to canonical source/IR schemas, runtime backends, bytecode encoding,
-optimizer eligibility policy or public aggregate layout. If exact-bit transport needs
-an ISA/API extension, stop and discuss it rather than introducing one implicitly.
+The approved extension updates `tools/opcodes.lua`, `gen/semantics.lua` and generated
+metadata/folding, verifier, existing unary backend bindings, optimizer emission,
+`schema/residual.asdl` and its builder/validator. Native/threaded casts retain the
+same symbolic value and placement without emitting a stencil. The optimizer must
+retain explicit bytecode kind transitions even for folded raw constants. Residual
+tooling exposes typed FloatToBits/BitsToFloat operations; portable C still rejects
+float operations rather than implying general float support.
+Canonical source/IR schemas, optimizer eligibility, public ABI/layout, continuations
+and GC/root policies are unchanged.
 
 ## Validation and measurement
 

@@ -2,6 +2,7 @@
 #include "vm_internal.h"
 #include "residualize.h"
 #include "execution_emit.h"
+#include "runtime_call.h"
 #include "generated/banked.h"
 #include <sys/mman.h>
 #include <unistd.h>
@@ -69,6 +70,7 @@ abc_foreign_address abc_foreign_lookup(const abc_vm *v,const char *name) {
 }
 abc_status abc_vm_bind_foreign(abc_vm *v,const char *name,abc_foreign_address address,abc_error *e) {
     abc_clear(e); if(!v||!name||!address) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid foreign binding");
+    if(abc_primitive_reserved(name))return abc_fail(e,ABC_INVALID,UINT32_MAX,"runtime primitive names cannot be rebound as foreign symbols");
     if(v->images) return abc_fail(e,ABC_INVALID,UINT32_MAX,"foreign bindings must be installed before loading modules");
     if(!(name[0]=='_'||(name[0]>='a'&&name[0]<='z')||(name[0]>='A'&&name[0]<='Z'))) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid foreign name");
     for(size_t i=1;name[i];i++) if(!(name[i]=='_'||(name[i]>='a'&&name[i]<='z')||(name[i]>='A'&&name[i]<='Z')||(name[i]>='0'&&name[i]<='9'))) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid foreign name");
@@ -85,6 +87,7 @@ static void image_free(abc_image *image) {
 }
 void abc_vm_free(abc_vm *v) {
     if(!v) return;
+    abc_owner_unwind(&v->owners,NULL);
     while(v->images) {
         abc_image *i=v->images; v->images=i->next;
         /* Lazy native state still reads module metadata during destruction. */
@@ -129,8 +132,9 @@ static abc_status vm_image(abc_vm *v,const abc_module *m,abc_image **out,abc_err
         if(!i->foreign||!i->foreign_bridges){image_free(i);return abc_fail(e,ABC_NOMEM,UINT32_MAX,"foreign table allocation failed");}
         for(uint32_t index=0;index<m->extern_count;index++) {
             i->foreign[index]=abc_foreign_lookup(v,m->externs[index].name);
-            i->foreign_bridges[index]=abc_foreign_select(&m->externs[index]);
-            if(!i->foreign[index]||!i->foreign_bridges[index]) {
+            int runtime=abc_primitive_index(m->externs[index].name)>=0;
+            i->foreign_bridges[index]=runtime?abc_runtime_invoke:abc_foreign_select(&m->externs[index]);
+            if((!runtime&&!i->foreign[index])||!i->foreign_bridges[index]) {
                 image_free(i);return abc_fail(e,ABC_NOT_FOUND,UINT32_MAX,"unbound or unsupported foreign symbol '%s'",m->externs[index].name);
             }
         }
@@ -197,17 +201,30 @@ static abc_status vm_execute_residual(abc_vm *v,abc_image *image,unsigned functi
     uint64_t result=emitter->ops->enter(emitter,(uintptr_t)image->execution->entries[function],v->a,v->b,v->c+nargs+1);
     abc_active_run=previous;
     abc_status status=(abc_status)(result&255); uint32_t offset=(uint32_t)(result>>16);
-    if(status==ABC_ABORT) { unsigned reason=(unsigned)((result>>8)&255); status=abc_fail(e,ABC_ABORT,offset,"language abort %u",reason); if(e)e->reason=(uint8_t)reason; }
+    if(status!=ABC_OK && e && e->status==status && e->offset==UINT32_MAX) e->offset=offset;
+    else if(status==ABC_ABORT) { unsigned reason=(unsigned)((result>>8)&255); status=abc_fail(e,ABC_ABORT,offset,"language abort %u",reason); if(e)e->reason=(uint8_t)reason; }
     else if(status==ABC_STACK) status=abc_fail(e,status,offset,"stack limit reached");
     else if(status==ABC_ARGUMENTS) status=abc_fail(e,status,offset,"indirect target signature disagrees with call site");
     else if(status==ABC_INVALID) status=abc_fail(e,status,offset,"indirect target is not a callable function entry in this module");
     else if(status!=ABC_OK) status=abc_fail(e,status,offset,"compiled execution failed");
     if(status==ABC_OK) v->na=f->results; return status;
 }
+abc_status abc_vm_read_image(const abc_vm *v,const abc_module *m,size_t offset,void *output,size_t size,abc_error *e) {
+    abc_clear(e);
+    if(!v || !m || (size && !output)) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid image copy inputs");
+    if(offset>m->image_size || size>m->image_size-offset) return abc_fail(e,ABC_ARGUMENTS,UINT32_MAX,"image copy outside module extent");
+    const abc_image *image=v->images;
+    while(image && image->module!=m) image=image->next;
+    if(!image) return abc_fail(e,ABC_NOT_FOUND,UINT32_MAX,"module has no loaded VM image");
+    if(size) memcpy(output,image->bytes+offset,size);
+    return ABC_OK;
+}
+
 abc_status abc_vm_call(abc_vm *v,const abc_module *m,const char *name,const uint64_t *args,size_t nargs,
                        uint64_t *results,size_t cap,size_t *nresults,abc_error *e) {
     abc_clear(e); if(nresults) *nresults=0;
     if(!v || !m || !name || (nargs && !args)) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid call inputs");
+    if(v->executing)return abc_fail(e,ABC_INVALID,UINT32_MAX,"VM is already executing a call");
     v->na=v->nb=v->nc=v->nf=v->ca=v->cb=v->cc=0;
     int fi=abc_find_export(m,name);
     if(fi<0) return abc_fail(e,ABC_NOT_FOUND,UINT32_MAX,"unknown export '%s'",name);
@@ -217,6 +234,7 @@ abc_status abc_vm_call(abc_vm *v,const abc_module *m,const char *name,const uint
     size_t cneed=(size_t)f->max_c+1;
     if(nargs>v->capacity || f->max_a>v->capacity || f->max_b>v->capacity || cneed>v->capacity) return abc_fail(e,ABC_STACK,f->entry,"stack limit reached");
     abc_image *image=NULL; abc_status status=ABC_OK;
+    v->executing=1;
     if(v->mode!=ABC_EXEC_INTERPRETED) {
         for(image=v->images;image&&image->module!=m;image=image->next) {}
         if(!image||!image->execution) status=abc_fail(e,ABC_INVALID,UINT32_MAX,"residual module was not loaded with abc_vm_load");
@@ -228,10 +246,15 @@ abc_status abc_vm_call(abc_vm *v,const abc_module *m,const char *name,const uint
             status=vm_execute(v,m,image,f->entry,e);
         }
     }
+    if(status==ABC_OK && v->owners.scopes)
+        status=abc_fail(e,ABC_INVALID,UINT32_MAX,"runtime call returned with initialized holding scopes");
+    /* The only unwind is generated memory holdings, not source control flow.
+     * Frame memory remains allocated and unmodified until this has finished. */
+    abc_owner_unwind(&v->owners,NULL);
     if(status==ABC_OK) {
         if(vm_depth(v,'a')!=f->results || vm_depth(v,'b')) status=abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid final result shape");
         else { for(unsigned j=0;j<f->results;j++) results[j]=v->mode!=ABC_EXEC_INTERPRETED ? v->a[j] : *vm_at(v,'a',f->results-j-1); if(nresults) *nresults=f->results; }
     }
-    v->na=v->nb=v->nc=v->nf=v->ca=v->cb=v->cc=0; return status;
+    v->executing=0;v->na=v->nb=v->nc=v->nf=v->ca=v->cb=v->cc=0; return status;
 }
 

@@ -10,6 +10,13 @@ it does not implement source-demand elaboration or virtual values by itself.
 Evidence and remaining integration failures are recorded in the
 [session report](../research/experiments/source-partial-evaluation/staging-session/lifetime-fix/README.md).
 
+**Working-tree extension:** supported pointer-free aggregate products and persistent
+module-root bytes now have focused/full-suite qualification; reference/environment
+snapshot transport remains unsupported. The access proof is still incomplete due
+to a higher-order retention hole. See [module image copying](module-image-copy.md)
+and the [current WIP evidence](../research/experiments/frontend-syntax/module-aggregate-access/README.md).
+The scalar slice's historical guarantees/results below remain distinct.
+
 ## Pre-implementation finding
 
 The public VM API already supports the required owned state:

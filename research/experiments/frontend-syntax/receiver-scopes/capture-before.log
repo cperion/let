@@ -1,0 +1,3 @@
+lexical-dot-capture: REJECT [unknown-name] at lexical-dot-capture.slet:3 Unknown value `addition`
+ordinary-capture-control: ACCEPT, result=42
+member-wins-no-capture-control: ACCEPT, result=42

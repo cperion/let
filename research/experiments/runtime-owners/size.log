@@ -1,0 +1,12 @@
+Baseline runtime source comparison (only Makefile frontend validation changed):
+Makefile | 1 +
+1 file changed, 1 insertion(+), 0 deletions(-)
+
+ELF section sizes, bytes (not native image capacity or RSS):
+   text	   data	    bss	    dec	    hex	filename
+3700453	 347216	     16	4047685	 3dc345	/tmp/let-bitcast-fastpath-before.so
+3711215	 348096	     16	4059327	 3df0bf	build/libabc.so
+
+Binary checksums:
+62e3b3c713c6000eb0fe4790358ae035e37d0d37cf3689079e2e03612cd6949d  /tmp/let-bitcast-fastpath-before.so
+4d0c8f406bae0d839b76edcd715b746200cc82bda41800dc10044aa35847df79  build/libabc.so

@@ -1,0 +1,6 @@
+type names: 44 checks, 8 VM executions
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+module alias result	42	expected	42
+physical logical roots	1	expected	1
+saved()	REJECT [borrow-store] at higher-order-retention.let:7 Local retained access cannot enter longer-lived storage
+apply(saved)	ACCEPTED (missing retention proof)

@@ -6,11 +6,11 @@ A word owns its requirements, result contract, body, captures and code identity.
 Names belong to bindings, not to a second kind of executable computation.
 
 ```let
-let inc(x: u32) = x + 1
-let inc = do(x: u32) = x + 1
+let inc(x: U32) = x + 1
+let inc = do(x: U32) = x + 1
 
-let work(x: u32): u32 = do return x + 1 end
-let work = do(x: u32): u32 return x + 1 end
+let work(x: U32): U32 = do return x + 1 end
+let work = do(x: U32): U32 return x + 1 end
 ```
 
 Each pair is equivalent, including parameter/result checking, capture treatment,
@@ -32,7 +32,7 @@ that word's body. Transparent grouping of that literal does not change the rule.
 Named-definition syntax establishes precisely the same binding.
 
 ```let
-let factorial = do(n: u32): u32 =
+let factorial = do(n: U32): U32 =
   if n == 0 then 1 else n * factorial(n - 1)
 ```
 
@@ -44,7 +44,7 @@ bindings for their keys.
 File-scope literal-word bindings and named definitions are mutually visible, use
 the same deferred result-contract demands and are equally exportable. Acyclic
 results may be inferred. A recursive use that needs an unresolved result contract
-currently requires an explicit annotation; no guessed `any` answer or general
+currently requires an explicit annotation; no guessed `Any` answer or general
 result fixpoint is introduced. General unit/SCC completion remains a separate item.
 
 Named keyed-requirement declarations use this same computation/elaborator, but a keyed
@@ -53,8 +53,12 @@ for ordered definitions; a concrete keyed-literal grammar still needs approval b
 claiming every named declaration has a literal spelling.
 
 Final rest syntax is shared by named definitions and their literal-`do` bindings.
-**Rest-pack and supply-spread elaboration is still unimplemented** and rejects explicitly. This
-change does not implement runtime variadic signatures or runtime pack objects.
+Rest-pack and supply-spread elaboration now use the same word elaborator through
+source-only specialization. An explicit `T: Type` requirement can fix a following
+`f: T` interface; known code remains direct and an unknown implementation uses that
+fixed indirect ABI. Selected captures form at definition time, not first invocation.
+Templates are source-importable/exportable but have no erased variadic ABC entry.
+This does not implement runtime variadic signatures or runtime pack objects.
 
 ### Keep the named-body boundary
 
@@ -63,11 +67,11 @@ After a named definition's `=`, bare `do ... end` is its executed block body.
 for a parenthesized lambda constructor:
 
 ```let
-let make(x: u32) = do() = x
+let make(x: U32) = do() = x
 ```
 
 A lambda's own `=` always introduces an expression, so nesting needs no workaround:
-`do(x: u32) = do(y: u32) = x + y`. Both returned examples remain subject to capture
+`do(x: U32) = do(y: U32) = x + y`. Both returned examples remain subject to capture
 lifetime/ownership support; their syntax does not authorize an escaping environment.
 
 ## Uniform application suffixes
@@ -87,15 +91,18 @@ boundary: `(f(runtime_x))(callback)` cannot complete the inner partial. See
 [application-sugar.md §1.1](application-sugar.md#11-pending-requirements-within-a-chain)
 for evaluation snapshots, other boundaries and defer. There is no arity-driven parser or
 implicit generic specialization is added. Currying through `= do(...) = do(...)`
-needs only the innermost block's `end`, if there is a block at all. It does not add
-`endall`, implicit last-expression returns, or a guarantee that captures disappear.
+needs only the innermost block's `end`, if there is a block at all. It does not imply
+last-expression returns or a guarantee that captures disappear. Separately, `endall`
+is implemented as bounded trailing-block closing sugar; see
+[operators-and-blocks.md](operators-and-blocks.md#endall-flat-continuation-spines).
 Current conservative captured-word materialization limits still apply, even with
 literal arguments. This deliberately replaces the earlier trailing-block append rule.
 
-## Vocabulary parameters — shared expansion implemented
+## Vocabulary parameters — shared live-place opening
 
-`ctx...` receives one ordinary parameter and expands its names; `...args` remains
-an ordered rest requirement. There is no arity inference or type-dependent reinterpretation.
+`ctx...` receives one ordinary parameter and expands its names. `...: T` receives
+and opens one unnamed home; `...args` remains an ordered rest requirement. There
+is no arity inference or type-dependent reinterpretation.
 
 ```let
 window("Mini") do(ui...)
@@ -103,16 +110,56 @@ window("Mini") do(ui...)
 end
 ```
 
-means `do(ui) let ui...; title "Mini" end`. Named block definitions permit the
-same marker: `let configure(ui...) = do ... end`. At most one parameter is marked;
-expression bodies and foreign declarations reject it. The parameter remains available.
+means `do(ui) let ui...; title "Mini" end`. Named definitions and expression bodies
+permit the same marker. At most one parameter is opened, at the first runtime
+requirement after leading static `Type` requirements. Foreign declarations reject
+opening. Named parameters remain available; unnamed homes introduce no identifier.
 
-Expansion must reuse ordinary binding-spread elaboration: statically supported
-record field snapshots or module-definition aliases, ordinary `spread-shadow`
-checking against every visible name, and existing capture/lifetime/ownership rules.
-No mutable aliases, detached receiver methods, dynamic namespace discovery or
-invented callable identity are permitted. Receiving names does not invoke them:
-a nullary pipeline step still needs `resolve_names()`.
+```let
+let configure(...: Ref(Window), title_text: String): Unit = do
+  set_title(title_text)
+  return
+end
+let squared(...: Point): F64 = x*x + y*y
+window("Mini") do(...) set_title "Mini" return end
+```
+
+Opening occurs at word entry for both body forms. Its type must be known from an
+annotation or checked callback signature; an anonymous home does not default to
+`Any`. Bare `...`, normally grouped as `(...)`, reads the innermost retained runtime
+home. `(configure)(..., text)` is explicit ordinary argument passing; grouping the
+callee bypasses receiver insertion. `...expression` still expands supplies.
+Parenthesize a bare home before a following expression-start token, or terminate
+its supply with a comma, semicolon or closing token. Newlines are not separators.
+
+Whole-home assignment rejects `context-use`. For a reference home, `Ref(...)` or
+`Ptr(...)` cannot expose its private retained pointer holder; pass `(...)` itself
+or borrow a field place. For a by-value record home, `Ref(...)` borrows the ordinary
+parameter place with its normal lifetime limits. Field writes, snapshots and
+captures retain ordinary permission/ownership rules. Home is an argument/place
+identity, not an address guaranteed to be physical C0. Module/sum name expansion
+creates no runtime home; bare `...` without a runtime receiver rejects `context-required`.
+
+Opening must reuse ordinary binding-spread elaboration, `spread-shadow` checking
+against every visible name, and existing capture/lifetime/ownership rules. The
+**implemented live-place revision** replaces record field snapshots
+with immutable names denoting the retained receiver's actual field places. Module
+and sum aliases continue to expose existing definitions. There is no new permission
+to mutate frozen/readonly state, detach a method, discover a dynamic namespace or
+invent a callable identity. Receiving names does not invoke them: a nullary pipeline
+step still needs `resolve_names()`.
+
+Receiver routing is implemented: an otherwise-unbound `nudge(10)` can mean
+`ui.nudge(10)`. The selected first parameter decides value copy or reference borrowing;
+ordinary arguments remain explicit. Opening a reference context keeps its actual
+referent; opening a by-value parameter concerns that copy. Local callables stay
+ordinary; opened callable fields keep their signatures and, under the new contract,
+are read from their current field places. Nested words using an opened field must
+retain that place, even for a scalar field. Explicit saved values retain normal value
+capture behavior. Binding-resolved capture machinery now preserves that distinction
+using existing place inputs, including through intervening and recursive words.
+See [spread.md](spread.md#5-introducing-names-let-context) and
+[application-sugar.md](application-sugar.md#31-receiver-scopes).
 
 **Implemented:** `ctx...`, `let context...`,
 `let context... = expression` and `use module...` share semantic expansion; prefix
@@ -121,8 +168,11 @@ and sum-constructor aliases have four-mode execution coverage. Initialized conte
 retain their ordinary explicit binding; a bare `let context...` reads an existing one.
 Type/function exports now share one public namespace: duplicate public names reject
 across sections, an approved source compatibility change. Module aliases carry definition
-identity, not runtime objects; record fields are ordinary snapshots. No implicit module-valued
-parameter transport is added. Vocabulary validation: 92 checks / 64 four-mode executions,
+identity, not runtime objects. Record opening now projects actual field places; module
+aggregate storage now has bounded pointer-free working-tree qualification, but
+higher-order retention proofs remain incomplete; see
+[module image copying](module-image-copy.md). No implicit module-valued parameter
+transport is added. Updated vocabulary validation: 92 checks / 64 four-mode executions,
 including a separate run with pre-packed lowering. Existing capture ownership and aggregate
 staging restrictions remain; illustrative resource DSLs still depend on their library and
 closure support. See WORKLIST.md and the vocabulary evidence for scope and code-size costs.
@@ -142,10 +192,10 @@ methods are not alternatives. Existing sum representation and matching semantics
 are unchanged.
 
 ```let
-let shape = oneof { circle: circle_shape, rect: rect_shape }
-let area(s: shape): u32 = s {
+let Shape = oneof { circle: CircleShape, rect: RectShape }
+let area(s: Shape): U32 = s {
   circle(c) = c.radius * c.radius,
-  rect(r): u32 = do return r.width * r.height end,
+  rect(r): U32 = do return r.width * r.height end,
 }
 ```
 
@@ -153,7 +203,7 @@ In a keyed value supply, these entries mean:
 
 ```let
 circle = do(c) = c.radius * c.radius
-rect = do(r): u32 return r.width * r.height end
+rect = do(r): U32 return r.width * r.height end
 ```
 
 They are ordinary callable values: no implicit receiver, detached schema method,
@@ -162,7 +212,7 @@ context supplies the usual expected signature. Evaluation/capture order is ordin
 supply order. The same `name(parameters): result = body` in a **schema literal** is
 still a method, with its existing receiver binding.
 
-`table { save(editor) = editor.save() }` illustrates the target table vocabulary;
+`Table { save(editor) = editor.save() }` illustrates the target table vocabulary;
 this sugar does not implement the COW table runtime. Legacy dynamic/open-word IR
 paths remain assigned to D03, not a new implementation of tables or packs. The
 current frontend still parses legacy bare open supplies; they are not the target
@@ -177,6 +227,19 @@ lexical captures, body checking, normal return/defer handling and ordinary `Ir.F
 emission. Module/local bindings supply visibility and recursive names; schema method
 bindings supply receiver state. The legacy dynamic-method binding also reuses that
 body elaborator without extending its runtime contract.
+
+Capture commitment now follows actual binding lookup. Visibility/interface queries are
+noncapturing; a selected outer runtime binding is transported through each intervening
+lexical frame, with shared holdings deduplicated. Compile-time definition aliases remain
+identities. The implicit receiver uses this same mechanism. The old syntactic
+`resolve.lua` capture pass and receiver-call candidate heuristic are removed.
+
+Visible contracts and word identities are reserved first. Bodies elaborate once; finite
+capture dependencies on enclosing recursive words settle when their bodies finish.
+Hidden parameter prefixes, call/defer arguments and view/adapter layouts then finish
+consistently. Pending transport is barred from verification and static execution.
+First-class ownership checks run against the complete capture set, not an earlier empty
+prefix. Capture-free words inside receiver scopes need no receiver environment.
 
 Sum handlers use this same elaborator, including expression bodies; handler values are
 constructed in written order before dispatch and invoked by ordinary direct/indirect calls.

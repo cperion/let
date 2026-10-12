@@ -1,6 +1,7 @@
 #ifndef ABC_VM_INTERNAL_H
 #define ABC_VM_INTERNAL_H
 #include "internal.h"
+#include "owner.h"
 #include <math.h>
 
 typedef struct { uint32_t return_pc; unsigned result_destination_stack; } abc_frame;
@@ -19,6 +20,8 @@ struct abc_vm {
     uint64_t h[4], cr[3]; unsigned ca, cb, cc;
     abc_frame *frames; abc_execution_mode mode; abc_image *images;
     abc_foreign_binding *foreign_bindings;
+    abc_owner_context owners;
+    unsigned executing;
 };
 typedef struct {
     abc_vm *v; const abc_module *m; abc_image *image; const uint8_t *code;

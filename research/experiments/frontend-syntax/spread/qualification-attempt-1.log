@@ -1,0 +1,15 @@
+luajit: REJECT [not-indexable] at spread.slet:2 Indexing needs an array, slice, or pointer
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:113: in function 'typed'
+	tests/spread.lua:11: in function 'run'
+	tests/spread.lua:59: in main chunk
+	[C]: at 0x61f64fd4e120
+BLOCKED optimized interpreted: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized threaded: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized eager: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized lazy: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized interpreted: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized threaded: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized eager: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block
+BLOCKED optimized lazy: BUG [abc-opt-invalid] ABC optimization failed at byte 0xd: frame access outside a live byte block

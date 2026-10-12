@@ -1,6 +1,7 @@
 # Schema operators and trailing blocks
 
-**Status: approved design direction; not implemented.** This extends
+**Status: operator design approved, not implemented; trailing application implemented
+within current admission, including `endall`.** This extends
 [syntax.md](syntax.md), with implementation tracked in [WORKLIST.md](../WORKLIST.md)
 under Q. Concrete schema-interface identity and comparison-result contracts remain
 explicit gates. No new runtime method table, nominal type system or dynamic dispatch
@@ -18,13 +19,13 @@ registry, primitive replacement, metatable, implicit delegation or new operator
 symbols are introduced. Precedence and associativity remain unchanged.
 
 ```let
-let vec2 = {
-  x: f64, y: f64,
-  op_add(o: vec2): vec2 = vec2 { x = x + o.x, y = y + o.y },
-  op_mul(k: f64): vec2 = vec2 { x = x * k, y = y * k },
-  op_mul_right(k: f64): vec2 = vec2 { x = k * x, y = k * y },
-  op_neg(): vec2 = vec2 { x = -x, y = -y },
-  op_eq(o: vec2): bool = x == o.x and y == o.y,
+let Vec2 = {
+  x: F64, y: F64,
+  op_add(o: Vec2): Vec2 = Vec2 { x = x + o.x, y = y + o.y },
+  op_mul(k: F64): Vec2 = Vec2 { x = x * k, y = y * k },
+  op_mul_right(k: F64): Vec2 = Vec2 { x = k * x, y = k * y },
+  op_neg(): Vec2 = Vec2 { x = -x, y = -y },
+  op_eq(o: Vec2): Bool = x == o.x and y == o.y,
 }
 ```
 
@@ -82,7 +83,7 @@ For unary `op_neg`/`op_bnot`, the analogous order is fixed primitive, operand me
 then lexical `op_name(operand)` when the interface is closed. `and`, `or` and `not`
 remain bool-only and do not acquire lexical hooks.
 
-Selection does not automatically borrow a receiver or insert `ref`. Lexical functions
+Selection does not automatically borrow a receiver or insert `Ref`. Lexical functions
 have ordinary parameter contracts, so a by-value record may be copied and transformed;
 schema methods retain their receiver borrowing rules. Evaluate each operand once in
 source order before ordinary parameter transport, preserving source errors and effects.
@@ -156,8 +157,8 @@ is a language guarantee.
 
 ## 5. Places, indexing and compound stores
 
-`op_index` returns a value, not an addressable element place. `ref(x[i])` on an
-overloaded value index rejects (`element-ref`). Native array/slice indexing keeps
+`op_index` returns a value, not an addressable element place. `Ref(x[i])` on an
+overloaded value index rejects (`element-Ref`). Native array/slice indexing keeps
 its own place contracts; the rejection does not apply indiscriminately to all indexing.
 
 `op_set_index` mutates through an actual writable receiver under ordinary method
@@ -171,7 +172,7 @@ Field compound stores similarly evaluate their target once and derive from the
 ordinary binary operation. There are no separate `op_add_assign`-style protocols.
 These are place-aware elaborations, not textual rewrites duplicating expressions.
 
-No overload is permitted for assignment itself, member selection, `ref`, `and`,
+No overload is permitted for assignment itself, member selection, `Ref`, `and`,
 `or`, `not` or the meaning of `do`.
 
 ## 6. Boolean control flow stays fixed
@@ -222,7 +223,7 @@ returns and other expression positions as well as call statements.
 A parenthesized call followed by a block passes one final lambda argument:
 
 ```let
-with_region(u32, 8) do(p)
+with_region(U32, 8) do(p)
   return compute(p)
 end
 ```
@@ -230,7 +231,7 @@ end
 means exactly:
 
 ```let
-with_region(u32, 8)(do(p)
+with_region(U32, 8)(do(p)
   return compute(p)
 end)
 ```
@@ -244,7 +245,7 @@ g.spawn do return work() end
 Each suffix is a separate syntactic application, with its own result adjustment.
 Elaboration carries pending requirements across consecutive application suffixes,
 invoking the terminal upon saturation. Thus runtime arguments in
-`with_region(u32, 8) do(p) ... end` can complete the same call without a runtime
+`with_region(U32, 8) do(p) ... end` can complete the same call without a runtime
 partial object. No earlier argument list is reopened. Argument reads, traps and
 effects occur in source order, and the block body runs only when invoked.
 
@@ -274,7 +275,7 @@ syntactically, never by indentation.
 
 Keyed braces retain their existing meaning: `point { x = 3 }` supplies keyed
 requirements, not one positional Lua-style table. Pass a table value explicitly
-with `f(table { x = 3 })`. To call a keyed application's result with a block, group
+with `f(Table { x = 3 })`. To call a keyed application's result with a block, group
 it if desired; grouping is not required and no block is added to the keyed supply. Standalone `do` in expression
 position is a block lambda, not an immediately executed block or a declaration-scope
 statement. Bare `do` after a named-definition `=` is its executed body; `do(...)`,
@@ -303,10 +304,68 @@ self-delimited argument would otherwise continue the preceding expression.
 Bare `f x` and arity-directed parsing are excluded; `f 1 2` is chained application.
 `f - 1` retains subtraction syntax, not a negative argument.
 
+### `endall`: flat continuation spines
+
+**Implemented syntax.** `endall` abbreviates a run of ordinary `end`
+tokens. It closes the current trailing-block lambda and the enclosing trailing-block
+lambdas up to the nearest other block or explicit delimiter. Only block lambdas
+introduced as trailing application suffixes participate; independently bound lambdas,
+expression-lambda bodies and lambdas inside explicit argument lists are boundaries.
+The innermost block to close must itself be a trailing-block lambda; otherwise diagnose
+`endall` at its source location rather than guessing which enclosing activity was meant.
+
+```let
+let main = do
+  with_terminal do(terminal)
+  with_file(path) do(file)
+  read_lines(file) do(line)
+    terminal.show(line)
+  endall
+  return 0
+end
+```
+
+The `endall` above expands to exactly three callback-closing `end`s. The separately
+bound `main` body remains open. The result is the same ordinary application/lambda AST
+as this spelling:
+
+```let
+let main = do
+  with_terminal do(terminal)
+    with_file(path) do(file)
+      read_lines(file) do(line)
+        terminal.show(line)
+      end
+    end
+  end
+  return 0
+end
+```
+
+Indentation does not determine the expansion. An open `if` must be closed by its own
+`end`; `endall` neither closes it nor jumps across it. A trailing callback inside an
+`if` may use `endall` to close its own callback spine, stopping before the `if`.
+Likewise, it cannot cross an open parenthesis, bracket or headed-supply brace to close
+callbacks outside that delimiter. One eligible callback is sufficient; no eligible
+callback is an error. Ordinary `end` remains available to close only the innermost block.
+
+Expansion occurs using syntactic block/delimiter context, never arity, types, indentation
+or runtime state. All resulting closers retain the `endall` source origin for diagnostics.
+There is no semantic `EndAll` operation or runtime instruction. In particular, `endall`
+does not invoke callbacks, return from words, commit activities or run a special cleanup
+path. Return, defer, effects and lifetime behavior are exactly those of the explicitly
+expanded program. No nonlocal return or activity-specific completion rule is introduced.
+
+Qualification: `frontend/tests/endall.lua` passes 57 checks / 16 executions, covering
+AST equivalence, source origins, delimiter/block boundaries, repeated parsing and
+return/defer equivalence across four engines, optimized and unoptimized. Full validation
+and pre-packed-lowering isolation pass; evidence is in
+`research/experiments/frontend-syntax/live-opening-endall/`. No timing claim is made.
+
 ### Standalone block lambdas
 
 ```let
-let work = do(x: u32)
+let work = do(x: U32)
   return x + 1
 end
 let main = do
@@ -317,10 +376,10 @@ end
 
 These bindings construct words. `let x = do return 3 end` binds a nullary word,
 not 3; call it with `x()`. Existing capture/lifetime and binding-recursion rules
-apply. A lambda's `=` introduces an expression: `do(x: u32) = do return x end`
+apply. A lambda's `=` introduces an expression: `do(x: U32) = do return x end`
 returns a block lambda without grouping. A named definition's `= do` is instead
 its executed body only when `do` has no parameter list. `= do(...)`, including
-`= do()`, returns a lambda: `let make(x: u32) = do() = x`.
+`= do()`, returns a lambda: `let make(x: U32) = do() = x`.
 
 Literal-word bindings participate in the same export checking and main discovery as named
 sugar. Existing compiler entry signatures remain supported, including i64 and unit; no new
@@ -340,14 +399,14 @@ See [word-bindings.md](word-bindings.md) for the shared elaborator and remaining
 Block lambdas are ordinary keyed handler values too:
 
 ```let
-let await_value(ch: task.chan(u32)): u32 = task.select {
+let await_value(ch: task.chan(U32)): U32 = task.select {
   ready = ch.on_receive(do(r)
     return r {
       item = do(value) = value,
       closed = do() = 0,
     }
   end),
-  timeout = task.on_after(1000, do(u: unit)
+  timeout = task.on_after(1000, do(u: Unit)
     return 0
   end),
 }
@@ -365,7 +424,7 @@ bodies with no reachable value returns infer unit. Resolved recursive SCCs also 
 unit for unconstrained members when every member has a block body with only bare
 returns/fallthrough, all intra-component calls are discarded call statements and no
 member has a non-unit explicit/expected/export contract. Ignore nested callable
-bodies when inspecting returns. This precedes absent-contract `any` defaults; it does
+bodies when inspecting returns. This precedes absent-contract `Any` defaults; it does
 not override established contracts. Valued recursive returns and expression bodies
 remain outside this shortcut. Full rules are in syntax.md §10. Value-returning paths cannot coexist with an implicit
 unit exit merely to avoid `missing-return`.
@@ -392,7 +451,7 @@ allocation is an optimization subject to the same proofs as the explicit lambda.
 
 ## 8. Dynamic integration is a separate slice
 
-Static schema dispatch is the initial implementation scope. `any` holding a record
+Static schema dispatch is the initial implementation scope. `Any` holding a record
 must not silently lose or invent operator authority. A later dynamic slice must
 specify the preserved schema interface, descriptor entries, operand checks, reverse
 dispatch and ownership-safe invocation consistently with the static rules.

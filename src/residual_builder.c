@@ -526,6 +526,8 @@ static int unary_operation(unsigned opcode,
     case ABC_OPERATION_I2FU: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_UNSIGNED_TO_FLOAT; return 1;
     case ABC_OPERATION_F2IS: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_SIGNED; return 1;
     case ABC_OPERATION_F2IU: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_UNSIGNED; return 1;
+    case ABC_OPERATION_F2BITS: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS; return 1;
+    case ABC_OPERATION_BITS2F: *operation = ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_FLOAT; return 1;
     default: return 0;
     }
 }
@@ -669,9 +671,11 @@ static int on_unary(void *opaque, uint32_t origin, unsigned opcode,
     if (!unary_operation(opcode, &operation))
         return not_supported(b, origin, "unsupported unary operation %u",
                              opcode);
-    input_id = value_id(b, input, ABC_ASDL_RESIDUAL_TYPE_CELL, origin);
+    input_id = value_id(b, input, opcode == ABC_OPERATION_F2BITS
+                        ? ABC_ASDL_RESIDUAL_TYPE_F64 : ABC_ASDL_RESIDUAL_TYPE_CELL, origin);
     if (!input_id.value) return 0;
-    if (operation == ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND8 ||
+    if (opcode == ABC_OPERATION_BITS2F) type = ABC_ASDL_RESIDUAL_TYPE_F64;
+    else if (operation == ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND8 ||
         operation == ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND16 ||
         operation == ABC_ASDL_RESIDUAL_UNARY_OP_ZERO_EXTEND32)
         type = ABC_ASDL_RESIDUAL_TYPE_U32;

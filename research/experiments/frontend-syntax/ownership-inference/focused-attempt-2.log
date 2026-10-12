@@ -1,0 +1,7 @@
+luajit: REJECT [execution-policy] at ownership.slet:2 Required source value needs an explicit staticMode
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:113: in function 'typed'
+	tests/ownership.lua:25: in function 'run'
+	tests/ownership.lua:177: in main chunk
+	[C]: at 0x5c9c87f7b120

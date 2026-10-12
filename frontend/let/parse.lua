@@ -55,8 +55,31 @@ local LEVELS = {
 local UNARY = setOf({ "-", "~", "not" })
 local ASSIGN = setOf({ "=", "+=", "-=", "*=", "/=", "%=", "^=", "&=", "|=", "~=", "<<=", ">>=", "..=" })
 
-function Parser:peek(offset) return self.tokens[self.pos + (offset or 0)] or self.tokens[#self.tokens] end
-function Parser:next() local token = self.tokens[self.pos]; self.pos = self.pos + 1; return token end
+function Parser:peek(offset)
+    local token=self.tokens[self.pos + (offset or 0)] or self.tokens[#self.tokens]
+    if (not offset or offset==0) and token.text=='endall' then
+        local count=0
+        for index=#self.closingContexts,1,-1 do
+            if self.closingContexts[index]~='trailing' then break end
+            count=count+1
+        end
+        if count==0 then return token end
+        self.tokens[self.pos]={kind='keyword',text='end',span=token.span}
+        for _=2,count do table.insert(self.tokens,self.pos,{kind='keyword',text='end',span=token.span}) end
+        token=self.tokens[self.pos]
+    end
+    return token
+end
+function Parser:next()
+    local token=self:peek()
+    self.pos=self.pos+1
+    if token.text=='(' or token.text=='[' or token.text=='{' then
+        self.closingContexts[#self.closingContexts+1]='delimiter'
+    elseif token.text==')' or token.text==']' or token.text=='}' then
+        table.remove(self.closingContexts)
+    end
+    return token
+end
 function Parser:at(text)
     local token = self:peek()
     return (token.kind == "op" or token.kind == "keyword") and token.text == text
@@ -165,7 +188,7 @@ function Parser:postfix(literalOnly)
             local field = self:expectName("a field name")
             expr = A.c.FieldSelect(expr, A.name(field), mergeSpan(expr.span, field.span))
         elseif not literalOnly and self:at('do') then
-            local block=self:lambda()
+            local block=self:lambda(true)
             expr=A.c.Apply(expr,asList{block},mergeSpan(expr.span,block.span))
         elseif not literalOnly and atomicLiteral(self:peek()) then
             local argument=self:postfix(true)
@@ -176,8 +199,16 @@ function Parser:postfix(literalOnly)
     end
 end
 
+-- Only grammar decides between a bare context and prefix supply expansion.
+-- Parenthesize the bare context when an expression-start token follows it.
+function Parser:expressionStart(offset)
+    local token=self:peek(offset)
+    return token.kind=='name' or atomicLiteral(token) or token.text=='do'
+        or token.text=='oneof' or token.text=='if' or UNARY[token.text]
+        or token.text=='(' or token.text=='[' or token.text=='{'
+end
 function Parser:supplyItem()
-    local spread=self:take('...')
+    local spread=self:at('...') and self:expressionStart(1) and self:next()
     local value=self:expression()
     return spread and A.c.Spread(value,mergeSpan(spread.span,value.span)) or value
 end
@@ -240,7 +271,10 @@ function Parser:primary()
         local schema=self:schema()
         return A.c.SumSchema(schema.members,mergeSpan(token.span,schema.span))
     end
-    if self:at('...') then D.reject('spread-context','Prefix spread requires a supply list; vocabulary introduction uses a name suffix',token.span) end
+    if self:at('...') then
+        if self:expressionStart(1) then D.reject('spread-context','Prefix spread requires a supply list; group a bare current context before a following expression',token.span) end
+        self:next();return A.c.CurrentContext(S(token.span))
+    end
     if token.kind == "number" then
         self:next()
         -- A literal that does not fit a word arrives as its two words.
@@ -322,16 +356,7 @@ function Parser:schema()
     return A.c.SchemaExpr(asList(members), mergeSpan(open.span, close.span))
 end
 
-local function vocabularyBody(params,body)
-    for _,param in ipairs(params) do
-        if param.kind=='VocabularyParam' and body.kind~='Block' then
-            D.reject('vocabulary-position','Vocabulary parameters require a block body',param.span)
-        end
-    end
-    return body
-end
-
-function Parser:lambda()
+function Parser:lambda(trailing)
     local open=self:expect('do')
     local params=asList{}
     local explicit=self:take('(')
@@ -341,8 +366,9 @@ function Parser:lambda()
     if self:take('=') then
         if not explicit then D.reject('parse','An expression lambda requires parenthesized parameters, including do()',open.span) end
         local value=self:expression()
-        return A.c.Lambda(params,result,vocabularyBody(params,A.c.Expression(value)),mergeSpan(open.span,value.span))
+        return A.c.Lambda(params,result,A.c.Expression(value),mergeSpan(open.span,value.span))
     end
+    self.closingContexts[#self.closingContexts]=trailing and 'trailing' or 'block'
     local statements=self:statementList('end')
     local close=self:expect('end')
     return A.c.Lambda(params,result,A.c.Block(asList(statements)),mergeSpan(open.span,close.span))
@@ -366,20 +392,21 @@ end
 function Parser:parameters(closing, requireAnnotation, allowRest)
     local params = {}
     local vocabulary=false
+    local function opening(marker)
+        if requireAnnotation then D.reject('vocabulary-position','Foreign declarations cannot introduce a body vocabulary',marker.span) end
+        if vocabulary then D.reject('vocabulary-position','At most one parameter may introduce vocabulary',marker.span) end
+        vocabulary=true
+    end
     local function parameterName()
         local token=self:expectName('a parameter name')
         local marker=self:take('...')
-        if marker then
-            if requireAnnotation then D.reject('vocabulary-position','Foreign declarations cannot introduce a body vocabulary',marker.span) end
-            if vocabulary then D.reject('vocabulary-position','At most one parameter may introduce vocabulary',marker.span) end
-            vocabulary=true
-        end
+        if marker then opening(marker) end
         return {token=token,marker=marker}
     end
     if self:at(closing) then return asList(params) end
     repeat
         local spread=self:take('...')
-        if spread then
+        if spread and self:peek().kind=='name' then
             if not allowRest then D.reject('rest-position','Rest is only supported in named ordered requirements',spread.span) end
             local name=self:expectName('a rest requirement name')
             params[#params+1]=A.c.RestParam(A.name(name),mergeSpan(spread.span,name.span))
@@ -387,8 +414,11 @@ function Parser:parameters(closing, requireAnnotation, allowRest)
             if not self:at(closing) then D.reject('rest-position','One unannotated rest requirement must be last',self:peek().span) end
             return asList(params)
         end
-        local names = { parameterName() }
-        while self:at(",") and self:peek(1).kind == "name" do
+        local names
+        if spread then
+            opening(spread);names={{marker=spread}}
+        else names={parameterName()} end
+        while not spread and self:at(",") and self:peek(1).kind == "name" do
             self:next()
             names[#names + 1] = parameterName()
         end
@@ -402,8 +432,9 @@ function Parser:parameters(closing, requireAnnotation, allowRest)
         for _, item in ipairs(names) do
             local name=item.token
             local constructor=item.marker and A.c.VocabularyParam or A.c.Param
-            params[#params + 1] = constructor(A.name(name), annotation,
-                mergeSpan(name.span, annotation and annotation.span or item.marker and item.marker.span or name.span))
+            local start=name and name.span or item.marker.span
+            params[#params + 1] = constructor(name and A.name(name) or nil, annotation,
+                mergeSpan(start, annotation and annotation.span or item.marker and item.marker.span or start))
         end
     until not self:more(closing)
     return asList(params)
@@ -440,7 +471,7 @@ function Parser:declaration()
         self:expect("(")
         local params = self:parameters(")", true)
         self:expect(")")
-        self:expect(":", "a result declaration such as `: u32`, because a foreign word has no body")
+        self:expect(":", "a result declaration such as `: U32`, because a foreign word has no body")
         local result = self:resultSpec()
         local def = A.c.ForeignDef(A.name(name), params, result)
         return A.c.ForeignDecl(def, mergeSpan(first.span, spanOf(result) or name.span))
@@ -501,7 +532,7 @@ function Parser:definitionBody(name, params, keyed)
         D.reject("parse", "A result is declared with ':'", self:peek().span)
     end
     self:expect("=")
-    return A.c.WordDef(name, params, keyed, result, vocabularyBody(params,self:body()))
+    return A.c.WordDef(name, params, keyed, result, self:body())
 end
 
 -- `{ name: type, ... }`: a word's keyed requirements, in the form a schema literal uses. A word
@@ -573,6 +604,8 @@ end
 function Parser:statementList(...)
     local closers = { ... }
     local function closed()
+        local token=self:peek()
+        if token.text=='endall' then D.reject('parse','endall requires a trailing block at this boundary',token.span) end
         for _, text in ipairs(closers) do if self:at(text) then return true end end
         return false
     end
@@ -742,7 +775,22 @@ function Parser:program()
     return A.c.Program(asList(declarations), export)
 end
 
-function M.program(tokens) return setmetatable({ tokens = tokens, pos = 1 }, Parser):program() end
+-- Block barriers are independent of expression recursion and indentation. Explicit
+-- delimiters are tracked by next(); only a trailing block lambda promotes its barrier.
+for _,name in ipairs{'lambda','body','definitionBody','ifStatement','ifExpression'} do
+    local parse=Parser[name]
+    Parser[name]=function(self,...)
+        self.closingContexts[#self.closingContexts+1]='block'
+        local result=parse(self,...)
+        table.remove(self.closingContexts)
+        return result
+    end
+end
+
+function M.program(tokens)
+    local input={};for index,token in ipairs(tokens) do input[index]=token end
+    return setmetatable({tokens=input,pos=1,closingContexts={}},Parser):program()
+end
 function M.source(text, name) return M.program(Lex.tokens(text, name)) end
 
 return M

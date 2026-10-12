@@ -1,0 +1,10 @@
+   text	   data	    bss	    dec	    hex	filename
+3700453	 347216	     16	4047685	 3dc345	build/libabc.so
+ 300037	  19232	      0	 319269	  4df25	build/pic/banked_0.o
+ 303949	  18432	      0	 322381	  4eb4d	build/pic/banked_1.o
+ 303341	  18432	      0	 321773	  4e8ed	build/pic/banked_2.o
+ 306477	  18432	      0	 324909	  4f52d	build/pic/banked_3.o
+ 259013	  16128	      0	 275141	  432c5	build/pic/banked_4.o
+ 262725	  16128	      0	 278853	  44145	build/pic/banked_5.o
+ 262069	  16128	      0	 278197	  43eb5	build/pic/banked_6.o
+ 264765	  16128	      0	 280893	  4493d	build/pic/banked_7.o

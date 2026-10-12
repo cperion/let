@@ -1,0 +1,7 @@
+luajit: REJECT [borrow-return] at escaping-views.let:4 Returned value retains storage of the returning frame
+stack traceback:
+	[C]: in function 'error'
+	tests/../let/compiler.lua:113: in function 'typed'
+	tests/compiler.lua:17: in function 'checkedLet'
+	tests/compiler.lua:650: in main chunk
+	[C]: at 0x6076d95d9120

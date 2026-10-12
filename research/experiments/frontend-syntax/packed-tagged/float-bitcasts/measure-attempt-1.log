@@ -1,0 +1,4 @@
+luajit: ...frontend-syntax/packed-tagged/float-bitcasts/measure.lua:18: attempt to get length of field 'bytes' (a nil value)
+stack traceback:
+	...frontend-syntax/packed-tagged/float-bitcasts/measure.lua:18: in main chunk
+	[C]: at 0x637f9dafc120

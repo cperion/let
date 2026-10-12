@@ -12,7 +12,9 @@ for _,name in ipairs(semantics.binary_order) do
 end
 emit('default:*ok=0;return 0;}}')
 emit('uint64_t abc_symbolic_fold_unary(unsigned operation,uint64_t x){switch(operation){')
-for _,name in ipairs(semantics.unary_order) do emit(('case ABC_OPERATION_%s:return %s;'):format(name,semantics.unary[name])) end
+for _,order in ipairs{semantics.unary_order,semantics.bitcast_order} do
+ for _,name in ipairs(order) do emit(('case ABC_OPERATION_%s:return %s;'):format(name,semantics.unary[name])) end
+end
 emit('default:__builtin_unreachable();}}')
 emit('uint64_t abc_symbolic_fold_float(unsigned operation,uint64_t x,uint64_t y){switch(operation){')
 for _,name in ipairs(semantics.float_binary_order) do emit(('case ABC_OPERATION_%s:return %s;'):format(name,semantics.float_binary[name])) end

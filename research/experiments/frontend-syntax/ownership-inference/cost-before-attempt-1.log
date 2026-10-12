@@ -1,0 +1,31 @@
+luajit: ./let/lex.lua:3: module 'letkit.u64' not found:
+	no field package.preload['letkit.u64']
+	no file './letkit/u64.lua'
+	no file './letkit/u64/init.lua'
+	no file '../tools/letkit/u64.lua'
+	no file '../build/letkit/u64.lua'
+	no file '/tmp/let-owner-before.Wb5y9xSL/letkit/u64.lua'
+	no file './letkit/u64.lua'
+	no file '/usr/share/luajit-2.1/letkit/u64.lua'
+	no file '/usr/local/share/lua/5.1/letkit/u64.lua'
+	no file '/usr/local/share/lua/5.1/letkit/u64/init.lua'
+	no file '/usr/share/lua/5.1/letkit/u64.lua'
+	no file '/usr/share/lua/5.1/letkit/u64/init.lua'
+	no file './letkit/u64.so'
+	no file '/usr/local/lib/lua/5.1/letkit/u64.so'
+	no file '/usr/lib/x86_64-linux-gnu/lua/5.1/letkit/u64.so'
+	no file '/usr/local/lib/lua/5.1/loadall.so'
+	no file './letkit.so'
+	no file '/usr/local/lib/lua/5.1/letkit.so'
+	no file '/usr/lib/x86_64-linux-gnu/lua/5.1/letkit.so'
+	no file '/usr/local/lib/lua/5.1/loadall.so'
+stack traceback:
+	[C]: in function 'require'
+	./let/lex.lua:3: in main chunk
+	[C]: in function 'require'
+	./let/parse.lua:4: in main chunk
+	[C]: in function 'require'
+	./let/compiler.lua:4: in main chunk
+	[C]: in function 'require'
+	...eriments/frontend-syntax/ownership-inference/measure.lua:4: in main chunk
+	[C]: at 0x5dda4c7cf120

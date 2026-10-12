@@ -59,7 +59,7 @@ local function body(f)
   code=compute.power(op,d,s,'ip[1].bits')
  elseif k=='check' then code='if('..semantics.expr(assert(semantics.checks[op]),d)..')return ip[1].bits;'
  elseif k=='foreign' then
-  code='{abc_value result=0;abc_value *arguments=(abc_value *)((uint8_t *)'..f.stack..'sp+abc_signed(ip[1].bits));if(((abc_foreign_bridge_fn)(uintptr_t)ip[2].bits)((const abc_extern *)(uintptr_t)ip[3].bits,(abc_foreign_address)(uintptr_t)ip[4].bits,arguments,&result))return ip[5].bits;'
+  code='{abc_value result=0;abc_value *arguments=(abc_value *)((uint8_t *)'..f.stack..'sp+abc_signed(ip[1].bits));abc_status status=((abc_foreign_bridge_fn)(uintptr_t)ip[2].bits)((const abc_extern *)(uintptr_t)ip[3].bits,(abc_foreign_address)(uintptr_t)ip[4].bits,arguments,&result);if(status)return (ip[5].bits&~UINT64_C(255))|(uint64_t)status;'
   if op==1 then code=code..'*arguments=result;' end
   code=code..'}'
  elseif k=='abort' then return 'return ip[1].bits;'

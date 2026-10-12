@@ -16,34 +16,34 @@ local function check(ok, message) assert(ok, message); checks = checks + 1 end
 check(Int.pack(-80, 4) == string.char(0xb0, 0xff, 0xff, 0xff),
     "negative relative offsets retain their two's-complement encoding")
 local function input(ty) return S.inValue(ty) end
-local function uint(n, ty) return I.Const(ty or S.u32, I.UInt(n)) end
+local function uint(n, ty) return I.Const(ty or S.U32, I.UInt(n)) end
 local function ref(value, ty) return I.Ref(value, ty) end
 
 local argument = I.Value(1)
-local calc = I.Fn("calc", I.Entry, 0, L{input(S.u32)}, L{S.u32},
-    L{I.ValueParam(0, argument, S.u32)},
-    L{I.Return(L{I.Bin(I.Mul, ref(argument, S.u32), uint(2), S.u32)})})
+local calc = I.Fn("calc", I.Entry, 0, L{input(S.U32)}, L{S.U32},
+    L{I.ValueParam(0, argument, S.U32)},
+    L{I.Return(L{I.Bin(I.Mul, ref(argument, S.U32), uint(2), S.U32)})})
 
-local huge = I.Fn("huge", I.Entry, 0, L{}, L{S.u64}, L{},
-    L{I.Return(L{I.Const(S.u64, I.UInt64(0xffffffff, 0xffffffff))})})
-local multiple = I.Fn("multiple", I.Entry, 0, L{}, L{S.bool, S.u32}, L{},
-    L{I.Return(L{I.Const(S.bool, I.Boolean(true)), uint(42)})})
+local huge = I.Fn("huge", I.Entry, 0, L{}, L{S.U64}, L{},
+    L{I.Return(L{I.Const(S.U64, I.UInt64(0xffffffff, 0xffffffff))})})
+local multiple = I.Fn("multiple", I.Entry, 0, L{}, L{S.Bool, S.U32}, L{},
+    L{I.Return(L{I.Const(S.Bool, I.Boolean(true)), uint(42)})})
 
-local trapStmt = I.Trap(I.Const(S.bool, I.Boolean(true)), "index-range")
+local trapStmt = I.Trap(I.Const(S.Bool, I.Boolean(true)), "index-range")
 trapStmt.span = {file = "static-test.let", line = 12}
-local failing = I.Fn("failing", I.Entry, 0, L{}, L{S.u32}, L{},
+local failing = I.Fn("failing", I.Entry, 0, L{}, L{S.U32}, L{},
     L{trapStmt, I.Return(L{uint(0)})})
 
 -- Deliberately non-tail recursion: the pending addition is the saved continuation.
 local n, recursiveResult = I.Value(1), I.Value(2)
-local recurse = I.Fn("recurse", I.Entry, 0, L{input(S.u32)}, L{S.u32},
-    L{I.ValueParam(0, n, S.u32)}, L{
-        I.If(I.Bin(I.Eq, ref(n, S.u32), uint(0), S.bool),
+local recurse = I.Fn("recurse", I.Entry, 0, L{input(S.U32)}, L{S.U32},
+    L{I.ValueParam(0, n, S.U32)}, L{
+        I.If(I.Bin(I.Eq, ref(n, S.U32), uint(0), S.Bool),
             L{I.Return(L{uint(0)})},
             L{
                 I.Call(L{recursiveResult}, "recurse",
-                    L{I.ValueArg(I.Bin(I.Sub, ref(n, S.u32), uint(1), S.u32))}),
-                I.Return(L{I.Bin(I.Add, ref(recursiveResult, S.u32), uint(1), S.u32)}),
+                    L{I.ValueArg(I.Bin(I.Sub, ref(n, S.U32), uint(1), S.U32))}),
+                I.Return(L{I.Bin(I.Add, ref(recursiveResult, S.U32), uint(1), S.U32)}),
             }),
     })
 
@@ -55,7 +55,7 @@ for _, mode in ipairs{"interpreted", "eager", "lazy", "threaded"} do
     })
     check(result.phase == "executed" and Int.format(result.cells[1], false) == "42",
         "known computation runs through the " .. mode .. " VM")
-    check(result.values[1].type == S.u32, "static result retains its semantic type")
+    check(result.values[1].type == S.U32, "static result retains its semantic type")
     modules[#modules + 1] = result.module
 end
 check(modules[1] == modules[2] and modules[2] == modules[3] and modules[3] == modules[4],
@@ -68,14 +68,14 @@ local exact = Compiler.stage({huge}, {profile = "slet", entry = "huge", mode = "
 check(Int.format(exact.cells[1], false) == "18446744073709551615",
     "static cells cross the VM boundary without Lua-number truncation")
 local pair = Compiler.stage({multiple}, {profile = "slet", entry = "multiple", mode = "lazy"})
-check(#pair.values == 2 and pair.values[1].type == S.bool and pair.values[2].type == S.u32,
+check(#pair.values == 2 and pair.values[1].type == S.Bool and pair.values[2].type == S.U32,
     "multiple VM results retain their semantic types")
 check(Int.format(pair.cells[1], false) == "1" and Int.format(pair.cells[2], false) == "42",
     "boolean and integer results are decoded as raw exact cells")
 local sx, sy = I.Value(1), I.Value(2)
-local sum = I.Fn("sum", I.Entry, 0, L{input(S.u32), input(S.u32)}, L{S.u32},
-    L{I.ValueParam(0, sx, S.u32), I.ValueParam(1, sy, S.u32)},
-    L{I.Return(L{I.Bin(I.Add, ref(sx, S.u32), ref(sy, S.u32), S.u32)})})
+local sum = I.Fn("sum", I.Entry, 0, L{input(S.U32), input(S.U32)}, L{S.U32},
+    L{I.ValueParam(0, sx, S.U32), I.ValueParam(1, sy, S.U32)},
+    L{I.Return(L{I.Bin(I.Add, ref(sx, S.U32), ref(sy, S.U32), S.U32)})})
 local specialized = Compiler.specialize({sum, multiple}, {
     profile = "slet", entry = "sum", name = "add42", known = {[2] = pair.values[2]},
 })

@@ -110,4 +110,16 @@ for _,fixture in ipairs(fixtures) do
     assert(success,message);cases=cases+1
  end
 end
+-- Kind-only casts still require a selected operand of exactly the declared kind.
+for _,body in ipairs{' F2BITS.A\n', ' PUSH.A 1\n F2BITS.A\n',
+ ' PUSH.A 1\n BITS2F.A\n BITS2F.A\n', ' GADDR.A 0\n BITS2F.A\n'} do
+ for mirror=0,1 do
+  local text='.profile memory\n.datazero 8\n.function main 0 0 - -\n'..body..' DROP.A\n RET.A 0 0\n.export main\n'
+  if mirror==1 then text=text:gsub('%.([AB])',function(bank)return bank=='A' and '.B' or '.A' end) end
+  local path=os.tmpname();util.write(path,assembler.assemble(text))
+  local valid=util.capture({runtime,'run',path,'--interpreted'});os.remove(path)
+  assert(not valid,'unproved bitcast operand kind was accepted');cases=cases+1
+ end
+end
+assert(not pcall(assembler.assemble,'.function main 0 1\n PUSH.A 0\n BITS2F.A\n RET.A 0 1\n.export main\n'),'bitcasts must require profile 2+')
 print(('revision-6 assembly/verifier/interpreter: %d original/mirrored contracts passed'):format(cases))

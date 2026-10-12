@@ -1,0 +1,30 @@
+Frontend:	/tmp/let-type-name-before.od571t6g/frontend
+arithmetic	typed
+arrays	typed
+modules_util	typed
+modules	REJECT [not-a-place] at examples/modules.slet:14 Expression is not an addressable place
+receivers	typed
+sha256	typed
+strings	REJECT [type-mismatch] at examples/strings.slet:23 Binary operands need compatible scalar types
+sums	REJECT [arity] at examples/sums.slet:42 Word parameter count does not match its signature
+dispatch	REJECT [type-required] at examples/dispatch.slet:23 Record construction needs a schema or alternative constructor
+interpreter	REJECT [result-arity] at examples/interpreter.slet:18 A sum handler must return exactly one value
+tagged	REJECT [slet-forbidden] at examples/tagged.slet:23 Materialized word captures need an owned representation
+references	TODO [abc-lowering] ABC lowering is not implemented for aggregate call ABI with managed or address-bearing sum oneof {none:unit,some:ref(target=Named(cell=s9:type:node))}
+captures	REJECT [slet-forbidden] at examples/captures.slet:2 Materialized word captures need an owned representation
+pipeline	REJECT [type-required] at examples/pipeline.slet:27 Expected a concrete runtime type
+Frontend:	/home/cperion_ext/dev/let/frontend
+arithmetic	typed
+arrays	typed
+modules_util	typed
+modules	REJECT [not-a-place] at examples/modules.slet:14 Expression is not an addressable place
+receivers	typed
+sha256	typed
+strings	REJECT [type-mismatch] at examples/strings.slet:23 Binary operands need compatible scalar types
+sums	REJECT [arity] at examples/sums.slet:42 Word parameter count does not match its signature
+dispatch	REJECT [type-required] at examples/dispatch.slet:23 Record construction needs a schema or alternative constructor
+interpreter	REJECT [result-arity] at examples/interpreter.slet:18 A sum handler must return exactly one value
+tagged	REJECT [slet-forbidden] at examples/tagged.slet:23 Materialized word captures need an owned representation
+references	TODO [abc-lowering] ABC lowering is not implemented for aggregate call ABI with managed or address-bearing sum oneof {none:Unit,some:Ref(target=Named(cell=s9:type:Node))}
+captures	REJECT [slet-forbidden] at examples/captures.slet:2 Materialized word captures need an owned representation
+pipeline	REJECT [type-required] at examples/pipeline.slet:27 Expected a concrete runtime type

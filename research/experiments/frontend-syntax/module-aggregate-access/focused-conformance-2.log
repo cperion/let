@@ -1,0 +1,14 @@
+aggregate staging: 438 checks, 422 VM executions
+access proofs: 119 checks, 80 VM executions
+receiver scopes before imports: 300 checks, 288 VM executions
+receiver scopes: 407 checks, 384 VM executions
+vocabulary: 92 checks, 64 VM executions
+PASS: Let compiler source ingestion and semantic IR (270 checks)
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+source demand checks: 52
+PASS: unoptimized staging uses only the in-process VM in all four modes
+PASS: owned staging sessions (280 checks)
+module alias result	42	expected	42
+physical logical roots	1	expected	1
+saved()	REJECT [borrow-store] at higher-order-retention.let:7 Local retained access cannot enter longer-lived storage
+apply(saved)	ACCEPTED (missing retention proof)
