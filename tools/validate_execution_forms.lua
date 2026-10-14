@@ -44,8 +44,9 @@ local function expression(f)
   elseif f.kind=='foreign' then name='FCALL';args={stack[f.stack],f.operation}
   elseif f.kind=='guard' or f.kind=='rebase' then name=f.kind:upper();args={stack[f.stack]}
   elseif f.kind=='continue' then name='CONTINUE'
+  elseif f.kind:match('^release_') and f.kind~='release_entry' then name=f.kind:upper()
   else
-    local constants={frame_zero='CALLOC',service='SERVICE',abort='ABORT',resolve_indirect='RESOLVE_INDIRECT',
+    local constants={frame_zero='CALLOC',release_entry='RELEASE_ENTRY',abort='ABORT',resolve_indirect='RESOLVE_INDIRECT',
       store_continuation='STORE_LABEL',jump='JUMP',finish='FINISH',return_ok='RETURN_OK',native_lazy_entry='LAZY_ENTRY'}
     return 'ABC_FORM_'..assert(constants[f.kind],f.kind)
   end
@@ -66,7 +67,7 @@ for i,f in ipairs(forms.forms) do
   for _,operand in ipairs(f.operands) do
     local name,kind=operand:match('^([a-z_]+):([a-z0-9]+)$')
     assert(name and not fields[name],f.name..': malformed or repeated operand')
-    assert(({u64=true,i64=true,ptr=true,fnptr=true,tape=true})[kind],operand)
+    assert(({u64=true,i64=true,ptr=true,fnptr=true,tape=true,code=true})[kind],operand)
     fields[name]=true
   end
   assert(forms.available(f,'native'))
@@ -75,7 +76,7 @@ for i,f in ipairs(forms.forms) do
   local expr=expression(f)
   if out then out:write(('_Static_assert(%s == %d, "%s");\n'):format(expr,f.id,f.name)) end
 end
-assert(#forms.forms==3771,'form coverage changed: review all bindings')
+assert(#forms.forms==3803,'form coverage changed: review all bindings')
 assert(forms.native_registers==8 and forms.threaded_registers==7)
 local examples={const_2=2,mov_2_5=1,add_2_5=1,addi_2=2,divu_2_5=2,
   load_c_2=2,store_a_2=2,bne_2_5=2,store_label=3,continue_1=1,guard_a=4}
@@ -84,6 +85,8 @@ assert(not forms.available(forms.by_name.add_2_7,'threaded'))
 assert(not forms.available(forms.by_name.const_7,'threaded'))
 assert(not forms.available(forms.by_name.continue_7,'threaded'))
 assert(not forms.available(forms.by_name.lazy_entry,'threaded'))
+assert(not forms.available(forms.by_name.release_entry,'threaded'))
+assert(not forms.available(forms.by_name.release_field_0,'threaded'))
 assert(forms.available(forms.by_name.add_2_6,'threaded'))
 if out then
   out:write(('_Static_assert(ABC_FORM_COUNT == %d, "form count");\nint main(void) { return 0; }\n'):format(#forms.forms))

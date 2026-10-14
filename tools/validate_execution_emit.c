@@ -19,8 +19,7 @@ static abc_exec_emitter *create(unsigned threaded) {
 static uint64_t *test_limit;
 static uint64_t *bounds(unsigned stack){assert(stack==0);return test_limit;}
 static uint64_t run(abc_exec_emitter *e,uintptr_t entry,uint64_t *a,uint64_t *b,uint64_t *c) {
-    abc_exec_context context={0};abc_resume_state state={.entry=entry,.stack={a,b,c}};
-    abc_exec_exit result=e->ops->enter(e,&context,&state);assert(result.disposition==ABC_EXEC_RETURNED);return result.packed_error;
+    return e->ops->enter(e,entry,a,b,c);
 }
 int main(void) {
     for(unsigned threaded=0;threaded<2;threaded++){

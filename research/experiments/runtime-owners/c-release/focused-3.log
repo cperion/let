@@ -1,0 +1,7 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owners.c build/libabc.a -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=mprotect,--wrap=abc_owner_retain -lm -lpthread -o build/validate-owners
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+C release glue: 36 checks, 32 VM executions; both-bank raw/optimized images
+build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc build/runtime-owners-reentry.abc
+binding failure mode=1 protection=0: out-of-memory at 1697 (release preparation allocation failed)
+owner validation line 141: e.offset<m->code_size&&abc_instruction_info(m->code+e.offset)->kind==K_FCALL
+make: *** [Makefile:151: validate-owner-runtime] Error 1

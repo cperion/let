@@ -33,13 +33,16 @@ The build generates a finite C-ABI bridge for every permitted integer/float regi
 Ordinary foreign calls are host effects: the host function is responsible for pointer validity, termination and side effects. The in-process staging service prohibits arbitrary foreign execution; leaving host externs unbound rejects preparation of a module that declares them. Supporting runtime foreign calls does not authorize compile-time host effects.
 
 The private `__let_rt_` namespace is reserved for catalog-generated runtime bindings,
-currently version `__let_rt_v2_` (transitional v1 is rejected; rebuild its modules). These use the same extern cells and FCALL transport,
+currently version `__let_rt_v3_` (v1/v2 reject; rebuild their modules). These use the same extern cells and FCALL transport,
 not a new ownership ISA. Module loading rejects unknown reserved names or mismatched
 signatures; host rebinding and source `extern` declarations of those names reject.
 Exact catalog operations are available during staging through the VM runtime, not
 arbitrary host symbol resolution. This initial family implements owner scopes,
-allocation, retain/drop/move, data access and a generated single-owner field update.
-See [runtime-interfaces §1.1](runtime-interfaces.md#11-implemented-initial-call-binding)
+explicit-layout allocation, retain/drop/move, construction state and release preparation.
+`release_bind` prepares private direct C-callable native glue even for interpreted
+source; this is not compilation or dynamic symbol lookup of host foreign functions.
+No ABC reclamation engine or universal allocation TypeOps remains.
+See [runtime-interfaces §1.1](runtime-interfaces.md#11-implemented-ownerholding-call-binding)
 for failure cleanup and current admission; source counted escapes remain rejected.
 
 Active API and optimizer tests exercise both banks, ordered arguments, live prefixes and single execution of effects; see `REFACTOR.md`.

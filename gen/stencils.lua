@@ -10,17 +10,18 @@ local order=assert(io.open(dir..'/stencils.order.tmp','wb'))
 local names=assert(io.open(dir..'/stencil_names.h.tmp','wb'))
 local n=0
 local function emit(s) assert(c:write(s,'\n')) end
-local function stencil(name,body,args)
+local function stencil(name,body,args,result)
   local form=assert(forms.by_name[name],'unregistered execution form '..name)
   assert(form.id==n,'native binding order disagrees with execution forms: '..name)
   order:write(name,'\n')
   names:write(('#define ABC_STENCIL_%s %d\n'):format(name:upper(),n))
   n=n+1
-  emit(('ABC_JIT_CC abc_value %s(%s) { %s }'):format(name,args or 'ABC_JIT_ARGS',body))
+  emit(('%s %s(%s) { %s }'):format(result or 'ABC_JIT_CC abc_value',name,args or 'ABC_JIT_ARGS',body))
 end
 emit('#include <stdint.h>')
 emit('#include <math.h>')
 emit('#include <stddef.h>')
+emit('#include "owner.h"')
 emit('typedef uint64_t abc_value;')
 emit('#define ABC_JIT_CC __attribute__((preserve_none))')
 emit('#define ABC_JIT_ARGS abc_value *asp, abc_value *bsp, abc_value *csp, abc_value r0, abc_value r1, abc_value r2, abc_value r3, abc_value r4, abc_value r5, abc_value r6, abc_value r7')
@@ -30,7 +31,10 @@ emit('typedef abc_value (*abc_lazy_prepare_fn)(abc_value,abc_value *);')
 emit('typedef abc_value (*abc_resolve_fn)(abc_value,abc_value,uintptr_t,uintptr_t,uintptr_t,abc_value *);')
 emit('typedef unsigned (*abc_foreign_bridge)(const void *,void (*)(void),const abc_value *,abc_value *);')
 emit('typedef void *(*abc_memory_copy_fn)(void *,const void *,size_t);')
-emit('typedef int (*abc_service_fn)(uintptr_t,abc_value *,abc_value *,abc_value *,const abc_value *,uint32_t);')
+emit('typedef void (*abc_release_field_fn)(abc_owner_context *,abc_owner *,size_t,abc_value);')
+emit('typedef void *(*abc_release_data_fn)(const abc_owner *);')
+emit('typedef uint64_t *(*abc_release_progress_fn)(const abc_owner *);')
+emit('typedef void (*abc_release_enqueue_fn)(abc_owner_context *,abc_owner *);')
 emit('typedef abc_value *(*abc_bounds_fn)(unsigned);')
 emit('#define TAIL __attribute__((musttail))')
 emit('extern ABC_JIT_CC abc_value HOLE_NEXT(ABC_JIT_ARGS);')
@@ -154,7 +158,6 @@ for _,stack in ipairs{'a','b'} do for results=0,1 do
   local publish=results==1 and stack..'sp[(int32_t)(intptr_t)HOLE_IMM]=out;' or ''
   stencil(('fcall_%s_%d'):format(stack,results),'abc_value bridge,ext,target,out=0;__asm__("movabsq $HOLE_FINAL,%0":"=r"(bridge));__asm__("movabsq $HOLE_STATE,%0":"=r"(ext));__asm__("movabsq $HOLE_BIAS,%0":"=r"(target));unsigned status=((abc_foreign_bridge)(uintptr_t)bridge)((const void *)(uintptr_t)ext,(void(*)(void))(uintptr_t)target,'..arguments..',&out);if(status)return (jit_error()&~UINT64_C(255))|status;'..publish..'NEXT')
 end end
-stencil('service','abc_value raw,pc;__asm__("movabsq $HOLE_IMM,%0":"=r"(raw));__asm__("movabsq $HOLE_STATE,%0":"=r"(pc));abc_value saved[8]={r0,r1,r2,r3,r4,r5,r6,r7};if(((abc_service_fn)(uintptr_t)raw)((uintptr_t)HOLE_NEXT,asp,bsp,csp,saved,(uint32_t)pc))return 0;NEXT')
 stencil('abort','return jit_error();')
 for index,stack in ipairs({'a','b','c'}) do stencil('guard_'..stack,('abc_value raw,*next;__asm__("movabsq $HOLE_FINAL,%%0":"=r"(raw));__asm__("leaq HOLE_IMM(%%1),%%0":"=r"(next):"r"(%ssp));if(next>((abc_bounds_fn)(uintptr_t)raw)(%d))return jit_error();NEXT'):format(stack,index-1)) end
 stencil('resolve_indirect','abc_value resolver,pc,entry;__asm__("movabsq $HOLE_FINAL,%0":"=r"(resolver));__asm__("movabsq $HOLE_STATE,%0":"=r"(pc));abc_value status=((abc_resolve_fn)(uintptr_t)resolver)(r0,pc,(uintptr_t)asp+(intptr_t)HOLE_IMM,(uintptr_t)bsp+(intptr_t)HOLE_BIAS,(uintptr_t)csp+(intptr_t)HOLE_IMM2,&entry);if(status)return status;r0=entry;NEXT')
@@ -172,6 +175,19 @@ stencil('finish','*(abc_value *)(uintptr_t)HOLE_FINAL=r0; return 0;')
 stencil('return_ok','return 0;')
 
 stencil('lazy_entry','abc_value state,prepare;__asm__("movabsq $HOLE_STATE,%0":"=r"(state));abc_value body=__atomic_load_n((abc_value*)(uintptr_t)state,__ATOMIC_ACQUIRE);if(!body){__asm__("movabsq $HOLE_FINAL,%0":"=r"(prepare));abc_value failure=0;body=((abc_lazy_prepare_fn)(uintptr_t)prepare)(state,&failure);if(failure)return failure;}TAIL return ((abc_jit_fn)(uintptr_t)body)(ABC_JIT_PASS);')
+for r=0,R-1 do
+ stencil(('release_field_%d'):format(r),('abc_value raw,offset,ordinal;__asm__("movabsq $HOLE_FINAL,%%0":"=r"(raw));__asm__("movabsq $HOLE_IMM,%%0":"=r"(offset));__asm__("movabsq $HOLE_STATE,%%0":"=r"(ordinal));((abc_release_field_fn)(uintptr_t)raw)((abc_owner_context*)(uintptr_t)r7,(abc_owner*)(uintptr_t)r%d,(size_t)offset,ordinal);NEXT'):format(r))
+end
+for _,kind in ipairs{'data','progress','enqueue'} do for r=0,R-1 do
+ local expression
+ if kind=='data' then expression=('r%d=(abc_value)(uintptr_t)((abc_release_data_fn)(uintptr_t)raw)((abc_owner*)(uintptr_t)r%d);'):format(r,r)
+ elseif kind=='progress' then expression=('r%d=*((abc_release_progress_fn)(uintptr_t)raw)((abc_owner*)(uintptr_t)r%d);'):format(r,r)
+ else expression=('((abc_release_enqueue_fn)(uintptr_t)raw)((abc_owner_context*)(uintptr_t)r7,(abc_owner*)(uintptr_t)r%d);'):format(r) end
+ stencil(('release_%s_%d'):format(kind,r),'abc_value raw;__asm__("movabsq $HOLE_FINAL,%0":"=r"(raw));'..expression..'NEXT')
+end end
+-- One normal native frame contains homes/spills chosen by the existing symbolic
+-- allocator. No VM context, ABC frame chain, TLS rebinding or cleanup stacks.
+stencil('release_entry','abc_value bytes,b,c;__asm__("movabsq $HOLE_IMM,%0":"=r"(bytes));__asm__("movabsq $HOLE_BIAS,%0":"=r"(b));__asm__("movabsq $HOLE_IMM2,%0":"=r"(c));unsigned char *frame=__builtin_alloca((size_t)bytes);(void)HOLE_TAKEN((abc_value*)frame,(abc_value*)(frame+b),(abc_value*)(frame+c),(abc_value)(uintptr_t)owner,0,0,0,0,0,0,(abc_value)(uintptr_t)context);','abc_owner_context *context,abc_owner *owner','void')
 assert(n==#forms.forms,'missing native execution form bindings')
 names:write(('#define ABC_STENCIL_COUNT %d\n'):format(n))
 assert(c:close()); assert(order:close()); assert(names:close())

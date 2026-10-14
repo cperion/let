@@ -1,0 +1,14 @@
+luajit: ./let/runtime.lua:11: unknown runtime primitive
+stack traceback:
+	[C]: in function 'assert'
+	./let/runtime.lua:11: in function 'declaration'
+	./let/runtime.lua:19: in function 'install'
+	./let/../../gen/holding.lua:15: in function 'call'
+	./let/../../gen/holding.lua:31: in function 'emit'
+	./let/../../gen/holding.lua:21: in function 'function_'
+	./let/../../gen/holding.lua:30: in function 'generate'
+	./let/lifetime.lua:35: in function 'releaseEntry'
+	tests/runtime_owners.lua:25: in function 'emit'
+	tests/runtime_owners.lua:13: in function 'build'
+	tests/runtime_owners.lua:25: in main chunk
+	[C]: at 0x5f03f7c30120

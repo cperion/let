@@ -1,0 +1,1 @@
+frontend/tests/runtime_owners.lua:227:for _,bad in ipairs{(assembly:gsub('__let_rt_v3_owner_new','__let_rt_v2_owner_new')),(assembly:gsub('%.extern __let_rt_v3_owner_new aiiiia a','%.extern __let_rt_v3_owner_new aiiiia i'))} do

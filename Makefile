@@ -13,8 +13,8 @@ RUNTIME_OBJ = build/module.o build/memory_module.o build/verify.o build/foreign.
 TOOL_OBJ = build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
 TOOL_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o
 RUNTIME_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o $(addprefix build/pic/banked_,$(addsuffix .o,$(SHARDS))) build/pic/residualize.o build/pic/native_emit.o build/pic/native_image.o build/pic/threaded_emit.o build/pic/threaded.o
-RUNTIME_OBJ += build/owner.o build/runtime_call.o build/type_ops.o build/generated/runtime_primitives.o
-RUNTIME_PIC += build/pic/owner.o build/pic/runtime_call.o build/pic/type_ops.o build/pic/runtime_primitives.o
+RUNTIME_OBJ += build/owner.o build/runtime_call.o build/release.o build/generated/runtime_primitives.o
+RUNTIME_PIC += build/pic/owner.o build/pic/runtime_call.o build/pic/release.o build/pic/runtime_primitives.o
 TOOL_OBJ += build/generated/runtime_primitives.o
 TOOL_PIC += build/pic/runtime_primitives.o
 ASDLC_SRC = tools/asdlc/main.c tools/asdlc/arena.c tools/asdlc/parser.c tools/asdlc/validate.c tools/asdlc/emit_c.c
@@ -33,11 +33,11 @@ build/generated/runtime_primitives.o: build/generated/runtime_primitives.c build
 build/pic/runtime_primitives.o: build/generated/runtime_primitives.c build/generated/runtime_primitives.h build/opcodes.h | build/pic
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -fPIC -c $< -o $@
 $(RUNTIME_OBJ) $(RUNTIME_PIC) $(TOOL_OBJ) $(TOOL_PIC): build/generated/runtime_primitives.h
-$(RUNTIME_OBJ) $(RUNTIME_PIC): src/execution_context.h src/owner.h src/type_ops.h
-build/owner.o build/pic/owner.o build/runtime_call.o build/pic/runtime_call.o: src/owner.h src/type_ops.h
+$(RUNTIME_OBJ) $(RUNTIME_PIC): src/execution_context.h src/owner.h src/release.h
+build/owner.o build/pic/owner.o build/runtime_call.o build/pic/runtime_call.o: src/owner.h src/release.h
 build/runtime_call.o build/pic/runtime_call.o build/vm.o build/pic/vm.o build/residualize.o build/pic/residualize.o: src/runtime_call.h
-build/runtime_call.o build/type_ops.o build/pic/type_ops.o: src/vm_internal.h
-build/type_ops.o build/pic/type_ops.o: src/residualize.h
+build/runtime_call.o build/release.o build/pic/release.o: src/vm_internal.h
+build/release.o build/pic/release.o: src/residualize.h src/execution_emit.h
 build/abc-asdlc: $(ASDLC_SRC) tools/asdlc/asdlc.h | build
 	$(CC) $(CFLAGS) $(WARN) -Itools $(ASDLC_SRC) -o $@
 build/generated/residual_ir.h build/generated/residual_ir.c &: schema/residual.asdl build/abc-asdlc | build/generated
@@ -73,7 +73,7 @@ build/foreign.o: build/generated/foreign.c src/vm_internal.h src/internal.h incl
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) -Wno-cast-function-type-strict -Wno-unused-parameter -c $< -o $@
 build/generated/cold.inc: gen/cold.lua gen/semantics.lua | build/generated
 	$(LUA) gen/cold.lua $@
-build/generated/stencils.o: build/generated/stencils.c build/opcodes.h
+build/generated/stencils.o: build/generated/stencils.c build/opcodes.h src/owner.h src/release.h
 	$(CC) $(CPPFLAGS) -O2 -std=c2x -w -fno-builtin -fno-pic -fno-pie -fcf-protection=none -fno-asynchronous-unwind-tables -ffunction-sections -fno-stack-protector -c $< -o $@
 build/generated/stencils.h: build/generated/stencils.o build/generated/stencils.order tools/extract_stencils.lua
 	$(LUA) tools/extract_stencils.lua build/generated/stencils.o build/generated/stencils.order $@

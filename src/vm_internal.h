@@ -12,7 +12,7 @@ typedef struct abc_image {
     abc_call_info *call_info; size_t bytes_mapping_size; uint64_t transitions;
     abc_foreign_address *foreign; abc_foreign_bridge_fn *foreign_bridges;
     struct abc_execution_image *execution;
-    abc_type_ops *type_ops;
+    abc_release_code *releases;
     struct abc_image *next;
 } abc_image;
 struct abc_vm {
@@ -26,8 +26,8 @@ abc_status vm_resolve_indirect(abc_exec_context *run, uint32_t pc, uint64_t targ
 abc_status vm_foreign(abc_exec_context *run, unsigned extern_index, unsigned selected_stack, uint32_t pc);
 abc_foreign_address abc_foreign_lookup(const abc_vm *vm,const char *name);
 abc_status abc_context_reserve(abc_exec_context *,size_t,abc_error *);
-abc_status abc_type_bind(abc_exec_context *,size_t,size_t,unsigned,uint64_t,uint64_t,const abc_type_ops **);
-abc_status abc_type_publish(abc_exec_context *);
+abc_status abc_release_bind(abc_exec_context *,uint64_t,const abc_release_code **);
+void abc_release_code_free(abc_release_code *);
 size_t vm_depth(const abc_exec_context *v,char stack);
 uint64_t *vm_at(abc_exec_context *v,char stack,size_t depth);
 void vm_push(abc_exec_context *v,char stack,uint64_t value);

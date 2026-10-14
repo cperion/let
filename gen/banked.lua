@@ -209,7 +209,6 @@ local function emit_handler(state,instruction,me,extended,suffix)
   emit('v->ca=v->cb=v->cc=0;v->na=(size_t)(asp-v->a);v->nb=(size_t)(bsp-v->b);v->nc=(size_t)(csp-v->c);')
   emit(('abc_status status=vm_foreign(r,abc_u16(operand),%d,pc);if(status!=ABC_OK)return status;'):format(me=='A' and 0 or 1))
   emit('asp=v->a+v->na;bsp=v->b+v->nb;csp=v->c+v->nc;')
-  emit('if(!v->reclaiming&&(v->pending_type||v->worker->owners.release_head)){v->operation_pc=pc;v->pc=(uint32_t)(next-r->code);v->disposition=ABC_EXEC_SERVICE;return ABC_OK;}')
   dispatch(cache.state(0,0,0))
  elseif kind=='halt' then
   flush_stack(state,'A');flush_stack(state,'B');flush_stack(state,'C')

@@ -1,0 +1,9 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owners.c build/libabc.a -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=mprotect,--wrap=abc_owner_retain -lm -lpthread -o build/validate-owners
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+luajit: line 1137: DUP_B expects 0 operands
+stack traceback:
+	[C]: in function 'error'
+	../tools/assembler.lua:153: in function 'assemble'
+	tests/runtime_owners.lua:148: in main chunk
+	[C]: at 0x5decd1af3120
+make: *** [Makefile:150: validate-owner-runtime] Error 1

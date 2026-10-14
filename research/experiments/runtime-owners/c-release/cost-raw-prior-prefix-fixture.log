@@ -1,0 +1,31 @@
+mode=0 session_load_us=70.15 owner_header_bytes=48
+mode=0 case=plain first_call_ns=11348.00 median_ns=50.05 allocations=0 retains=0 releases=0 live=0
+mode=0 case=normal first_call_ns=192044.00 median_ns=788.08 allocations=1 retains=1 releases=2 live=0
+mode=0 case=nested first_call_ns=29967.00 median_ns=794.19 allocations=1 retains=0 releases=1 live=0
+mode=0 case=held_child first_call_ns=123080.00 median_ns=1200.92 allocations=2 retains=1 releases=3 live=0
+mode=0 case=copy_pair first_call_ns=98888.00 median_ns=2741.15 allocations=3 retains=4 releases=7 live=0
+mode=0 release_entries=3 release_body_bytes=660 release_allocation_bytes=12288 release_regions=3 max_native_frame_home_bytes=40
+mode=1 session_load_us=820.73 owner_header_bytes=48
+mode=1 case=plain first_call_ns=1846.00 median_ns=39.52 allocations=0 retains=0 releases=0 live=0
+mode=1 case=normal first_call_ns=101645.00 median_ns=540.22 allocations=1 retains=1 releases=2 live=0
+mode=1 case=nested first_call_ns=4540.00 median_ns=628.20 allocations=1 retains=0 releases=1 live=0
+mode=1 case=held_child first_call_ns=90591.00 median_ns=1046.60 allocations=2 retains=1 releases=3 live=0
+mode=1 case=copy_pair first_call_ns=139362.00 median_ns=2204.50 allocations=3 retains=4 releases=7 live=0
+mode=1 release_entries=3 release_body_bytes=660 release_allocation_bytes=12288 release_regions=3 max_native_frame_home_bytes=40
+mode=1 source_body_bytes=48766 source_allocation_bytes=53248 source_regions=13
+mode=2 session_load_us=1426.11 owner_header_bytes=48
+mode=2 case=plain first_call_ns=47598.00 median_ns=42.86 allocations=0 retains=0 releases=0 live=0
+mode=2 case=normal first_call_ns=265792.00 median_ns=584.67 allocations=1 retains=1 releases=2 live=0
+mode=2 case=nested first_call_ns=341202.00 median_ns=610.30 allocations=1 retains=0 releases=1 live=0
+mode=2 case=held_child first_call_ns=248170.00 median_ns=1114.61 allocations=2 retains=1 releases=3 live=0
+mode=2 case=copy_pair first_call_ns=407678.00 median_ns=2200.49 allocations=3 retains=4 releases=7 live=0
+mode=2 release_entries=3 release_body_bytes=660 release_allocation_bytes=12288 release_regions=3 max_native_frame_home_bytes=40
+mode=2 source_body_bytes=20635 source_allocation_bytes=241664 source_regions=59
+mode=3 session_load_us=580.47 owner_header_bytes=48
+mode=3 case=plain first_call_ns=2910.00 median_ns=68.91 allocations=0 retains=0 releases=0 live=0
+mode=3 case=normal first_call_ns=116329.00 median_ns=661.69 allocations=1 retains=1 releases=2 live=0
+mode=3 case=nested first_call_ns=4768.00 median_ns=698.46 allocations=1 retains=0 releases=1 live=0
+mode=3 case=held_child first_call_ns=94635.00 median_ns=1186.78 allocations=2 retains=1 releases=3 live=0
+mode=3 case=copy_pair first_call_ns=110755.00 median_ns=2385.87 allocations=3 retains=4 releases=7 live=0
+mode=3 release_entries=3 release_body_bytes=660 release_allocation_bytes=12288 release_regions=3 max_native_frame_home_bytes=40
+mode=3 source_body_bytes=38720 source_allocation_bytes=65536 source_regions=1

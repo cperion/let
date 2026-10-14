@@ -10,7 +10,6 @@ emit('#include <math.h>')
 compute.helpers(emit,true)
 emit('typedef void *(*copy_fn)(void *,const void *,size_t);')
 emit('typedef uint64_t (*resolve_fn)(uint64_t,uint64_t,uintptr_t,uintptr_t,uintptr_t,uint64_t *);')
-emit('typedef int (*service_fn)(uintptr_t,uint64_t *,uint64_t *,uint64_t *,const uint64_t *,uint32_t);')
 emit('typedef uint64_t *(*bounds_fn)(unsigned);')
 emit('#define NEXT(N) do { ip+=(N); __attribute__((musttail)) return ip[0].handler(ABC_THREAD_PASS); } while(0)')
 emit('#define TRANSFER(P) do { ip=(P); __attribute__((musttail)) return ip[0].handler(ABC_THREAD_PASS); } while(0)')
@@ -64,7 +63,6 @@ local function body(f)
   code='{abc_value result=0;abc_value *arguments=(abc_value *)((uint8_t *)'..f.stack..'sp+abc_signed(ip[1].bits));abc_status status=((abc_foreign_bridge_fn)(uintptr_t)ip[2].bits)((const abc_extern *)(uintptr_t)ip[3].bits,(abc_foreign_address)(uintptr_t)ip[4].bits,arguments,&result);if(status)return (ip[5].bits&~UINT64_C(255))|(uint64_t)status;'
   if op==1 then code=code..'*arguments=result;' end
   code=code..'}'
- elseif k=='service' then code='{uint64_t saved[8]={r0,r1,r2,r3,r4,r5,r6,0};if(((service_fn)(uintptr_t)ip[1].bits)((uintptr_t)(ip+3),asp,bsp,csp,saved,(uint32_t)ip[2].bits))return 0;}'
  elseif k=='abort' then return 'return ip[1].bits;'
  elseif k=='guard' then code='if((uintptr_t)'..f.stack..'sp+ip[1].bits>(uintptr_t)((bounds_fn)(uintptr_t)ip[2].bits)('..({a=0,b=1,c=2})[f.stack]..'))return ip[3].bits;'
  elseif k=='resolve_indirect' then

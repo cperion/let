@@ -1,0 +1,5 @@
+active obsolete-binding audit exit=1 (expected 1/no matches)
+including rejection fixtures exit=0 (expected 0/v2 negative test only)
+active GC audit exit=1 (expected 1/no matches; vendor remains)
+diff check exit=0 (expected 0)
+obsolete archive member audit exit=1 (expected 1/no matches)

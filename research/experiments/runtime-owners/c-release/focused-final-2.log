@@ -1,0 +1,4 @@
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+C release glue: 76 checks, 72 VM executions; both-bank raw/optimized images
+build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc build/runtime-owners-reentry.abc
+C release runtime: 3984 checks; direct native glue in all source modes, iterative 100001-owner graphs, both banks/raw+optimized, no release allocations; owner header 48 bytes

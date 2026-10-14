@@ -139,7 +139,7 @@ or helper layer because an existing implementation file is inconvenient.
 | --- | --- | --- |
 | A/R | `src/residualize.c`, `symbolic.c`, emitter/image files, `tools/validate*`, `Makefile` | region fixtures; no second allocator |
 | S/F | `frontend/let/semantic.lua`, `compiler.lua`, `stage.lua`, `abc.lua`, `check.lua`, schemas, `frontend/tests/` | `source_state.lua`, `demand.lua`, feature matrix and targeted tests |
-| E/O | `src/execution_emit.h`, `vm_internal.h`, `vm.c`, `residualize.c`, shared generators, verifier, source lowering | `gen/runtime_primitives.lua`, `src/owner.h/.c`, `type_ops.h`, `frontend/let/ownership.lua` |
+| E/O | `src/execution_emit.h`, `vm_internal.h`, `vm.c`, `residualize.c`, shared generators, verifier, source lowering | `gen/runtime_primitives.lua`, `src/owner.h/.c`, `src/release.h/.c`, `frontend/let/ownership.lua` |
 | C/D/L | source schemas/lowering, module/verifier metadata, scalar bindings, standard module discovery | `src/store.h/.c`, `value_buffer.h/.c`, `value_table.h/.c`, `std/text.let`, `fmt.let`, `pattern.let` |
 | U | `frontend/let/compiler.lua`, `semantic.lua`, `tools/abc`, `Makefile`, active source fixtures/docs | `frontend/let/effects.lua`; retire profile dispatch, not archive names |
 | T/P | task entry and all execution generators, native publication, foreign generator, module lifetime | `src/task.h/.c`, `task_group.h/.c`, `channel.h/.c`, `task_select.c`, `scheduler.h/.c`, `thread_platform.h/.c`, `std/task.let` |
@@ -509,44 +509,48 @@ and immutable per-realization publication are selected—not open-ended alternat
   shared computation and emitter consumers: cell/holding layouts, effects, clobbers,
   failure and completion/suspension. Specify required encoding changes explicitly.
   **Partial runtime binding implemented:** catalog-generated C/frontend declarations
-  for scope/owner/type-binding operations; versioned `__let_rt_v2_` symbols use existing profile-4
+  for thirteen scope/owner/release-binding operations; versioned `__let_rt_v3_` symbols use existing profile-4
   FCALL.A/B, with loader signature validation and no ISA ownership kinds/opcodes.
   Runtime names cannot be rebound as host functions or declared by source `extern`.
   Staging admits exact catalog operations only; arbitrary foreign execution still
   rejects. Remaining container/task families and precise specialized boundaries open.
-**Generated-runtime cutover (E02/E03/E05/O04–O08; partial source integration):**
-image-bound ordinary checked-IR holding routines replace the fixed three-layout C
-registry/switch; v1 is removed and rejected, not reinterpreted. Non-parking SERVICE
-exits save/resume existing physical bindings after committed effects. Persistent
-execution contexts replace stack-local TLS, and a worker reserves separate cleanup
-storage before descriptor publication. Lazy native preparation writes fresh pages,
-seals RX and release-publishes atomic entries; old executable pages never reopen RW.
-Failed preparation cannot invalidate existing cleanup entries. Source placement and
-owning ABI selection are NOT implemented: counted source admission and D07 remain
-open. The current generator takes explicitly selected payload types/owning offsets;
-variants, initialized-element loops and all source layout producers remain pending.
-Integrated qualification/cost evidence is in
-`research/experiments/runtime-owners/generated-cutover/README.md`.
+**C release cutover (E02/E03/E05/O04–O08; partial source integration):**
+Universal allocation TypeOps, ownership SERVICE/snapshots, separate ABC cleanup
+contexts/stacks and per-field foreign-call destruction are removed, not wrapped.
+`src/release.h/.c` prepares direct C-callable native release glue using the existing
+shared symbolic computation/allocator, including for interpreted source. Allocations
+receive explicit size/alignment/policy and prepared release behavior. Known copies
+are compiler-selected direct calls; erased-value descriptors remain a separate target.
+C helpers own checked holding replacement, prefix rollback and iterative queue draining;
+children only enqueue. Source contexts remain persistent, with context-bound limits.
+Immutable RX publication remains; failed private release preparation is discarded,
+can be retried, and cannot invalidate older source/release code. v1/v2 reject; rebuild.
+Source placement/owning ABI selection are NOT implemented: counted admission and D07
+remain open. The generator still accepts client-selected fixed physical fields;
+checked-IR branch/initialized-element-loop fixtures qualify the callable ABI, not
+general source layout production. No no-JIT/AOT release delivery is implemented.
+Evidence: `research/experiments/runtime-owners/c-release/README.md`. The previous
+`generated-cutover/` binding/evidence is historical, not current execution machinery.
 
-- [ ] **E02** Implement `src/owner.h/.c` and `type_ops.h` per runtime-interfaces §3;
-  bind owner/TypeOps layouts and semantic holding transfers, plain versus
-  atomic implementations and iterative release operations across execution backends.
-  **Partial implementation:** `src/owner.h/.c`, `src/type_ops.h/.c`, `gen/type_ops.lua`,
-  `src/runtime_call.h/.c` implement checked local/shared/immortal counts, explicit
-  initialized prefixes, move-without-count, generated holding copy/release and an
-  intrusive queue. Descriptors resolve prepared module-function entries through their
-  image, not fixed NONE/OWNER IDs. One routine completes before the next enters;
-  children enqueue only. Worker release state and reserved cleanup storage are split
-  from root execution. General source/variant/array layout production and migratable
-  tasks/shared runtime remain pending.
+- [ ] **E02** Bind allocation release, direct known-type copy and localized erased
+  operations per runtime-interfaces §3; checked local/shared counts, holding transfers
+  and iterative release across all source execution backends.
+  **Partial implementation:** `src/owner.h/.c`, `src/release.h/.c`, `gen/holding.lua`,
+  `src/runtime_call.h/.c` provide checked local/shared/immortal counts, explicit
+  initialized state, retain-before-replace, move-without-count and a C intrusive drain.
+  Allocation carries release behavior, not a universal copy/layout bundle; no runtime
+  layout-plan interpreter. Prepared callbacks use bounded native homes, not cleanup
+  ABC stacks. Known copy functions are generated only on request and called directly.
+  General source/variant/array producers, erased-value interfaces, broader native
+  spill/resource admission and migratable tasks/shared runtime remain pending.
 - [ ] **E03** Change `vm_internal.h`, `execution_emit.h`, `vm.c`, residualizer and
   both emitter/generator bindings per runtime-interfaces §§2,5,8; bind task context,
   allocator-generated spill/resume entries, result
   transport and PARK disposition to current entry/return/error ABIs. No hidden C cells,
   extra allocator or suspended worker-host-stack dependency.
-  **Partial:** RETURNED/SERVICE, existing physical-register/stack resume, context-based
-  bounds and canonical interpreter-cache service transitions are implemented/tested.
-  No stack-local run record survives entry; PARK, tasks and scheduling are not implemented.
+  **Partial:** persistent root contexts and context-based bounds remain implemented.
+  Ownership SERVICE, physical resume snapshots and cleanup context are deleted; normal
+  entry returns packed status. PARK/resume, tasks and scheduling remain unimplemented.
 - [ ] **E04** Implement/check runtime-interfaces §§6–7 memory orders and lock hierarchy
   in task/channel/select/group/scheduler code, implementing the approved
   PARKING/PARKED/NOTIFIED handshake, channel/select registration, group cancellation,
@@ -556,11 +560,12 @@ Integrated qualification/cost evidence is in
   embedded task/worker-local addresses and account for code-allocation fragmentation.
   **Partial:** fresh page construction, RX sealing, atomic entry acquire/release,
   immutable published bytes, preparation mutex and multi-region emitter diagnostics
-  implemented. RX failure leaves old source/cleanup entries usable; retries cannot
-  publish compiled-but-unsealed holding entries. Stack bounds are context-bound;
-  session module/foreign bindings still prevent claiming fully shareable images.
-  Sample lazy fixture uses 327680 allocated bytes for 38609 body bytes (80 regions),
-  versus eager65536/61406 (16 regions): substantial fragmentation, not accepted cost.
+  implemented. Failed release realization publishes no handle, preserves old entries,
+  and retries through fresh preparation. Stack bounds are context-bound; session
+  module/foreign bindings still prevent claiming fully shareable images. Current
+  raw fixture source lazy241664/body20773 bytes (59 regions), eager53248/body50263
+  (13); three release realizations add12288/body660 bytes (3 regions), even in
+  interpreted mode. Material page fragmentation remains unaccepted, not solved.
 - [ ] **E06** Integrate concrete data structures through the linked O/C/T/P items in
   substantial slices, then W AOT. Measure fast completion versus parking, copy/count
   traffic, contention and retained memory; do not substitute a helper facade for semantics.
@@ -624,29 +629,35 @@ Authority: `docs/owners-references-ids.md`; corresponds to O1–O3 in frontend p
   no source defer/rollback or root-stack scan. Forgotten normal scope exit rejects
   rather than publishing unprotected results. Error statuses and originating FCALL
   PCs propagate through interpreter/threaded/eager/lazy bindings. Partial owning-cell
-  copy failure releases exactly the committed prefix. Cleanup executes using independent
-  reserved storage after source return; it cannot allocate, compile lazily or recurse
-  through source execution. General variant/array rollback, module-owned payloads,
+  copy failure releases exactly the committed prefix. C drains run at lifetime/error
+  boundaries; direct prepared callbacks cannot allocate, lazily compile or enter an
+  ABC engine. Source TLS is not needed. Callback native home/spill storage is separate
+  from exhausted source ABC storage. General source variant/array rollback, module-owned payloads,
   exported owner handles, tasks and foreign
   interruption/shutdown remain open; release operations currently cover admitted
   generated layouts only.
 - [ ] **O08** Validate long graphs, rejected cycles, independent borrows, captures,
   exact lifetimes and all execution bindings; measure count traffic and owner retention.
-  **Generated-runtime evidence:** `frontend/tests/runtime_owners.lua`36 checks/32 VM
-  executions; C2822 checks (including publication-failure retries). Both banks, raw/optimized, four modes; live A/B prefixes/C,
-  exact copy/count traffic, 100001-owner generated release chains, partial-copy failure,
-  stack exhaustion, allocation/RX-preparation failures, original PCs, unpublished failed
-  outputs, callback reentry and VM reuse. Wrappers find no allocations during generated
-  release execution. Shared-count core/cross-thread free tests are not task integration.
-  Full incremental validation and focused ASan/UBSan/LSan pass; instrumentation includes
-  owner/type binding/VM and execution-image/residualizer C, not all archive objects,
-  generated engines, machine code or frontend. No race proof, TSan, clean-build, wasm
-  or source-counted-lifetime qualification. Current API-inclusive medians: scalar31–37ns,
-  normal552–734ns, parent-child1087–1519ns; slower than the historical fixed-helper
-  samples, not a controlled before/after ratio or acceptable-performance claim.
-  Native page fragmentation is material (E05). ELF text3621605/data360872/bss16 bytes;
-  code size is not speed or RSS. Earlier v1 evidence is historical, not current behavior.
-  Evidence/reproduction: `research/experiments/runtime-owners/generated-cutover/README.md`.
+  **C-release evidence:** `frontend/tests/runtime_owners.lua`84 checks/80 VM
+  executions; C4304 checks. Both banks/raw+optimized/four modes; live banks/C,
+  exact copy/count traffic, committed-prefix/partial-copy cleanup, 100001-owner graphs,
+  branch/element-loop release, inaccessible zero-prefix payload, source exhaustion, allocation/RX failures,
+  original PCs, successful retry, callback reentry and VM reuse. The full C validator
+  also passes with a128KiB host stack. Native callbacks run with source TLS unset and
+  leave the VM context unchanged; shared parents/children free through prepared native
+  glue on another pthread. Wrappers find no release allocations. Cross-thread core/native
+  tests are not task integration.
+  Full incremental validation and focused ASan/UBSan/LSan pass; instrumentation covers
+  owner/release/VM and execution-image/residualizer C, not all objects, generated engines,
+  native machine code or frontend. No clean-build, TSan, race, wasm or general source
+  lifetime qualification. Uncontrolled API-inclusive medians: scalar41–60ns, normal
+  581–808ns, parent-child1038–1340ns, copied pair2258–3079ns. Repeated samples vary
+  materially; some are worse. No controlled speedup or performance acceptance.
+  First normal call113–339us includes release preparation;
+  image/per-routine fragmentation remains substantial. Native owner header48 bytes
+  versus the old24+8-byte header/prefix:16 extra bytes per allocation. ELF
+  text3616285/data362224/bss16; smaller text is not speed/RSS. Earlier v1/v2 evidence
+  remains historical. Evidence: `research/experiments/runtime-owners/c-release/README.md`.
 
 ## C — Stores, ids and immutable/COW values
 

@@ -24,8 +24,7 @@ typedef struct {
     abc_exec_storage (*storage)(const abc_exec_emitter *);
     void (*discard_preparation)(abc_exec_emitter *);
     void (*destroy)(abc_exec_emitter *);
-    abc_exec_exit (*enter)(const abc_exec_emitter *,abc_exec_context *,const abc_resume_state *);
-    abc_status (*prepare_entry)(abc_exec_emitter *,abc_exec_label,abc_error *);
+    uint64_t (*enter)(const abc_exec_emitter *,uintptr_t,uint64_t *,uint64_t *,uint64_t *);
     abc_exec_region (*region)(const abc_exec_emitter *,size_t);
 } abc_exec_emitter_ops;
 struct abc_exec_emitter {

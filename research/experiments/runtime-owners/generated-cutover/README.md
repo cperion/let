@@ -1,7 +1,11 @@
 # Generated holding operations / service and cleanup binding
 
-Qualified runtime cutover, **not source counted placement or collector-free completion**.
-Parent v1 evidence is historical. WORKLIST E01–E03/E05/O04–O08 and D07 remain open.
+**Historical v2 checkpoint, superseded by [the C release cutover](../c-release/README.md).**
+The TypeOps/SERVICE/ABC-cleanup implementation described below has been removed.
+This preserves measured v2 evidence and historical commands, not current behavior or
+currently runnable reproduction instructions. Parent v1 evidence is historical too.
+Neither checkpoint completed source counted placement or collector-free ownership;
+WORKLIST E01–E03/E05/O04–O08 and D07 remain open.
 
 ## Implemented producer-to-execution path
 

@@ -60,7 +60,6 @@ abc_status abc_context_reserve(abc_exec_context *c,size_t capacity,abc_error *er
     c->a=a;c->b=b;c->c=stack;c->frames=frames;c->capacity=capacity;return ABC_OK;
 }
 static void context_free(abc_exec_context *c){free(c->a);free(c->b);free(c->c);free(c->frames);}
-static abc_status drain_worker(abc_vm *);
 abc_status abc_vm_create(const abc_limits *limits,abc_vm **out,abc_error *e) {
     abc_clear(e); if(out) *out=NULL;
     if(!out) return abc_fail(e,ABC_INVALID,UINT32_MAX,"missing VM output");
@@ -69,7 +68,6 @@ abc_status abc_vm_create(const abc_limits *limits,abc_vm **out,abc_error *e) {
     abc_vm *v=calloc(1,sizeof *v);
     if(!v) return abc_fail(e,ABC_NOMEM,UINT32_MAX,"VM allocation failed");
     v->root.session=v;v->root.worker=&v->worker;
-    v->worker.cleanup.session=v;v->worker.cleanup.worker=&v->worker;v->worker.cleanup.reclaiming=1;
     v->mode=limits ? limits->mode : ABC_EXEC_INTERPRETED;
     if(v->mode!=ABC_EXEC_INTERPRETED && v->mode!=ABC_EXEC_COMPILED && v->mode!=ABC_EXEC_LAZY && v->mode!=ABC_EXEC_THREADED) { free(v); return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid execution mode"); }
     abc_status status=abc_context_reserve(&v->root,cap,e);
@@ -94,13 +92,13 @@ static void image_free(abc_image *image) {
     if(image->bytes_mapping_size) munmap(image->bytes,image->bytes_mapping_size);
     else free(image->bytes);
     free(image->direct_callees); free(image->call_info); free(image->indirect_site_states);
-    while(image->type_ops){abc_type_ops *next=image->type_ops->next;free(image->type_ops);image->type_ops=next;}
+    while(image->releases){abc_release_code *next=image->releases->next;abc_release_code_free(image->releases);image->releases=next;}
     free(image->foreign); free(image->foreign_bridges); free(image);
 }
 void abc_vm_free(abc_vm *v) {
     if(!v) return;
     abc_owner_unwind(&v->worker.owners,&v->root.scopes);
-    (void)drain_worker(v);
+    abc_owner_drain(&v->worker.owners);
     while(v->images) {
         abc_image *i=v->images; v->images=i->next;
         /* Lazy native state still reads module metadata during destruction. */
@@ -108,7 +106,7 @@ void abc_vm_free(abc_vm *v) {
         image_free(i); abc_module_free(module);
     }
     while(v->foreign_bindings){abc_foreign_binding *b=v->foreign_bindings;v->foreign_bindings=b->next;free(b->name);free(b);}
-    context_free(&v->root);context_free(&v->worker.cleanup);free(v);
+    context_free(&v->root);free(v);
 }
 static abc_status vm_image(abc_vm *v,const abc_module *m,abc_image **out,abc_error *e) {
     *out=NULL;
@@ -190,13 +188,10 @@ static void prepare_entry(abc_exec_context *context,abc_image *image,unsigned fu
     context->na=context->nb=context->nc=context->nf=context->ca=context->cb=context->cc=0;
     context->m=image->module;context->image=image;context->code=image->module->code;
     context->pc=image->module->functions[function].entry;context->done=0;
-    abc_clear(&context->error);context->disposition=ABC_EXEC_RETURNED;
-    context->resume=(abc_resume_state){0};
+    abc_clear(&context->error);
     context->frames[context->nf++]=(abc_frame){UINT32_MAX,ABC_STACK_A};
     context->c[context->nc++]=UINT32_MAX;
     for(size_t i=count;i;i--)context->c[context->nc++]=args[i-1];
-    if(context->session->mode!=ABC_EXEC_INTERPRETED)context->resume.entry=(uintptr_t)image->execution->entries[function];
-    context->resume.stack[0]=context->a;context->resume.stack[1]=context->b;context->resume.stack[2]=context->c+context->nc;
 }
 _Thread_local abc_exec_context *abc_active_context;
 #include "generated/cold.inc"
@@ -204,27 +199,17 @@ uint64_t *abc_execution_limit(unsigned stack) {
     abc_exec_context *c=abc_active_context;
     return (stack==0?c->a:stack==1?c->b:c->c)+c->capacity;
 }
-int abc_execution_service(uintptr_t continuation,uint64_t *a,uint64_t *b,uint64_t *c,const uint64_t registers[8],uint32_t original_pc) {
-    abc_exec_context *context=abc_active_context;
-    if(context->reclaiming||(!context->pending_type&&!context->worker->owners.release_head))return 0;
-    context->operation_pc=original_pc;
-    context->resume.entry=continuation;context->resume.stack[0]=a;context->resume.stack[1]=b;context->resume.stack[2]=c;
-    memcpy(context->resume.value_register,registers,sizeof context->resume.value_register);
-    context->disposition=ABC_EXEC_SERVICE;return 1;
-}
 /* Every invocation returns before another context is entered. TLS never points
  * to a temporary C run record and no suspended execution retains host frames. */
-static abc_exec_exit execute(abc_exec_context *v) {
-    abc_exec_context *previous=abc_active_context;abc_active_context=v;
-    v->disposition=ABC_EXEC_RETURNED;abc_exec_exit result;
+static uint64_t execute(abc_exec_context *v,unsigned function) {
+    abc_exec_context *previous=abc_active_context;abc_active_context=v;uint64_t result;
     if(v->session->mode!=ABC_EXEC_INTERPRETED) {
         abc_exec_emitter *emitter=v->image->execution->emitter;
-        result=emitter->ops->enter(emitter,v,&v->resume);
+        result=emitter->ops->enter(emitter,(uintptr_t)v->image->execution->entries[function],v->a,v->b,v->c+v->nc);
     } else {
         unsigned state=(v->ca*5+v->cb)*4+v->cc;
-        uint64_t status=abc_tables[state][v->code[v->pc]](v->code+v->pc,v->a+v->na,v->b+v->nb,v->c+v->nc,
+        result=abc_tables[state][v->code[v->pc]](v->code+v->pc,v->a+v->na,v->b+v->nb,v->c+v->nc,
             v->h[0],v->h[1],v->h[2],v->h[3],v->cr[0],v->cr[1],v->cr[2]);
-        result=(abc_exec_exit){v->disposition,status};
     }
     abc_active_context=previous;return result;
 }
@@ -236,21 +221,6 @@ static abc_status execution_status(abc_exec_context *context,uint64_t result) {
     else if(status==ABC_ABORT){unsigned reason=(unsigned)((result>>8)&255);abc_fail(e,status,pc,"language abort %u",reason);e->reason=(uint8_t)reason;}
     else abc_fail(e,status,pc,status==ABC_STACK?"stack limit reached":"compiled execution failed");
     return status;
-}
-static abc_status drain_worker(abc_vm *vm) {
-    abc_worker *worker=&vm->worker;abc_owner_context *owners=&worker->owners;
-    if(owners->draining)return ABC_INVALID;
-    owners->draining=true;abc_status status=ABC_OK;abc_owner *owner;
-    while((owner=abc_owner_dequeue(owners))) {
-        const abc_type_ops *ops=owner->ops;uint64_t argument=(uintptr_t)owner;
-        prepare_entry(&worker->cleanup,ops->image,ops->release_holdings,&argument,1);
-        worker->release_entries++;
-        abc_exec_exit result=execute(&worker->cleanup);
-        status=execution_status(&worker->cleanup,result.packed_error);
-        if(status!=ABC_OK||result.disposition!=ABC_EXEC_RETURNED){status=ABC_INVALID;break;}
-        abc_owner_destroy(owners,owner);
-    }
-    owners->draining=false;return status;
 }
 abc_status abc_vm_read_image(const abc_vm *v,const abc_module *m,size_t offset,void *output,size_t size,abc_error *e) {
     abc_clear(e);
@@ -284,23 +254,13 @@ abc_status abc_vm_call(abc_vm *v,const abc_module *m,const char *name,const uint
     }else status=vm_image(v,m,&image,e);
     if(status==ABC_OK) {
         prepare_entry(context,image,(unsigned)fi,args,nargs);
-        for(;;) {
-            abc_exec_exit result=execute(context);
-            status=execution_status(context,result.packed_error);
-            if(status!=ABC_OK||result.disposition==ABC_EXEC_RETURNED)break;
-            v->worker.service_exits++;
-            status=abc_type_publish(context);
-            if(status!=ABC_OK)break;
-            status=drain_worker(v);
-            if(status!=ABC_OK){abc_fail(&context->error,status,context->pc,"generated release contract failed");break;}
-        }
+        status=execution_status(context,execute(context,(unsigned)fi));
         if(status==ABC_OK&&context->scopes)
             status=abc_fail(&context->error,ABC_INVALID,UINT32_MAX,"runtime call returned with initialized holding scopes");
-        /* Harvest records while frame storage is valid. The source engine has
-         * returned; reclamation uses reserved worker storage, not this stack. */
+        /* Runtime records remain readable until consumed. Cleanup is C code;
+         * it does not enter an ABC engine or consume the exhausted task stack. */
         abc_owner_unwind(&v->worker.owners,&context->scopes);
-        abc_status cleanup=drain_worker(v);
-        if(status==ABC_OK&&cleanup!=ABC_OK)status=abc_fail(&context->error,cleanup,UINT32_MAX,"generated release contract failed");
+        abc_owner_drain(&v->worker.owners);
         if(status==ABC_OK) {
             if(v->mode!=ABC_EXEC_INTERPRETED){context->na=f->results;context->nb=context->ca=context->cb=0;}
             if(vm_depth(context,'a')!=f->results||vm_depth(context,'b'))status=abc_fail(&context->error,ABC_INVALID,UINT32_MAX,"invalid final result shape");

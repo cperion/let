@@ -1,7 +1,8 @@
 # Initial owner runtime / existing-call binding (historical v1 evidence)
 
 **Superseded implementation:** [generated-cutover/README.md](generated-cutover/README.md)
-records the current v2 generated-operation/service binding, validation and costs.
+preserves historical v2 evidence; [c-release/README.md](c-release/README.md) records
+the current direct-call release/C reclamation binding, validation and costs.
 The fixed descriptors, stack-local run context and v1 ABI described below were
 removed. Old commands/`measure.c` reproduce the earlier checkpoint, not the current
 tree; current sanitizer inputs and linker wrappers differ. Retain these logs as

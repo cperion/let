@@ -85,7 +85,10 @@ static abc_status emit(abc_exec_emitter *emitter,unsigned form,const abc_exec_op
         unsigned r=form-ABC_FORM_MEMCPY_BASE;ok=v[0]<=UINT32_MAX&&abc_native_emit_copy(at,r/8,r%8,(uint32_t)v[0],(abc_native_copy_fn)(uintptr_t)v[1]);
     }else if(form>=ABC_FORM_FCALL_BASE&&form<ABC_FORM_FCALL_BASE+4){
         ok=v[0]%8==0&&v[0]/8<=INT32_MAX&&abc_native_emit_foreign(at,form,(uint32_t)(v[0]/8),(abc_foreign_bridge_fn)(uintptr_t)v[1],(const abc_extern *)(uintptr_t)v[2],(abc_foreign_address)(uintptr_t)v[3],v[4]);
-    }else if(form==ABC_FORM_SERVICE){ok=v[1]<=UINT32_MAX&&abc_native_emit_service(at,(uintptr_t)v[0],(uint32_t)v[1]);
+    }else if(form>=ABC_FORM_RELEASE_FIELD_BASE&&form<ABC_FORM_RELEASE_FIELD_BASE+8){
+        ok=abc_native_emit_release_field(at,form-ABC_FORM_RELEASE_FIELD_BASE,(uintptr_t)v[0],v[1],v[2]);
+    }else if(form==ABC_FORM_RELEASE_ENTRY){
+        ok=op->target!=ABC_EXEC_NO_LABEL&&abc_native_emit_release_entry(at,v[0],v[1],v[2],&patch);
     }else if(form>=ABC_FORM_GUARD_BASE&&form<ABC_FORM_GUARD_BASE+3){
         ok=abc_native_emit_guard(at,form-ABC_FORM_GUARD_BASE,v[0],(abc_native_bounds_fn)(uintptr_t)v[1],v[2]);
     }else if(form==ABC_FORM_RESOLVE_INDIRECT){
@@ -151,12 +154,6 @@ static abc_status lazy_entry(abc_exec_emitter *emitter,abc_exec_label entry,abc_
     s->next=n->lazy;n->lazy=s;
     if(!abc_native_emit_lazy(at,s,prepare_lazy))return abc_fail(error,ABC_INVALID,pc,"invalid lazy entry form");return ABC_OK;
 }
-static abc_status prepare_entry(abc_exec_emitter *emitter,abc_exec_label entry,abc_error *error) {
-    NativeImage *n=(NativeImage *)emitter;abc_status status=ABC_INVALID;
-    pthread_mutex_lock(&n->preparation);
-    for(NativeLazy *s=n->lazy;s;s=s->next)if(s->entry==entry){status=prepare_locked(s,error);break;}
-    pthread_mutex_unlock(&n->preparation);return status;
-}
 static void discard_preparation(abc_exec_emitter *emitter) {
     NativeImage *n=(NativeImage *)emitter;free(n->labels);n->labels=NULL;n->nlabels=n->label_cap=0;
     free(n->fixups);n->fixups=NULL;n->nfix=n->fix_cap=0;
@@ -168,12 +165,10 @@ static void destroy(abc_exec_emitter *emitter) {
     discard_preparation(emitter);pthread_mutex_destroy(&n->preparation);free(n);
 }
 typedef __attribute__((preserve_none)) uint64_t (*NativeEntry)(uint64_t *,uint64_t *,uint64_t *,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t,uint64_t);
-static abc_exec_exit enter(const abc_exec_emitter *emitter,abc_exec_context *context,const abc_resume_state *state) {
-    (void)emitter;const uint64_t *r=state->value_register;context->disposition=ABC_EXEC_RETURNED;
-    uint64_t result=((NativeEntry)state->entry)(state->stack[0],state->stack[1],state->stack[2],r[0],r[1],r[2],r[3],r[4],r[5],r[6],r[7]);
-    return (abc_exec_exit){context->disposition,result};
+static uint64_t enter(const abc_exec_emitter *emitter,uintptr_t entry,uint64_t *a,uint64_t *b,uint64_t *c) {
+    (void)emitter;return ((NativeEntry)entry)(a,b,c,0,0,0,0,0,0,0,0);
 }
-static const abc_exec_emitter_ops ops={new_label,bind_label,emit,lazy_entry,publish,address,storage,discard_preparation,destroy,enter,prepare_entry,region};
+static const abc_exec_emitter_ops ops={new_label,bind_label,emit,lazy_entry,publish,address,storage,discard_preparation,destroy,enter,region};
 abc_status abc_native_emitter_create(size_t code_bytes,abc_exec_emitter **out,abc_error *error) {
     (void)code_bytes;*out=NULL;NativeImage *n=calloc(1,sizeof *n);
     if(!n)return abc_fail(error,ABC_NOMEM,UINT32_MAX,"native emitter allocation failed");

@@ -1,0 +1,5 @@
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+C release glue: 36 checks, 32 VM executions; both-bank raw/optimized images
+build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc build/runtime-owners-reentry.abc
+owner validation line 139: e.offset<m->code_size&&abc_instruction_info(m->code+e.offset)->kind==K_FCALL
+make: *** [Makefile:151: validate-owner-runtime] Error 1

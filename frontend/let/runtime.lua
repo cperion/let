@@ -6,13 +6,14 @@ local D=require('let.diag')
 local path=debug.getinfo(1,'S').source:sub(2):match('^(.*)/[^/]+$') or '.'
 local declarations=assert(loadfile(path..'/../../build/generated/runtime_primitives.lua'))()
 local M={catalog=declarations}
+local symbols={};for symbol,p in pairs(declarations) do symbols[p.name]=symbol end
 function M.reserved(name) return name:sub(1,9)=='__let_rt_' end
 function M.declaration(name)
- local p=assert(declarations['__let_rt_v2_'..name],'unknown runtime primitive')
+ local symbol=assert(symbols[name],'unknown runtime primitive');local p=declarations[symbol]
  local types={i=S.U64,a=S.Ptr(S.U64),f=S.F64};local inputs,results={},{}
  for kind in p.inputs:gmatch('.') do inputs[#inputs+1]=S.inValue(types[kind]) end
  for kind in p.results:gmatch('.') do results[#results+1]=types[kind] end
- local declaration=S.Ir.Foreign('__let_rt_v2_'..name,S.List(inputs),S.List(results))
+ local declaration=S.Ir.Foreign(symbol,S.List(inputs),S.List(results))
  return declaration
 end
 function M.install(foreigns,name)

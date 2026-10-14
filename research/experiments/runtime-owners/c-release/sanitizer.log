@@ -1,0 +1,1 @@
+C release runtime: 3872 checks; direct native glue in all source modes, iterative 100001-owner graphs, both banks/raw+optimized, no release allocations; owner header 48 bytes

@@ -1,12 +1,13 @@
 # Runtime primitives and resumable execution
 
-**Status: approved baseline; generated owner/holding calls, non-parking SERVICE and
-immutable native publication partially implemented; general source lifetimes and
-other primitive families pending.** This records
+**Status: approved allocation-release/value-operation split; C reclamation and
+prepared direct-call native release glue implemented, including interpreted source
+execution. General source lifetimes, erased-value operations and other primitive
+families remain pending.** This records
 the selected data structures and algorithms for the collector-free runtime and tasks.
 Private interface bindings, concrete fields/signatures and lock/state protocols are
 specified in [runtime-interfaces.md](runtime-interfaces.md); file-by-file changes are
-in [implementation-map.md](implementation-map.md). The current private v2 ABI and its
+in [implementation-map.md](implementation-map.md). The current private v3 ABI and its
 qualified costs are recorded in runtime-interfaces §1.1 and WORKLIST E01/E02/O04–O08;
 this is not a completed runtime/concurrency or source-ownership implementation. Changes to
 these choices require discussion, not an undocumented alternate implementation.
@@ -52,18 +53,29 @@ Logical owner header:
 
 ```text
 count
-immutable TypeOps pointer
+prepared outgoing-release entry
 intrusive release_next
+allocation/count policy and explicit construction state
 ```
 
 Allocator metadata is separate. Generate distinct confined/plain-count and
 shareable/atomic-count implementations, never a live mode transition. Their concrete
 layout/alignment and dispatch discriminator must be defined in the ABI binding.
 
-An immutable `TypeOps` specifies payload size/alignment and semantic identities for
-holding-copy and outgoing-holding release operations. Resolve identities through the
-execution image: a raw native function pointer is not a portable release ABI.
-Known types bind these operations directly; erased types use descriptors.
+Do not put a universal `TypeOps` object on every allocation. Allocation destruction,
+value copying and layout are distinct concerns. The allocation carries only its
+prepared outgoing-release behavior and necessary allocation/count/construction facts.
+Size/alignment/policy are explicit allocation inputs. Known-type copy/construction
+code is selected directly by the compiler, independently of allocation release.
+Only genuinely erased values or generic runtime transport boundaries need a narrowly
+scoped value-operation descriptor; that separate descriptor is not implemented yet.
+
+Portable release identities resolve through the image into a direct C-callable native
+entry. Native addresses are process-local bindings, never serialized. Preparation uses
+the existing shared symbolic computation/allocator, not a host C compiler or a second
+value IR. All source execution modes, including interpreted, prepare this glue before
+allocating an owner. Platforms without executable-code preparation require an AOT
+binding; there is no ABC cleanup-engine fallback.
 
 References/slices preserve the agreed layout: borrow is target-only; retained ref
 is target plus root owner; retained slice adds length. Projection changes target,
@@ -83,7 +95,12 @@ Zero-count owners enter a thread-local intrusive release list. The loop removes 
 owner, releases its outgoing holdings, then frees it. Newly zero owners are appended,
 not recursively destroyed. It allocates nothing and invokes no source callbacks.
 Cross-worker freeing uses the allocator integration in §8, not a source destructor.
-Generated TypeOps routines must return to this loop without recursive host release.
+Prepared release routines return to this C loop without recursive host release.
+They use a normal native spill frame, not persistent ABC cleanup stacks or a second
+VM context. Reclamation does not require SERVICE/PARK exits or register snapshots.
+The current compiler-private generator supplies fixed owning offsets; direct-call
+branch/initialized-element-loop execution is qualified with checked-IR fixtures,
+not yet generalized source layout production.
 
 ## 3. Concrete containers
 
@@ -193,7 +210,7 @@ they are not permission to replace it with an unsynchronized ready flag.
 ## 5. Channels: locked ring and intrusive FIFO waits
 
 ```text
-group | element TypeOps/layout | mutex | closed
+group | payload layout/erased transport operations | mutex | closed
 capacity | head | length | ring storage
 FIFO sender registrations | FIFO receiver registrations
 ```
@@ -313,7 +330,7 @@ The structures/algorithms above are selected. Remaining work is concrete integra
 not repeated reconsideration of locked versus lock-free or eager versus deferred state:
 
 1. Trace producers/contracts/consumers and define the shared primitive-contract schema.
-2. Bind owner/TypeOps representation and holdings to source lowering, verifier and
+2. Bind allocation release, known copy and erased-value operations to source lowering, verifier and
    all execution bindings, including failure paths.
 3. Bind task execution context, suspension spill/result layout and scheduler-return
    status without collision with current error/return encoding.
