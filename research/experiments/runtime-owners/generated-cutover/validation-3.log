@@ -1,0 +1,38 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/type_ops.c -o build/type_ops.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/type_ops.c -o build/pic/type_ops.o
+rm -f build/libabc-tool.a
+ar rcs build/libabc-tool.a build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o build/generated/runtime_primitives.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_residual_ir.c build/libabc-tool.a -lm -o build/validate-residual-ir
+/tmp/clang20 -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Iinclude -Isrc -Ibuild tools/validate_call_graph.c build/libabc-tool.a -lm -o build/validate-call-graph
+rm -f build/libabc.a
+ar rcs build/libabc.a build/module.o build/memory_module.o build/verify.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/banked_0.o build/banked_1.o build/banked_2.o build/banked_3.o build/banked_4.o build/banked_5.o build/banked_6.o build/banked_7.o build/residualize.o build/native_emit.o build/native_image.o build/threaded_emit.o build/generated/threaded.o build/owner.o build/runtime_call.o build/type_ops.o build/generated/runtime_primitives.o
+/tmp/clang20 -shared -O2 -g -pthread -Wl,-z,defs build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/banked_0.o build/pic/banked_1.o build/pic/banked_2.o build/pic/banked_3.o build/pic/banked_4.o build/pic/banked_5.o build/pic/banked_6.o build/pic/banked_7.o build/pic/residualize.o build/pic/native_emit.o build/pic/native_image.o build/pic/threaded_emit.o build/pic/threaded.o build/pic/owner.o build/pic/runtime_call.o build/pic/type_ops.o build/pic/runtime_primitives.o -lm -o build/libabc.so
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owners.c build/libabc.a -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=mprotect,--wrap=abc_owner_retain -lm -lpthread -o build/validate-owners
+/tmp/clang20 -O2 -g -pthread build/cli.o build/libabc.a -o build/abc-runtime
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_lifetime.c build/libabc.a -lm -o build/validate-lifetime
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict tools/validate_optimizer_foreign.c build/libabc.a -lm -lpthread -o build/validate-optimizer-foreign
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict tools/validate_api.c build/libabc.a -o build/validate-api
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_cache.c build/libabc.a -o build/validate-cache
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_symbolic.c build/libabc.a -o build/validate-symbolic
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_capture.c build/libabc.a -o build/validate-capture
+/tmp/clang20 -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Iinclude -Isrc -Ibuild tools/validate_banked_isa.c build/libabc.a -lm -lpthread -o build/validate-banked-isa
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_backedges.c build/libabc.a -lm -o build/validate-backedges
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_execution_emit.c build/libabc.a -lm -o build/validate-execution-emit
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_capacity_frontiers.c build/libabc.a -lm -o build/validate-capacity-frontiers
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+luajit: BUG [ir-literal] A one-word constant is out of range
+stack traceback:
+	[C]: in function 'error'
+	./let/diag.lua:21: in function 'bug'
+	./let/check.lua:407: in function 'arg'
+	./let/check.lua:211: in function 'checkList'
+	./let/check.lua:386: in function 'function_'
+	./let/check.lua:704: in function 'program'
+	./let/abc.lua:880: in function 'lower'
+	tests/runtime_owners.lua:100: in main chunk
+	[C]: at 0x60b87233e120
+make: *** [Makefile:148: validate-owner-runtime] Error 1
+make: *** Waiting for unfinished jobs....
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)

@@ -1,0 +1,24 @@
+mode=0 case=plain median_ns=31.10 allocations=0 retains=0 releases=0 services=0 live=0
+mode=0 case=normal median_ns=688.32 allocations=1 retains=1 releases=2 services=1 live=0
+mode=0 case=nested median_ns=744.80 allocations=1 retains=0 releases=1 services=1 live=0
+mode=0 case=held_child median_ns=1508.93 allocations=2 retains=1 releases=3 services=1 live=0
+mode=0 case=copy_pair median_ns=3173.30 allocations=3 retains=4 releases=7 services=1 live=0
+mode=0 cleanup_cells_per_bank=6
+mode=1 case=plain median_ns=30.97 allocations=0 retains=0 releases=0 services=0 live=0
+mode=1 case=normal median_ns=551.72 allocations=1 retains=1 releases=2 services=1 live=0
+mode=1 case=nested median_ns=556.77 allocations=1 retains=0 releases=1 services=1 live=0
+mode=1 case=held_child median_ns=1131.21 allocations=2 retains=1 releases=3 services=1 live=0
+mode=1 case=copy_pair median_ns=2167.24 allocations=3 retains=4 releases=7 services=1 live=0
+mode=1 image_body_bytes=61406 allocation_bytes=65536 regions=16 cleanup_cells_per_bank=6
+mode=2 case=plain median_ns=33.68 allocations=0 retains=0 releases=0 services=0 live=0
+mode=2 case=normal median_ns=559.04 allocations=1 retains=1 releases=2 services=1 live=0
+mode=2 case=nested median_ns=638.95 allocations=1 retains=0 releases=1 services=1 live=0
+mode=2 case=held_child median_ns=1087.21 allocations=2 retains=1 releases=3 services=1 live=0
+mode=2 case=copy_pair median_ns=2371.45 allocations=3 retains=4 releases=7 services=1 live=0
+mode=2 image_body_bytes=38609 allocation_bytes=327680 regions=80 cleanup_cells_per_bank=6
+mode=3 case=plain median_ns=31.51 allocations=0 retains=0 releases=0 services=0 live=0
+mode=3 case=normal median_ns=589.28 allocations=1 retains=1 releases=2 services=1 live=0
+mode=3 case=nested median_ns=758.11 allocations=1 retains=0 releases=1 services=1 live=0
+mode=3 case=held_child median_ns=1328.19 allocations=2 retains=1 releases=3 services=1 live=0
+mode=3 case=copy_pair median_ns=3058.41 allocations=3 retains=4 releases=7 services=1 live=0
+mode=3 image_body_bytes=35120 allocation_bytes=65536 regions=1 cleanup_cells_per_bank=6

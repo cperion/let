@@ -21,7 +21,6 @@ typedef struct abc_owner_scope {
     abc_owner *held[];
 } abc_owner_scope;
 typedef struct abc_owner_context {
-    abc_owner_scope *scopes;
     abc_owner *release_head, *release_tail;
     bool draining;
     size_t allocations, frees, retains, releases;
@@ -30,17 +29,12 @@ typedef struct abc_owner_context {
 abc_status abc_owner_new(abc_owner_context *,const abc_type_ops *,size_t,abc_owner **,abc_error *);
 abc_status abc_owner_retain(abc_owner_context *,abc_owner *,abc_error *);
 void abc_owner_release(abc_owner_context *,abc_owner *);
-void abc_owner_drain(abc_owner_context *);
+abc_owner *abc_owner_dequeue(abc_owner_context *);
+void abc_owner_destroy(abc_owner_context *,abc_owner *);
 void *abc_owner_payload(const abc_owner *);
-abc_status abc_owner_set(abc_owner_context *,abc_owner *,abc_owner *,abc_error *);
-abc_status abc_owner_scope_enter(abc_owner_context *,void *,size_t,abc_error *);
-abc_status abc_owner_scope_leave(abc_owner_context *,abc_owner_scope *,abc_error *);
-void abc_owner_unwind(abc_owner_context *,abc_owner_scope *);
-abc_owner **abc_owner_slot(abc_owner_context *,abc_owner_scope *,size_t);
-
-/* Generated bindings. Release may decrement/enqueue but never recurse/drain,
- * allocate, execute ABC, or call user code. Initialization establishes exactly
- * the fields the release operation will inspect. */
-void abc_type_initialize(const abc_type_ops *,void *);
-void abc_type_release(abc_owner_context *,abc_owner *);
+uint64_t *abc_owner_initialized(const abc_owner *);
+abc_status abc_owner_scope_enter(abc_owner_scope **,void *,size_t,abc_error *);
+abc_status abc_owner_scope_leave(abc_owner_context *,abc_owner_scope **,abc_owner_scope *,abc_error *);
+void abc_owner_unwind(abc_owner_context *,abc_owner_scope **);
+abc_owner **abc_owner_slot(abc_owner_scope *,abc_owner_scope *,size_t);
 #endif

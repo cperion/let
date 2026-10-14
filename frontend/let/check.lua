@@ -513,8 +513,8 @@ function M.expr(expr, locals, storages)
         if operand==S.Any or expr.type==S.Any then
             if operand==S.Any and expr.type==S.Any then D.bug("ir-type","Redundant any conversion") end
             if operand==S.Type or expr.type==S.Type then D.bug("ir-type","type cannot cross an any boundary") end
-        elseif not ((operand:isInteger() and expr.type:isInteger()) or (operand:isF64() ~= expr.type:isF64())) then
-            D.bug("ir-type", "Convert needs numeric widths or one any boundary")
+        elseif not ((operand:isPtr() and expr.type:isPtr()) or (operand:isInteger() and expr.type:isInteger()) or (operand:isF64() ~= expr.type:isF64())) then
+            D.bug("ir-type", "Convert needs numeric widths, raw pointer types or one any boundary")
         end
         return expr.type
     elseif kind == "Is" then
@@ -570,6 +570,9 @@ function M.expr(expr, locals, storages)
         else
             D.bug("ir-op", "Unknown binary operation " .. tostring(op))
         end
+        return expr.type
+    elseif kind == "Code" then
+        if not expr.type:isPtr() then D.bug('ir-type','Code identity requires a pointer cell') end
         return expr.type
     elseif kind == "Null" then
         -- The null pointer of a ptr type, and of nothing else: there is no null reference.

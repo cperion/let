@@ -1,0 +1,14 @@
+luajit: BUG [ir-op] Unknown binary operation: Ir.Ge
+stack traceback:
+	[C]: in function 'error'
+	./let/diag.lua:21: in function 'bug'
+	./let/ir.lua:171: in function 'bin'
+	./let/../../gen/type_ops.lua:49: in function 'emit'
+	./let/../../gen/type_ops.lua:23: in function 'function_'
+	./let/../../gen/type_ops.lua:42: in function 'generate'
+	./let/lifetime.lua:37: in function 'typeOps'
+	./let/lifetime.lua:45: in function 'allocate'
+	tests/runtime_owners.lua:59: in function 'emit'
+	tests/runtime_owners.lua:13: in function 'build'
+	tests/runtime_owners.lua:58: in main chunk
+	[C]: at 0x61e73f92d120

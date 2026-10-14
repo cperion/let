@@ -26,10 +26,12 @@ emit('#define ABC_JIT_CC __attribute__((preserve_none))')
 emit('#define ABC_JIT_ARGS abc_value *asp, abc_value *bsp, abc_value *csp, abc_value r0, abc_value r1, abc_value r2, abc_value r3, abc_value r4, abc_value r5, abc_value r6, abc_value r7')
 emit('#define ABC_JIT_PASS asp,bsp,csp,r0,r1,r2,r3,r4,r5,r6,r7')
 emit('typedef ABC_JIT_CC abc_value (*abc_jit_fn)(ABC_JIT_ARGS);')
-emit('typedef abc_value (*abc_lazy_prepare_fn)(abc_value);')
+emit('typedef abc_value (*abc_lazy_prepare_fn)(abc_value,abc_value *);')
 emit('typedef abc_value (*abc_resolve_fn)(abc_value,abc_value,uintptr_t,uintptr_t,uintptr_t,abc_value *);')
 emit('typedef unsigned (*abc_foreign_bridge)(const void *,void (*)(void),const abc_value *,abc_value *);')
 emit('typedef void *(*abc_memory_copy_fn)(void *,const void *,size_t);')
+emit('typedef int (*abc_service_fn)(uintptr_t,abc_value *,abc_value *,abc_value *,const abc_value *,uint32_t);')
+emit('typedef abc_value *(*abc_bounds_fn)(unsigned);')
 emit('#define TAIL __attribute__((musttail))')
 emit('extern ABC_JIT_CC abc_value HOLE_NEXT(ABC_JIT_ARGS);')
 emit('extern ABC_JIT_CC abc_value HOLE_TAKEN(ABC_JIT_ARGS);')
@@ -152,8 +154,9 @@ for _,stack in ipairs{'a','b'} do for results=0,1 do
   local publish=results==1 and stack..'sp[(int32_t)(intptr_t)HOLE_IMM]=out;' or ''
   stencil(('fcall_%s_%d'):format(stack,results),'abc_value bridge,ext,target,out=0;__asm__("movabsq $HOLE_FINAL,%0":"=r"(bridge));__asm__("movabsq $HOLE_STATE,%0":"=r"(ext));__asm__("movabsq $HOLE_BIAS,%0":"=r"(target));unsigned status=((abc_foreign_bridge)(uintptr_t)bridge)((const void *)(uintptr_t)ext,(void(*)(void))(uintptr_t)target,'..arguments..',&out);if(status)return (jit_error()&~UINT64_C(255))|status;'..publish..'NEXT')
 end end
+stencil('service','abc_value raw,pc;__asm__("movabsq $HOLE_IMM,%0":"=r"(raw));__asm__("movabsq $HOLE_STATE,%0":"=r"(pc));abc_value saved[8]={r0,r1,r2,r3,r4,r5,r6,r7};if(((abc_service_fn)(uintptr_t)raw)((uintptr_t)HOLE_NEXT,asp,bsp,csp,saved,(uint32_t)pc))return 0;NEXT')
 stencil('abort','return jit_error();')
-for _,stack in ipairs({'a','b','c'}) do stencil('guard_'..stack,('abc_value *limit,*next;__asm__("movabsq $HOLE_FINAL,%%0":"=r"(limit));__asm__("leaq HOLE_IMM(%%1),%%0":"=r"(next):"r"(%ssp));if(next>limit)return jit_error();NEXT'):format(stack)) end
+for index,stack in ipairs({'a','b','c'}) do stencil('guard_'..stack,('abc_value raw,*next;__asm__("movabsq $HOLE_FINAL,%%0":"=r"(raw));__asm__("leaq HOLE_IMM(%%1),%%0":"=r"(next):"r"(%ssp));if(next>((abc_bounds_fn)(uintptr_t)raw)(%d))return jit_error();NEXT'):format(stack,index-1)) end
 stencil('resolve_indirect','abc_value resolver,pc,entry;__asm__("movabsq $HOLE_FINAL,%0":"=r"(resolver));__asm__("movabsq $HOLE_STATE,%0":"=r"(pc));abc_value status=((abc_resolve_fn)(uintptr_t)resolver)(r0,pc,(uintptr_t)asp+(intptr_t)HOLE_IMM,(uintptr_t)bsp+(intptr_t)HOLE_BIAS,(uintptr_t)csp+(intptr_t)HOLE_IMM2,&entry);if(status)return status;r0=entry;NEXT')
 -- Frame transport falls through to ordinary transfers; no call/return fusion.
 -- STORE_LABEL uses compiler scratch, leaving every carried bank register intact.
@@ -168,7 +171,7 @@ stencil('jump','TAIL return HOLE_TAKEN(ABC_JIT_PASS);')
 stencil('finish','*(abc_value *)(uintptr_t)HOLE_FINAL=r0; return 0;')
 stencil('return_ok','return 0;')
 
-stencil('lazy_entry','abc_value state,prepare;__asm__("movabsq $HOLE_STATE,%0":"=r"(state));__asm__("movabsq $HOLE_FINAL,%0":"=r"(prepare));abc_value*s=(abc_value*)(uintptr_t)state;s[0]=(abc_value)(uintptr_t)asp;s[1]=(abc_value)(uintptr_t)bsp;s[2]=(abc_value)(uintptr_t)csp;s[3]=r0;s[4]=r1;s[5]=r2;s[6]=r3;s[7]=r4;s[8]=r5;s[9]=r6;s[10]=r7;abc_value body=((abc_lazy_prepare_fn)(uintptr_t)prepare)(state);if(s[11])return s[11];TAIL return ((abc_jit_fn)(uintptr_t)body)((abc_value*)(uintptr_t)s[0],(abc_value*)(uintptr_t)s[1],(abc_value*)(uintptr_t)s[2],s[3],s[4],s[5],s[6],s[7],s[8],s[9],s[10]);')
+stencil('lazy_entry','abc_value state,prepare;__asm__("movabsq $HOLE_STATE,%0":"=r"(state));abc_value body=__atomic_load_n((abc_value*)(uintptr_t)state,__ATOMIC_ACQUIRE);if(!body){__asm__("movabsq $HOLE_FINAL,%0":"=r"(prepare));abc_value failure=0;body=((abc_lazy_prepare_fn)(uintptr_t)prepare)(state,&failure);if(failure)return failure;}TAIL return ((abc_jit_fn)(uintptr_t)body)(ABC_JIT_PASS);')
 assert(n==#forms.forms,'missing native execution form bindings')
 names:write(('#define ABC_STENCIL_COUNT %d\n'):format(n))
 assert(c:close()); assert(order:close()); assert(names:close())

@@ -117,10 +117,11 @@ for _,stack in ipairs({'a','b'}) do for results=0,1 do
   add(('fcall_%s_%d'):format(stack,results),'foreign',{},
     {'argument_byte_offset:i64','bridge:fnptr','external:ptr','callee:fnptr','error:u64'},results,stack)
 end end
+define('ABC_FORM_SERVICE',#M.forms);add('service','service',{}, {'service:fnptr','pc:u64'})
 define('ABC_FORM_ABORT',#M.forms);add('abort','abort',{},error_word())
 base('GUARD');define('ABC_FORM_GUARD(S)','(ABC_FORM_GUARD_BASE+(S))')
 for _,stack in ipairs({'a','b','c'}) do add('guard_'..stack,'guard',{},
-  {'required_bytes:u64','stack_end:ptr','error:u64'},nil,stack) end
+  {'required_bytes:u64','bounds:fnptr','error:u64'},nil,stack) end
 define('ABC_FORM_RESOLVE_INDIRECT',#M.forms)
 add('resolve_indirect','resolve_indirect',{0},
   {'resolver:fnptr','pc:u64','a_byte_offset:i64','b_byte_offset:i64','c_byte_offset:i64'})

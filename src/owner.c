@@ -9,8 +9,8 @@ _Static_assert(sizeof(abc_owner *)==sizeof(uint64_t),"holding scope slot ABI");
 
 static int allocation_layout(const abc_type_ops *ops,size_t bytes,size_t *offset,size_t *total,size_t *alignment) {
     size_t a=ops->payload_align;
-    if(!a || (a&(a-1)) || bytes<ops->payload_size || sizeof(abc_owner)>SIZE_MAX-(a-1))return 0;
-    *offset=(sizeof(abc_owner)+a-1)&~(a-1);
+    if(!a || (a&(a-1)) || bytes<ops->payload_size || sizeof(abc_owner)+sizeof(uint64_t)>SIZE_MAX-(a-1))return 0;
+    *offset=(sizeof(abc_owner)+sizeof(uint64_t)+a-1)&~(a-1);
     if(bytes>SIZE_MAX-*offset)return 0;
     size_t n=*offset+bytes;
     if(a<_Alignof(abc_owner))a=_Alignof(abc_owner);
@@ -19,22 +19,26 @@ static int allocation_layout(const abc_type_ops *ops,size_t bytes,size_t *offset
 }
 void *abc_owner_payload(const abc_owner *owner) {
     size_t align=owner->ops->payload_align;
-    size_t offset=(sizeof *owner+align-1)&~(align-1);
+    size_t offset=(sizeof *owner+sizeof(uint64_t)+align-1)&~(align-1);
     return (unsigned char *)(uintptr_t)owner+offset;
+}
+/* Explicit initialized-holding prefix, not a zero-filled payload assumption.
+ * Generated construction advances it only after each holding is installed. */
+uint64_t *abc_owner_initialized(const abc_owner *owner) {
+    return (uint64_t *)((unsigned char *)abc_owner_payload(owner)-sizeof(uint64_t));
 }
 abc_status abc_owner_new(abc_owner_context *context,const abc_type_ops *ops,size_t bytes,abc_owner **out,abc_error *error) {
     size_t offset,total,alignment;
     if(!ops||!out||ops->owner_kind==ABC_OWNER_IMMORTAL||ops->owner_kind>ABC_OWNER_IMMORTAL ||
-       ops->release_holdings>ABC_TYPE_RELEASE_OWNER || !allocation_layout(ops,bytes,&offset,&total,&alignment))
+       !allocation_layout(ops,bytes,&offset,&total,&alignment))
         return abc_fail(error,ABC_ARGUMENTS,UINT32_MAX,"invalid owner layout or allocation extent");
     abc_owner *owner=aligned_alloc(alignment,total);
     if(!owner)return abc_fail(error,ABC_NOMEM,UINT32_MAX,"owner allocation failed");
     owner->ops=ops;owner->release_next=NULL;
     if(ops->owner_kind==ABC_OWNER_SHARED)atomic_init(&owner->count.shared,1);
     else owner->count.local=1;
-    /* Do not read uninitialized outgoing fields on partial-construction cleanup.
-     * Only the generated initializer establishes those holdings, not calloc. */
-    abc_type_initialize(ops,(unsigned char *)owner+offset);
+    *abc_owner_initialized(owner)=0;
+    (void)offset; /* Source payload is uninitialized; only the prefix is valid. */
     context->allocations++;*out=owner;return ABC_OK;
 }
 abc_status abc_owner_retain(abc_owner_context *context,abc_owner *owner,abc_error *error) {
@@ -67,49 +71,38 @@ void abc_owner_release(abc_owner_context *context,abc_owner *owner) {
     else context->release_head=owner;
     context->release_tail=owner;
 }
-void abc_owner_drain(abc_owner_context *context) {
-    assert(!context->draining);context->draining=true;
-    while(context->release_head) {
-        abc_owner *owner=context->release_head;context->release_head=owner->release_next;
-        if(!context->release_head)context->release_tail=NULL;
-        abc_type_release(context,owner);
-        free(owner);context->frees++;
-    }
-    context->draining=false;
+abc_owner *abc_owner_dequeue(abc_owner_context *context) {
+    abc_owner *owner=context->release_head;
+    if(owner){context->release_head=owner->release_next;if(!context->release_head)context->release_tail=NULL;}
+    return owner;
 }
-abc_status abc_owner_set(abc_owner_context *context,abc_owner *holder,abc_owner *next,abc_error *error) {
-    if(!holder||holder->ops->owner_kind!=ABC_OWNER_LOCAL||holder->ops->release_holdings!=ABC_TYPE_RELEASE_OWNER)
-        return abc_fail(error,ABC_ARGUMENTS,UINT32_MAX,"owner is not a confined holding cell");
-    if(next) {abc_status s=abc_owner_retain(context,next,error);if(s!=ABC_OK)return s;}
-    abc_owner *old;void *payload=abc_owner_payload(holder);memcpy(&old,payload,sizeof old);
-    memcpy(payload,&next,sizeof next);abc_owner_release(context,old);abc_owner_drain(context);return ABC_OK;
+void abc_owner_destroy(abc_owner_context *context,abc_owner *owner) {
+    free(owner);context->frees++;
 }
-abc_owner **abc_owner_slot(abc_owner_context *context,abc_owner_scope *scope,size_t slot) {
-    for(abc_owner_scope *s=context->scopes;s;s=s->previous)if(s==scope)return slot<s->slots?&s->held[slot]:NULL;
+abc_owner **abc_owner_slot(abc_owner_scope *top,abc_owner_scope *scope,size_t slot) {
+    for(abc_owner_scope *s=top;s;s=s->previous)if(s==scope)return slot<s->slots?&s->held[slot]:NULL;
     return NULL;
 }
-abc_status abc_owner_scope_enter(abc_owner_context *context,void *storage,size_t bytes,abc_error *error) {
+abc_status abc_owner_scope_enter(abc_owner_scope **top,void *storage,size_t bytes,abc_error *error) {
     if(!storage||(uintptr_t)storage%_Alignof(abc_owner_scope)||bytes<sizeof(abc_owner_scope)||
        (bytes-sizeof(abc_owner_scope))%sizeof(abc_owner *))
         return abc_fail(error,ABC_ARGUMENTS,UINT32_MAX,"invalid holding scope storage");
-    for(abc_owner_scope *s=context->scopes;s;s=s->previous)if(s==storage)
+    for(abc_owner_scope *s=*top;s;s=s->previous)if(s==storage)
         return abc_fail(error,ABC_INVALID,UINT32_MAX,"holding scope entered twice");
     abc_owner_scope *scope=storage;scope->slots=(bytes-sizeof *scope)/sizeof(abc_owner *);
     for(size_t i=0;i<scope->slots;i++)scope->held[i]=NULL;
-    scope->previous=context->scopes;context->scopes=scope;return ABC_OK;
+    scope->previous=*top;*top=scope;return ABC_OK;
 }
-abc_status abc_owner_scope_leave(abc_owner_context *context,abc_owner_scope *scope,abc_error *error) {
-    if(!scope||context->scopes!=scope)return abc_fail(error,ABC_INVALID,UINT32_MAX,"holding scopes must leave in call order");
-    context->scopes=scope->previous;
+abc_status abc_owner_scope_leave(abc_owner_context *context,abc_owner_scope **top,abc_owner_scope *scope,abc_error *error) {
+    if(!scope||*top!=scope)return abc_fail(error,ABC_INVALID,UINT32_MAX,"holding scopes must leave in call order");
+    *top=scope->previous;
     for(size_t i=scope->slots;i;i--) {
         abc_owner *held=scope->held[i-1];scope->held[i-1]=NULL;abc_owner_release(context,held);
     }
-    abc_owner_drain(context);return ABC_OK;
+    return ABC_OK;
 }
-void abc_owner_unwind(abc_owner_context *context,abc_owner_scope *boundary) {
-    while(context->scopes!=boundary) {
-        assert(context->scopes);
-        abc_status status=abc_owner_scope_leave(context,context->scopes,NULL);assert(status==ABC_OK);(void)status;
+void abc_owner_unwind(abc_owner_context *context,abc_owner_scope **top) {
+    while(*top) {
+        abc_status status=abc_owner_scope_leave(context,top,*top,NULL);assert(status==ABC_OK);(void)status;
     }
-    abc_owner_drain(context);
 }

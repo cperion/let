@@ -497,6 +497,9 @@ function Function:expr(expr, stack)
         return
     end
     if kind=="Addr" then self:address(expr.place,expr,stack);return end
+    if kind=='Code' then
+        self:instruction('.loadkind addr',expr);self:instruction('GLD64.'..stack..' '..assert(self.constants.codes[expr.entry]),expr);return
+    end
     if kind=="Null" then self:instruction(".loadkind addr",expr);self:instruction("GLD64."..stack.." 0",expr);return end
     if kind=="Make" and (expr.type:isSlice() or expr.type:isRecord() or expr.type:isArray()) then for _,field in ipairs(expr.fields) do self:expr(field,stack) end;return end
     if kind=="SliceLength" then
@@ -582,7 +585,7 @@ end
 
 function Function:convert(source, target, node, stack)
     stack = stack or "A"
-    if source == target then return end
+    if source == target or (source:isPtr() and target:isPtr()) then return end
     local function emit(op) self:instruction(op.."."..stack,node) end
     if source == S.F64 then
         emit(target:isSigned() and "F2IS" or "F2IU")
@@ -915,6 +918,7 @@ function M.lower(functions, options)
     end
     for _,foreign in ipairs(options.foreigns or {}) do if definitions[foreign.target] then D.reject("lower-duplicate","Duplicate foreign "..foreign.target) end;definitions[foreign.target]={id=foreign.target,inputs=foreign.inputs,results=foreign.results,foreign=true} end
     for _,fn in ipairs(functions) do if definitions[fn.id] then D.bug("lower-duplicate","Duplicate function "..fn.id) end;definitions[fn.id]=fn end
+    local codeNames,codeOrder={},{}
     local adapterSerial=0
     for _, fn in ipairs(functions) do
         local localViews={}
@@ -935,6 +939,11 @@ function M.lower(functions, options)
             if S.Ty.V:isclassof(node) then inspectType(node); return false end
             if node.kind=="Const" and node.type==S.F64 then retainFloat(node.literal) end
             if node.kind=="Const" and node.type:isSlice() and node.literal.kind=="Str" then retainString(node.literal.bytes);usesAddress=true;usesMemory=true end
+            if node.kind=='Code' then
+                if not definitions[node.entry] or definitions[node.entry].foreign then D.bug('lower-code','Code identity must name a module function') end
+                if not codeNames[node.entry] then codeNames[node.entry]=true;codeOrder[#codeOrder+1]=node.entry end
+                usesCallable=true;usesAddress=true;usesMemory=true
+            end
             if node.kind=='Global' then usesMemory=true;usesAddress=true end
             if node.kind=="InPlace" or node.kind=="PlaceParam" or node.kind=="Addr" or node.kind=="BorrowArg" or ((node.kind=="Read" or node.kind=="Store") and node.place.kind~="Local") then usesMemory=true end
             if node.kind=="Addr" or node.kind=="BorrowArg" then usesAddress=true end
@@ -944,6 +953,7 @@ function M.lower(functions, options)
     if #(options.modules or functions.moduleData or {})>0 then usesMemory=true end
     local dataSize=usesAddress and 8 or 0
     for _,info in ipairs(adapters) do info.codeOffset=dataSize;dataSize=dataSize+8 end
+    for _,name in ipairs(codeOrder) do codeNames[name]=dataSize;dataSize=dataSize+8 end
     local moduleOffsets,snapshots,writableChunks={}, {}, {string.rep('\0',dataSize)}
     local readonlyRoots={}
     for _,data in ipairs(options.modules or functions.moduleData or {}) do
@@ -984,7 +994,7 @@ function M.lower(functions, options)
         return (bytes:gsub('.',function(byte) return string.format('%02x',byte:byte()) end))
     end
     local profile=#(options.foreigns or {})>0 and "foreign" or usesCallable and "callables" or (usesFloat or usesMemory) and "memory" or "integer"
-    local constants={floats=floatConstants,strings=stringConstants,modules=moduleOffsets,snapshots=snapshots}
+    local constants={floats=floatConstants,strings=stringConstants,modules=moduleOffsets,snapshots=snapshots,codes=codeNames}
     local metadata={viewInfo=viewInfo,indirectInfo=indirectInfo}
     local loweredFunctions={}
     for index,fn in ipairs(functions) do loweredFunctions[index]=Function.new(fn,definitions,profile,constants,metadata) end
@@ -1006,6 +1016,7 @@ function M.lower(functions, options)
     local rodata=table.concat(floatData)..table.concat(stringData)..hex(table.concat(aggregateData));if #rodata>0 then append(".rodata "..rodata) end
     for _,line in ipairs(signatureLines) do append(line) end
     for _,info in ipairs(adapters) do append(".codeaddr "..info.codeOffset.." "..info.name) end
+    for _,name in ipairs(codeOrder) do append('.codeaddr '..codeNames[name]..' '..name) end
     for _, output in ipairs(loweredOutput) do
         for index,line in ipairs(output.lines) do append(line,output.map[index]) end
     end

@@ -1,0 +1,11 @@
+rm -f build/libabc.a
+ar rcs build/libabc.a build/module.o build/memory_module.o build/verify.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/banked_0.o build/banked_1.o build/banked_2.o build/banked_3.o build/banked_4.o build/banked_5.o build/banked_6.o build/banked_7.o build/residualize.o build/native_emit.o build/native_image.o build/threaded_emit.o build/generated/threaded.o build/owner.o build/runtime_call.o build/type_ops.o build/generated/runtime_primitives.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owners.c build/libabc.a -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=mprotect -lm -lpthread -o build/validate-owners
+tools/validate_owners.c:135:3: error: misleading indentation; statement is not part of the previous 'for' [-Werror,-Wmisleading-indentation]
+  135 |  }abc_module_free(m);
+      |   ^
+tools/validate_owners.c:113:2: note: previous statement is here
+  113 |  for(unsigned mode=0;mode<4;mode++)for(unsigned protection=0;protection<2;protection++){
+      |  ^
+1 error generated.
+make: *** [Makefile:144: build/validate-owners] Error 1

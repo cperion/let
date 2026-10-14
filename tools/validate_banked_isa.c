@@ -2,6 +2,7 @@
    Modules below have explicit signatures; the verifier computes their shapes. */
 #include "vm_internal.h"
 #include "residualize.h"
+#include "execution_emit.h"
 #include <assert.h>
 #include <stdio.h>
 
@@ -135,7 +136,11 @@ static void indirect_history(abc_execution_mode mode,unsigned mirror,unsigned mi
     unsigned transitions[]={0,0,0,0,0,0,0,1,1,2,2,2,2};
     size_t native_size=(mode==ABC_EXEC_COMPILED||mode==ABC_EXEC_THREADED)?vm->images->execution->code_size:0;
     uint8_t *native_snapshot=native_size?malloc(native_size):NULL;
-    if(native_size){assert(native_snapshot);memcpy(native_snapshot,vm->images->execution->code,native_size);}
+    if(native_size){assert(native_snapshot);abc_exec_emitter *emitter=vm->images->execution->emitter;size_t offset=0;
+        abc_exec_storage storage=emitter->ops->storage(emitter);
+        for(size_t i=0;i<storage.regions;i++){abc_exec_region r=emitter->ops->region(emitter,i);memcpy(native_snapshot+offset,r.base,r.body_bytes);offset+=r.body_bytes;}
+        assert(offset==native_size);
+    }
     for(unsigned index=0;index<sizeof targets/sizeof targets[0];index++) {
         /* Internal contract probe, not a new public policy-switching API:
            interpreter establishes mono; native finalizes; interpreter sees it. */
@@ -151,7 +156,9 @@ static void indirect_history(abc_execution_mode mode,unsigned mirror,unsigned mi
         assert(abc_vm_site_stats(independent,&module,&stats,&error)==ABC_OK);
         assert(stats.transitions==0&&stats.specific==0&&stats.final_generic==0);
         assert(!memcmp(code,original,sizeof code));
-        if(native_size)assert(!memcmp(native_snapshot,vm->images->execution->code,native_size));
+        if(native_size){abc_exec_emitter *emitter=vm->images->execution->emitter;size_t offset=0;abc_exec_storage storage=emitter->ops->storage(emitter);
+            for(size_t i=0;i<storage.regions;i++){abc_exec_region r=emitter->ops->region(emitter,i);assert(!memcmp(native_snapshot+offset,r.base,r.body_bytes));offset+=r.body_bytes;}assert(offset==native_size);
+        }
     }
     free(native_snapshot);abc_vm_free(independent);abc_vm_free(vm);cases++;
 }

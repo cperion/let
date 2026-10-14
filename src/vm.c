@@ -8,17 +8,17 @@
 #include <unistd.h>
 /* Backing counts exclude cached cells. A/B share h0..h3, anchored from
  * opposite ends; C uses c0..c2. Pops never refill. */
-size_t vm_depth(const abc_vm *v,char stack) {
+size_t vm_depth(const abc_exec_context *v,char stack) {
     if(stack=='a') return v->na+v->ca;
     if(stack=='b') return v->nb+v->cb;
     return v->nc+v->cc;
 }
-uint64_t *vm_at(abc_vm *v,char stack,size_t depth) {
+uint64_t *vm_at(abc_exec_context *v,char stack,size_t depth) {
     if(stack=='a') return depth<v->ca ? &v->h[v->ca-1-depth] : &v->a[v->na-1-(depth-v->ca)];
     if(stack=='b') return depth<v->cb ? &v->h[4-v->cb+depth] : &v->b[v->nb-1-(depth-v->cb)];
     return depth<v->cc ? &v->cr[v->cc-1-depth] : &v->c[v->nc-1-(depth-v->cc)];
 }
-static void vm_spill(abc_vm *v,char stack) {
+static void vm_spill(abc_exec_context *v,char stack) {
     if(stack=='a') {
         v->a[v->na++]=v->h[0];
         for(unsigned j=1;j<v->ca;j++) v->h[j-1]=v->h[j];
@@ -33,7 +33,7 @@ static void vm_spill(abc_vm *v,char stack) {
         v->cc--;
     }
 }
-void vm_push(abc_vm *v,char stack,uint64_t value) {
+void vm_push(abc_exec_context *v,char stack,uint64_t value) {
     if(stack=='c') {
         if(v->cc==3) vm_spill(v,'c');
         v->cr[v->cc++]=value;
@@ -43,13 +43,24 @@ void vm_push(abc_vm *v,char stack,uint64_t value) {
         else v->h[3-v->cb++]=value;
     }
 }
-uint64_t vm_pop(abc_vm *v,char stack) {
+uint64_t vm_pop(abc_exec_context *v,char stack) {
     if(stack=='a') return v->ca ? v->h[--v->ca] : v->a[--v->na];
     if(stack=='b') return v->cb ? v->h[4-v->cb--] : v->b[--v->nb];
     return v->cc ? v->cr[--v->cc] : v->c[--v->nc];
 }
-void vm_publish_all(abc_vm *v){while(v->ca)vm_spill(v,'a');while(v->cb)vm_spill(v,'b');while(v->cc)vm_spill(v,'c');}
+void vm_publish_all(abc_exec_context *v){while(v->ca)vm_spill(v,'a');while(v->cb)vm_spill(v,'b');while(v->cc)vm_spill(v,'c');}
 
+abc_status abc_context_reserve(abc_exec_context *c,size_t capacity,abc_error *error) {
+    if(capacity<=c->capacity)return ABC_OK;
+    if(capacity>ABC_MAX_FILE)return abc_fail(error,ABC_ARGUMENTS,UINT32_MAX,"execution storage exceeds maximum");
+    uint64_t *a=calloc(capacity,8),*b=calloc(capacity,8),*stack=calloc(capacity,8);
+    abc_frame *frames=calloc(capacity,sizeof *frames);
+    if(!a||!b||!stack||!frames){free(a);free(b);free(stack);free(frames);return abc_fail(error,ABC_NOMEM,UINT32_MAX,"execution storage allocation failed");}
+    free(c->a);free(c->b);free(c->c);free(c->frames);
+    c->a=a;c->b=b;c->c=stack;c->frames=frames;c->capacity=capacity;return ABC_OK;
+}
+static void context_free(abc_exec_context *c){free(c->a);free(c->b);free(c->c);free(c->frames);}
+static abc_status drain_worker(abc_vm *);
 abc_status abc_vm_create(const abc_limits *limits,abc_vm **out,abc_error *e) {
     abc_clear(e); if(out) *out=NULL;
     if(!out) return abc_fail(e,ABC_INVALID,UINT32_MAX,"missing VM output");
@@ -57,12 +68,12 @@ abc_status abc_vm_create(const abc_limits *limits,abc_vm **out,abc_error *e) {
     if(cap>ABC_MAX_FILE) return abc_fail(e,ABC_INVALID,UINT32_MAX,"stack limit exceeds maximum");
     abc_vm *v=calloc(1,sizeof *v);
     if(!v) return abc_fail(e,ABC_NOMEM,UINT32_MAX,"VM allocation failed");
-    v->capacity=cap;
+    v->root.session=v;v->root.worker=&v->worker;
+    v->worker.cleanup.session=v;v->worker.cleanup.worker=&v->worker;v->worker.cleanup.reclaiming=1;
     v->mode=limits ? limits->mode : ABC_EXEC_INTERPRETED;
     if(v->mode!=ABC_EXEC_INTERPRETED && v->mode!=ABC_EXEC_COMPILED && v->mode!=ABC_EXEC_LAZY && v->mode!=ABC_EXEC_THREADED) { free(v); return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid execution mode"); }
-    v->a=calloc(cap,sizeof *v->a); v->b=calloc(cap,sizeof *v->b);
-    v->c=calloc(cap,sizeof *v->c); v->frames=calloc(cap,sizeof *v->frames);
-    if(!v->a || !v->b || !v->c || !v->frames) { abc_vm_free(v); return abc_fail(e,ABC_NOMEM,UINT32_MAX,"stack allocation failed"); }
+    abc_status status=abc_context_reserve(&v->root,cap,e);
+    if(status!=ABC_OK){abc_vm_free(v);return status;}
     *out=v; return ABC_OK;
 }
 abc_foreign_address abc_foreign_lookup(const abc_vm *v,const char *name) {
@@ -83,11 +94,13 @@ static void image_free(abc_image *image) {
     if(image->bytes_mapping_size) munmap(image->bytes,image->bytes_mapping_size);
     else free(image->bytes);
     free(image->direct_callees); free(image->call_info); free(image->indirect_site_states);
+    while(image->type_ops){abc_type_ops *next=image->type_ops->next;free(image->type_ops);image->type_ops=next;}
     free(image->foreign); free(image->foreign_bridges); free(image);
 }
 void abc_vm_free(abc_vm *v) {
     if(!v) return;
-    abc_owner_unwind(&v->owners,NULL);
+    abc_owner_unwind(&v->worker.owners,&v->root.scopes);
+    (void)drain_worker(v);
     while(v->images) {
         abc_image *i=v->images; v->images=i->next;
         /* Lazy native state still reads module metadata during destruction. */
@@ -95,7 +108,7 @@ void abc_vm_free(abc_vm *v) {
         image_free(i); abc_module_free(module);
     }
     while(v->foreign_bindings){abc_foreign_binding *b=v->foreign_bindings;v->foreign_bindings=b->next;free(b->name);free(b);}
-    free(v->a); free(v->b); free(v->c); free(v->frames); free(v);
+    context_free(&v->root);context_free(&v->worker.cleanup);free(v);
 }
 static abc_status vm_image(abc_vm *v,const abc_module *m,abc_image **out,abc_error *e) {
     *out=NULL;
@@ -173,41 +186,71 @@ abc_status abc_vm_site_stats(const abc_vm *v,const abc_module *m,abc_site_stats 
     *out=stats; return ABC_OK;
 }
 /* Host arguments are a vector, not an A-shaped bytecode calling convention. */
-static void prepare_host_entry(abc_vm *vm,const uint64_t *arguments,size_t argument_count) {
-    vm->frames[vm->nf++]=(abc_frame){UINT32_MAX,ABC_STACK_A};
-    vm_push(vm,'c',UINT32_MAX);
-    for(size_t index=argument_count;index;index--)vm_push(vm,'c',arguments[index-1]);
+static void prepare_entry(abc_exec_context *context,abc_image *image,unsigned function,const uint64_t *args,size_t count) {
+    context->na=context->nb=context->nc=context->nf=context->ca=context->cb=context->cc=0;
+    context->m=image->module;context->image=image;context->code=image->module->code;
+    context->pc=image->module->functions[function].entry;context->done=0;
+    abc_clear(&context->error);context->disposition=ABC_EXEC_RETURNED;
+    context->resume=(abc_resume_state){0};
+    context->frames[context->nf++]=(abc_frame){UINT32_MAX,ABC_STACK_A};
+    context->c[context->nc++]=UINT32_MAX;
+    for(size_t i=count;i;i--)context->c[context->nc++]=args[i-1];
+    if(context->session->mode!=ABC_EXEC_INTERPRETED)context->resume.entry=(uintptr_t)image->execution->entries[function];
+    context->resume.stack[0]=context->a;context->resume.stack[1]=context->b;context->resume.stack[2]=context->c+context->nc;
 }
-_Thread_local abc_run *abc_active_run;
+_Thread_local abc_exec_context *abc_active_context;
 #include "generated/cold.inc"
-
-static abc_status vm_execute(abc_vm *v,const abc_module *m,abc_image *image,uint32_t entry,abc_error *e) {
-    abc_run run={v,m,image,m->code,e,entry,0};
-    abc_run *previous=abc_active_run; abc_active_run=&run;
-    unsigned state=(v->ca*5+v->cb)*4+v->cc;
-    abc_value result=abc_tables[state][run.code[entry]](
-        run.code+entry,v->a+v->na,v->b+v->nb,v->c+v->nc,
-        v->h[0],v->h[1],v->h[2],v->h[3],v->cr[0],v->cr[1],v->cr[2]);
-    abc_active_run=previous;
-    return (abc_status)result;
+uint64_t *abc_execution_limit(unsigned stack) {
+    abc_exec_context *c=abc_active_context;
+    return (stack==0?c->a:stack==1?c->b:c->c)+c->capacity;
 }
-static abc_status vm_execute_residual(abc_vm *v,abc_image *image,unsigned function,const abc_function *f,
-                                    const uint64_t *args,size_t nargs,abc_error *e) {
-    v->c[0]=UINT32_MAX;
-    for(size_t i=0;i<nargs;i++) v->c[nargs-i]=args[i];
-    v->nc=nargs+1;
-    abc_run run={v,image->module,image,image->module->code,e,f->entry,0};abc_run *previous=abc_active_run;abc_active_run=&run;
-    abc_exec_emitter *emitter=image->execution->emitter;
-    uint64_t result=emitter->ops->enter(emitter,(uintptr_t)image->execution->entries[function],v->a,v->b,v->c+nargs+1);
-    abc_active_run=previous;
-    abc_status status=(abc_status)(result&255); uint32_t offset=(uint32_t)(result>>16);
-    if(status!=ABC_OK && e && e->status==status && e->offset==UINT32_MAX) e->offset=offset;
-    else if(status==ABC_ABORT) { unsigned reason=(unsigned)((result>>8)&255); status=abc_fail(e,ABC_ABORT,offset,"language abort %u",reason); if(e)e->reason=(uint8_t)reason; }
-    else if(status==ABC_STACK) status=abc_fail(e,status,offset,"stack limit reached");
-    else if(status==ABC_ARGUMENTS) status=abc_fail(e,status,offset,"indirect target signature disagrees with call site");
-    else if(status==ABC_INVALID) status=abc_fail(e,status,offset,"indirect target is not a callable function entry in this module");
-    else if(status!=ABC_OK) status=abc_fail(e,status,offset,"compiled execution failed");
-    if(status==ABC_OK) v->na=f->results; return status;
+int abc_execution_service(uintptr_t continuation,uint64_t *a,uint64_t *b,uint64_t *c,const uint64_t registers[8],uint32_t original_pc) {
+    abc_exec_context *context=abc_active_context;
+    if(context->reclaiming||(!context->pending_type&&!context->worker->owners.release_head))return 0;
+    context->operation_pc=original_pc;
+    context->resume.entry=continuation;context->resume.stack[0]=a;context->resume.stack[1]=b;context->resume.stack[2]=c;
+    memcpy(context->resume.value_register,registers,sizeof context->resume.value_register);
+    context->disposition=ABC_EXEC_SERVICE;return 1;
+}
+/* Every invocation returns before another context is entered. TLS never points
+ * to a temporary C run record and no suspended execution retains host frames. */
+static abc_exec_exit execute(abc_exec_context *v) {
+    abc_exec_context *previous=abc_active_context;abc_active_context=v;
+    v->disposition=ABC_EXEC_RETURNED;abc_exec_exit result;
+    if(v->session->mode!=ABC_EXEC_INTERPRETED) {
+        abc_exec_emitter *emitter=v->image->execution->emitter;
+        result=emitter->ops->enter(emitter,v,&v->resume);
+    } else {
+        unsigned state=(v->ca*5+v->cb)*4+v->cc;
+        uint64_t status=abc_tables[state][v->code[v->pc]](v->code+v->pc,v->a+v->na,v->b+v->nb,v->c+v->nc,
+            v->h[0],v->h[1],v->h[2],v->h[3],v->cr[0],v->cr[1],v->cr[2]);
+        result=(abc_exec_exit){v->disposition,status};
+    }
+    abc_active_context=previous;return result;
+}
+static abc_status execution_status(abc_exec_context *context,uint64_t result) {
+    abc_status status=(abc_status)(result&255);abc_error *e=&context->error;
+    if(status==ABC_OK||context->session->mode==ABC_EXEC_INTERPRETED)return status;
+    uint32_t pc=(uint32_t)(result>>16);
+    if(e->status==status){if(e->offset==UINT32_MAX)e->offset=pc;}
+    else if(status==ABC_ABORT){unsigned reason=(unsigned)((result>>8)&255);abc_fail(e,status,pc,"language abort %u",reason);e->reason=(uint8_t)reason;}
+    else abc_fail(e,status,pc,status==ABC_STACK?"stack limit reached":"compiled execution failed");
+    return status;
+}
+static abc_status drain_worker(abc_vm *vm) {
+    abc_worker *worker=&vm->worker;abc_owner_context *owners=&worker->owners;
+    if(owners->draining)return ABC_INVALID;
+    owners->draining=true;abc_status status=ABC_OK;abc_owner *owner;
+    while((owner=abc_owner_dequeue(owners))) {
+        const abc_type_ops *ops=owner->ops;uint64_t argument=(uintptr_t)owner;
+        prepare_entry(&worker->cleanup,ops->image,ops->release_holdings,&argument,1);
+        worker->release_entries++;
+        abc_exec_exit result=execute(&worker->cleanup);
+        status=execution_status(&worker->cleanup,result.packed_error);
+        if(status!=ABC_OK||result.disposition!=ABC_EXEC_RETURNED){status=ABC_INVALID;break;}
+        abc_owner_destroy(owners,owner);
+    }
+    owners->draining=false;return status;
 }
 abc_status abc_vm_read_image(const abc_vm *v,const abc_module *m,size_t offset,void *output,size_t size,abc_error *e) {
     abc_clear(e);
@@ -225,36 +268,46 @@ abc_status abc_vm_call(abc_vm *v,const abc_module *m,const char *name,const uint
     abc_clear(e); if(nresults) *nresults=0;
     if(!v || !m || !name || (nargs && !args)) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid call inputs");
     if(v->executing)return abc_fail(e,ABC_INVALID,UINT32_MAX,"VM is already executing a call");
-    v->na=v->nb=v->nc=v->nf=v->ca=v->cb=v->cc=0;
+    abc_exec_context *context=&v->root;
     int fi=abc_find_export(m,name);
     if(fi<0) return abc_fail(e,ABC_NOT_FOUND,UINT32_MAX,"unknown export '%s'",name);
     const abc_function *f=&m->functions[fi];
     if(nargs!=f->arguments) return abc_fail(e,ABC_ARGUMENTS,UINT32_MAX,"expected %u argument cells, got %zu",f->arguments,nargs);
     if(cap<f->results || (f->results && !results)) return abc_fail(e,ABC_RESULTS,UINT32_MAX,"need capacity for %u result cells",f->results);
     size_t cneed=(size_t)f->max_c+1;
-    if(nargs>v->capacity || f->max_a>v->capacity || f->max_b>v->capacity || cneed>v->capacity) return abc_fail(e,ABC_STACK,f->entry,"stack limit reached");
+    if(nargs>context->capacity || f->max_a>context->capacity || f->max_b>context->capacity || cneed>context->capacity) return abc_fail(e,ABC_STACK,f->entry,"stack limit reached");
     abc_image *image=NULL; abc_status status=ABC_OK;
     v->executing=1;
     if(v->mode!=ABC_EXEC_INTERPRETED) {
         for(image=v->images;image&&image->module!=m;image=image->next) {}
-        if(!image||!image->execution) status=abc_fail(e,ABC_INVALID,UINT32_MAX,"residual module was not loaded with abc_vm_load");
-        else status=vm_execute_residual(v,image,(unsigned)fi,f,args,nargs,e);
-    } else {
-        status=vm_image(v,m,&image,e);
-        if(status==ABC_OK) {
-            prepare_host_entry(v,args,nargs);
-            status=vm_execute(v,m,image,f->entry,e);
-        }
-    }
-    if(status==ABC_OK && v->owners.scopes)
-        status=abc_fail(e,ABC_INVALID,UINT32_MAX,"runtime call returned with initialized holding scopes");
-    /* The only unwind is generated memory holdings, not source control flow.
-     * Frame memory remains allocated and unmodified until this has finished. */
-    abc_owner_unwind(&v->owners,NULL);
+        if(!image||!image->execution)status=abc_fail(e,ABC_INVALID,UINT32_MAX,"residual module was not loaded with abc_vm_load");
+    }else status=vm_image(v,m,&image,e);
     if(status==ABC_OK) {
-        if(vm_depth(v,'a')!=f->results || vm_depth(v,'b')) status=abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid final result shape");
-        else { for(unsigned j=0;j<f->results;j++) results[j]=v->mode!=ABC_EXEC_INTERPRETED ? v->a[j] : *vm_at(v,'a',f->results-j-1); if(nresults) *nresults=f->results; }
+        prepare_entry(context,image,(unsigned)fi,args,nargs);
+        for(;;) {
+            abc_exec_exit result=execute(context);
+            status=execution_status(context,result.packed_error);
+            if(status!=ABC_OK||result.disposition==ABC_EXEC_RETURNED)break;
+            v->worker.service_exits++;
+            status=abc_type_publish(context);
+            if(status!=ABC_OK)break;
+            status=drain_worker(v);
+            if(status!=ABC_OK){abc_fail(&context->error,status,context->pc,"generated release contract failed");break;}
+        }
+        if(status==ABC_OK&&context->scopes)
+            status=abc_fail(&context->error,ABC_INVALID,UINT32_MAX,"runtime call returned with initialized holding scopes");
+        /* Harvest records while frame storage is valid. The source engine has
+         * returned; reclamation uses reserved worker storage, not this stack. */
+        abc_owner_unwind(&v->worker.owners,&context->scopes);
+        abc_status cleanup=drain_worker(v);
+        if(status==ABC_OK&&cleanup!=ABC_OK)status=abc_fail(&context->error,cleanup,UINT32_MAX,"generated release contract failed");
+        if(status==ABC_OK) {
+            if(v->mode!=ABC_EXEC_INTERPRETED){context->na=f->results;context->nb=context->ca=context->cb=0;}
+            if(vm_depth(context,'a')!=f->results||vm_depth(context,'b'))status=abc_fail(&context->error,ABC_INVALID,UINT32_MAX,"invalid final result shape");
+            else {for(unsigned j=0;j<f->results;j++)results[j]=v->mode!=ABC_EXEC_INTERPRETED?context->a[j]:*vm_at(context,'a',f->results-j-1);if(nresults)*nresults=f->results;}
+        }
+        if(e)*e=context->error;
     }
-    v->executing=0;v->na=v->nb=v->nc=v->nf=v->ca=v->cb=v->cc=0; return status;
+    v->executing=0;context->na=context->nb=context->nc=context->nf=context->ca=context->cb=context->cc=0;return status;
 }
 

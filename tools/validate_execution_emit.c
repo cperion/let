@@ -16,6 +16,12 @@ static abc_exec_emitter *create(unsigned threaded) {
     assert((threaded?abc_threaded_emitter_create(&e,&error):abc_native_emitter_create(32,&e,&error))==ABC_OK);
     assert(e->register_count==(threaded?7u:8u));return e;
 }
+static uint64_t *test_limit;
+static uint64_t *bounds(unsigned stack){assert(stack==0);return test_limit;}
+static uint64_t run(abc_exec_emitter *e,uintptr_t entry,uint64_t *a,uint64_t *b,uint64_t *c) {
+    abc_exec_context context={0};abc_resume_state state={.entry=entry,.stack={a,b,c}};
+    abc_exec_exit result=e->ops->enter(e,&context,&state);assert(result.disposition==ABC_EXEC_RETURNED);return result.packed_error;
+}
 int main(void) {
     for(unsigned threaded=0;threaded<2;threaded++){
         abc_exec_emitter *e=create(threaded);abc_error error;
@@ -38,7 +44,7 @@ int main(void) {
         assert(start&&target);
         abc_exec_storage storage=e->ops->storage(e);
         if(threaded){
-            const abc_thread_word *t=(const abc_thread_word *)storage.base;
+            const abc_thread_word *t=(const abc_thread_word *)e->ops->region(e,0).base;
             assert(storage.body_bytes==(3+2+1+200+2+2+1)*8);
             assert(t[0].handler==abc_thread_forms[ABC_FORM_STORE_LABEL].handler);
             assert(t[1].bits==0&&(uintptr_t)t[2].target==target);
@@ -51,18 +57,19 @@ int main(void) {
         e->ops->discard_preparation(e);
         uint64_t a[2]={0,123},b[1]={456},c[1]={0};
         for(unsigned i=0;i<3;i++){
-            assert(e->ops->enter(e,start,a,b,c)==ABC_OK);
+            assert(run(e,start,a,b,c)==ABC_OK);
             assert(a[0]==42&&a[1]==123&&b[0]==456&&c[0]==target);
         }
         e->ops->destroy(e);
 
         e=create(threaded);entry=label(e);bind(e,entry);
         const uint64_t packed=ABC_STACK|(UINT64_C(0x1234)<<16);
-        abc_exec_operands guard={.value={16,(uintptr_t)(a+1),packed},.target=ABC_EXEC_NO_LABEL};
+        test_limit=a+1;
+        abc_exec_operands guard={.value={16,(uintptr_t)bounds,packed},.target=ABC_EXEC_NO_LABEL};
         assert(e->ops->emit(e,ABC_FORM_GUARD(0),&guard,0x1234,&error)==ABC_OK);
         emit(e,ABC_FORM_RETURN_OK,0,ABC_EXEC_NO_LABEL);
         assert(e->ops->publish(e,77,&error)==ABC_OK);
-        assert(e->ops->enter(e,e->ops->address(e,entry),a,b,c)==packed);
+        assert(run(e,e->ops->address(e,entry),a,b,c)==packed);
         e->ops->destroy(e);
 
         e=create(threaded);

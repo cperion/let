@@ -75,14 +75,26 @@ int abc_native_emit_foreign(uint8_t *at,unsigned form,uint32_t argument_cells,
     }
     return 1;
 }
-int abc_native_emit_guard(uint8_t *at,unsigned stack,uint64_t bytes,const uint64_t *end,uint64_t error) {
+int abc_native_emit_service(uint8_t *at,uintptr_t service,uint32_t pc) {
+    const Stencil *s=copy(at,ABC_FORM_SERVICE);
+    for(unsigned i=0;i<s->nrel;i++) {
+        const Reloc *r=&s->rel[i];int64_t value;
+        if(r->hole==HOLE_NEXT)value=(int64_t)(intptr_t)(at+s->len);
+        else if(r->hole==HOLE_IMM)value=(int64_t)service;
+        else if(r->hole==HOLE_STATE)value=pc;
+        else return 0;
+        patch(at+r->off,r->kind,r->addend,value);
+    }
+    return 1;
+}
+int abc_native_emit_guard(uint8_t *at,unsigned stack,uint64_t bytes,abc_native_bounds_fn bounds,uint64_t error) {
     if(stack>=3)return 0;
     const Stencil *s=copy(at,ABC_FORM_GUARD(stack));
     for(unsigned i=0;i<s->nrel;i++){
         const Reloc *r=&s->rel[i];int64_t value;
         if(r->hole==HOLE_NEXT)value=(int64_t)(intptr_t)(at+s->len);
         else if(r->hole==HOLE_IMM)value=(int64_t)bytes;
-        else if(r->hole==HOLE_FINAL)value=(int64_t)(intptr_t)end;
+        else if(r->hole==HOLE_FINAL)value=(int64_t)(intptr_t)bounds;
         else if(r->hole==HOLE_ERROR)value=(int64_t)error;
         else return 0;
         patch(at+r->off,r->kind,r->addend,value);
@@ -117,12 +129,4 @@ int abc_native_emit_lazy(uint8_t *at,void *state,abc_native_prepare_fn prepare) 
         patch(at+r->off,r->kind,r->addend,value);
     }
     return has_prepare!=0;
-}
-int abc_native_activate_lazy(uint8_t *at,const uint8_t *body) {
-    const Stencil *s=copy(at,ABC_FORM_JUMP);
-    for(unsigned i=0;i<s->nrel;i++){
-        const Reloc *r=&s->rel[i];if(r->hole!=HOLE_TAKEN)return 0;
-        patch(at+r->off,r->kind,r->addend,(int64_t)(intptr_t)body);
-    }
-    return 1;
 }

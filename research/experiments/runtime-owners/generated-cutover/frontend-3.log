@@ -1,0 +1,12 @@
+luajit: BUG [ir-type] Convert needs numeric widths or one any boundary
+stack traceback:
+	[C]: in function 'error'
+	./let/diag.lua:21: in function 'bug'
+	./let/check.lua:517: in function 'expr'
+	./let/check.lua:635: in function 'place'
+	./let/check.lua:97: in function 'checkList'
+	./let/check.lua:386: in function 'function_'
+	./let/check.lua:704: in function 'program'
+	./let/abc.lua:880: in function 'lower'
+	tests/runtime_owners.lua:85: in main chunk
+	[C]: at 0x5ace2772a120

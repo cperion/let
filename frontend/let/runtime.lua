@@ -8,12 +8,17 @@ local declarations=assert(loadfile(path..'/../../build/generated/runtime_primiti
 local M={catalog=declarations}
 function M.reserved(name) return name:sub(1,9)=='__let_rt_' end
 function M.declaration(name)
- local p=assert(declarations['__let_rt_v1_'..name],'unknown runtime primitive')
+ local p=assert(declarations['__let_rt_v2_'..name],'unknown runtime primitive')
  local types={i=S.U64,a=S.Ptr(S.U64),f=S.F64};local inputs,results={},{}
  for kind in p.inputs:gmatch('.') do inputs[#inputs+1]=S.inValue(types[kind]) end
  for kind in p.results:gmatch('.') do results[#results+1]=types[kind] end
- local declaration=S.Ir.Foreign('__let_rt_v1_'..name,S.List(inputs),S.List(results))
+ local declaration=S.Ir.Foreign('__let_rt_v2_'..name,S.List(inputs),S.List(results))
  return declaration
+end
+function M.install(foreigns,name)
+ local declaration=M.declaration(name)
+ for _,previous in ipairs(foreigns) do if previous.target==declaration.target then M.validate(previous);return previous end end
+ foreigns[#foreigns+1]=declaration;return declaration
 end
 function M.validate(declaration)
  local p=declarations[declaration.target]

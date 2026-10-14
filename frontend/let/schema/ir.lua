@@ -160,6 +160,8 @@ module Ir {
        | Is(Expr operand, Ty.V tested, Ty.V type)
        # The null pointer of a ptr type. Pure, so it is interned like any other constant.
        | Null(Ty.V type)
+       # Private code identity in the current module; existing code relocation ABI.
+       | Code(string entry, Ty.V type)
 
   # One persistent module root; identity and initial bytes are independent of its
   # eventual image offset. No VM/process addresses occur in the initial image.

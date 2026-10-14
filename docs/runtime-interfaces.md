@@ -42,22 +42,25 @@ through existing computation; a single opaque helper per language expression is
 not the design. Do not generate register-specialized forms across the Cartesian
 product of TypeOps, channel types and registers. Types/descriptors are bound operands.
 
-### 1.1 Implemented initial call binding
+### 1.1 Implemented owner/holding call binding
 
-The private runtime ABI uses reserved `__let_rt_v1_` symbols in the existing extern
+The private runtime ABI uses reserved `__let_rt_v2_` symbols in the existing extern
 section and existing FCALL.A/B instructions. There are no owner operand kinds,
 owner opcodes, serialized ownership graphs or new module sections. Generated C
 metadata validates the signature at module loading; unknown versions/signatures
 reject. A host cannot override these bindings, and source `extern` declarations
 cannot introduce them. This deliberately reserves the `__let_rt_` namespace; old
-engines have no built-in implementation of these new symbols. Existing ordinary
-externs and revision-6 encodings retain their behavior.
+engines have no built-in implementation of these new symbols. The transitional v1
+fixed-layout ABI is removed, not reinterpreted: v1 modules reject and must be rebuilt.
+Existing ordinary externs and revision-6 encodings retain their behavior.
 
 `frontend/let/lifetime.lua` emits ordinary checked IR using the shared builder.
 Generated metadata supplies declarations and the staging allowlist. `runtime_call.c`
-binds those calls through the current `abc_run`/VM context. The existing call-boundary
-synchronization is retained; this initial binding does not claim specialized minimal
-clobbers. Status and original call PC survive all four execution modes.
+binds those calls through persistent `abc_exec_context` TLS. The existing call-boundary
+synchronization is retained; specialized minimal clobbers are not claimed. Status and
+original call PC survive all four execution modes. The catalog now includes `type_bind`,
+initialized-prefix access/commit and holding increment/enqueue, replacing the fixed
+layout selector and `owner_set` interface.
 
 Each generated scope explicitly initializes a frame-storage record and its holding
 slots. Allocation registers its first holding only after initialization succeeds;
@@ -68,7 +71,17 @@ No source deferred actions, effect rollback or stack-root scanning occurs. Persi
 module writes survive, and the VM can run another call. A successful return with an
 unclosed holding scope instead fails without publishing results. Reentry into the
 same executing VM rejects before resetting its stacks. Foreign longjmp/interruption,
-workers/tasks and public exported owner handles are not supported by this binding.
+scheduled tasks and public exported owner handles are not supported by this binding.
+
+A new descriptor is pending until the source engine returns SERVICE (§8). The driver
+reserves independent worker cleanup storage and prepares every copy/release branch,
+then publishes the descriptor before resuming source execution. Failure publishes no
+descriptor/result and preserves the original binding PC. Owners therefore cannot be
+created against release code requiring lazy compilation or stack growth during cleanup.
+Count/slot mutations enqueue zero owners; the driver enters one generated release
+routine at a time after source execution returns. Children only enqueue. Cleanup uses
+its reserved context even after source stack exhaustion; source frame records remain
+readable until their initialized slots have been consumed.
 
 Allocation failure and count-limit exhaustion use existing `ABC_NOMEM` resource
 failure reporting; no new numeric language-abort reason is assigned, and counts
@@ -76,8 +89,11 @@ never wrap. See WORKLIST E01/E02/O04–O08 for admission and measurements.
 
 ## 2. Split runtime, task and execution context
 
-`src/vm_internal.h` currently mixes stacks, interpreter cache, images and foreign
-bindings in `abc_vm`. Introduce the following private responsibilities, without
+`src/execution_context.h` now separates the synchronous root's stack/cache/frame/error
+state from session images/foreign bindings. Its worker owns the release queue and a
+separate reserved cleanup context. TLS is rebound on entry and restored on exit,
+including other-VM callbacks; no stack-local `abc_run` remains. This is not yet a
+scheduler, migratable task or shared runtime. Complete the following responsibilities without
 changing `include/abc.h` embedding semantics as an incidental refactor:
 
 ```c
@@ -111,28 +127,38 @@ migration. Do not retain a pointer to a stack-local `abc_run` across PARK. Keep 
 seven-register threaded ABI; access context at runtime boundaries through the bound
 execution context/TLS rather than adding an eighth threaded value register.
 
-Current `abc_execution_image.stack_end[3]` and embedded task/image addresses need
-replacement. Bounds and mutable task data come from the current context. Preparation
+`abc_execution_image.stack_end[3]` has been removed. Generated native/threaded guards
+obtain bounds from the current execution context; interpreter bounds use that same
+context. Session module-world and foreign/image bindings remain image-specific.
+Bounds and mutable task data must continue to come from the current context. Preparation
 must not specialize an error against the first task's capacity and share it with a
-different-capacity task. Include the stack-capacity policy in the image preparation
-key initially; require a compatible policy before entry. Actual addresses are never
-part of a shareable code constant. Image/site metadata and mutable module-world
+different-capacity task. Current symbolic headroom derives from verified function
+requirements, not the root's capacity; entry/call guards check the active context.
+Any future capacity specialization must key and validate its policy before entry.
+Actual stack addresses are never part of a shareable code constant. Image/site metadata and mutable module-world
 storage are separate; transitive world analysis governs access to the latter.
 
 ## 3. Owner and type operations
 
-Private files `src/owner.h`, `src/owner.c`, `src/type_ops.h` now implement the initial
-owner core. The code currently takes an `abc_owner_context` plus the existing error
-sink, bound by `runtime_call.c` to the synchronous VM; the task/worker signatures
-below remain the target for §2's unfinished split. There is no second allocator.
-The initial generated descriptors cover pointer-free local/shared payloads and a
-confined single-owner holding cell. Generated initialization explicitly establishes
-its outgoing field; generated release decrements/enqueues, never invokes source code.
-General source-specialized copy/release, variants, buffers and arrays remain pending.
+Private files `src/owner.h/.c`, `src/type_ops.h/.c` implement the owner core and
+image-resolved generated operation binding. The core takes `abc_owner_context` and an
+error sink; `runtime_call.c` binds it to the current execution context's worker. The
+complete task/runtime split below remains a target. There is no second allocator.
 
-Immutable type
-layouts feed generated holding-operation bindings; their generator is `gen/type_ops.lua`
-with generated output under `build/generated/`, not handwritten per-backend destructors.
+`gen/type_ops.lua` is now a compiler-time ordinary checked-IR generator, called by
+`frontend/let/lifetime.lua`, not a generated C layout registry/switch. Its current
+client supplies a physical payload type/layout and ordered owning-cell offsets.
+Copy transports payload bits, retains each owning cell, and commits its initialized
+prefix only after success. Release branches on that prefix and decrements/enqueues
+only initialized holdings. Source-specialized representation selection, variant
+selection, initialized-element loops, buffers and generalized arrays remain pending.
+
+Private `Ir.Code` lowers through existing `.codeaddr` relocations. `type_bind` checks
+module-function signatures and forbids ABC callbacks/failing or allocating effects
+in release operations. Descriptors bind module function indices to their execution
+image; no native pointer is serialized. This is a private compiler contract, not a
+termination or memory-safety verifier for arbitrary handwritten pointer bytecode.
+There are no per-backend holding algorithms or runtime layout-plan interpreter.
 
 ```c
 typedef enum {
@@ -149,7 +175,9 @@ typedef uint32_t abc_type_op_id;
 struct abc_type_ops {
     size_t payload_size, payload_align;
     abc_owner_kind owner_kind;
-    abc_type_op_id copy_holding, release_holdings;
+    abc_type_op_id copy_holding, release_holdings; /* module function indices */
+    struct abc_image *image;
+    struct abc_type_ops *next; /* image descriptor cache */
 };
 
 abc_status abc_owner_new(abc_exec_context *, const abc_type_ops *,
@@ -162,7 +190,8 @@ Owner kind is immutable descriptor information; descriptors distinguish local/sh
 allocation policy even for identical source payload types. Initialize only the
 selected union member. Never mix atomic and non-atomic accesses to one live count.
 Immortal retain/release are no-ops. Payload starts at the aligned offset computed
-from `sizeof(abc_owner)` and `payload_align`; do not assume header size is identical
+from `sizeof(abc_owner)`, explicit initialized-prefix storage and `payload_align`;
+do not assume header size is identical
 on native and wasm32. Source cell layouts remain separate from host C layouts.
 
 `new` returns one holding only after successful initialization; output is unchanged
@@ -404,7 +433,8 @@ Extend `src/execution_emit.h` with a private entry request/result, replacing the
 current assumption that every backend exit is a completed public call:
 
 ```c
-typedef enum { ABC_EXEC_RETURNED, ABC_EXEC_PARKED } abc_exec_disposition;
+/* RETURNED/SERVICE implemented; PARKED remains the task binding target. */
+typedef enum { ABC_EXEC_RETURNED, ABC_EXEC_SERVICE, ABC_EXEC_PARKED } abc_exec_disposition;
 typedef struct {
     abc_exec_disposition disposition;
     uint64_t packed_error; /* existing status/reason/original-PC payload */
@@ -422,10 +452,14 @@ abc_exec_exit enter(const abc_exec_emitter *, abc_exec_context *,
 
 This is the C wrapper API. Internal generated handlers still use the established
 native/threaded calling conventions; wrappers supply saved registers on resume.
-A backend-private out-of-band disposition in task context distinguishes PARK from
-the unchanged packed-error return. Do not steal an `abc_status` value or reinterpret
-source result cells. Each entry initializes disposition to RETURNED; only a generated
-park exit sets PARKED. Scheduler reads it after entry returns.
+A backend-private out-of-band disposition distinguishes SERVICE (implemented) and
+PARK (task target) from the unchanged packed-error return. Do not steal an `abc_status`
+value or reinterpret source result cells. Each entry initializes RETURNED. A generated
+SERVICE boundary saves the current allocator-bound stack/register state and resumes
+after the committed primitive, never replaying it. Interpreter service exits publish
+canonical empty caches and the next PC. SERVICE is synchronous runtime work, not task
+suspension; it neither parks nor retains a suspended host stack. Only a generated
+park exit may set PARKED; the future scheduler reads it after entry returns.
 
 Task resume storage includes eight register slots and stack coordinates plus any
 accounted primitive operation frame. The allocator's existing physical mapping
@@ -437,8 +471,16 @@ reading poisoned inactive slots. Preserve existing capacity/error checks.
 
 Modify `abc_execution_image` to own immutable code/tape allocations, stable entry
 slots and preparation policy, not task stack addresses. Native lazy construction
-writes a fresh allocation, resolves labels, sets RX, then release-publishes an entry.
-Readers acquire entries; published bytes are never reopened writable. Keep allocations
+writes fresh private page allocations, resolves labels, sets RX, then release-publishes
+an atomic entry slot (implemented). Readers acquire entries; published bytes are never
+reopened writable. Fallthrough crosses allocation boundaries through ordinary jumps;
+stubs and bodies use separate construction regions. Preparation is serialized by an
+image mutex, never held during generated execution. A failed preparation closes new
+preparation for that image; previously published entries remain executable, including
+cleanup. A compiled-but-unpublished version cannot be rebound as a prepared operation.
+The emitter exposes regions and aggregate used/allocated bytes, not a fictitious
+contiguous image. Lazy page fragmentation is measured and currently substantial.
+Keep allocations
 until all execution-image holdings are gone. Shared inline observations need their
 own atomic state/target publication, not writes to bytecode. Threaded builds all tape
 entries eagerly and uses the same resume metadata/ownership contract.

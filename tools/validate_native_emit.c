@@ -15,7 +15,7 @@ static void expected_patch(uint8_t *out,const uint8_t *actual,const Reloc *r,uin
     if(r->kind==RPC32)bits-=(uintptr_t)(actual+r->off);
     for(unsigned byte=0;byte<width;byte++)out[r->off+byte]=(uint8_t)(bits>>(8*byte));
 }
-static uint64_t prepare(uint64_t state){return state;}
+static uint64_t prepare(uint64_t state,uint64_t *error){*error=0;return state;}
 static uint64_t resolve(uint64_t target,uint64_t pc,uintptr_t a,uintptr_t b,uintptr_t c,uint64_t *entry) {
     (void)pc;(void)a;(void)b;(void)c;*entry=target;return 0;
 }
@@ -23,6 +23,7 @@ static abc_status bridge(const abc_extern *ext,abc_foreign_address target,const 
     (void)ext;(void)target;(void)in;(void)out;return ABC_OK;
 }
 static void foreign_target(void) {}
+static uint64_t *bounds(unsigned stack){(void)stack;return NULL;}
 
 int main(void) {
     size_t maximum=0;
@@ -54,7 +55,7 @@ int main(void) {
             for(size_t i=s->len;i<maximum+16;i++)require(at[i]==0xa5,"trailing canary",f);
         }
     }
-    abc_extern ext={0};uint64_t end[1]={0};
+    abc_extern ext={0};
     const uint64_t error=ABC_ABORT|(UINT64_C(3)<<8)|(UINT64_C(0x12345678)<<16);
     for(unsigned f=0;f<ABC_FORM_COUNT;f++){
         const Stencil *s=&stencils[f];uint64_t values[8]={0};int specialized=1,ok=0;
@@ -69,8 +70,8 @@ int main(void) {
             values[HOLE_STATE]=(uintptr_t)&ext;values[HOLE_BIAS]=(uintptr_t)foreign_target;values[HOLE_ERROR]=error;
             ok=abc_native_emit_foreign(at,f,24,bridge,&ext,foreign_target,error);
         }else if(f>=ABC_FORM_GUARD_BASE&&f<ABC_FORM_GUARD_BASE+3){
-            values[HOLE_IMM]=513*8;values[HOLE_FINAL]=(uintptr_t)end;values[HOLE_ERROR]=error;
-            ok=abc_native_emit_guard(at,f-ABC_FORM_GUARD_BASE,513*8,end,error);
+            values[HOLE_IMM]=513*8;values[HOLE_FINAL]=(uintptr_t)bounds;values[HOLE_ERROR]=error;
+            ok=abc_native_emit_guard(at,f-ABC_FORM_GUARD_BASE,513*8,bounds,error);
         }else if(f==ABC_FORM_RESOLVE_INDIRECT){
             values[HOLE_IMM]=(uint64_t)(int64_t)-24;values[HOLE_BIAS]=40;values[HOLE_IMM2]=(uint64_t)(int64_t)-8;
             values[HOLE_STATE]=1234;values[HOLE_FINAL]=(uintptr_t)resolve;
@@ -78,9 +79,9 @@ int main(void) {
         }else if(f==ABC_FORM_LAZY_ENTRY){
             values[HOLE_STATE]=(uintptr_t)&ext;values[HOLE_FINAL]=(uintptr_t)prepare;
             ok=abc_native_emit_lazy(at,&ext,prepare);
-        }else if(f==ABC_FORM_JUMP){
-            values[HOLE_TAKEN]=(uintptr_t)(at+s->len-1);
-            ok=abc_native_activate_lazy(at,at+s->len-1);
+        }else if(f==ABC_FORM_SERVICE){
+            values[HOLE_IMM]=(uintptr_t)foreign_target;values[HOLE_STATE]=4321;
+            ok=abc_native_emit_service(at,(uintptr_t)foreign_target,4321);
         }else specialized=0;
         if(!specialized)continue;
         require(ok,"specialized emission",f);
@@ -96,7 +97,7 @@ int main(void) {
     require(!abc_native_emit_simple(at,ABC_FORM_COUNT,0,NULL),"invalid form",ABC_FORM_COUNT);
     require(!abc_native_emit_simple(at,ABC_FORM_JUMP,0,NULL),"missing target",ABC_FORM_JUMP);
     require(!abc_native_emit_copy(at,8,0,0,memmove),"invalid register",0);
-    require(!abc_native_emit_guard(at,3,0,end,0),"invalid stack",0);
+    require(!abc_native_emit_guard(at,3,0,bounds,0),"invalid stack",0);
     printf("native emitter: %u checks, %u forms x 4 payloads, specialized bindings and canaries pass\n",checks,ABC_FORM_COUNT);
     free(expected);free(allocation);return 0;
 }

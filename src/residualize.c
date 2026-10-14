@@ -35,7 +35,7 @@ typedef struct Compiler Compiler;
 struct Version { uint32_t pc; Context in; abc_exec_label entry,body; unsigned compiling,compiled; Compiler *owner; Version *next; };
 typedef abc_exec_label Fixup;
 struct Compiler {
-    const abc_module *module; const abc_vm *vm; uint8_t *image_base; uint64_t *stack_end[3];
+    const abc_module *module; const abc_vm *vm; uint8_t *image_base;
     abc_exec_emitter *emitter;
     Version **versions, **function_entries; uint8_t *block, *recursive;
     Version **queue; size_t nq, qhead, qcap, virtual_calls, virtual_returns, virtual_tails, real_calls;
@@ -67,7 +67,12 @@ static abc_status lazy_prepare(void *state,abc_error *error);
 static int place_fcall(Compiler *c,unsigned id,uint32_t abase,const abc_extern *ext,abc_foreign_address target,uint64_t error) {
     abc_foreign_bridge_fn bridge=abc_primitive_index(ext->name)>=0?abc_runtime_invoke:abc_foreign_select(ext);
     const abc_exec_operands operands={.value={(uint64_t)abase*8,(uintptr_t)bridge,(uintptr_t)ext,(uintptr_t)target,error},.target=ABC_EXEC_NO_LABEL};
-    return emit_form(c,id,&operands);
+    if(!emit_form(c,id,&operands))return 0;
+    if(abc_primitive_index(ext->name)>=0) {
+        const abc_exec_operands service={.value={(uintptr_t)abc_execution_service,error>>16},.target=ABC_EXEC_NO_LABEL};
+        return emit_form(c,ABC_FORM_SERVICE,&service);
+    }
+    return 1;
 }
 /* Rebase is frame transport, independent of the following transfer. Zero
    movement emits nothing; each nonzero movement carries one displacement in bytes. */
@@ -79,7 +84,7 @@ static int rebase_frame(Compiler *c,int64_t a,int64_t b,int64_t frame) {
     return 1;
 }
 static int place_guard(Compiler *c,unsigned stack,uint32_t cells,uint64_t error) {
-    const abc_exec_operands operands={.value={(uint64_t)cells*8,(uintptr_t)c->stack_end[stack],error},.target=ABC_EXEC_NO_LABEL};
+    const abc_exec_operands operands={.value={(uint64_t)cells*8,(uintptr_t)abc_execution_limit,error},.target=ABC_EXEC_NO_LABEL};
     return emit_form(c,ABC_FORM_GUARD(stack),&operands);
 }
 /* Frontiers are signed coordinates relative to the unchanged physical base.
@@ -88,7 +93,7 @@ static int ensure_capacity(Compiler *c,Context *x,unsigned stack,int64_t cells,u
     if(cells<=(int64_t)x->limit[stack]) return 1;
     /* Every physical base lies within its VM stack. An impossible positive
        request must fail on execution, without narrowing or inventing knowledge. */
-    if((uint64_t)cells>c->vm->capacity)return place(c,ABC_FORM_ABORT,error,NULL);
+    if((uint64_t)cells>ABC_MAX_FILE)return place(c,ABC_FORM_ABORT,error,NULL);
     _Static_assert(ABC_MAX_FILE<=INT32_MAX/8,"capacity must fit native byte displacement");
     if(!place_guard(c,stack,(uint32_t)cells,error)) return 0;
     x->limit[stack]=(uint32_t)cells; return 1;
@@ -97,12 +102,12 @@ static int ensure_capacity(Compiler *c,Context *x,unsigned stack,int64_t cells,u
    before forming out-of-bounds C pointers or writing the new argument frame. */
 static uint64_t resolve_execution_target(uint64_t target,uint64_t pc,
         uintptr_t a,uintptr_t b,uintptr_t c,uint64_t *entry) {
-    abc_run *run=abc_active_run;uint32_t index;
+    abc_exec_context *run=abc_active_context;uint32_t index;
     abc_status status=vm_resolve_indirect(run,(uint32_t)pc,target,&index);
     if(status!=ABC_OK)return (uint64_t)status|(pc<<16);
     const abc_function *function=&run->m->functions[index];
     const abc_execution_image *image=run->image->execution;
-    uintptr_t ae=(uintptr_t)image->stack_end[JS_A],be=(uintptr_t)image->stack_end[JS_B],ce=(uintptr_t)image->stack_end[JS_C];
+    uintptr_t ae=(uintptr_t)abc_execution_limit(JS_A),be=(uintptr_t)abc_execution_limit(JS_B),ce=(uintptr_t)abc_execution_limit(JS_C);
     if(a>ae||b>be||c>ce||function->max_a>(ae-a)/8||function->max_b>(be-b)/8||
        function->max_c-function->arguments>(ce-c)/8)return (uint64_t)ABC_STACK|(pc<<16);
     *entry=(uint64_t)(uintptr_t)image->entries[index];return ABC_OK;
@@ -467,8 +472,28 @@ static abc_status lazy_prepare(void *state,abc_error *error){
     Version *v=state;Compiler *c=v->owner;c->error=error;c->status=ABC_OK;c->current_pc=v->pc;
     if(v->compiled)return ABC_OK;
     if(!compile_version(c,v)&&c->status==ABC_OK)c->status=abc_fail(error,ABC_INVALID,v->pc,"lazy block compilation failed");
-    if(c->status==ABC_OK){abc_exec_storage storage=c->emitter->ops->storage(c->emitter);c->image->compiled_versions++;c->image->code_size=storage.body_bytes;c->image->virtual_calls=c->virtual_calls;c->image->virtual_returns=c->virtual_returns;c->image->virtual_tails=c->virtual_tails;c->image->real_calls=c->real_calls;}
+    if(c->status==ABC_OK){abc_exec_storage storage=c->emitter->ops->storage(c->emitter);c->image->compiled_versions++;c->image->code_size=storage.body_bytes;c->image->storage_size=storage.allocation_bytes;c->image->virtual_calls=c->virtual_calls;c->image->virtual_returns=c->virtual_returns;c->image->virtual_tails=c->virtual_tails;c->image->real_calls=c->real_calls;}
     return c->status;
+}
+abc_status abc_execution_prepare_holding(abc_execution_image *image,unsigned function,abc_error *error) {
+    if(!image||!image->lazy)return ABC_OK;
+    Compiler *c=image->lazy_state;const abc_function *fn=&c->module->functions[function];
+    /* Holding entries are call-free ABC except for whitelisted leaf primitives.
+     * Prepare every version, including untaken branches, before owner publication. */
+    int changed;
+    do {
+        changed=0;
+        for(uint32_t pc=fn->entry;pc<fn->end;pc+=abc_instruction_length(c->module->code+pc))
+            for(Version *v=c->versions[pc];v;v=v->next) {
+                int pending=!v->compiled;
+                /* Compilation is not publication: a failed RX seal may leave
+                 * a compiled version whose entry was never published. */
+                abc_status status=c->emitter->ops->prepare_entry(c->emitter,v->entry,error);
+                if(status!=ABC_OK)return status;
+                changed|=pending;
+            }
+    }while(changed);
+    return ABC_OK;
 }
 static int emit_jump(Compiler *c,Version *target) { return target && place(c,ABC_FORM_JUMP,0,target); }
 
@@ -812,7 +837,6 @@ void abc_execution_image_free(abc_execution_image *image) {
 abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const abc_vm *vm,abc_execution_mode mode,abc_execution_image **out,abc_error *e) {
     abc_clear(e); if(out) *out=NULL; if(!m||!vm||!out||(mode!=ABC_EXEC_COMPILED&&mode!=ABC_EXEC_LAZY&&mode!=ABC_EXEC_THREADED)) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid residualizer input");
     Compiler c={0}; c.module=m; c.vm=vm; c.image_base=image_base; c.error=e; c.status=ABC_OK;c.lazy=mode==ABC_EXEC_LAZY;
-    c.stack_end[JS_A]=vm->a+vm->capacity; c.stack_end[JS_B]=vm->b+vm->capacity; c.stack_end[JS_C]=vm->c+vm->capacity;
     c.block=calloc(m->code_size,1); c.versions=calloc(m->code_size,sizeof *c.versions); c.function_entries=calloc(m->function_count,sizeof *c.function_entries); c.recursive=calloc(m->function_count,1);
     if(!c.block||!c.versions||!c.function_entries||!c.recursive){free_preparation(&c);return abc_fail(e,ABC_NOMEM,UINT32_MAX,"residualizer allocation failed");}
     c.status=mode==ABC_EXEC_THREADED?abc_threaded_emitter_create(&c.emitter,e):abc_native_emitter_create(m->code_size,&c.emitter,e);
@@ -839,8 +863,7 @@ abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const 
     if(c.status==ABC_OK) { image=calloc(1,sizeof *image); if(!image) c.status=abc_fail(e,ABC_NOMEM,UINT32_MAX,"native image allocation failed"); }
     if(c.status==ABC_OK) {
         abc_exec_storage storage=c.emitter->ops->storage(c.emitter);
-        image->emitter=c.emitter;image->code=storage.base;image->code_size=storage.body_bytes;image->storage_size=storage.allocation_bytes;image->entries=entries;image->lazy=c.lazy;
-        image->stack_end[JS_A]=c.stack_end[JS_A]; image->stack_end[JS_B]=c.stack_end[JS_B]; image->stack_end[JS_C]=c.stack_end[JS_C];
+        image->emitter=c.emitter;image->code_size=storage.body_bytes;image->storage_size=storage.allocation_bytes;image->entries=entries;image->lazy=c.lazy;
         image->virtual_calls=c.virtual_calls; image->virtual_returns=c.virtual_returns; image->virtual_tails=c.virtual_tails; image->real_calls=c.real_calls;image->compiled_versions=c.qhead;
         for(uint32_t f=0;f<m->function_count;f++)image->entries[f]=(void *)c.emitter->ops->address(c.emitter,c.function_entries[f]->entry);
         if(c.lazy){Compiler *saved=malloc(sizeof *saved);if(!saved)c.status=abc_fail(e,ABC_NOMEM,UINT32_MAX,"lazy compiler state allocation failed");else{*saved=c;saved->image=image;image->lazy_state=saved;for(size_t pc=0;pc<m->code_size;pc++)for(Version *v=saved->versions[pc];v;v=v->next)v->owner=saved;}}

@@ -11,7 +11,8 @@ static void fail(const char *what,const abc_error *e) {
 
 /* Enter each exact cache state with both backing cells and nonzero dead ABI
  * arguments. The logical-stack oracle never reads the register representation. */
-static void validate_dead_arguments(abc_vm *vm) {
+static void validate_dead_arguments(abc_vm *session) {
+    abc_exec_context *vm=&session->root;
     static const uint8_t ops[]={OP_ADD_A,OP_ADD_B,OP_MUL_A,OP_XOR_B,
         OP_DUP_A,OP_DROP_A,OP_CPUSH_A,OP_CPOP,OP_MOVE_A,OP_COPY_B,
         OP_CGET0_A,OP_CSET0_A,OP_DIVU_A,OP_SHL_A,OP_POW_A,
@@ -66,16 +67,15 @@ static void validate_dead_arguments(abc_vm *vm) {
         }
         uint8_t code[3]={ops[op],OP_HALT_A,OP_HALT_A};
         if(ops[op]==OP_EXT_A||ops[op]==OP_EXT_B)code[1]=(uint8_t)(op<sizeof ops/sizeof *ops-2?EXT_F2BITS:EXT_BITS2F);
-        abc_error e={0};
-        abc_run run={.v=vm,.code=code,.e=&e};
-        abc_run *previous=abc_active_run;abc_active_run=&run;
+        vm->error=(abc_error){0};vm->code=code;vm->done=0;
+        abc_exec_context *previous=abc_active_context;abc_active_context=vm;
         unsigned state=(ca*5+cb)*4+cc;
         abc_status status=(abc_status)abc_tables[state][code[0]](
             code,vm->a+2,vm->b+2,vm->c+2,vm->h[0],vm->h[1],vm->h[2],vm->h[3],
             vm->cr[0],vm->cr[1],vm->cr[2]);
-        abc_active_run=previous;
-        if(status!=ABC_OK) fail("dead ABI arguments",&e);
-        if(!run.done||vm->ca||vm->cb||vm->cc||vm->na!=na||vm->nb!=nb||vm->nc!=nc||
+        abc_active_context=previous;
+        if(status!=ABC_OK) fail("dead ABI arguments",&vm->error);
+        if(!vm->done||vm->ca||vm->cb||vm->cc||vm->na!=na||vm->nb!=nb||vm->nc!=nc||
            memcmp(vm->a,a,na*sizeof *a)||memcmp(vm->b,b,nb*sizeof *b)||memcmp(vm->c,c,nc*sizeof *c)) {
             fprintf(stderr,"dead ABI argument mismatch: state=(%u,%u,%u) op=%u pattern=%u\n",ca,cb,cc,ops[op],pattern);
             exit(1);
@@ -100,8 +100,8 @@ int main(int argc,char **argv) {
         for(unsigned i=0;i<count;i++) if(fscanf(f,"%" SCNu64,&expected[i])!=1) { fprintf(stderr,"truncated oracle\n"); return 1; }
         for(unsigned pass=0;pass<2;pass++) {
             /* Repeated public instructions must ignore dead register values. */
-            for(unsigned i=0;i<4;i++) vm->h[i]=UINT64_MAX-i-pass;
-            for(unsigned i=0;i<3;i++) vm->cr[i]=UINT64_MAX-i-pass-4;
+            for(unsigned i=0;i<4;i++) vm->root.h[i]=UINT64_MAX-i-pass;
+            for(unsigned i=0;i<3;i++) vm->root.cr[i]=UINT64_MAX-i-pass-4;
             size_t got=0; abc_status s=abc_vm_call(vm,m,name,NULL,0,actual,32,&got,&e);
             if(s!=ABC_OK) fail(name,&e);
             if(got!=count || memcmp(actual,expected,count*sizeof *actual)) {

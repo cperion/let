@@ -1,10 +1,9 @@
 #ifndef ABC_VM_INTERNAL_H
 #define ABC_VM_INTERNAL_H
 #include "internal.h"
-#include "owner.h"
+#include "execution_context.h"
 #include <math.h>
 
-typedef struct { uint32_t return_pc; unsigned result_destination_stack; } abc_frame;
 typedef struct { uint32_t entry,max_a,max_b,max_c; } abc_call_info;
 typedef struct abc_foreign_binding { char *name; abc_foreign_address address; struct abc_foreign_binding *next; } abc_foreign_binding;
 typedef struct abc_image {
@@ -13,30 +12,27 @@ typedef struct abc_image {
     abc_call_info *call_info; size_t bytes_mapping_size; uint64_t transitions;
     abc_foreign_address *foreign; abc_foreign_bridge_fn *foreign_bridges;
     struct abc_execution_image *execution;
+    abc_type_ops *type_ops;
     struct abc_image *next;
 } abc_image;
 struct abc_vm {
-    uint64_t *a, *b, *c; size_t na, nb, nc, capacity, nf;
-    uint64_t h[4], cr[3]; unsigned ca, cb, cc;
-    abc_frame *frames; abc_execution_mode mode; abc_image *images;
+    abc_exec_context root;
+    abc_worker worker;
+    abc_execution_mode mode; abc_image *images;
     abc_foreign_binding *foreign_bindings;
-    abc_owner_context owners;
     unsigned executing;
 };
-typedef struct {
-    abc_vm *v; const abc_module *m; abc_image *image; const uint8_t *code;
-    abc_error *e; uint32_t pc; unsigned done;
-} abc_run;
-
-extern _Thread_local abc_run *abc_active_run;
-abc_status vm_resolve_indirect(abc_run *run, uint32_t pc, uint64_t target, uint32_t *callee_index);
-abc_status vm_foreign(abc_run *run, unsigned extern_index, unsigned selected_stack, uint32_t pc);
+abc_status vm_resolve_indirect(abc_exec_context *run, uint32_t pc, uint64_t target, uint32_t *callee_index);
+abc_status vm_foreign(abc_exec_context *run, unsigned extern_index, unsigned selected_stack, uint32_t pc);
 abc_foreign_address abc_foreign_lookup(const abc_vm *vm,const char *name);
-size_t vm_depth(const abc_vm *v,char stack);
-uint64_t *vm_at(abc_vm *v,char stack,size_t depth);
-void vm_push(abc_vm *v,char stack,uint64_t value);
-uint64_t vm_pop(abc_vm *v,char stack);
-void vm_publish_all(abc_vm *v);
+abc_status abc_context_reserve(abc_exec_context *,size_t,abc_error *);
+abc_status abc_type_bind(abc_exec_context *,size_t,size_t,unsigned,uint64_t,uint64_t,const abc_type_ops **);
+abc_status abc_type_publish(abc_exec_context *);
+size_t vm_depth(const abc_exec_context *v,char stack);
+uint64_t *vm_at(abc_exec_context *v,char stack,size_t depth);
+void vm_push(abc_exec_context *v,char stack,uint64_t value);
+uint64_t vm_pop(abc_exec_context *v,char stack);
+void vm_publish_all(abc_exec_context *v);
 uint64_t vm_sar(uint64_t x,uint64_t n);
 uint64_t vm_pow(uint64_t x,uint64_t n);
 int32_t abc_i32_from_u64(uint64_t x);

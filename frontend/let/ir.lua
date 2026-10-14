@@ -42,6 +42,7 @@ end
 function Ir.Const:each(fn) end
 function Ir.Ref:each(fn) end
 function Ir.Null:each(fn) end
+function Ir.Code:each(fn) end
 function Ir.Un:each(fn) fn(self.operand) end
 function Ir.Bin:each(fn)
     fn(self.left)

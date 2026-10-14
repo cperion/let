@@ -1,0 +1,19 @@
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_lifetime.c build/libabc.a -lm -o build/validate-lifetime
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict tools/validate_optimizer_foreign.c build/libabc.a -lm -lpthread -o build/validate-optimizer-foreign
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict tools/validate_api.c build/libabc.a -o build/validate-api
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_cache.c build/libabc.a -o build/validate-cache
+tools/validate_cache.c:103:43: error: no member named 'h' in 'struct abc_vm'
+  103 |             for(unsigned i=0;i<4;i++) vm->h[i]=UINT64_MAX-i-pass;
+      |                                       ~~  ^
+tools/validate_cache.c:104:43: error: no member named 'cr' in 'struct abc_vm'
+  104 |             for(unsigned i=0;i<3;i++) vm->cr[i]=UINT64_MAX-i-pass-4;
+      |                                       ~~  ^
+2 errors generated.
+make: *** [Makefile:163: build/validate-cache] Error 1
+make: *** Waiting for unfinished jobs....
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)
+generated runtime holdings: 36 checks, 32 VM executions; both-bank raw/optimized images
+build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc build/runtime-owners-reentry.abc
+generated holding runtime: 1434 checks; non-parking resumes, 100001-owner graphs, both banks/four modes/raw+optimized, no release allocations

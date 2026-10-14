@@ -1,0 +1,6 @@
+luajit: tests/runtime_owners.lua:48: attempt to call method 'null' (a nil value)
+stack traceback:
+	tests/runtime_owners.lua:48: in function 'emit'
+	tests/runtime_owners.lua:13: in function 'build'
+	tests/runtime_owners.lua:46: in main chunk
+	[C]: at 0x5e9101db8120

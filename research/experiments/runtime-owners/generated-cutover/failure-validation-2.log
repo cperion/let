@@ -1,0 +1,17 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owners.c build/libabc.a -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=mprotect -lm -lpthread -o build/validate-owners
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+luajit: ./let/../../gen/type_ops.lua:33: bad argument #1 to 'Ty.Ptr' expected 'Ty.V' but found 'nil'
+stack traceback:
+	[C]: in function 'error'
+	./vendor/asdl.lua:261: in function 'reporterr'
+	./vendor/asdl.lua:295: in function 'Ptr'
+	./let/../../gen/type_ops.lua:33: in function 'emit'
+	./let/../../gen/type_ops.lua:21: in function 'function_'
+	./let/../../gen/type_ops.lua:30: in function 'generate'
+	./let/lifetime.lua:35: in function 'typeOps'
+	./let/lifetime.lua:43: in function 'allocate'
+	tests/runtime_owners.lua:73: in function 'emit'
+	tests/runtime_owners.lua:13: in function 'build'
+	tests/runtime_owners.lua:71: in main chunk
+	[C]: at 0x580b625af120
+make: *** [Makefile:146: validate-owner-runtime] Error 1

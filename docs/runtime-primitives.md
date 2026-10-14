@@ -1,11 +1,12 @@
 # Runtime primitives and resumable execution
 
-**Status: approved baseline; initial owner/runtime-call binding implemented, general
-source lifetimes and other primitive families pending.** This records
+**Status: approved baseline; generated owner/holding calls, non-parking SERVICE and
+immutable native publication partially implemented; general source lifetimes and
+other primitive families pending.** This records
 the selected data structures and algorithms for the collector-free runtime and tasks.
 Private interface bindings, concrete fields/signatures and lock/state protocols are
 specified in [runtime-interfaces.md](runtime-interfaces.md); file-by-file changes are
-in [implementation-map.md](implementation-map.md). The initial private ABI and its
+in [implementation-map.md](implementation-map.md). The current private v2 ABI and its
 qualified costs are recorded in runtime-interfaces §1.1 and WORKLIST E01/E02/O04–O08;
 this is not a completed runtime/concurrency or source-ownership implementation. Changes to
 these choices require discussion, not an undocumented alternate implementation.

@@ -33,7 +33,7 @@ The build generates a finite C-ABI bridge for every permitted integer/float regi
 Ordinary foreign calls are host effects: the host function is responsible for pointer validity, termination and side effects. The in-process staging service prohibits arbitrary foreign execution; leaving host externs unbound rejects preparation of a module that declares them. Supporting runtime foreign calls does not authorize compile-time host effects.
 
 The private `__let_rt_` namespace is reserved for catalog-generated runtime bindings,
-currently version `__let_rt_v1_`. These use the same extern cells and FCALL transport,
+currently version `__let_rt_v2_` (transitional v1 is rejected; rebuild its modules). These use the same extern cells and FCALL transport,
 not a new ownership ISA. Module loading rejects unknown reserved names or mismatched
 signatures; host rebinding and source `extern` declarations of those names reject.
 Exact catalog operations are available during staging through the VM runtime, not

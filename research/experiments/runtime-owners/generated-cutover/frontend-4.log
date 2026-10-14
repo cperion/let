@@ -1,0 +1,7 @@
+luajit: REJECT [lower-duplicate] Duplicate foreign __let_rt_v2_owner_hold
+stack traceback:
+	[C]: in function 'error'
+	./let/diag.lua:20: in function 'reject'
+	./let/abc.lua:919: in function 'lower'
+	tests/runtime_owners.lua:85: in main chunk
+	[C]: at 0x5f9f79739120

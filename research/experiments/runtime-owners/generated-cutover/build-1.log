@@ -1,0 +1,29 @@
+/tmp/lua-compat tools/gen_runtime_primitives.lua build/generated
+/tmp/lua-compat gen/banked.lua build/generated
+/tmp/lua-compat gen/cold.lua build/generated/cold.inc
+/tmp/lua-compat gen/execution_layout.lua build/generated/execution_forms.h
+/tmp/lua-compat gen/stencils.lua build/generated
+/tmp/lua-compat gen/threaded.lua build/generated/threaded.c
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/owner.c -o build/owner.o
+generated 3771 register-addressed stencils
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/runtime_call.c -o build/runtime_call.o
+generated 2951 seven-register threaded handlers
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/type_ops.c -o build/type_ops.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/runtime_primitives.c -o build/generated/runtime_primitives.o
+src/type_ops.c:14:59: error: use of undeclared identifier 'K_CALLI'; did you mean 'K_CALL'?
+   14 |         if(op->kind==K_CALL||op->kind==K_TCALL||op->kind==K_CALLI||op->kind==K_TCALLI||op->kind==K_ABORT||op->kind==K_HALT)
+      |                                                           ^~~~~~~
+      |                                                           K_CALL
+build/opcodes.h:437:5: note: 'K_CALL' declared here
+  437 |     K_CALL = 2,
+      |     ^
+src/type_ops.c:14:78: error: use of undeclared identifier 'K_TCALLI'; did you mean 'K_TCALL'?
+   14 |         if(op->kind==K_CALL||op->kind==K_TCALL||op->kind==K_CALLI||op->kind==K_TCALLI||op->kind==K_ABORT||op->kind==K_HALT)
+      |                                                                              ^~~~~~~~
+      |                                                                              K_TCALL
+build/opcodes.h:444:5: note: 'K_TCALL' declared here
+  444 |     K_TCALL = 9,
+      |     ^
+2 errors generated.
+make: *** [Makefile:79: build/type_ops.o] Error 1
+make: *** Waiting for unfinished jobs....

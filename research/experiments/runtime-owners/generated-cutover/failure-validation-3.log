@@ -1,0 +1,4 @@
+cd frontend && /tmp/lua-compat tests/runtime_owners.lua
+generated runtime holdings: 36 checks, 32 VM executions; both-bank raw/optimized images
+build/validate-owners build/runtime-owners-a.abc build/runtime-owners-b.abc build/runtime-owners-a-opt.abc build/runtime-owners-b-opt.abc build/runtime-owners-reentry.abc
+generated holding runtime: 2390 checks; non-parking resumes, 100001-owner graphs, both banks/four modes/raw+optimized, no release allocations

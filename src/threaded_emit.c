@@ -60,7 +60,11 @@ static uintptr_t address(const abc_exec_emitter *emitter,abc_exec_label label) {
 }
 static abc_exec_storage storage(const abc_exec_emitter *emitter) {
     const ThreadImage *t=(const ThreadImage *)emitter;
-    return (abc_exec_storage){(uint8_t *)t->code,t->count*sizeof *t->code,t->capacity*sizeof *t->code};
+    return (abc_exec_storage){t->count*sizeof *t->code,t->capacity*sizeof *t->code,1};
+}
+static abc_exec_region region(const abc_exec_emitter *emitter,size_t index) {
+    const ThreadImage *t=(const ThreadImage *)emitter;
+    return index?(abc_exec_region){0}:(abc_exec_region){(const uint8_t *)t->code,t->count*sizeof *t->code,t->capacity*sizeof *t->code};
 }
 static void discard_preparation(abc_exec_emitter *emitter) {
     ThreadImage *t=(ThreadImage *)emitter;
@@ -71,11 +75,14 @@ static void destroy(abc_exec_emitter *emitter) {
     if(!emitter)return;ThreadImage *t=(ThreadImage *)emitter;
     discard_preparation(emitter);free(t->code);free(t);
 }
-static uint64_t enter(const abc_exec_emitter *emitter,uintptr_t entry,uint64_t *a,uint64_t *b,uint64_t *c) {
-    (void)emitter;const abc_thread_word *ip=(const abc_thread_word *)entry;
-    return ip[0].handler(ip,a,b,c,0,0,0,0,0,0,0);
+static abc_exec_exit enter(const abc_exec_emitter *emitter,abc_exec_context *context,const abc_resume_state *state) {
+    (void)emitter;const abc_thread_word *ip=(const abc_thread_word *)state->entry;
+    const uint64_t *r=state->value_register;
+    context->disposition=ABC_EXEC_RETURNED;
+    uint64_t result=ip[0].handler(ip,state->stack[0],state->stack[1],state->stack[2],r[0],r[1],r[2],r[3],r[4],r[5],r[6]);
+    return (abc_exec_exit){context->disposition,result};
 }
-static const abc_exec_emitter_ops ops={new_label,bind_label,emit,NULL,publish,address,storage,discard_preparation,destroy,enter};
+static const abc_exec_emitter_ops ops={new_label,bind_label,emit,NULL,publish,address,storage,discard_preparation,destroy,enter,NULL,region};
 abc_status abc_threaded_emitter_create(abc_exec_emitter **out,abc_error *error) {
     *out=NULL;ThreadImage *t=calloc(1,sizeof *t);
     if(!t)return abc_fail(error,ABC_NOMEM,UINT32_MAX,"threaded emitter allocation failed");

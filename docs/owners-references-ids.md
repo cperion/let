@@ -1,11 +1,13 @@
 # Owners, references and ids
 
-**Status: approved collector-free design; qualified source inference and initial
-runtime owner/call/cleanup binding implemented; source counted placement pending.**
+**Status: approved collector-free design; qualified source inference and generated
+runtime holding/service binding implemented; source counted placement pending.**
 This is the ownership target for one Let language, replacing the tracing-GC target.
 WORKLIST O03 records formal/fresh-root, borrow/count/strict-edge inference; E01/E02
 and O04–O08 record the subsequent runtime binding. Explicit checked-IR fixtures now
-execute allocation, retain/move/release and failure cleanup in all four modes.
+execute allocation, retain/move, generated holding copy/release and failure cleanup
+in all four modes, using reserved worker cleanup storage. See runtime-interfaces §1.1
+and the generated-cutover evidence for the exact admission and costs.
 General source owning layouts and placement, containers and tasks are not implemented;
 the source checkpoint still rejects inferred counted escapes. Examples below remain target-language examples unless
 explicitly qualified by the worklist.
@@ -615,9 +617,10 @@ reopen them. Remaining binding/qualification and genuinely open interfaces inclu
 
 - broader inference/generalization and stable separate-compilation summary format
   beyond the implemented private source binding (runtime-interfaces §9);
-- extend the initial checked-IR runtime binding to source placement and all aggregate/
-  callable/module holdings; qualify broader failure/partial-construction, shared memory
-  orders and foreign teardown beyond the tested initial owner primitives;
+- connect the generated checked-IR runtime binding to source placement and all aggregate/
+  callable/module holdings, variants and initialized-element loops; qualify broader
+  failure/partial-construction, shared memory orders and foreign teardown beyond
+  the tested physical-layout clients;
 - counted/reference/callable export ABI, raw-pointer capability boundary and dynamic
   encoding/profile revision (foreign code cannot be made safe by a documentation claim);
 - exact copy-out and iteration mutation semantics, empty text/pattern cases, position

@@ -51,18 +51,21 @@ New tests: `frontend/tests/source_demands.lua`, `source_snapshots.lua`; wire the
 | IDs | Existing files | New files / concrete responsibility |
 | --- | --- | --- |
 | E01 | `tools/opcodes.lua`, `tools/gen_opcodes.lua`, `gen/semantics.lua`, `gen/banked.lua`, `gen/symbolic.lua`, `frontend/let/abc.lua`, `src/verify.c`, `Makefile` | `gen/runtime_primitives.lua`: authoritative effect/holding/layout catalog; generated `build/generated/runtime_primitives.h` and frontend metadata, never hand-edited |
-| E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`, `src/type_ops.h`, `gen/type_ops.lua`: initial owner/count/iterative release implemented; `src/runtime_call.h/.c` binds catalog calls to the current VM. `frontend/let/runtime.lua`/`lifetime.lua` emit checked-IR calls and explicit holding slots; source placement/general owning layouts remain rejected, not silently lowered |
-| E03, T03–T04 | `src/execution_emit.h`, `src/residualize.c/.h`, `src/symbolic.c/.h`, `src/vm.c`, `src/vm_internal.h`, `src/threaded.h`, `src/threaded_emit.c`, `src/native_image.c`, `gen/banked.lua`, `gen/cold.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `gen/execution_forms.lua` | `src/task.h/.c`: task-owned state; extend emitter entry/resume contract, generate save/restore from existing placement, remove task stack addresses from shared image constants |
+| E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`, `src/type_ops.h/.c`, `gen/type_ops.lua`: counts/initialized prefixes/intrusive queue and image-bound ordinary checked-IR copy/release implemented; no fixed C layout registry. `src/runtime_call.h/.c` binds catalog calls to the current persistent context. `frontend/let/runtime.lua`/`lifetime.lua` emit checked-IR calls and explicit holding slots; source placement/general owning layouts remain rejected, not silently lowered |
+| E03, T03–T04 | `src/execution_emit.h`, `src/residualize.c/.h`, `src/symbolic.c/.h`, `src/vm.c`, `src/vm_internal.h`, `src/threaded.h`, `src/threaded_emit.c`, `src/native_image.c`, `gen/banked.lua`, `gen/cold.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `gen/execution_forms.lua` | `src/execution_context.h`: persistent root/worker cleanup state, RETURNED/SERVICE and physical save/resume implemented; bounds come from context. `src/task.h/.c` and PARK/task scheduling remain pending |
 | E04 | same E03 bindings plus P/T files below | Exact ticket/state/lock protocol in `task.c`, `channel.c`, `task_select.c`, `scheduler.c`; no generic concurrency facade |
-| E05 | `src/native_image.c`, `src/native_emit.c/.h`, `src/execution_emit.h`, `src/residualize.c/.h`, `src/vm.c` | Immutable per-realization publication/entry slots; remove whole-image lazy RW/RX reopening. Preserve emitter-owned relocations/W^X |
+| E05 | `src/native_image.c`, `src/native_emit.c/.h`, `src/execution_emit.h`, `src/residualize.c/.h`, `src/vm.c` | Fresh-page RX publication/atomic entry slots implemented; published bytes never reopen RW. Emitter region diagnostics replace contiguous-code views. Qualify fragmentation and broader image sharing/lifetime |
 | E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | New `tools/validate_owners.c`, `tools/validate_task_resume.c`; integrate typed owner/suspension fixtures across modes |
 | O01–O03 | `frontend/let/semantic.lua`, `source_state.lua`, `analysis.lua`, `access.lua`, `check.lua`, `frontend/ir.asdl`, generated `schema/ir.lua`; S metadata above | `frontend/let/ownership.lua` now implements the qualified source-only formal/fresh-root, borrow/count/edge binding and iterative SCC diagnostics; `frontend/tests/ownership.lua` covers that inference. Broader generalization/export contracts and counted execution remain incomplete; see WORKLIST O03 |
 
-Initial runtime evidence: `frontend/tests/runtime_owners.lua`, `tools/validate_owners.c`
-and `research/experiments/runtime-owners/README.md`. The generator emits concrete
-release for its three admitted descriptors; no generic type-plan interpreter exists.
-Container/task operations, source-specialized descriptors, source placement and
-worker/task context separation remain pending. Existing ISA kinds/encodings and
+Current runtime evidence: `frontend/tests/runtime_owners.lua`, `tools/validate_owners.c`
+and `research/experiments/runtime-owners/generated-cutover/README.md`; the parent
+README preserves historical v1 evidence. The current generator emits checked IR from
+client-selected payload types/owning offsets; binding prepares all release branches
+and reserves independent cleanup storage before descriptor publication. No generic
+runtime type-plan interpreter exists. Source representation/layout producers,
+variants/element loops, container/task operations, placement and the full shared
+runtime/migratable-task split remain pending. Existing ISA kinds/encodings and
 shared symbolic allocator are unchanged by this binding.
 
 `src/dynamic.c`, `src/dynamic.h`, `src/whippet_types.h` and archived tracing engines
