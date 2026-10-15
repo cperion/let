@@ -508,9 +508,11 @@ function Function:expr(expr, stack)
         return
     end
     if kind=="Addr" then self:address(expr.place,expr,stack);return end
-    if kind=='Code' then
-        self:instruction('.loadkind addr',expr);self:instruction('GLD64.'..stack..' '..assert(self.constants.codes[expr.entry]),expr);return
+    if kind=='Code' or kind=='CEntry' then
+        local entries=kind=='Code' and self.constants.codes or self.constants.cEntries
+        self:instruction('.loadkind addr',expr);self:instruction('GLD64.'..stack..' '..assert(entries[expr.entry]),expr);return
     end
+    if kind=='Callable' then self:expr(expr.code,stack);self:expr(expr.environment,stack);return end
     if kind=="Null" then self:instruction(".loadkind addr",expr);self:instruction("GLD64."..stack.." 0",expr);return end
     if kind=="Make" and (expr.type:isSlice() or expr.type:isRecord() or expr.type:isArray()) then for _,field in ipairs(expr.fields) do self:expr(field,stack) end;return end
     if kind=="SliceLength" then
@@ -529,29 +531,32 @@ function Function:expr(expr, stack)
         return
     end
     if kind == "Get" then
-        local aggregate=expr.aggregate
-        if aggregate.kind=="Ref" and self.aggregates[aggregate.value.id] then aggregate=self.aggregates[aggregate.value.id] end
-        local element=expr.field.kind=='Element'
-        local ordinal=element and expr.field.index+1 or nil
-        if not ordinal then for index,field in ipairs(aggregate.type.fields) do if field.name==expr.field.name then ordinal=index;break end end end
-        if aggregate.kind=="Make" then return self:expr(aggregate.fields[ordinal],stack) end
-        if aggregate.kind=="Ref" then
-            local holder=self.valueSlots[aggregate.value.id]
-            if holder and holder.cells then
-                local first=1
-                for fieldIndex=1,ordinal do
-                    local ty=element and aggregate.type.element or aggregate.type.fields[fieldIndex].type
-                    local parts=self.physical:valueComponents(ty)
-                    if parts==false then unsupported('Get component representation') end
-                    if fieldIndex==ordinal then
-                        for index=first,first+#parts-1 do self:instruction("CGET."..stack.." "..self:depth(holder.cells[index]),expr) end
-                        return
-                    end
-                    first=first+#parts
-                end
+        local aggregate=expr;local path={}
+        while aggregate.kind=='Get' do table.insert(path,1,aggregate.field);aggregate=aggregate.aggregate end
+        if aggregate.kind=='Ref' and self.aggregates[aggregate.value.id] then aggregate=self.aggregates[aggregate.value.id] end
+        local ty=aggregate.type;local first,offset=1,0
+        for _,selector in ipairs(path) do
+            local item=self.physical:layout(ty);local ordinal=selector.kind=='Element' and selector.index+1 or nil
+            if not ordinal then for index,f in ipairs(ty.fields) do if f.name==selector.name then ordinal=index;break end end end
+            if not ordinal then D.bug('lower-get','Missing physical projection field') end
+            local selected=selector.kind=='Element' and ty.element or ty.fields[ordinal].type
+            if aggregate.kind=='Make' then aggregate=aggregate.fields[ordinal];first,offset=1,0
+            else
+                for index=1,ordinal-1 do first=first+#self.physical:valueComponents(selector.kind=='Element' and ty.element or ty.fields[index].type) end
+                offset=offset+(selector.kind=='Element' and selector.index*item.stride or item.fields[selector.name].offset)
+            end
+            ty=selected
+        end
+        if aggregate.type==ty then return self:expr(aggregate,stack) end
+        if aggregate.kind=='Ref' then
+            local holder=self.valueSlots[aggregate.value.id];local parts=self.physical:valueComponents(ty)
+            if holder and holder.block then self:blockLoad(holder,offset,ty,expr,stack);return end
+            if holder and parts then
+                for index=first,first+#parts-1 do self:instruction('CGET.'..stack..' '..self:depth(holder.cells and holder.cells[index] or holder),expr) end
+                return
             end
         end
-        unsupported("escaping or unknown Ir.Get aggregate")
+        unsupported('unresolved physical Ir.Get aggregate')
     end
     if kind == "Bin" then return self:binary(expr,stack) end
     if kind == "Convert" then
@@ -889,6 +894,7 @@ function M.lower(program, options)
     if options.profile == "let" then
         D.reject("dynamic-lowering", "Dynamic ABC lowering is unavailable; Let parsing, typechecking and IR construction remain supported. Use SLet for executable ABC.")
     end
+    if physical.owning then program=require('let.placement').program(program,options);physical=Layout.physical(program) end
     local functions=program.functions
 
     local definitions,usesFloat,usesMemory,usesAddress,usesCallable={},false,false,false,false
@@ -930,7 +936,7 @@ function M.lower(program, options)
     end
     for _,foreign in ipairs(program.foreigns) do if definitions[foreign.target] then D.reject("lower-duplicate","Duplicate foreign "..foreign.target) end;definitions[foreign.target]={id=foreign.target,inputs=foreign.inputs,results=foreign.results,foreign=true} end
     for _,fn in ipairs(functions) do if definitions[fn.id] then D.bug("lower-duplicate","Duplicate function "..fn.id) end;definitions[fn.id]=fn end
-    local codeNames,codeOrder={},{}
+    local codeNames,codeOrder,cEntries,cEntryOrder={},{},{},{}
     local adapterSerial=0
     for _, fn in ipairs(functions) do
         local localViews={}
@@ -951,7 +957,11 @@ function M.lower(program, options)
             if S.Ty.V:isclassof(node) then inspectType(node); return false end
             if node.kind=="Const" and node.type==S.F64 then retainFloat(node.literal) end
             if node.kind=="Const" and node.type:isSlice() and node.literal.kind=="Str" then retainString(node.literal.bytes);usesAddress=true;usesMemory=true end
-            if node.kind=='Code' then
+            if node.kind=='CEntry' then
+                if not program.lifecycle or not program.lifecycle[node.entry] then D.bug('lower-centry','C entry must name a generated lifecycle body') end
+                if not cEntries[node.entry] then cEntries[node.entry]=true;cEntryOrder[#cEntryOrder+1]=node.entry end
+                usesMemory=true;usesAddress=true
+            elseif node.kind=='Code' then
                 if not definitions[node.entry] or definitions[node.entry].foreign then D.bug('lower-code','Code identity must name a module function') end
                 if not codeNames[node.entry] then codeNames[node.entry]=true;codeOrder[#codeOrder+1]=node.entry end
                 usesCallable=true;usesAddress=true;usesMemory=true
@@ -966,6 +976,7 @@ function M.lower(program, options)
     local dataSize=usesAddress and 8 or 0
     for _,info in ipairs(adapters) do info.codeOffset=dataSize;dataSize=dataSize+8 end
     for _,name in ipairs(codeOrder) do codeNames[name]=dataSize;dataSize=dataSize+8 end
+    for _,name in ipairs(cEntryOrder) do cEntries[name]=dataSize;dataSize=dataSize+8 end
     local moduleOffsets,snapshots,writableChunks={}, {}, {string.rep('\0',dataSize)}
     local readonlyRoots={}
     for _,data in ipairs(program.modules) do
@@ -1006,7 +1017,7 @@ function M.lower(program, options)
         return (bytes:gsub('.',function(byte) return string.format('%02x',byte:byte()) end))
     end
     local profile=#program.foreigns>0 and "foreign" or usesCallable and "callables" or (usesFloat or usesMemory) and "memory" or "integer"
-    local constants={floats=floatConstants,strings=stringConstants,modules=moduleOffsets,snapshots=snapshots,codes=codeNames}
+    local constants={floats=floatConstants,strings=stringConstants,modules=moduleOffsets,snapshots=snapshots,codes=codeNames,cEntries=cEntries}
     local metadata={viewInfo=viewInfo,indirectInfo=indirectInfo}
     local loweredFunctions={}
     for index,fn in ipairs(functions) do loweredFunctions[index]=Function.new(fn,definitions,profile,constants,metadata,physical) end
@@ -1029,6 +1040,7 @@ function M.lower(program, options)
     for _,line in ipairs(signatureLines) do append(line) end
     for _,info in ipairs(adapters) do append(".codeaddr "..info.codeOffset.." "..info.name) end
     for _,name in ipairs(codeOrder) do append('.codeaddr '..codeNames[name]..' '..name) end
+    for _,name in ipairs(cEntryOrder) do append('.centry '..cEntries[name]..' '..name) end
     for _, output in ipairs(loweredOutput) do
         for index,line in ipairs(output.lines) do append(line,output.map[index]) end
     end
@@ -1060,6 +1072,7 @@ function M.lower(program, options)
         local targetCells=0;for _,input in ipairs(target.inputs) do targetCells=targetCells+#inputKinds(input) end
         append("  TCALL.A "..target.id.." "..adapterCells.." "..targetCells,statement)
     end
+    for _,name in ipairs(cEntryOrder) do for _,line in ipairs(program.lifecycle[name]) do append(line) end end
     for _, name in ipairs(options.exports or {}) do
         if not identifier(name) or not definitions[name] then
             D.reject("lower-export", "Unknown or invalid export " .. tostring(name))
@@ -1071,8 +1084,9 @@ function M.lower(program, options)
         profile = profile,
         assembly = table.concat(lines, "\n") .. "\n",
         lineMap = lineMap,
-        functions = functions,
-        program = program,
+        functions = (program.source or program).functions,
+        program = program.source or program,
+        materialized = program.source and program or nil,
         layout = physical,
         moduleData=program.modules,
         moduleOffsets=moduleOffsets,

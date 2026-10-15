@@ -95,7 +95,8 @@ for _,body in ipairs{
  'return (add(n))(2)',
  'return accept(add(n))',
 } do reject('static-required',add..'let accept(f: (U32): U32): U32 = f(2)\nlet main(n: U32): U32 = do '..body..' end') end
-reject('slet-forbidden',add..'let apply(f: (U32, U32): U32, n: U32): U32 = (f(n))(2)\nlet main(n: U32): U32 = apply(add, n)')
+local retained=C.typed{profile='slet',source=add..'let apply(f: (U32, U32): U32, n: U32): U32 = (f(n))(2)\nlet main(n: U32): U32 = apply(add, n)'}
+check(C.lower(retained.functions,{profile='slet',exports={'main'}}).assembly~=nil,'Nonescaping runtime partial application lowers through ordinary callable storage')
 reject('arity',add..'let main(n: U32): U32 = add(n)(2, 3)')
 reject('arity','let unary(n: U32): U32 = n\nlet main(): U32 = unary(1, 2)')
 reject('type-mismatch','let stop(n: U32): Unit = do return end\nlet main(): U32 = stop 1 2')

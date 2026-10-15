@@ -1,0 +1,18 @@
+luajit: ...arch/experiments/runtime-owners/source-cutover/probe.lua:25: BUG [ir-initialized] Read of storage 1 whose value is not established on every path to it
+stack traceback:
+	...arch/experiments/runtime-owners/source-cutover/probe.lua:24: in function <...arch/experiments/runtime-owners/source-cutover/probe.lua:24>
+	[C]: in function 'error'
+	./let/diag.lua:21: in function 'bug'
+	./let/check.lua:106: in function 'checkList'
+	./let/check.lua:386: in function 'function_'
+	./let/check.lua:710: in function 'program'
+	./let/placement.lua:361: in function 'program'
+	./let/abc.lua:894: in function 'lower'
+	./let/compiler.lua:150: in function <./let/compiler.lua:144>
+	[C]: in function 'xpcall'
+	...arch/experiments/runtime-owners/source-cutover/probe.lua:24: in main chunk
+	[C]: at 0x57deda548120
+stack traceback:
+	[C]: in function 'assert'
+	...arch/experiments/runtime-owners/source-cutover/probe.lua:25: in main chunk
+	[C]: at 0x57deda548120

@@ -44,13 +44,21 @@ and obtains a new program; lowering does not hash, revalidate or silently refres
 old program after in-place mutation. Private `ABC.lower` consumes that program, not
 a bare function list or a separate set of proof annotations.
 
-`Layout.program` is the ownership-related executable-admission boundary. It rejects
-counted requirements before selecting the currently implemented borrowed contract.
-Layout consumers use that contract for cells, byte layouts and ABI components;
-pointer-free staging/snapshots use `Layout.scalar`, which cannot select a reference
-representation. Typing a valid counted program is consequently supported without
-claiming it can execute. Cycles and unsafe-access proof failures still reject during
-analysis. Owning placement, lifetime emission and runtime cleanup remain unimplemented.
+`Layout.program` selects borrowed or owning representation from checked facts.
+`ABC.lower` materializes owning programs through `let/placement.lua`: a distinct
+`physical-program` contains concrete storage, holding operations, caller result
+records and generated lifecycle bodies. `Layout.physical` describes this graph;
+`Check.program(..., true)` structurally checks it without rerunning source inference.
+Artifacts retain the exact source `.program` and `.functions`, exposing the separate
+physical graph as `.materialized`. Pointer-free staging/snapshots use `Layout.scalar`.
+
+Cycles and unsafe-access proofs still reject during analysis. Physical admission
+rejects unresolved context-specific placement, owning public/foreign transport,
+persistent module holdings, owning variants and erasure. Supported `.slet` factories,
+reference/slice/array and callable transport execute with normal/failure cleanup;
+`.let` execution remains `dynamic-lowering`. Staging does not authorize the lifetime
+foreign bindings. See [runtime-interfaces.md](runtime-interfaces.md#current-concrete-source-binding)
+and `research/experiments/runtime-owners/source-cutover/` for the implemented boundary.
 
 ## 2. Proposed call shapes
 

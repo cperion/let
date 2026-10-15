@@ -36,9 +36,10 @@ VM stack checks remain defined by the optimized verified module's computed maxim
 Revision-7/profile-4 section-10 C entries are independent roots with unknown arguments.
 The writer remaps their indices after pruning while preserving relocation destinations
 and their distinct C-entry role. Section-10 addresses are not ABC callable facts and
-cannot be turned into CALL/TCALL targets. This metadata support does not imply native
-lifecycle delivery: execution preparation and the portable-C/tooling residual-IR paths
-currently reject modules containing C entries.
+cannot be turned into CALL/TCALL targets. VM execution prepares native lifecycle
+entries separately in all four modes; portable-C/tooling residual-IR paths still
+reject modules containing C entries. Source cleanup tests execute original/optimized
+images, including mirrored lifecycle banks, through the runtime rather than staging.
 
 ## Callable lattice and closure elimination
 

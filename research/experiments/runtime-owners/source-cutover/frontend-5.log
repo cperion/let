@@ -1,0 +1,14 @@
+=== receiver_scopes ===
+luajit: tests/receiver_scopes.lua:4: slet-forbidden: table: 0x75612402e658
+stack traceback:
+	[C]: in function 'assert'
+	tests/receiver_scopes.lua:4: in function 'check'
+	tests/receiver_scopes.lua:25: in function 'reject'
+	tests/receiver_scopes.lua:171: in main chunk
+	[C]: at 0x58633cba7120
+=== anonymous_context ===
+anonymous context: 221 checks, 192 VM executions; 4 probes unoptimized only
+=== spread ===
+spread qualification: 379 checks, 108 VM executions, 0 optimized configurations BLOCKED
+=== rest_templates ===
+rest templates: 616 checks, 276 VM executions

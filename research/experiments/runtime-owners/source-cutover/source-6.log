@@ -1,0 +1,15 @@
+luajit: BUG [ir-expr] Unknown expression variant Callable
+stack traceback:
+	[C]: in function 'error'
+	./let/diag.lua:21: in function 'bug'
+	./let/check.lua:591: in function 'expr'
+	./let/check.lua:477: in function 'expr'
+	./let/check.lua:477: in function 'expr'
+	./let/check.lua:113: in function 'checkList'
+	./let/check.lua:386: in function 'function_'
+	./let/check.lua:710: in function 'program'
+	./let/placement.lua:375: in function 'program'
+	./let/abc.lua:897: in function 'lower'
+	./let/compiler.lua:150: in function 'compile'
+	tests/source_owners.lua:55: in main chunk
+	[C]: at 0x598e1412d120

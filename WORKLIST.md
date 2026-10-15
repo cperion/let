@@ -504,7 +504,8 @@ Coordinator removed the v3 runtime dispatch/catalog, release-binding/cache/compi
 ownership-specific execution forms, scope/slot/prefix machinery and generated holding
 client/fixtures/build wiring. The large revision7/v4 proposal is withdrawn and deleted,
 not an implementation target. Reserved runtime imports now reject; there is no host
-foreign fallback. Source counted admission remains closed.
+foreign fallback. That removal checkpoint did not open counted admission; the later
+connected source slice is tracked under E01/E02/O04–O08 below.
 
 Retained: standalone C allocation/checked-count/replacement/iterative-queue algorithms,
 source ownership proofs, ordinary ABC contexts/continuations and immutable executable
@@ -514,30 +515,56 @@ The removal and core edits were initially untested as requested. Subsequently au
 validation now passes: incremental build/full `validate`, standalone owner113 checks,
 focused ASan/UBSan/LSan and a128KiB host-stack run. Evidence is under
 `research/experiments/runtime-owners/core/`; this does not restore the removed source
-binding or establish performance. Next: settle and implement source lifetime/failure
-cleanup and release-code delivery around the small core. Unrelated task protocols are unchanged.
+binding or establish performance. The later source integration below replaces that
+removed binding directly. Unrelated task protocols are unchanged.
 
 - [ ] **E01** Define and bind explicit runtime-operation contracts to source lowering,
   verification and shared execution: cell/holding layouts, effects, clobbers, failure
   and completion/suspension. The old catalog path is removed, not a requirement to
   recreate that organizing layer. Any future encoding change requires approval.
-  **Owner: coordinator; state: partial.** The minimal revision-7/profile-4 encoding
-  is approved and implemented in `docs/module-format.md` §10, independently of the
-  withdrawn larger revision7/v4 design. Native lifecycle delivery, source placement,
-  owning-result transport and activation failure cleanup are not implemented.
-  Next integration: prepare real C-callable lifecycle entries before source execution,
-  then connect storage/holdings and unwind before opening counted admission.
-  **Binding removed:** no active catalog implementation or compiler runtime-call client.
-  Explicit primitive signatures/runtime bindings remain unimplemented.
-  `__let_rt_` imports reject and cannot be rebound by the host. Staging rejects foreign
-  execution without the removed allowlist. v1/v2/v3 evidence is historical only.
+  **Owner: coordinator; state: partial (supported source slice integrated).** Completed
+  the approved connected owning-source cutover: checked placement → concrete storage/holding operations → appended result
+  storage → prepared C lifecycle entries → normal/failure cleanup. Files include
+  `frontend/let/placement.lua` (new), existing layout/ABC/IR/check/compiler consumers,
+  `src/lifetime.h/.c` (new narrow bindings), owner/context/VM/residualizer/native emitter
+  definitions, stencil/form generators and integrated source/runtime tests. No scope-slot
+  registry, release cache, field-plan interpreter or pinned release register returns.
+  Counted admission opens only for integrated contracts; public owned exports/FFI,
+  persistent owning modules and staging remain rejected. The minimal revision-7/profile-4
+  encoding is independent of the withdrawn larger design. Six exact reserved lifetime
+  imports now bind directly; retired names/wrong signatures/host rebinding reject.
+  v1/v2/v3 evidence remains historical. Next integration boundary: context-specific
+  physical instances, erased/variant/container layouts and explicit public/foreign/task
+  transport contracts—not implicit borrowed fallbacks.
+  - [x] **Connected source execution/cleanup:** real factories, parent/child replacement
+    with saved access, recursive/loop allocation, reference arrays/slices/interior access,
+    closure/opened/keyed/partial captures, direct/indirect owning and multi-result returns.
+    Concrete storage is the holding inventory; per-acquire scratch is cleanup-visible;
+    owning results use appended caller records. Proven borrowed calls keep `InPlace`
+    physical lifetimes (including a local-address tail-call regression). Actual native
+    C entries are prepared before execution in all modes; no release cache, allocator,
+    pinned register, slot registry or cleanup interpreter was introduced.
+    Source tests1110 checks/352 calls across four modes, original/optimized and both
+    lifecycle banks; C1043242 checks cover every allocation/acquire boundary in the
+    factory/closure/array/slice/callable fixtures plus late chain failure, retain overflow,
+    partial construction,
+    self-replacement, zero-width allocation, traps, stack exhaustion, persistent ordinary
+    writes, RX publication failure/retry and reuse. Real source builds a25-environment
+    chain. Separately, C builds a100001-owner graph and invokes the source-generated C
+    callback on a128KiB pthread stack with no source TLS or drain allocation.
+    Full incremental `make validate` passes (`validate-final.log`). Focused ASan/UBSan/LSan
+    on seven runtime units plus the C harness passes with function-type checks disabled
+    for generated JIT entries; other runtime/generated bodies are not instrumented.
+    No clean-build, whole-project sanitizer/TSan/race, task/browser or performance claim.
+    Evidence and exact exclusions: `research/experiments/runtime-owners/source-cutover/`.
   - [x] **C-entry encoding boundary:** `.centry` selects revision 7/profile 4 and
     section 10; ordinary revision-6 assembly and `.codeaddr` meanings are unchanged.
     Loader/verifier check table extent/order, overlap within/across relocation tables,
     two-address/no-result/no-hidden-storage signatures and ABC-call/export exclusion.
     Optimizer retains C entries as independent roots and remaps their indices after
-    pruning. Current VM image preparation/direct residualization reject delivery in
-    all four modes; tooling residual IR and portable C reject the unsupported ABI.
+    pruning. At this format-only checkpoint delivery rejected in all four modes;
+    the connected slice above now delivers native C entries. Tooling residual IR and
+    portable C still reject the unsupported ABI.
     Files: `tools/assembler.lua`, module/internal/verifier/optimizer/CLI files,
     `gen/cold.lua`, VM/residualizer/residual-builder/portable-C consumers, and
     `Makefile` (including missing private-header dependencies for generated/PIC code).
@@ -559,8 +586,9 @@ cleanup and release-code delivery around the small core. Unrelated task protocol
   and dead-queue link. Retain preserves overflow/no-resurrection rules; shared counts
   preserve CAS/release/acquire ordering. Release enqueues; drain calls field drops and
   frees iteratively. Retain-before-replace remains failure-safe. Static immortal
-  owners remain no-ops. VM code delivery, constructor/failure cleanup and source
-  placement are NOT implemented. `tools/validate_owner_core.c`113 checks cover
+  owners remain no-ops. The later connected source binding under E01 now implements
+  local source placement, VM code delivery and constructor/failure cleanup; generalized
+  erased/container/shared-source/task transport remains incomplete. `tools/validate_owner_core.c`113 checks cover
   allocation/extent/alignment/failure outputs, local/shared counts, overflow, zero-count
   rejection, replacement, branching and100001-object queues, and cross-thread final
   release. Native header measured32 bytes. Wrappers observe no allocation attempts
@@ -573,8 +601,9 @@ cleanup and release-code delivery around the small core. Unrelated task protocol
   transport and PARK disposition to current entry/return/error ABIs. No hidden C cells,
   extra allocator or suspended worker-host-stack dependency.
   **Partial:** persistent root contexts and context-based bounds remain implemented.
-  Ownership SERVICE, physical resume snapshots and cleanup context are deleted; normal
-  entry returns packed status. PARK/resume, tasks and scheduling remain unimplemented.
+  Ownership SERVICE and physical resume snapshots remain deleted; the synchronous
+  root now owns a concrete activation chain/release queue, not a second execution
+  context. Normal entry returns packed status. PARK/resume, tasks and scheduling remain unimplemented.
 - [ ] **E04** Implement/check runtime-interfaces §§6–7 memory orders and lock hierarchy
   in task/channel/select/group/scheduler code, implementing the approved
   PARKING/PARKED/NOTIFIED handshake, channel/select registration, group cancellation,
@@ -631,8 +660,8 @@ then integrate those producers/consumers before widening executable admission.
   conditional on actual borrowing/owning bindings; recursive call families fold
   finitely without treating convergence/equal family names as lifetime evidence.
   Replaced the hardcoded frame-return/store checks with these inferred requirements;
-  `layout.lua` rejects counted placement at executable admission; `program.lua`
-  owns the analysis rather than attaching it to functions. That source-inference
+  `program.lua` owns the analysis rather than attaching it to functions; the later
+  `placement.lua` consumes counted facts for the supported physical slice. That source-inference
   chunk alone made no counted ABI, allocation, retain/release, reclamation or GC-removal
   claim; the later limited runtime binding is tracked separately under E01/E02/O07/O08.
   **Validation:** ownership170 checks/56 bounded VM executions (four modes,
@@ -652,23 +681,35 @@ then integrate those producers/consumers before widening executable admission.
   `research/experiments/frontend-syntax/ownership-inference/README.md`.
 - [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
   allocate escaping roots separately from activations before publishing any address.
-  Runtime allocations now have stable final addresses; general **source** selection,
-  owning-ref/slice/callable representations and ABI transport remain unimplemented.
-  `layout.lua` still rejects inferred counted source escapes at executable admission.
-  The explicit borrowed-layout contract is not owning materialization. Do not mistake
-  the now-removed checked-IR lifetime fixtures for completed source ownership lowering.
+  **Partial implemented:** `placement.lua` selects checked counted local roots from
+  creation, materializes root-preserving refs/slices/arrays/callable environments and
+  appended owning-result storage, and structurally checks a separate physical graph.
+  Borrowed pointer-free-reference functions retain one-address contracts without counts.
+  Context-dependent unresolved instances, persistent owning modules, variants/erasure
+  and owning public/foreign/task ABI remain closed. See E01 source-cutover evidence.
 - [ ] **O05** Implement retain/release obligations, borrow elision and alias-aware moves
   through assignments, calls, returns, sums, containers and erased callables.
+  **Partial:** concrete copy retains into cleanup-visible scratch before replacement;
+  single-use same-loop moves clear sources. Borrowed-function specialization avoids
+  owner traffic. Sums/containers/erased paths and generalized context cloning remain open.
 - [ ] **O06** Specify overflow, allocation failure, partial construction, abort/teardown
   and FFI retention/handle policies; no wrapping counts or implicit unsafe pointer proof.
+  **Partial:** local source allocation/overflow/partial construction/trap/stack failures
+  unwind before reset without result publication or ordinary effect rollback; tested
+  at actual acquisition boundaries. Public/foreign retention and interruption policies
+  remain unsupported, not inferred from raw pointers.
 - [ ] **O07** Implement generated allocation-free iterative release and failure cleanup;
   no host-recursive destruction, user finalizers, tracing or collector fallback.
-  **Generated binding removed.** Standalone C draining remains; source lifetime
-  emission, generated release delivery and failure cleanup are not implemented.
-  Counted source execution and retired runtime imports reject. Historical evidence
-  is retained in `research/experiments/runtime-owners/`, not a current completion claim.
+  **Supported slice implemented:** straight-line source-generated field drops execute
+  through genuine C entries and enqueue only; the C core drains iteratively without
+  allocation. Concrete activation records release actual established holdings on
+  normal/failing exits. Exact current coverage is under E01; generalized representation,
+  task/foreign teardown and resource qualification remain open.
 - [ ] **O08** Validate long graphs, rejected cycles, independent borrows, captures,
   exact lifetimes and all execution bindings; measure count traffic and owner retention.
+  **Current source evidence:** E01 and `runtime-owners/source-cutover/` qualify the
+  supported connected slice, including source25-environment versus C-built100001-owner
+  graphs. No current count-cost/performance or generalized concurrency acceptance.
   **Historical C-release evidence at `c16666c8`, not the removal checkpoint:**
   the now-retired `frontend/tests/runtime_owners.lua`84 checks/80 VM
   executions; C4304 checks. Both banks/raw+optimized/four modes; live banks/C,

@@ -571,7 +571,12 @@ function M.expr(expr, locals, storages)
             D.bug("ir-op", "Unknown binary operation " .. tostring(op))
         end
         return expr.type
-    elseif kind == "Code" then
+    elseif kind == "Callable" then
+        if not expr.type:isView() or not M.expr(expr.code,locals,storages):isPtr() or not M.expr(expr.environment,locals,storages):isPtr() then
+            D.bug('ir-type','Physical callable needs code/environment addresses and a view signature')
+        end
+        return expr.type
+    elseif kind == "Code" or kind == "CEntry" then
         if not expr.type:isPtr() then D.bug('ir-type','Code identity requires a pointer cell') end
         return expr.type
     elseif kind == "Null" then
@@ -663,12 +668,12 @@ end
 
 -- Structural/type validation only. Program analysis and executable admission
 -- are separate boundaries; checking IR never publishes lifetime facts.
-function M.program(fnList, modules, foreigns)
+function M.program(fnList, modules, foreigns, physical)
     local definitions = {}
     -- A foreign target is declared rather than defined, so it has a result contract and no body, which
     -- is all the call check needs to know about it.
     for _, foreign in ipairs(foreigns or {}) do
-        if foreign.target:sub(1,9)=='__let_rt_' then D.bug('runtime-contract','Runtime primitive binding is not implemented') end
+        if foreign.target:sub(1,9)=='__let_rt_' and not physical then D.bug('runtime-contract','Lifetime bindings require physical materialization') end
         definitions[foreign.target] = { results = foreign.results, inputs = foreign.inputs,
             foreign = true }
     end

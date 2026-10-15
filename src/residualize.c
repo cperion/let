@@ -63,8 +63,7 @@ static int place_memory_copy(Compiler *c,unsigned destination_register,unsigned 
     return emit_form(c,ABC_FORM_MEMCPY(destination_register,source_register),&operands);
 }
 static abc_status lazy_prepare(void *state,abc_error *error);
-static int place_fcall(Compiler *c,unsigned id,uint32_t abase,const abc_extern *ext,abc_foreign_address target,uint64_t error) {
-    abc_foreign_bridge_fn bridge=abc_foreign_select(ext);
+static int place_fcall(Compiler *c,unsigned id,uint32_t abase,const abc_extern *ext,abc_foreign_bridge_fn bridge,abc_foreign_address target,uint64_t error) {
     const abc_exec_operands operands={.value={(uint64_t)abase*8,(uintptr_t)bridge,(uintptr_t)ext,(uintptr_t)target,error},.target=ABC_EXEC_NO_LABEL};
     return emit_form(c,id,&operands);
 }
@@ -583,8 +582,10 @@ static int native_emit_foreign(void *opaque,uint32_t pc,abc_symbolic_foreign *ef
         JValue *value=&x->s[selected_stack][j];value->dst_stack=(uint8_t)selected_stack;value->dst_home=(int32_t)j;
         if(!save_value(c,x,value))return 0;*value=rehome_value(*value,selected_stack,(int32_t)j);
     }
-    if(!flush_context(c,x))return 0;abc_foreign_address target=abc_foreign_lookup(c->vm,ext->name);uint64_t error=(uint64_t)ABC_INVALID|((uint64_t)pc<<16);
-    return target&&place_fcall(c,ABC_FORM_FCALL(selected_stack,effect->results),argument_base,ext,target,error);
+    if(!flush_context(c,x))return 0;abc_foreign_bridge_fn source=abc_source_binding(ext);
+    abc_foreign_address target=source?NULL:abc_foreign_lookup(c->vm,ext->name);uint64_t error=(uint64_t)ABC_INVALID|((uint64_t)pc<<16);
+    abc_foreign_bridge_fn bridge=source?source:abc_foreign_select(ext);
+    return (source||target)&&bridge&&place_fcall(c,ABC_FORM_FCALL(selected_stack,effect->results),argument_base,ext,bridge,target,error);
 }
 
 static int native_emit_edge(void *opaque,uint32_t origin,uint32_t target) {
@@ -808,9 +809,9 @@ void abc_execution_image_free(abc_execution_image *image) {
     if(image->emitter)image->emitter->ops->destroy(image->emitter);
     free(image->entries);free(image);
 }
-abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const abc_vm *vm,abc_execution_mode mode,abc_execution_image **out,abc_error *e) {
+static abc_status residualize(const abc_module *m,uint8_t *image_base,const abc_vm *vm,abc_execution_mode mode,int lifecycle,abc_execution_image **out,abc_error *e) {
     abc_clear(e); if(out) *out=NULL; if(!m||!vm||!out||(mode!=ABC_EXEC_COMPILED&&mode!=ABC_EXEC_LAZY&&mode!=ABC_EXEC_THREADED)) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid residualizer input");
-    if(m->c_entry_count)return abc_fail(e,ABC_INVALID,UINT32_MAX,"lifecycle C-entry delivery is not implemented");
+    abc_status checked=abc_source_lifecycle_check(m,e);if(checked!=ABC_OK)return checked;
     Compiler c={0}; c.module=m; c.vm=vm; c.image_base=image_base; c.error=e; c.status=ABC_OK;c.lazy=mode==ABC_EXEC_LAZY;
     c.block=calloc(m->code_size,1); c.versions=calloc(m->code_size,sizeof *c.versions); c.function_entries=calloc(m->function_count,sizeof *c.function_entries); c.recursive=calloc(m->function_count,1);
     if(!c.block||!c.versions||!c.function_entries||!c.recursive){free_preparation(&c);return abc_fail(e,ABC_NOMEM,UINT32_MAX,"residualizer allocation failed");}
@@ -823,8 +824,10 @@ abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const 
         c.recursive[f]|=(uint8_t)abc_symbolic_has_unknown_call(m,(int)f,seen); free(seen);
     }
     void **entries=calloc(m->function_count,sizeof *entries);
-    if(!entries)c.status=abc_fail(e,ABC_NOMEM,UINT32_MAX,"execution entry allocation failed");
+    abc_exec_label *c_labels=lifecycle?calloc(m->function_count,sizeof *c_labels):NULL;
+    if(!entries||(lifecycle&&!c_labels))c.status=abc_fail(e,ABC_NOMEM,UINT32_MAX,"execution entry allocation failed");
     for(uint32_t f=0;f<m->function_count&&c.status==ABC_OK;f++) {
+        if((m->functions[f].c_entry!=0)!=lifecycle)continue;
         Context x={0}; const abc_function *fn=&m->functions[f]; uint32_t n=fn->arguments; x.c_origin=(int32_t)n;
         x.limit[JS_A]=fn->max_a; x.limit[JS_B]=fn->max_b; x.limit[JS_C]=fn->max_c-fn->arguments;
         if(n) { x.s[JS_C]=malloc((size_t)n*sizeof(JValue)); if(!x.s[JS_C]) { c.status=abc_fail(e,ABC_NOMEM,m->functions[f].entry,"entry context allocation failed"); break; } x.n[JS_C]=x.cap[JS_C]=n;
@@ -833,6 +836,13 @@ abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const 
         Version *v=version_for(&c,m->functions[f].entry,&x); context_free(&x); if(!v) break; c.function_entries[f]=v;
     }
     if(!c.lazy)while(c.qhead<c.nq&&c.status==ABC_OK) if(!compile_version(&c,c.queue[c.qhead++])&&c.status==ABC_OK) c.status=ABC_INVALID;
+    if(lifecycle)for(uint32_t f=0;f<m->function_count&&c.status==ABC_OK;f++)if(c.function_entries[f]) {
+        const abc_function *fn=&m->functions[f];c.current_pc=fn->entry;
+        if(!emitted(&c,c.emitter->ops->label(c.emitter,&c_labels[f],fn->entry,e))||
+           !emitted(&c,c.emitter->ops->bind(c.emitter,c_labels[f],fn->entry,e)))break;
+        const abc_exec_operands operands={.value={fn->max_a,fn->max_b,fn->max_c},.target=c.function_entries[f]->entry};
+        if(!emit_form(&c,ABC_FORM_C_ENTRY,&operands))break;
+    }
     if(c.status==ABC_OK)c.status=c.emitter->ops->publish(c.emitter,UINT32_MAX,e);
     abc_execution_image *image=NULL;
     if(c.status==ABC_OK) { image=calloc(1,sizeof *image); if(!image) c.status=abc_fail(e,ABC_NOMEM,UINT32_MAX,"native image allocation failed"); }
@@ -840,12 +850,18 @@ abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const 
         abc_exec_storage storage=c.emitter->ops->storage(c.emitter);
         image->emitter=c.emitter;image->code_size=storage.body_bytes;image->storage_size=storage.allocation_bytes;image->entries=entries;image->lazy=c.lazy;
         image->virtual_calls=c.virtual_calls; image->virtual_returns=c.virtual_returns; image->virtual_tails=c.virtual_tails; image->real_calls=c.real_calls;image->compiled_versions=c.qhead;
-        for(uint32_t f=0;f<m->function_count;f++)image->entries[f]=(void *)c.emitter->ops->address(c.emitter,c.function_entries[f]->entry);
+        for(uint32_t f=0;f<m->function_count;f++)if(c.function_entries[f])image->entries[f]=(void *)c.emitter->ops->address(c.emitter,lifecycle?c_labels[f]:c.function_entries[f]->entry);
         if(c.lazy){Compiler *saved=malloc(sizeof *saved);if(!saved)c.status=abc_fail(e,ABC_NOMEM,UINT32_MAX,"lazy compiler state allocation failed");else{*saved=c;saved->image=image;image->lazy_state=saved;for(size_t pc=0;pc<m->code_size;pc++)for(Version *v=saved->versions[pc];v;v=v->next)v->owner=saved;}}
         if(c.status==ABC_OK){*out=image;if(!c.lazy)c.emitter->ops->discard_preparation(c.emitter);}
     }
     if(c.status!=ABC_OK){free(image);free(entries);c.emitter->ops->destroy(c.emitter);}
     if(!c.lazy||c.status!=ABC_OK)free_preparation(&c);
-    return c.status;
+    free(c_labels);return c.status;
+}
+abc_status abc_residualize_module(const abc_module *m,uint8_t *base,const abc_vm *vm,abc_execution_mode mode,abc_execution_image **out,abc_error *e) {
+    return residualize(m,base,vm,mode,0,out,e);
+}
+abc_status abc_prepare_lifecycle(const abc_module *m,uint8_t *base,const abc_vm *vm,abc_execution_image **out,abc_error *e) {
+    return residualize(m,base,vm,ABC_EXEC_COMPILED,1,out,e);
 }
 

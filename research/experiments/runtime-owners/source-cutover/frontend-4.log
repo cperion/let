@@ -1,0 +1,36 @@
+=== compiler ===
+PASS: Let compiler source ingestion and semantic IR (272 checks)
+=== word_bindings ===
+word bindings: 107 checks, 84 VM executions
+=== receiver_scopes ===
+luajit: tests/receiver_scopes.lua:4: slet-forbidden: table: 0x7df57e702f48
+stack traceback:
+	[C]: in function 'assert'
+	tests/receiver_scopes.lua:4: in function 'check'
+	tests/receiver_scopes.lua:25: in function 'reject'
+	tests/receiver_scopes.lua:111: in main chunk
+	[C]: at 0x65517b61a120
+=== anonymous_context ===
+luajit: tests/anonymous_context.lua:4: borrow-store: table: 0x7a4210e29f20
+stack traceback:
+	[C]: in function 'assert'
+	tests/anonymous_context.lua:4: in function 'check'
+	tests/anonymous_context.lua:21: in function 'rejects'
+	tests/anonymous_context.lua:154: in main chunk
+	[C]: at 0x6426d1784120
+=== spread ===
+luajit: tests/spread.lua:6: borrow-return: table: 0x74a69b505f78
+stack traceback:
+	[C]: in function 'assert'
+	tests/spread.lua:6: in function 'check'
+	tests/spread.lua:12: in function 'reject'
+	tests/spread.lua:109: in main chunk
+	[C]: at 0x5ec0dbc22120
+=== rest_templates ===
+luajit: tests/rest_templates.lua:5: borrow-store: table: 0x7b3f1d0695b8
+stack traceback:
+	[C]: in function 'assert'
+	tests/rest_templates.lua:5: in function 'check'
+	tests/rest_templates.lua:12: in function 'reject'
+	tests/rest_templates.lua:181: in main chunk
+	[C]: at 0x6390d6053120

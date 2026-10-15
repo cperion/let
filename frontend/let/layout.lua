@@ -35,9 +35,10 @@ end
 function Layout:valueComponents(ty)
  local kind=self:cellKind(ty)
  if kind then return {ty} end
+ if ty:isRef() then return {S.Ptr(S.Unit),S.Ptr(S.Unit)} end
  if ty==S.Unit then return {} end
- if ty:isSlice() then reference(self);return {S.Ref(ty.element),S.U32} end
- if ty:isView() then reference(self);return {S.Ptr(S.Unit),S.Ptr(S.Unit)} end
+ if ty:isSlice() then local parts=self:valueComponents(S.Ref(ty.element));parts[#parts+1]=S.U32;return parts end
+ if ty:isView() then local r=reference(self);return r.size==16 and {S.Ptr(S.Unit),S.Ptr(S.Unit),S.Ptr(S.Unit)} or {S.Ptr(S.Unit),S.Ptr(S.Unit)} end
  local result={}
  if ty:isRecord() then
   for _,field in ipairs(ty.fields) do
@@ -60,8 +61,8 @@ function Layout:layout(ty,seen)
  if ty==S.U32 or ty==S.I32 then return {size=4,align=4} end
  if ty:isRef() then return reference(self) end
  if ty==S.U64 or ty==S.I64 or ty==S.F64 or ty:isPtr() then return {size=8,align=8} end
- if ty:isSlice() then reference(self);return {size=16,align=8,fields={data={offset=0,type=S.Ref(ty.element)},length={offset=8,type=S.U32}}} end
- if ty:isView() then reference(self);return {size=16,align=8,fields={code={offset=0,type=S.Ptr(S.Unit)},environment={offset=8,type=S.Ref(S.Unit)}}} end
+ if ty:isSlice() then local r=reference(self);return {size=r.size+8,align=8,fields={data={offset=0,type=S.Ref(ty.element)},length={offset=r.size,type=S.U32}}} end
+ if ty:isView() then local r=reference(self);return {size=r.size+8,align=8,fields={code={offset=0,type=S.Ptr(S.Unit)},environment={offset=8,type=S.Ref(S.Unit)}}} end
  seen=seen or {};if seen[ty] then unsupported('recursive by-value layout '..S.display(ty)) end;seen[ty]=true
  if ty:isRecord() then
   local result={size=0,align=1,fields={}}
@@ -108,21 +109,14 @@ end
 M.scalar=setmetatable({},Layout)
 function M.program(program)
  assert(program.phase=='checked-program','layout needs a checked program')
- -- This is the current executable admission, not a proof failure. No counted
- -- representation may fall through to the borrowed layout below.
- for _,fn in ipairs(program.functions) do
-  local entry=program.ownership[fn.id];local first
-  for _,r in ipairs(entry.summary.counted) do
-   if not first or (r.reason=='return' and first.reason~='return') then first=r end
-  end
-  if first then
-   local returned=first.reason=='return'
-   local err=D.make('reject',returned and 'borrow-return' or 'borrow-store',returned and
-    'Returned value requires counted storage; counted placement and release are not implemented' or
-    'Retained access requires counted storage; counted placement and release are not implemented',entry.spans[first.site])
-   err.ownership=entry.summary;error(err,0)
-  end
- end
+ local owning=false
+ for _,fn in ipairs(program.functions) do if #program.ownership[fn.id].summary.counted>0 then owning=true end end
+ return setmetatable({program=program,owning=owning,reference={kind=not owning and 'a' or false,size=owning and 16 or 8,align=8}},Layout)
+end
+function M.physical(program)
+ assert(program.phase=='physical-program','physical layout needs a materialized program')
+ -- Ownership is explicit in concrete records and operations. Remaining View
+ -- cells transport borrowed code/environment addresses, not another holding.
  return setmetatable({program=program,reference={kind='a',size=8,align=8}},Layout)
 end
 return M

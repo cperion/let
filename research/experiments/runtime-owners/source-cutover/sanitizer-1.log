@@ -1,0 +1,16 @@
+AddressSanitizer:DEADLYSIGNAL
+=================================================================
+==1522736==ERROR: AddressSanitizer: SEGV on unknown address 0x000041c6fff8 (pc 0x60976e74bcf2 bp 0x7ffd5311b570 sp 0x7ffd5311b540 T0)
+==1522736==The signal is caused by a READ memory access.
+    #0 0x60976e74bcf2 in enter /home/cperion_ext/dev/let/src/native_image.c:167:26
+    #1 0x60976e59361b in execute /home/cperion_ext/dev/let/src/vm.c:214:16
+    #2 0x60976e5904ec in abc_vm_call /home/cperion_ext/dev/let/src/vm.c:263:41
+    #3 0x60976e572842 in run /home/cperion_ext/dev/let/tools/validate_source_owners.c:75:23
+    #4 0x60976e56f860 in main /home/cperion_ext/dev/let/tools/validate_source_owners.c:132:24
+    #5 0x7f9a4f42a1c9  (/lib/x86_64-linux-gnu/libc.so.6+0x2a1c9) (BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)
+    #6 0x7f9a4f42a28a in __libc_start_main (/lib/x86_64-linux-gnu/libc.so.6+0x2a28a) (BuildId: a4a7992a8e66555c8141ab2a08a8465ff6e0ea65)
+    #7 0x60976e4943e4 in _start (/tmp/let-source-cutover-asan/validate-source-owners+0x17a3e4) (BuildId: c3901aa9fff5103298549ddcd214738e34c17dad)
+
+AddressSanitizer can not provide additional info.
+SUMMARY: AddressSanitizer: SEGV /home/cperion_ext/dev/let/src/native_image.c:167:26 in enter
+==1522736==ABORTING

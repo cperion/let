@@ -18,8 +18,9 @@ are not authorization to restore retired ownership or execution machinery.
 Start with WORKLIST's selected ID and its file table, then
 [docs/implementation-map.md](docs/implementation-map.md) for exact existing/new paths,
 consumer changes, tests and removals. Runtime implementation follows
-[docs/runtime-interfaces.md](docs/runtime-interfaces.md): primitive catalog fields;
-owner/TypeOps/copy-release APIs; runtime/task/worker split; request/ticket/wait-node
+[docs/runtime-interfaces.md](docs/runtime-interfaces.md): current concrete source
+binding and C owner core (not its retired catalog/TypeOps sections); runtime/task/worker
+split; request/ticket/wait-node
 layouts; memory-order and lock hierarchy; backend enter/resume/park contract; image
 publication; source owner-analysis entry points. Algorithms are in
 [docs/runtime-primitives.md](docs/runtime-primitives.md). These are implementation
@@ -32,6 +33,38 @@ rather than invent semantics. Initial cross-worker allocation uses thread-safe
 platform allocation/free, not an unmeasured worker-cache/remote-free subsystem.
 
 ## Status and latest decisions
+
+### Connected source owning storage and C lifecycle delivery — E01/E02/O04–O08
+
+The post-removal replacement now consumes the exact checked source graph into a
+separate physical graph: concrete frames/payloads, retain-before-replace scratch,
+limited moves, root-preserving references and caller-owned owning-result records.
+Actual storage is the holding inventory. The small C core remains32 bytes; activation
+headers are16 bytes. No slot registry, progress prefix, release cache, pinned register,
+second allocator or runtime dependence on `abc-opt` returns.
+
+All four execution modes eagerly prepare actual native `void(context, object)` C
+entries for generated straight-line drops using the ordinary symbolic allocator.
+Callbacks only enqueue concrete field releases. Failure cleanup walks concrete
+activation records before ABC storage reset or result publication; ordinary image
+writes survive. Borrowed pointer-free-reference specializations retain `InPlace`
+physical lifetime constraints, avoiding a discovered plain-pointer tail-call hazard.
+Known keyed partial supplies now elaborate through ordinary source captures rather
+than manufacturing mutable `Any` words. Typed unfinished callable queries remain
+lattice bottom rather than poisoning known factory results as opaque provenance.
+
+`runtime-owners/source-cutover/validate-final.log` records full incremental validation:
+source1110 checks/352 calls (raw/optimized, four modes, both lifecycle banks), C1043242
+cleanup checks and broader regressions. The source builds a25-environment chain;
+the100001-owner128KiB-stack test is a distinct C-built graph invoking the actual
+source-generated callback without source TLS. Focused ASan/UBSan/leak checks pass on
+seven runtime units plus the harness with JIT-incompatible function-type checks off;
+ordinary generated code is not instrumented. No clean-build, race or performance
+acceptance is claimed. The fixture incurs39083 native lifecycle-body bytes in40960
+allocated bytes even in interpreted mode; code/storage cost is real, not a speedup.
+Public owning/foreign/task transport, persistent owning modules, context-specific
+physical instances, erasure/variants/containers, unified executable `.let` and Whippet
+removal remain incomplete. WORKLIST alone tracks live completion.
 
 ### Lexical operator vocabulary — approved direction, not implemented
 

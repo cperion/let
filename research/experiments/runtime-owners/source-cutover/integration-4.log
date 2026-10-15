@@ -1,0 +1,4 @@
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+source owning execution: 274 checks, 88 four-mode original/optimized calls
+build/validate-source-owners build/source-owners.abc build/source-owners-opt.abc
+source ownership cleanup: 531445 checks; four modes, raw/optimized, allocation/acquire failures, trap, stack limit, generated C drain

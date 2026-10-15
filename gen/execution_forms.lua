@@ -135,6 +135,8 @@ define('ABC_FORM_FINISH',#M.forms);add('finish','finish',{0},{'output:ptr'})
 define('ABC_FORM_RETURN_OK',#M.forms);add('return_ok','return_ok')
 define('ABC_FORM_LAZY_ENTRY',#M.forms)
 add('lazy_entry','native_lazy_entry',{}, {'state:ptr','prepare:fnptr'},nil,nil,true)
+define('ABC_FORM_C_ENTRY',#M.forms)
+add('c_entry','native_c_entry',{}, {'a_cells:u64','b_cells:u64','c_cells:u64','target:tape'},nil,nil,true)
 define('ABC_FORM_COUNT',#M.forms)
 header[#header+1]='#endif'
 function M.header() return table.concat(header,'\n')..'\n' end

@@ -33,13 +33,15 @@ static void resolver_checks(const abc_module *module) {
     CHECK(observation==UINT32_MAX && image.transitions==2);
 }
 
+/* These structurally valid fixtures call ordinary ABC from a lifecycle body.
+   Real delivery must reject that unsafe cleanup contract before publication. */
 static void execution_checks(const abc_module *module,const abc_module *ordinary) {
     abc_error error;
     unsigned references=atomic_load(&module->references);
     for(unsigned mode=0;mode<4;mode++) {
         abc_limits limits={.stack_cells=128,.mode=(abc_execution_mode)mode};abc_vm *vm=NULL;
         CHECK(abc_vm_create(&limits,&vm,&error)==ABC_OK);
-        CHECK(abc_vm_load(vm,module,&error)==ABC_INVALID && strstr(error.message,"C-entry delivery"));
+        CHECK(abc_vm_load(vm,module,&error)==ABC_INVALID && strstr(error.message,"lifecycle C-entry body"));
         CHECK(!vm->images && atomic_load(&module->references)==references);
         CHECK(abc_vm_load(vm,module,NULL)==ABC_INVALID && !vm->images);
         uint8_t untouched=0xa5;
@@ -50,7 +52,7 @@ static void execution_checks(const abc_module *module,const abc_module *ordinary
         if(mode!=ABC_EXEC_INTERPRETED) {
             abc_execution_image *execution=(abc_execution_image *)(uintptr_t)1;
             CHECK(abc_residualize_module(module,module->image,vm,(abc_execution_mode)mode,&execution,&error)==ABC_INVALID);
-            CHECK(!execution && strstr(error.message,"C-entry delivery"));
+            CHECK(!execution && strstr(error.message,"lifecycle C-entry body"));
         }
         CHECK(abc_vm_load(vm,ordinary,&error)==ABC_OK);
         abc_image *prior=vm->images;

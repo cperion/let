@@ -10,13 +10,13 @@ local order=assert(io.open(dir..'/stencils.order.tmp','wb'))
 local names=assert(io.open(dir..'/stencil_names.h.tmp','wb'))
 local n=0
 local function emit(s) assert(c:write(s,'\n')) end
-local function stencil(name,body)
+local function stencil(name,body,signature)
   local form=assert(forms.by_name[name],'unregistered execution form '..name)
   assert(form.id==n,'native binding order disagrees with execution forms: '..name)
   order:write(name,'\n')
   names:write(('#define ABC_STENCIL_%s %d\n'):format(name:upper(),n))
   n=n+1
-  emit(('ABC_JIT_CC abc_value %s(ABC_JIT_ARGS) { %s }'):format(name,body))
+  emit(signature and (signature..' { '..body..' }') or ('ABC_JIT_CC abc_value %s(ABC_JIT_ARGS) { %s }'):format(name,body))
 end
 emit('#include <stdint.h>')
 emit('#include <math.h>')
@@ -170,6 +170,18 @@ stencil('finish','*(abc_value *)(uintptr_t)HOLE_FINAL=r0; return 0;')
 stencil('return_ok','return 0;')
 
 stencil('lazy_entry','abc_value state,prepare;__asm__("movabsq $HOLE_STATE,%0":"=r"(state));abc_value body=__atomic_load_n((abc_value*)(uintptr_t)state,__ATOMIC_ACQUIRE);if(!body){__asm__("movabsq $HOLE_FINAL,%0":"=r"(prepare));abc_value failure=0;body=((abc_lazy_prepare_fn)(uintptr_t)prepare)(state,&failure);if(failure)return failure;}TAIL return ((abc_jit_fn)(uintptr_t)body)(ABC_JIT_PASS);')
+-- A genuine C ABI entry. These are the ordinary allocator's verified home
+-- extents, not a VM, second allocator, reserved register or cleanup interpreter.
+stencil('c_entry',[[
+abc_value na,nb,nc;
+__asm__("movabsq $HOLE_IMM,%0":"=r"(na));
+__asm__("movabsq $HOLE_IMM2,%0":"=r"(nb));
+__asm__("movabsq $HOLE_BIAS,%0":"=r"(nc));
+abc_value *a=__builtin_alloca((na+nb+nc+1)*sizeof(abc_value));
+abc_value *b=a+na,*c=b+nb;
+c[0]=UINT32_MAX;c[1]=(uintptr_t)object;c[2]=(uintptr_t)context;
+(void)HOLE_TAKEN(a,b,c+3,0,0,0,0,0,0,0,0);
+]],'void c_entry(void *context,void *object)')
 assert(n==#forms.forms,'missing native execution form bindings')
 names:write(('#define ABC_STENCIL_COUNT %d\n'):format(n))
 assert(c:close()); assert(order:close()); assert(names:close())

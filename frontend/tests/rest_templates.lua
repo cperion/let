@@ -11,6 +11,10 @@ local function reject(code,text,profile)
  end)
  check(not ok and D.is(err) and err.code==code,code..': '..tostring(err))
 end
+local function promoted(text,profile)
+ local unit=C.typed({profile=profile or 'slet',source=text,name='rest-promoted.slet'},options)
+ check(require('let.layout').program(unit.program).owning,'Rest transport preserves counted placement requirements')
+end
 local function run(text,args,wanted,unoptimized)
  local unit=C.typed({profile='slet',source=text,name='rest.slet'},options)
  for _,optimize in ipairs(unoptimized and {false} or {false,true}) do
@@ -178,18 +182,18 @@ let main(): U32 = do let box=Box {n=1} let r=Ref(box) let unused(...args): U32 =
 local reads=0
 for _,fn in ipairs(unused.functions) do Walk.walk(fn,{enter=function(node) if S.Ir.Read:isclassof(node) then reads=reads+1 end end}) end
 check(reads==0,'unused template has no capture reads or executable body')
-reject('borrow-store',[[
+promoted([[
 let Box={n: U32}
 let Holder={r: Ref(Box)}
 let save(dst: Ref(Holder),...args): Unit = do dst.r=args[0] return end
 let main(dst: Ref(Holder)): Unit = do let box=Box {n=1} return save(dst,Ref(box)) end
 ]])
-reject('borrow-return',[[
+promoted([[
 let Box={n: U32}
 let hold(...args) = do let remember(): Ref(Box) = args[0] return remember end
 let main(): (): Ref(Box) = do let box=Box {n=1} return hold(Ref(box)) end
 ]],'let')
-reject('borrow-store',adapter..[[
+promoted(adapter..[[
 let Box={n: U32}
 let Holder={r: Ref(Box)}
 let main(dst: Ref(Holder)): Unit = do
@@ -210,7 +214,7 @@ reject('pack-index','let f(...args): U32 = args[-1]; let main(): U32 = f(1)')
 reject('pack-index','let f(...args): U32 = args[0.5]; let main(): U32 = f(1)')
 reject('template-use','let f(...args): U32 = args[0]; let use(g: (U32): U32): U32 = g(1); let main(): U32 = use(f)')
 reject('type-mismatch',adapter..'let main(): U32 = apply(U32,1,2)')
-reject('borrow-return',[[
+promoted([[
 let Box={n: U32}
 let first(...args): Ref(Box) = args[0]
 let main(): Ref(Box) = do let box=Box {n=1} return first(Ref(box)) end

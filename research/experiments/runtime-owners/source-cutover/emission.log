@@ -1,0 +1,2 @@
+native emitter: 4229729 checks, 3771 forms x 4 payloads, specialized bindings and canaries pass
+execution emitters: native/threaded labels, tape words, growth, continuations, publication and errors pass

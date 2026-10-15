@@ -106,11 +106,12 @@ reject('unknown-field',point..'let Other = {z: U32}\nlet main(p: Other): Point =
 reject('array-length','let main(): Array(U32,2) = [...[1,2],3]')
 reject('return-arity',pair..'let main(): U32 = do return ...pair(1) end')
 reject('spread-source','let main(xs: Slice(U32)): U32 = do let a = ...xs return a end')
-reject('borrow-return',[[
+local escaping=C.typed{profile='slet',source=[[
 let Box={n: U32}
 let choose(a: Ref(Box),b: Ref(Box)): Ref(Box) = a
 let main(): Ref(Box) = do let a=Box {n=1} let b=Box {n=2} let refs=[Ref(a),Ref(b)] return choose(...refs) end
-]])
+]]}
+check(require('let.layout').program(escaping.program).owning,'Spread return requires owner placement rather than rejecting safe escape')
 -- An overridden contribution must still perform its potentially trapping work.
 local trapUnit=C.typed{profile='slet',source=point..'let main(n: U32): Point = Point {x=42,...Point {x=1/n,y=2}}',name='spread-trap.slet'}
 for _,optimize in ipairs(optimizers) do for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do

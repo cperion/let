@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "lifetime.h"
 
 /* Decode profile-specific metadata; every profile uses abc_verify_module. */
 static int value_kind(unsigned kind) {return kind==ABC_KIND_INT||kind==ABC_KIND_ADDR||kind==ABC_KIND_FLOAT;}
@@ -127,7 +128,7 @@ abc_status abc_load_memory(const void *bytes,size_t size,abc_module **out,abc_er
                 if(!(value=='_'||(value>='a'&&value<='z')||(value>='A'&&value<='Z')||(character&&value>='0'&&value<='9')))FAIL("extern names must be ASCII identifiers");
             }
             offset+=length;
-            if(!strncmp(external->name,"__let_rt_",9))FAIL("runtime primitive binding is not implemented");
+            if(!strncmp(external->name,"__let_rt_",9)&&(!lifecycle||!abc_source_contract(external)))FAIL("invalid or retired source lifetime binding");
             for(uint32_t previous=0;previous<index;previous++)if(!strcmp(module->externs[previous].name,external->name))FAIL("duplicate extern name");
         }
         if(offset!=lengths[9])FAIL("trailing extern bytes");

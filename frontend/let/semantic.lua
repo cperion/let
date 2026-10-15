@@ -1130,7 +1130,6 @@ end
 
 
 function Function:indirectPartial(node,indirect,target,args,expected)
-    if not self.managed then reject("slet-forbidden","SLet cannot retain a runtime callable for partial application",node) end
     self.lambdaState.count=self.lambdaState.count+1;local id=self.id.."_indirect_partial_"..self.lambdaState.count
     local builder=IR.builder();local inputs,params,slots={},{},{}
     local callableValue=indirect.expr or self.builder:ref(indirect.value,indirect.type)
@@ -1192,9 +1191,6 @@ end
 -- First-class transport is the only place that creates a callable environment.
 -- Its ownership check and layout wait for the selected word's complete captures.
 function Function:finishCallableView(view,callable,expr)
-    if #callable.captures>0 and not self.managed then
-        reject('slet-forbidden','Materialized word captures need an owned representation',expr)
-    end
     local target,slots=callable.target,{}
     for _,arg in ipairs(callable.captures) do slots[#slots+1]=arg end
     local hasSupply=next(callable.supplied)~=nil
@@ -1520,14 +1516,13 @@ function Function:keyedSupply(node,target,expected)
         if not index and not self.dynamic then reject('unknown-field','Unknown requirement `'..name..'`',origin) end
         return index and target.inputs[index].type or S.Any
     end)
-    local suppliedOrder,runtime={},false
+    local suppliedOrder,unknownKey={},false
     for _,entry in ipairs(contributions) do
         local name,index,value=entry.name,keyIndex[entry.name],entry.value
         byName[name]=I.ValueArg(value);suppliedOrder[#suppliedOrder+1]={name=name,index=index,arg=byName[name],node=entry.node}
-        if not index or not self.lambdaState.demands:known(self:context(),value) then runtime=true end
+        if not index then unknownKey=true end
     end
-    if runtime and (#contributions<#target.inputs or self.dynamic) then
-        if not self.managed then reject("slet-forbidden","SLet cannot retain a runtime keyed callable",node) end
+    if unknownKey then
         if target.sourceCallable or #(target.prefixArgs or {})>0 then
             reject('semantic-todo','Runtime keyed supply of source-specialized or captured words is not implemented',node)
         end
@@ -1543,7 +1538,9 @@ function Function:keyedSupply(node,target,expected)
         return located(word,node)
     end
     local supplies={} for _,supply in ipairs(suppliedOrder) do
-        supplies[supply.index]=#contributions<#target.inputs and I.ValueArg(self.lambdaState.demands:require(self:context(),supply.arg.value,self.lambdaState.resolve,supply.node)) or supply.arg
+        -- Known requirements use ordinary source supply and formation captures,
+        -- including runtime values. They do not manufacture mutable Any words.
+        supplies[supply.index]=supply.arg
     end
     local application=Source.supply(Source.callable(target),supplies)
     if #application.requirements>0 then

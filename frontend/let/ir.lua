@@ -43,6 +43,8 @@ function Ir.Const:each(fn) end
 function Ir.Ref:each(fn) end
 function Ir.Null:each(fn) end
 function Ir.Code:each(fn) end
+function Ir.CEntry:each(fn) end
+function Ir.Callable:each(fn) fn(self.code);fn(self.environment) end
 function Ir.Un:each(fn) fn(self.operand) end
 function Ir.Bin:each(fn)
     fn(self.left)
@@ -155,6 +157,14 @@ function Builder:ref(value, ty)
     return self:intern("ref|" .. value.id .. "|" .. S.encode(ty), function()
         return Ir.Ref(value, ty)
     end)
+end
+function Builder:code(entry,ty,cEntry)
+    return self:intern((cEntry and 'centry|' or 'code|')..entry..'|'..S.encode(ty),function()
+        return (cEntry and Ir.CEntry or Ir.Code)(entry,ty)
+    end)
+end
+function Builder:callable(code,environment,ty)
+    return self:intern('callable|'..code.id..'|'..environment.id..'|'..S.encode(ty),function() return Ir.Callable(code,environment,ty) end)
 end
 function Builder:un(op, operand, ty)
     local constructor = Ir[op]

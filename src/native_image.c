@@ -94,6 +94,8 @@ static abc_status emit(abc_exec_emitter *emitter,unsigned form,const abc_exec_op
     }else if(form>=ABC_FORM_REBASE_BASE&&form<ABC_FORM_REBASE_BASE+3){
         if((int64_t)v[0]<INT32_MIN||(int64_t)v[0]>INT32_MAX)return abc_fail(error,ABC_INVALID,pc,"native frame displacement out of range");
         ok=abc_native_emit_simple(at,form,v[0],NULL);
+    }else if(form==ABC_FORM_C_ENTRY){
+        ok=v[0]<=ABC_MAX_FILE&&v[1]<=ABC_MAX_FILE&&v[2]>=2&&v[2]<=ABC_MAX_FILE&&abc_native_emit_c_entry(at,v[0],v[1],v[2],&patch);
     }else if(form==ABC_FORM_LAZY_ENTRY)ok=0;
     else ok=abc_native_emit_simple(at,form,v[0],op->target==ABC_EXEC_NO_LABEL?NULL:&patch);
     if(!ok)return abc_fail(error,ABC_INVALID,pc,"invalid bound native operands");

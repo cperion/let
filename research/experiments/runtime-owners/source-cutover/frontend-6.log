@@ -1,0 +1,39 @@
+=== application_chains ===
+application chains: 122 checks, 112 VM executions
+=== vocabulary ===
+vocabulary: 92 checks, 64 VM executions
+=== receiver_scopes ===
+receiver scopes before imports: 300 checks, 288 VM executions
+receiver scopes: 407 checks, 384 VM executions
+=== anonymous_context ===
+anonymous context: 221 checks, 192 VM executions; 4 probes unoptimized only
+=== compiler ===
+PASS: Let compiler source ingestion and semantic IR (272 checks)
+=== lambdas ===
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+=== lowering ===
+PASS: checked ASDL Ir -> ABC lowering (101 checks)
+=== optimize ===
+PASS: shared C residual-DAG optimizer and LuaJIT FFI (118 checks)
+=== staging ===
+PASS: VM-backed compile-time execution (27 checks)
+=== source_demands ===
+source demand checks: 52
+=== aggregate_staging ===
+aggregate staging: 438 checks, 422 VM executions
+=== packed_tagged ===
+packed tagged integer/storage subset: 737 checks, 200 VM executions
+packed tagged: 1894 checks, 496 VM executions
+=== spread ===
+spread qualification: 379 checks, 108 VM executions, 0 optimized configurations BLOCKED
+=== rest_templates ===
+rest templates: 616 checks, 276 VM executions
+=== access_proofs ===
+access proofs: 208 checks, 112 VM executions
+=== program ===
+program boundary: 37 checks, 1 VM execution
+=== ownership ===
+ownership inference: 170 checks, 56 VM executions
+=== staging_sessions ===
+PASS: unoptimized staging uses only the in-process VM in all four modes
+PASS: owned staging sessions (280 checks)

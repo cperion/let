@@ -1,0 +1,21 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_source_owners.c build/libabc.a -lm -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=abc_owner_replace,--wrap=abc_owner_drain -o build/validate-source-owners
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_c_entries.c build/libabc.a build/libabc-tool.a -lm -o build/validate-c-entries
+/tmp/lua-compat tools/validate_execution_forms.lua build/generated/validate_execution_forms.c
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_native_emit.c build/native_emit.o -o build/validate-native-emit
+execution forms: 3771 native, 2950 threaded-eligible; layouts and register exclusions pass
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_execution_emit.c build/libabc.a -lm -o build/validate-execution-emit
+/tmp/clang20 -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Ibuild/generated build/generated/validate_execution_forms.c -o build/validate-execution-forms
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+/tmp/lua-compat tools/validate_c_entries.lua build/c-entry-tests
+luajit: REJECT [slet-forbidden] at source-owners.slet:85 SLet cannot retain a runtime callable for partial application
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:109: in main chunk
+	[C]: at 0x59846e447120
+make: *** [Makefile:146: validate-source-owners] Error 1
+make: *** Waiting for unfinished jobs....
+C-entry format: 180 assembler/loader/optimizer checks; no lifecycle execution
+build/validate-c-entries build/c-entry-tests/entries.abc build/c-entry-tests/optimized.abc build/c-entry-tests/ordinary.abc build/c-entry-tests/empty.abc
+C-entry boundaries: 193 checks; ABC target exclusion and fail-closed delivery in four modes; no lifecycle execution

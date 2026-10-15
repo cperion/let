@@ -1,0 +1,36 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_source_owners.c build/libabc.a -lm -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=abc_owner_replace,--wrap=abc_owner_drain -o build/validate-source-owners
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)
+build/abc asm tools/validate_lifetime.abcasm -o build/validate-lifetime.abc
+build/validate-lifetime build/validate-lifetime.abc
+validated 48 public module/VM lifetime cases (all mode pairs, uncalled and called images)
+cd frontend && /tmp/lua-compat tools/embed.lua --check
+schemas up to date
+cd frontend && /tmp/lua-compat tests/schemas.lua
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+cd frontend && /tmp/lua-compat tests/type_names.lua
+type names: 44 checks, 8 VM executions
+cd frontend && /tmp/lua-compat tests/walk.lua
+PASS: schema-driven traversal (4 checks)
+cd frontend && /tmp/lua-compat tests/parse.lua
+PASS: lexer/parser (232 checks)
+cd frontend && /tmp/lua-compat tests/syntax_batch.lua
+syntax batch: 149 checks, 68 VM executions
+cd frontend && /tmp/lua-compat tests/endall.lua
+endall: 57 checks, 16 VM executions
+cd frontend && /tmp/lua-compat tests/word_bindings.lua
+word bindings: 107 checks, 84 VM executions
+cd frontend && /tmp/lua-compat tests/application_chains.lua
+luajit: tests/application_chains.lua:6: slet-forbidden: table: 0x72826baec940
+stack traceback:
+	[C]: in function 'assert'
+	tests/application_chains.lua:6: in function 'check'
+	tests/application_chains.lua:9: in function 'reject'
+	tests/application_chains.lua:98: in main chunk
+	[C]: at 0x617dee889120
+make: *** [Makefile:208: validate-slet] Error 1
+make: *** Waiting for unfinished jobs....
+source owning execution: 1076 checks, 352 four-mode original/optimized calls
+build/validate-source-owners build/source-owners.abc build/source-owners-opt.abc build/source-owners-b.abc build/source-owners-b-opt.abc
+source ownership cleanup: 1043194 checks; four modes, raw/optimized, both lifecycle banks, allocation/acquire failures, trap, stack limit, generated C drain

@@ -24,4 +24,5 @@ int abc_native_emit_guard(uint8_t *at,unsigned stack,uint64_t bytes,abc_native_b
 int abc_native_emit_resolve(uint8_t *at,abc_native_resolve_fn resolver,uint32_t pc,
     int64_t a_bytes,int64_t b_bytes,int64_t c_bytes);
 int abc_native_emit_lazy(uint8_t *at,void *state,abc_native_prepare_fn prepare);
+int abc_native_emit_c_entry(uint8_t *,uint64_t,uint64_t,uint64_t,abc_native_patch *);
 #endif

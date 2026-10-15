@@ -1,0 +1,8 @@
+build/source-owners.abc: bytecode=25467 image=468 lifecycle-functions=49 relocations=49 native-body=39083 native-storage=40960 max-callback-home-bytes=48 owner=32 activation-header=16
+build/source-owners-opt.abc: bytecode=25422 image=468 lifecycle-functions=49 relocations=49 native-body=39083 native-storage=40960 max-callback-home-bytes=48 owner=32 activation-header=16
+144376 build/source-owners.abcasm
+ 34548 build/source-owners.abc
+ 34465 build/source-owners-opt.abc
+ 34548 build/source-owners-b.abc
+ 34465 build/source-owners-b-opt.abc
+282402 total

@@ -46,7 +46,7 @@ local function expression(f)
   elseif f.kind=='continue' then name='CONTINUE'
   else
     local constants={frame_zero='CALLOC',abort='ABORT',resolve_indirect='RESOLVE_INDIRECT',
-      store_continuation='STORE_LABEL',jump='JUMP',finish='FINISH',return_ok='RETURN_OK',native_lazy_entry='LAZY_ENTRY'}
+      store_continuation='STORE_LABEL',jump='JUMP',finish='FINISH',return_ok='RETURN_OK',native_lazy_entry='LAZY_ENTRY',native_c_entry='C_ENTRY'}
     return 'ABC_FORM_'..assert(constants[f.kind],f.kind)
   end
   return 'ABC_FORM_'..name..'('..table.concat(args,',')..')'
@@ -75,7 +75,7 @@ for i,f in ipairs(forms.forms) do
   local expr=expression(f)
   if out then out:write(('_Static_assert(%s == %d, "%s");\n'):format(expr,f.id,f.name)) end
 end
-assert(#forms.forms==3770,'form coverage changed: review all bindings')
+assert(#forms.forms==3771,'form coverage changed: review all bindings')
 assert(forms.native_registers==8 and forms.threaded_registers==7)
 local examples={const_2=2,mov_2_5=1,add_2_5=1,addi_2=2,divu_2_5=2,
   load_c_2=2,store_a_2=2,bne_2_5=2,store_label=3,continue_1=1,guard_a=4}
@@ -84,6 +84,7 @@ assert(not forms.available(forms.by_name.add_2_7,'threaded'))
 assert(not forms.available(forms.by_name.const_7,'threaded'))
 assert(not forms.available(forms.by_name.continue_7,'threaded'))
 assert(not forms.available(forms.by_name.lazy_entry,'threaded'))
+assert(not forms.available(forms.by_name.c_entry,'threaded'))
 assert(forms.available(forms.by_name.add_2_6,'threaded'))
 if out then
   out:write(('_Static_assert(ABC_FORM_COUNT == %d, "form count");\nint main(void) { return 0; }\n'):format(#forms.forms))

@@ -1,0 +1,7 @@
+luajit: REJECT [not-a-place] at keyed-runtime-supply.let:10 `full` is not addressable
+stack traceback:
+	[C]: in function 'error'
+	tests/../let/compiler.lua:114: in function 'typed'
+	tests/compiler.lua:17: in function 'checkedLet'
+	tests/compiler.lua:550: in main chunk
+	[C]: at 0x64427c354120

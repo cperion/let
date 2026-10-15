@@ -11,8 +11,8 @@ measurements and decision rationale, in
 - [Symmetric ISA](symmetric-isa.md): selected-stack semantics, instruction forms,
   byte assignments and call/return contracts.
 - [Module format](module-format.md): revision 6, profiles 1–4, plus revision 7,
-  profile 4 lifecycle C-entry metadata. The new metadata is verified/optimized;
-  executable C-entry delivery still rejects. Other revisions and profile 5 reject,
+  profile 4 lifecycle C-entry metadata. Metadata is verified/optimized; native
+  lifecycle delivery is implemented, with tooling residual IR/portable C still closed. Other revisions and profile 5 reject,
   without translation.
 - [Architecture](architecture.md): current ownership, build/runtime boundaries
   and explicit conformance gaps.

@@ -21,6 +21,18 @@ local function reject(code,source,profiles)
  end
  return last
 end
+local function countedProof(reason,source)
+ local result
+ for _,profile in ipairs{'slet','let'} do
+  local unit=C.typed{profile=profile,source=source};local found
+  for _,fn in ipairs(unit.functions) do local proof=unit.program.ownership[fn.id].summary
+   for _,r in ipairs(proof.counted) do if r.reason==reason then found=proof;break end end
+   if found then break end
+  end
+  check(found~=nil,'checked source requires '..reason..' placement');check(Layout.program(unit.program).owning,'counted proof selects owning materialization');result=found
+ end
+ return result
+end
 local function summary(unit,id) return assert(unit.program.ownership[id]).summary end
 local function run(source,wanted,profile)
  local unit=C.typed({profile=profile or 'slet',source=source,name='ownership.'..(profile or 'slet')},{staticMode='interpreted'})
@@ -111,7 +123,7 @@ let main(): U32 = 0
 ]])
 cycle(joined);check(#joined.witness==2,'mutually exclusive strong edges are unioned, not path-selected')
 -- Initializers and by-value record copies participate at their actual destination.
-local copies=reject('borrow-return',prelude..[[
+local copies=countedProof('return',prelude..[[
 let Holder = { value: Ref(Point) }
 let bad(): Ref(Holder) = do
  let p = Point { x = 42 }
@@ -121,9 +133,9 @@ let bad(): Ref(Holder) = do
 end
 let main(): U32 = 0
 ]])
-check(#copies.ownership.edges>0,'copy into counted destination creates owning dependency')
-local counted={};for _,r in ipairs(copies.ownership.counted) do counted[r.root]=true end
-for _,e in ipairs(copies.ownership.edges) do
+check(#copies.edges>0,'copy into counted destination creates owning dependency')
+local counted={};for _,r in ipairs(copies.counted) do counted[r.root]=true end
+for _,e in ipairs(copies.edges) do
  check(counted[e.holder] and counted[e.target],'counted copy recursively requires its retained root')
 end
 local closure=reject('Ref-cycle',[[
@@ -254,9 +266,8 @@ local caller=I.Fn('caller_ir',I.Entry,0,L{},L{S.Ref(Point),S.Ref(Point)},L{},L{
  I.Read(br,S.Ref(Point),I.Project(I.Deref(I.Local(bp),Holder),I.Field('value'))),
  I.Return(L{I.Ref(ar,S.Ref(Point)),I.Ref(br,S.Ref(Point))})})
 local program=Program.analyze({make,caller})
-local ok,err=pcall(Layout.program,program)
-check(not ok and err.code=='borrow-return','inference does not enable unimplemented counted ABI')
-check(program.ownership.caller_ir~=nil and caller.ownership==nil,'the checked program owns summaries before placement rejection')
+check(Layout.program(program).owning,'retained factory results select owning materialization')
+check(program.ownership.caller_ir~=nil and caller.ownership==nil,'the checked program owns summaries independently of physical emission')
 local results=program.ownership.caller_ir.summary.results
 check(#results==2 and #results[1].roots==1 and #results[2].roots==1,'fresh root contents transport without cross-call contamination')
 check(results[1].roots[1]~=results[2].roots[1],'two retained input roots remain distinct through factory fields')

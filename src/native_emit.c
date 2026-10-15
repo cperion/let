@@ -45,6 +45,16 @@ int abc_native_emit_simple(uint8_t *at,unsigned form,uint64_t immediate,abc_nati
     }
     return 1;
 }
+int abc_native_emit_c_entry(uint8_t *at,uint64_t a,uint64_t b,uint64_t c,abc_native_patch *taken) {
+    const Stencil *s=copy(at,ABC_FORM_C_ENTRY);memset(taken,0,sizeof *taken);
+    for(unsigned i=0;i<s->nrel;i++){
+        const Reloc *r=&s->rel[i];uint64_t value;
+        if(r->hole==HOLE_TAKEN){if(abc_native_patch_present(taken))return 0;reference(taken,at+r->off,r);continue;}
+        if(r->hole==HOLE_IMM)value=a;else if(r->hole==HOLE_IMM2)value=b;else if(r->hole==HOLE_BIAS)value=c;else return 0;
+        patch(at+r->off,r->kind,r->addend,(int64_t)value);
+    }
+    return abc_native_patch_present(taken);
+}
 int abc_native_emit_copy(uint8_t *at,unsigned destination,unsigned source,uint32_t bytes,abc_native_copy_fn copy_fn) {
     if(destination>=ABC_NATIVE_VALUE_REGISTERS||source>=ABC_NATIVE_VALUE_REGISTERS)return 0;
     const Stencil *s=copy(at,ABC_FORM_MEMCPY(destination,source));

@@ -1,0 +1,22 @@
+=== program ===
+program boundary: 37 checks, 1 VM execution
+=== ownership ===
+ownership inference: 170 checks, 56 VM executions
+=== access_proofs ===
+access proofs: 208 checks, 112 VM executions
+=== compiler ===
+luajit: tests/compiler.lua:13: SLet rejects runtime keyed callable retention
+stack traceback:
+	[C]: in function 'assert'
+	tests/compiler.lua:13: in function 'check'
+	tests/compiler.lua:287: in main chunk
+	[C]: at 0x621c10a9c120
+=== lambdas ===
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+=== lowering ===
+luajit: tests/lowering.lua:13: frame-backed adapters cannot escape without an implemented environment owner
+stack traceback:
+	[C]: in function 'assert'
+	tests/lowering.lua:13: in function 'check'
+	tests/lowering.lua:264: in main chunk
+	[C]: at 0x6045f3b56120

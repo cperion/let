@@ -1,0 +1,10 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_source_owners.c build/libabc.a -lm -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=abc_owner_replace,--wrap=abc_owner_drain -o build/validate-source-owners
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+luajit: REJECT [not-indexable] at source-owners.slet:26 Indexing needs an array, slice, or pointer
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:88: in main chunk
+	[C]: at 0x5e00394b7120
+make: *** [Makefile:146: validate-source-owners] Error 1

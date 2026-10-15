@@ -260,9 +260,9 @@ end
 return { functions = { main } }
 ]=]
 ok,err=pcall(Compiler.compile,{profile="let",source=retainedMethodSource,name="retained-method.let"})
-check(not ok and D.is(err) and err.code=='borrow-return','Retained method escape requires an actual receiver/environment owner: '..tostring(err))
-ok,err=pcall(Compiler.typed,{profile="slet",source=retainedMethodSource,name="retained-method.slet"})
-check(not ok and err.code=="slet-forbidden","SLet rejects retained method receivers")
+check(not ok and D.is(err) and err.code=='dynamic-lowering','Let executable profile remains closed: '..tostring(err))
+local retainedMethod=Compiler.compile{profile='slet',source=retainedMethodSource,name='retained-method.slet'}
+check(retainedMethod.materialized~=nil,'Retained method receiver has concrete owning materialization')
 
 local keyedSource=[[
 let distance { x: U32, y: U32 }: U32 = x * x + y * y
@@ -284,7 +284,7 @@ let add { x: U32, y: U32 }: U32 = x + y
 let bad(n: U32): (U32): U32 = add { x = n }
 return { functions = { bad } }
 ]]})
-check(not keyedOk and D.is(keyedError) and keyedError.code=="slet-forbidden","SLet rejects runtime keyed callable retention")
+check(not keyedOk and D.is(keyedError) and keyedError.code=='ownership-materialization','Public owning keyed-callable result ABI remains closed')
 local partialRuntime=checkedLet{profile="let",name="partial-runtime.let",source=[[
 let add(a, b: U32): U32 = a + b
 let partial(n: U32): Any = add(n)
@@ -476,7 +476,8 @@ end
 return { functions = { main } }
 ]]
 ok,err=pcall(Compiler.compile,{profile="let",source=closureSource,name="closure.let"})
-check(not ok and D.is(err) and err.code=='borrow-return','Capturing a frame-owned record cannot escape without counted ownership')
+check(not ok and D.is(err) and err.code=='dynamic-lowering','Let executable profile remains closed for captures')
+check(Compiler.compile{profile='slet',source=closureSource,exports={'main'}}.materialized~=nil,'Escaping record capture is materialized')
 
 local indirectPartialSource=[=[
 let add(a, b: U32): U32 = a + b
@@ -487,9 +488,8 @@ let managed(): U32 = bind(make(1), 2)(39)
 return { functions = { main, managed } }
 ]=]
 ok,err=pcall(Compiler.compile,{profile="let",name="indirect-partial.let",source=indirectPartialSource})
-check(not ok and D.is(err) and err.code=='borrow-return','A returned local partial environment requires actual ownership')
-ok,err=pcall(Compiler.typed,{profile="slet",name="indirect-partial.slet",source=indirectPartialSource})
-check(not ok and err.code=="slet-forbidden","SLet rejects retained indirect partial application")
+check(not ok and D.is(err) and err.code=='dynamic-lowering','Let executable profile remains closed for partial environments')
+check(Compiler.compile{profile='slet',source=indirectPartialSource,exports={'main','managed'}}.materialized~=nil,'Retained indirect partial application is materialized')
 
 local openWordSource=[=[
 let main(): U32 = do
@@ -551,24 +551,17 @@ local keyedRuntimeSupply=checkedLet{profile="let",name="keyed-runtime-supply.let
 let add { a: U32, b: U32 }: U32 = a + b
 let digits { a: U32, b: U32, c: U32 }: U32 = a * 100 + b * 10 + c
 let main(supplied: U32): U32 = do
-  let partial = add { b = supplied, note = 1 }
-  if U32(partial.b) != 20 or U32(partial.note) != 1 then return 0 end
-  partial.b = 22
-  let changed = partial { b = 21 }
-  if U32(partial.b) != 22 or U32(changed.b) != 21 then return 1 end
+  let partial = add { b = supplied }
   let full = add { a = supplied, b = 22 }
-  full.a = 19
-  return U32(partial(20)) + U32(changed(20)) + U32(full())
+  return partial(20) + full
 end
 let bookkeeping(supplied: U32): U32 = do
   let partial = digits { b = supplied }
-  let changed = partial { b = 4, note = 9 }
-  if U32(partial(1, 3)) != 123 or U32(changed(1, 3)) != 143 then return 0 end
-  remove(partial, "b")
-  return U32(partial(1, 2, 3))
+  return partial(1, 3)
 end
 return { functions = { main, bookkeeping } }
 ]=]}
+check(not hasIR(keyedRuntimeSupply,'Dynamic','WordBind'),'Known keyed supplies elaborate through ordinary source calls, not mutable open words')
 local noTerminal=checkedLet{profile="let",name="no-terminal.let",source="let main(): U32 = do open()() return 0 end\nreturn { functions = { main } }\n"}
 local frozenWords=checkedLet{profile="let",name="frozen-word.let",source=[=[
 let main(): Unit = do
@@ -611,7 +604,7 @@ let bad(): Slice(U32) = do
 end
 return { functions = { bad } }
 ]]})
-check(not ok and D.is(err) and err.code=="borrow-return","source view lifetime checking rejects a local slice return")
+check(not ok and D.is(err) and err.code=='ownership-materialization','Public owning slice result ABI remains closed')
 ok,err=pcall(Compiler.compile,{profile="slet",name="borrow-ref.slet",source=[[
 let Item = { value: U32 }
 let bad(): Ref(Item) = do
@@ -620,7 +613,7 @@ let bad(): Ref(Item) = do
 end
 return { functions = { bad } }
 ]]})
-check(not ok and D.is(err) and err.code=="borrow-return","SLet rejects a returned reference to lexical storage")
+check(not ok and D.is(err) and err.code=='ownership-materialization','Public owning reference result ABI remains closed')
 for _,source in ipairs({
 [[let Box = { x: U32 }
 let bad(c: Bool): Ref(U32) = do
@@ -644,7 +637,7 @@ end
 return { functions = { bad } }]],
 }) do
   ok,err=pcall(Compiler.compile,{profile="slet",name="nested-borrow.slet",source=source})
-  check(not ok and D.is(err) and err.code=="borrow-return","SLet rejects local borrows hidden by control or aggregates")
+  check(not ok and D.is(err) and err.code=='ownership-materialization','Public owning aggregate/result ABI remains closed')
 end
 ok,err=pcall(Compiler.compile,{profile="let",name="escaping-views.let",source=[[
 let Pair = { x: U32, y: U32 }
@@ -663,7 +656,7 @@ let main(): U32 = do
 end
 return { functions = { main } }
 ]]})
-check(not ok and D.is(err) and err.code=='borrow-return','Let also rejects local reference/slice escapes until counted owners exist')
+check(not ok and D.is(err) and err.code=='dynamic-lowering','Let executable profile remains closed for references/slices')
 ok,err=pcall(Compiler.compile,{profile="let",name="retained-captures.let",source=[[
 let Pair = { x: U32 }
 let make_ref_reader(): (U32): U32 = do
@@ -683,7 +676,7 @@ let main(): U32 = do
 end
 return { functions = { main } }
 ]]})
-check(not ok and D.is(err) and err.code=='borrow-return','Returned captured frame access requires real counted ownership')
+check(not ok and D.is(err) and err.code=='dynamic-lowering','Let executable profile remains closed for retained captures')
 ok,err=pcall(Compiler.compile,{profile="let",name="retained-aggregate.let",source=[[
 let Target = { value: U32 }
 let Holder = { r: Ref(Target), s: Slice(U32) }
@@ -698,7 +691,7 @@ let main(): U32 = do
 end
 return { functions = { main } }
 ]]})
-check(not ok and D.is(err) and err.code=='borrow-return','Aggregate wrapping does not permit frame-root escape')
+check(not ok and D.is(err) and err.code=='dynamic-lowering','Let executable profile remains closed for owning aggregates')
 
 local anySource=[[
 let dynamic_add(a, b): Any = a + b

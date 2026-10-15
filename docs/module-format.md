@@ -6,9 +6,9 @@ semantics are defined in [symmetric-isa.md](symmetric-isa.md), generated from
 `tools/opcodes.lua`. Format revision and capability profile are independent.
 
 The loader accepts **revision 6, profiles 1–4**, and **revision 7, profile 4** with
-lifecycle C-entry metadata (§10). Revision-7 metadata can be verified and optimized;
-modules with C entries currently reject VM image preparation and portable-C emission
-because C-entry delivery is not implemented. Other revisions are rejected, not
+lifecycle C-entry metadata (§10). Revision-7 metadata is verified and optimized;
+VM image preparation delivers native C-callable lifecycle entries in all execution
+modes. Tooling residual IR and portable-C emission still reject this ABI. Other revisions are rejected, not
 translated or reinterpreted. Profile 5/dynamic execution is not implemented by this
 loader. Profile-specific documents supplement, but do not override, this header or
 the unchanged revision-6 instruction contracts.
@@ -205,7 +205,7 @@ fuel budget. Language aborts retain their reason and original bytecode offset.
 
 ## Lifecycle-entry extension (revision 7)
 
-**Encoded boundary implemented; executable delivery pending (WORKLIST E01).** This is the
+**Encoded boundary and native lifecycle delivery implemented (WORKLIST E01).** This is the
 minimal C-entry relocation extension, not the withdrawn ownership runtime design.
 Revision 6 retains its exact existing format and instruction semantics. Revision 7
 uses the same instruction bytes, is restricted to profile 4, and requires sections

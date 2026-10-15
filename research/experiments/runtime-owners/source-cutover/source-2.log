@@ -1,0 +1,20 @@
+luajit: ...arch/experiments/runtime-owners/source-cutover/probe.lua:25: TODO [abc-lowering] ABC lowering is not implemented for escaping or unknown Ir.Get aggregate
+stack traceback:
+	...arch/experiments/runtime-owners/source-cutover/probe.lua:24: in function <...arch/experiments/runtime-owners/source-cutover/probe.lua:24>
+	[C]: in function 'error'
+	./let/diag.lua:22: in function 'todo'
+	./let/abc.lua:35: in function 'unsupported'
+	./let/abc.lua:556: in function 'expr'
+	./let/abc.lua:654: in function 'arguments'
+	./let/abc.lua:665: in function 'call'
+	./let/abc.lua:739: in function 'statements'
+	./let/abc.lua:881: in function 'lower'
+	./let/abc.lua:1022: in function 'lower'
+	./let/compiler.lua:150: in function <./let/compiler.lua:144>
+	[C]: in function 'xpcall'
+	...arch/experiments/runtime-owners/source-cutover/probe.lua:24: in main chunk
+	[C]: at 0x5e5fe5ea2120
+stack traceback:
+	[C]: in function 'assert'
+	...arch/experiments/runtime-owners/source-cutover/probe.lua:25: in main chunk
+	[C]: at 0x5e5fe5ea2120

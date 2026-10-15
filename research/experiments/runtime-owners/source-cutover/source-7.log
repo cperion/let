@@ -1,0 +1,6 @@
+luajit: tests/source_owners.lua:64: unchanged failed outputs
+stack traceback:
+	[C]: in function 'assert'
+	tests/source_owners.lua:64: in function 'check'
+	tests/source_owners.lua:74: in main chunk
+	[C]: at 0x639764c39120

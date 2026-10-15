@@ -161,6 +161,10 @@ module Ir {
        | Null(Ty.V type)
        # Private code identity in the current module; existing code relocation ABI.
        | Code(string entry, Ty.V type)
+       # Materialized private C entry, never an ABC code identity.
+       | CEntry(string entry, Ty.V type)
+       # Physical callable transport; environment ownership is held by its container.
+       | Callable(Expr code, Expr environment, Ty.V type)
 
   # One persistent module root; identity and initial bytes are independent of its
   # eventual image offset. No VM/process addresses occur in the initial image.

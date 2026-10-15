@@ -1,0 +1,9 @@
+=== compiler ===
+luajit: tests/compiler.lua:13: Public owning keyed-callable result ABI remains closed
+stack traceback:
+	[C]: in function 'assert'
+	tests/compiler.lua:13: in function 'check'
+	tests/compiler.lua:287: in main chunk
+	[C]: at 0x5616fe245120
+=== lowering ===
+PASS: checked ASDL Ir -> ABC lowering (101 checks)

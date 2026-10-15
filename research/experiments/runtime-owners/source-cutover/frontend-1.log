@@ -1,0 +1,12 @@
+=== program ===
+luajit: TODO [abc-lowering] ABC lowering is not implemented for storage for zero-sized type {}
+stack traceback:
+	[C]: in function 'error'
+	./let/diag.lua:22: in function 'todo'
+	./let/abc.lua:35: in function 'unsupported'
+	./let/abc.lua:140: in function 'reserve'
+	./let/abc.lua:156: in function 'scanList'
+	./let/abc.lua:190: in function 'new'
+	./let/abc.lua:1023: in function 'lower'
+	tests/program.lua:62: in main chunk
+	[C]: at 0x5b0191549120

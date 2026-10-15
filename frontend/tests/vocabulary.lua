@@ -86,11 +86,12 @@ let Context = { amount: U32 }
 let use_context(ctx...: Context): U32 = do let nested(): U32 = amount + 2 return nested() end
 let main(n: U32): U32 = use_context(Context { amount = n })
 ]],{40},42)
-reject('slet-forbidden',[[
+local retained=C.typed{profile='slet',source=[[
 let Context = { amount: U32 }
 let escape(ctx...: Context) = do return do() = amount end
 let main(n: U32): U32 = escape(Context { amount = n })()
-]])
+]]}
+check(C.lower(retained.functions,{profile='slet',exports={'main'}}).materialized~=nil,'Escaping vocabulary captures have concrete storage')
 reject('unknown-name',[[
 let Context = { amount: U32, method(): U32 = amount }
 let main(ctx...: Context): U32 = do return method end

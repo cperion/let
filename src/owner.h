@@ -4,7 +4,7 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 
-/* Private C core; no source/VM lifetime binding yet. */
+/* Private counting/queue core; concrete source/VM bindings live in lifetime.c. */
 typedef enum { ABC_OWNER_LOCAL, ABC_OWNER_SHARED, ABC_OWNER_IMMORTAL } abc_owner_kind;
 typedef struct abc_owner abc_owner;
 typedef struct abc_owner_context abc_owner_context;

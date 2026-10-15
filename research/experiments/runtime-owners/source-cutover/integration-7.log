@@ -1,0 +1,5 @@
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+source owning execution: 370 checks, 120 four-mode original/optimized calls
+build/validate-source-owners build/source-owners.abc build/source-owners-opt.abc
+source owners: tools/validate_source_owners.c:103: owners[test]?allocations==owners[test]:allocations>0
+make: *** [Makefile:147: validate-source-owners] Error 1

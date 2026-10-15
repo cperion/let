@@ -1,0 +1,55 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/vm.c -o build/vm.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residualize.c -o build/residualize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/lifetime.c -o build/lifetime.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/vm.c -o build/pic/vm.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residualize.c -o build/pic/residualize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/lifetime.c -o build/pic/lifetime.o
+rm -f build/libabc-tool.a
+ar rcs build/libabc-tool.a build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+rm -f build/libabc.a
+ar rcs build/libabc.a build/module.o build/memory_module.o build/verify.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/banked_0.o build/banked_1.o build/banked_2.o build/banked_3.o build/banked_4.o build/banked_5.o build/banked_6.o build/banked_7.o build/residualize.o build/native_emit.o build/native_image.o build/threaded_emit.o build/generated/threaded.o build/owner.o build/lifetime.o
+/tmp/clang20 -shared -O2 -g -pthread -Wl,-z,defs build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/banked_0.o build/pic/banked_1.o build/pic/banked_2.o build/pic/banked_3.o build/pic/banked_4.o build/pic/banked_5.o build/pic/banked_6.o build/pic/banked_7.o build/pic/residualize.o build/pic/native_emit.o build/pic/native_image.o build/pic/threaded_emit.o build/pic/threaded.o build/pic/owner.o build/pic/lifetime.o -lm -o build/libabc.so
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_source_owners.c build/libabc.a -lm -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=abc_owner_replace,--wrap=abc_owner_drain -o build/validate-source-owners
+/tmp/clang20 -O2 -g -pthread build/cli.o build/libabc.a -o build/abc-runtime
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_lifetime.c build/libabc.a -lm -o build/validate-lifetime
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_c_entries.c build/libabc.a build/libabc-tool.a -lm -o build/validate-c-entries
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+cp tools/abc build/abc
+chmod +x build/abc
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+/tmp/lua-compat tools/validate_c_entries.lua build/c-entry-tests
+C-entry format: 180 assembler/loader/optimizer checks; no lifecycle execution
+build/validate-c-entries build/c-entry-tests/entries.abc build/c-entry-tests/optimized.abc build/c-entry-tests/ordinary.abc build/c-entry-tests/empty.abc
+C-entry boundaries: 193 checks; ABC target exclusion and fail-closed delivery in four modes; no lifecycle execution
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)
+build/abc asm tools/validate_lifetime.abcasm -o build/validate-lifetime.abc
+build/validate-lifetime build/validate-lifetime.abc
+validated 48 public module/VM lifetime cases (all mode pairs, uncalled and called images)
+cd frontend && /tmp/lua-compat tools/embed.lua --check
+schemas up to date
+cd frontend && /tmp/lua-compat tests/schemas.lua
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+cd frontend && /tmp/lua-compat tests/type_names.lua
+type names: 44 checks, 8 VM executions
+cd frontend && /tmp/lua-compat tests/walk.lua
+PASS: schema-driven traversal (4 checks)
+cd frontend && /tmp/lua-compat tests/parse.lua
+PASS: lexer/parser (232 checks)
+cd frontend && /tmp/lua-compat tests/syntax_batch.lua
+syntax batch: 149 checks, 68 VM executions
+cd frontend && /tmp/lua-compat tests/endall.lua
+endall: 57 checks, 16 VM executions
+cd frontend && /tmp/lua-compat tests/word_bindings.lua
+luajit: tests/word_bindings.lua:6: slet-forbidden: table: 0x71b5760cde58
+stack traceback:
+	[C]: in function 'assert'
+	tests/word_bindings.lua:6: in function 'check'
+	tests/word_bindings.lua:9: in function 'reject'
+	tests/word_bindings.lua:89: in main chunk
+	[C]: at 0x60aa678f5120
+make: *** [Makefile:207: validate-slet] Error 1
+make: *** Waiting for unfinished jobs....
+source owning execution: 884 checks, 288 four-mode original/optimized calls
+build/validate-source-owners build/source-owners.abc build/source-owners-opt.abc build/source-owners-b.abc build/source-owners-b-opt.abc
+source ownership cleanup: 1037930 checks; four modes, raw/optimized, both lifecycle banks, allocation/acquire failures, trap, stack limit, generated C drain

@@ -88,6 +88,7 @@ abc_status abc_vm_bind_foreign(abc_vm *v,const char *name,abc_foreign_address ad
 }
 static void image_free(abc_image *image) {
     abc_execution_image_free(image->execution);
+    abc_execution_image_free(image->lifecycle);
     if(image->bytes_mapping_size) munmap(image->bytes,image->bytes_mapping_size);
     else free(image->bytes);
     free(image->direct_callees); free(image->call_info); free(image->indirect_site_states);
@@ -106,8 +107,8 @@ void abc_vm_free(abc_vm *v) {
 }
 static abc_status vm_image(abc_vm *v,const abc_module *m,abc_image **out,abc_error *e) {
     *out=NULL;
-    if(m->c_entry_count)return abc_fail(e,ABC_INVALID,UINT32_MAX,"lifecycle C-entry delivery is not implemented");
     for(abc_image *i=v->images;i;i=i->next) if(i->module==m) { *out=i; return ABC_OK; }
+    abc_status checked=abc_source_lifecycle_check(m,e);if(checked!=ABC_OK)return checked;
     abc_image *i=calloc(1,sizeof *i);
     if(!i) return abc_fail(e,ABC_NOMEM,UINT32_MAX,"image allocation failed");
     if((v->mode==ABC_EXEC_COMPILED || v->mode==ABC_EXEC_LAZY) && m->image_size) {
@@ -139,9 +140,10 @@ static abc_status vm_image(abc_vm *v,const abc_module *m,abc_image **out,abc_err
         i->foreign_bridges=calloc(m->extern_count,sizeof *i->foreign_bridges);
         if(!i->foreign||!i->foreign_bridges){image_free(i);return abc_fail(e,ABC_NOMEM,UINT32_MAX,"foreign table allocation failed");}
         for(uint32_t index=0;index<m->extern_count;index++) {
-            i->foreign[index]=abc_foreign_lookup(v,m->externs[index].name);
-            i->foreign_bridges[index]=abc_foreign_select(&m->externs[index]);
-            if(!i->foreign[index]||!i->foreign_bridges[index]) {
+            abc_foreign_bridge_fn source=abc_source_binding(&m->externs[index]);
+            i->foreign_bridges[index]=source;
+            if(!source){i->foreign[index]=abc_foreign_lookup(v,m->externs[index].name);i->foreign_bridges[index]=abc_foreign_select(&m->externs[index]);}
+            if((!source&&!i->foreign[index])||!i->foreign_bridges[index]) {
                 image_free(i);return abc_fail(e,ABC_NOT_FOUND,UINT32_MAX,"unbound or unsupported foreign symbol '%s'",m->externs[index].name);
             }
         }
@@ -154,6 +156,14 @@ static abc_status vm_image(abc_vm *v,const abc_module *m,abc_image **out,abc_err
         uint32_t function=m->relocs[index].function;
         uint64_t identity=(uint64_t)(uintptr_t)(m->code+m->functions[function].entry);
         for(unsigned byte=0;byte<8;byte++)i->bytes[m->relocs[index].offset+byte]=(uint8_t)(identity>>(8*byte));
+    }
+    if(m->c_entry_count) {
+        abc_status status=abc_prepare_lifecycle(m,i->bytes,v,&i->lifecycle,e);
+        if(status!=ABC_OK){image_free(i);abc_module_free(owned);return status;}
+        for(uint32_t entry=0;entry<m->c_entry_count;entry++) {
+            uint64_t address=(uint64_t)(uintptr_t)i->lifecycle->entries[m->c_entries[entry].function];
+            memcpy(i->bytes+m->c_entries[entry].offset,&address,8);
+        }
     }
     if(v->mode!=ABC_EXEC_INTERPRETED) {
         abc_status status=abc_residualize_module(m,i->bytes,v,v->mode,&i->execution,e);
@@ -251,6 +261,10 @@ abc_status abc_vm_call(abc_vm *v,const abc_module *m,const char *name,const uint
     if(status==ABC_OK) {
         prepare_entry(context,image,(unsigned)fi,args,nargs);
         status=execution_status(context,execute(context,(unsigned)fi));
+        if(status==ABC_OK&&context->cleanup)status=abc_fail(&context->error,ABC_INVALID,UINT32_MAX,"source activation returned without cleanup");
+        /* Frames still exist here. Drop actual holdings before resetting any ABC
+           storage, retaining the original failure and persistent image writes. */
+        if(context->cleanup||context->owners.head)abc_source_unwind(context);
         if(status==ABC_OK) {
             if(v->mode!=ABC_EXEC_INTERPRETED){context->na=f->results;context->nb=context->ca=context->cb=0;}
             if(vm_depth(context,'a')!=f->results||vm_depth(context,'b'))status=abc_fail(&context->error,ABC_INVALID,UINT32_MAX,"invalid final result shape");

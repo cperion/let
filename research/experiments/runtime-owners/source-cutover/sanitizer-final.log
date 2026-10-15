@@ -1,0 +1,1 @@
+source ownership cleanup: 1043242 checks; four modes, raw/optimized, both lifecycle banks, allocation/acquire failures, trap, stack limit, generated C drain

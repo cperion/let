@@ -1,0 +1,7 @@
+luajit: REJECT [parse] at source-owners.slet:41 Only calls, stores, `let`, `if` and `return` are statements
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:57: in main chunk
+	[C]: at 0x5ef377fbd120

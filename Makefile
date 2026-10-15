@@ -13,10 +13,10 @@ RUNTIME_OBJ = build/module.o build/memory_module.o build/verify.o build/foreign.
 TOOL_OBJ = build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
 TOOL_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o
 RUNTIME_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o $(addprefix build/pic/banked_,$(addsuffix .o,$(SHARDS))) build/pic/residualize.o build/pic/native_emit.o build/pic/native_image.o build/pic/threaded_emit.o build/pic/threaded.o
-RUNTIME_OBJ += build/owner.o
-RUNTIME_PIC += build/pic/owner.o
+RUNTIME_OBJ += build/owner.o build/lifetime.o
+RUNTIME_PIC += build/pic/owner.o build/pic/lifetime.o
 ASDLC_SRC = tools/asdlc/main.c tools/asdlc/arena.c tools/asdlc/parser.c tools/asdlc/validate.c tools/asdlc/emit_c.c
-.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet validate-owner-core validate-c-entries
+.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet validate-owner-core validate-source-owners validate-c-entries
 all: build/abc build/abc-opt build/libabc-opt.so build/libabc.so build/libabc.a build/generated/stencils.h
 build:
 	mkdir -p build
@@ -28,6 +28,7 @@ $(RUNTIME_OBJ) $(RUNTIME_PIC): src/execution_context.h
 # Explicit generated/PIC rules also consume private module/function layouts.
 $(RUNTIME_OBJ) $(RUNTIME_PIC) $(TOOL_OBJ) $(TOOL_PIC): src/internal.h
 build/owner.o build/pic/owner.o: src/owner.h
+$(RUNTIME_OBJ) $(RUNTIME_PIC) build/memory_module.o build/pic/memory_module.o: src/lifetime.h src/owner.h
 build/abc-asdlc: $(ASDLC_SRC) tools/asdlc/asdlc.h | build
 	$(CC) $(CFLAGS) $(WARN) -Itools $(ASDLC_SRC) -o $@
 build/generated/residual_ir.h build/generated/residual_ir.c &: schema/residual.asdl build/abc-asdlc | build/generated
@@ -138,6 +139,12 @@ build/validate-owner-core: tools/validate_owner_core.c build/owner.o src/owner.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/owner.o -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free -o $@
 validate-owner-core: build/validate-owner-core
 	build/validate-owner-core
+build/validate-source-owners: tools/validate_source_owners.c build/libabc.a src/vm_internal.h src/execution_context.h src/lifetime.h src/owner.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a -lm -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=abc_owner_replace,--wrap=abc_owner_drain,--wrap=mprotect -o $@
+.PHONY: validate-source-owners
+validate-source-owners: build/validate-source-owners build/libabc.so build/libabc-opt.so
+	cd frontend && $(LUA) tests/source_owners.lua
+	build/validate-source-owners build/source-owners.abc build/source-owners-opt.abc build/source-owners-b.abc build/source-owners-b-opt.abc
 build/validate-c-entries: tools/validate_c_entries.c build/libabc.a build/libabc-tool.a src/vm_internal.h src/residual_builder.h src/residualize.h include/abc_tool.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a build/libabc-tool.a -lm -o $@
 validate-c-entries: build/validate-c-entries build/libabc.so build/libabc-opt.so build/abc-runtime
@@ -218,7 +225,7 @@ validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi 
 	cd frontend && LUA="$(LUA)" $(LUA) tests/staging_sessions.lua
 	$(LUA) tools/validate_slet_frontend.lua
 	CC="$(CC)" $(LUA) tools/validate_c_aot.lua
-validate: validate-c-entries validate-owner-core validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
+validate: validate-c-entries validate-owner-core validate-source-owners validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
 	build/abc asm tools/validate_capacity_frontiers.abcasm -o build/validate-capacity-frontiers.abc
 	build/validate-capacity-frontiers build/validate-capacity-frontiers.abc
 	build/validate-execution-emit

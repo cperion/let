@@ -32,14 +32,17 @@ The build generates a finite C-ABI bridge for every permitted integer/float regi
 
 Ordinary foreign calls are host effects: the host function is responsible for pointer validity, termination and side effects. The in-process staging service prohibits arbitrary foreign execution; leaving host externs unbound rejects preparation of a module that declares them. Supporting runtime foreign calls does not authorize compile-time host effects.
 
-The private `__let_rt_` namespace remains reserved, but its v3 runtime binding has
-been removed. All reserved runtime imports reject at module loading; host rebinding
-and source `extern` impersonation still reject. Retired primitives cannot fall through
-to host foreign calls. Staging rejects foreign execution without the removed runtime
-allowlist. The separately approved revision-7/profile-4 C-entry format adds section
-10 without changing extern declarations or FCALL semantics. Its metadata is verified
-and optimized, but VM image preparation and portable C reject executable C-entry
-delivery. It does not bind the reserved runtime namespace or admit source counted
-escapes. See WORKLIST E/O for current implementation and validation boundaries.
+The private `__let_rt_` namespace remains reserved. Revision-7/profile-4 modules
+admit exactly six `__let_rt_source_` contracts defined in
+[runtime-interfaces.md](runtime-interfaces.md#current-concrete-source-binding).
+Host rebinding, source extern impersonation, wrong signatures and retired v3 names
+reject; they cannot fall through to host foreign calls. The bindings connect concrete
+source storage/holdings and cleanup, not a primitive dispatcher. Staging still rejects
+foreign execution; owning public/foreign transport remains unsupported.
+
+Revision-7 section10 adds C-entry relocations without changing FCALL or ordinary
+extern semantics. VM preparation delivers real native lifecycle callbacks even in
+interpreted/threaded mode, while portable C/tooling residual IR still reject this ABI.
+See WORKLIST E/O for exact implementation and validation boundaries.
 
 Active API and optimizer tests exercise both banks, ordered arguments, live prefixes and single execution of effects; see `REFACTOR.md`.

@@ -16,6 +16,14 @@ local function reject(code,source,profiles)
   check(not ok and D.is(err) and err.code==code,profile..'/'..code..': '..tostring(err))
  end
 end
+local function counted(reason,source,profiles)
+ for _,profile in ipairs(profiles or {'slet','let'}) do
+  local unit=C.typed{profile=profile,source=source,name='access-proof.'..profile};local found=false
+  for _,fn in ipairs(unit.functions) do for _,r in ipairs(unit.program.ownership[fn.id].summary.counted) do if r.reason==reason then found=true end end end
+  check(found,profile..': expected counted '..reason..' obligation')
+  check(require('let.layout').program(unit.program).owning,'counted obligations select a physical owning contract')
+ end
+end
 local function run(source,wanted,options)
  local unit=C.typed({profile='slet',source=source,name='access-proof.slet'},options)
  for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do for _,optimize in ipairs{false,true} do
@@ -25,36 +33,36 @@ local function run(source,wanted,options)
  return unit
 end
 local prelude='let Point = { x: U32 }\n'
-reject('borrow-return',prelude..'let bad(): Ref(Point) = do let p = Point { x = 42 } return Ref(p) end let main(): U32 = 0')
-reject('borrow-return','let bad(): Slice(U32) = do let xs = [42] return Slice(xs) end let main(): U32 = 0')
-reject('borrow-return',prelude..'let bad(p: Point): Ref(U32) = Ref(p.x) let main(): U32 = 0')
-reject('borrow-return',prelude..[[
+counted('return',prelude..'let bad(): Ref(Point) = do let p = Point { x = 42 } return Ref(p) end let main(): U32 = 0')
+counted('return','let bad(): Slice(U32) = do let xs = [42] return Slice(xs) end let main(): U32 = 0')
+counted('return',prelude..'let bad(p: Point): Ref(U32) = Ref(p.x) let main(): U32 = 0')
+counted('return',prelude..[[
 let Holder = { value: Ref(Point) }
 let identity(p: Ref(Point)): Ref(Point) = p
 let bad(): Holder = do let p = Point { x = 42 } return Holder { value = identity(Ref(p)) } end
 let main(): U32 = 0
 ]])
-reject('borrow-return',[[
+counted('return',[[
 let bad(n: U32): (U32): U32 = do let saved = n return do(x: U32) = saved + x end
 let main(): U32 = 0
 ]],{'let'})
-reject('borrow-return',prelude..[[
+counted('return',prelude..[[
 let bad(): (): U32 = do let p = Point { x = 42 } return do() = p.x end
 let main(): U32 = 0
 ]],{'let'})
-reject('borrow-store',prelude..[[
+counted('store',prelude..[[
 let Holder = { value: Ref(Point) }
 let bad(holder: Ref(Holder)): Unit = do let p = Point { x = 42 } holder.value = Ref(p) return end
 let main(): U32 = 0
 ]])
-reject('borrow-store',prelude..[[
+counted('store',prelude..[[
 let Holder = { value: Ref(Point) }
 let put(holder: Ref(Holder), value: Ref(Point)): Unit = do holder.value = value return end
 let relay(holder: Ref(Holder), value: Ref(Point)): Unit = put(holder,value)
 let bad(holder: Ref(Holder)): Unit = do let p = Point { x = 42 } relay(holder,Ref(p)) return end
 let main(): U32 = 0
 ]])
-reject('borrow-return',prelude..[[
+counted('return',prelude..[[
 let Holder = { value: Ref(Point) }
 let put(holder: Ref(Holder), value: Ref(Point)): Unit = do holder.value = value return end
 let bad(incoming: Ref(Point)): Holder = do
@@ -64,7 +72,7 @@ let bad(incoming: Ref(Point)): Holder = do
 end
 let main(): U32 = 0
 ]])
-reject('borrow-return',prelude..[[
+counted('return',prelude..[[
 let Holder = { value: Ref(Point) }
 let bad(incoming: Ref(Point), condition: Bool): Holder = do
  let p = Point { x = 42 } let holder = Holder { value = incoming }
@@ -108,7 +116,7 @@ end
 for _,invocation in ipairs{'saved()','apply(saved)','relay(saved)','identity(saved)()',
  'through(Actions { body = saved })','recursive(2, saved)',
  'apply do() holder.value = Ref(p) return end'} do
- reject('borrow-store',higherPrelude..[[
+ counted('store',higherPrelude..[[
 let bad(holder: Ref(Holder)): U32 = do
  let p = Point { x = 42 }
  let saved = do() holder.value = Ref(p) return end
@@ -118,7 +126,7 @@ end
 let main(): U32 = 0
 ]],{'let'})
 end
-reject('borrow-return',prelude..[[
+counted('return',prelude..[[
 let invoke(body: (): Ref(Point)): Ref(Point) = body()
 let bad(): Ref(Point) = do
  let p = Point { x = 42 }
@@ -126,7 +134,7 @@ let bad(): Ref(Point) = do
 end
 let main(): U32 = 0
 ]],{'let'})
-reject('borrow-return',prelude..[[
+counted('return',prelude..[[
 let invoke(body: (): Ref(Point)): Ref(Point) = body()
 let Holder = { value: Ref(Point) }
 let bad(incoming: Ref(Point)): Ref(Point) = do
@@ -185,7 +193,7 @@ let between(holder: Ref(Holder), first: Ref(Point), last: Ref(Point), body: (): 
  return result
 end
 ]]
-reject('borrow-return',orderedPrelude..[[
+counted('return',orderedPrelude..[[
 let bad(incoming: Ref(Point)): Ref(Point) = do
  let p = Point { x = 42 }
  let ctx... = Holder { value = incoming }
@@ -217,7 +225,7 @@ let main(): U32 = do let p = Point { x = 42 } let r = remember(Ref(p)) return r.
 ]],42)
 -- A callback result feeds an ordinary store; retaining its actual local owner
 -- must not be erased by a formal invocation/result identity.
-reject('borrow-store',higherPrelude..[[
+counted('store',higherPrelude..[[
 let save(holder: Ref(Holder), body: (): Ref(Point)): Unit = do
  holder.value = body()
  return
@@ -231,7 +239,7 @@ let main(): U32 = 0
 ]],{'let'})
 -- Concrete callable holdings retain their formation context and component. A
 -- harmless sibling field cannot hide a retaining callback, or become its code.
-reject('borrow-store',prelude..[[
+counted('store',prelude..[[
 let Holder = { value: Ref(Point) }
 let Actions = { safe: (): Unit, bad: (): Unit }
 let bad(holder: Ref(Holder)): Unit = do
@@ -343,7 +351,7 @@ check(module.program.access[module.functions[1].id].results[1].components[1].loa
 run('let expose(): Slice(U8) = "*" let main(): U32 = U32(expose()[0])',42)
 -- Return state from a PlaceParam method follows its stores, rather than keeping
 -- the entry field as an alias. The caller instantiates its owner constraint.
-reject('borrow-return',[[
+counted('return',[[
 let Point = { x: U32 }
 let Holder = {
  saved_ref: Ref(Point),

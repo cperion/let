@@ -20,6 +20,10 @@ local function rejects(code,text,profile)
  end)
  check(not ok and D.is(err) and err.code==code,code..': '..tostring(err))
 end
+local function promoted(text,profile)
+ local unit=C.typed({profile=profile or 'slet',source=prefix..text,name='anonymous-promoted.slet'},options)
+ check(require('let.layout').program(unit.program).owning,'Anonymous home retains counted placement requirements')
+end
 local function parse(text) return P.source(text..'\nreturn { functions = {} }','anonymous-parse.let') end
 local sample=[[let run_session (...: Ref(Terminal), editor: Ref(Editor)) = do
   editor. apply (editor.mode.command_for (read_key))
@@ -151,13 +155,13 @@ rejects('context-use','let opened(...:Box,other:Box):Unit=do let marker=0; (...)
 rejects('not-a-place','let opened(...:Ref(Box)):Ref(Ref(Box))=Ref(...); let main():U32=0')
 rejects('not-a-place','let opened(...:Ref(Box)):Ptr(Ref(Box))=Ptr(...); let main():U32=0')
 local unsafe='let Destination={held:Ref(U32)}; let unsafe(...: Box,destination:Ref(Destination)):Unit=do destination.held=Ref((...).x) return end; let main():U32=0'
-rejects('borrow-store',unsafe)
-rejects('borrow-store',unsafe,'let')
+promoted(unsafe)
+promoted(unsafe,'let')
 rejects('vocabulary-position','let f(a...: Box,...: Box)=do return 0 end; let main(): U32=0')
 rejects('vocabulary-position','extern let f(...: Box): Unit; let main(): U32=0')
 rejects('rest-position','let f(...args,n: U32)=do return 0 end; let main(): U32=0')
-rejects('borrow-return','let opened(...: Box): Ref(Box)=do return Ref(...) end; let main(): U32=0')
-rejects('borrow-return','let opened(...: Box): Ref(Box)=do return Ref(...) end; let main(): U32=0','let')
+promoted('let opened(...: Box): Ref(Box)=do return Ref(...) end; let main(): U32=0')
+promoted('let opened(...: Box): Ref(Box)=do return Ref(...) end; let main(): U32=0','let')
 run([[
 let Point={x:F64,y:F64}
 let squared(...:Point):F64=x*x+y*y

@@ -1,0 +1,2 @@
+indirect_result: 2 owner allocations, expected 3
+source owners: tools/validate_source_owners.c:105: owners[test]?allocations==owners[test]:allocations>0

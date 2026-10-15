@@ -1,0 +1,12 @@
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+luajit: REJECT [type-mismatch] at source-owners.slet:8 Binary operands need compatible scalar types
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:130: in main chunk
+	[C]: at 0x60a463d70120
+make: *** [Makefile:146: validate-source-owners] Error 1
+make: *** Waiting for unfinished jobs....
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)

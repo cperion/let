@@ -11,7 +11,7 @@ typedef struct abc_image {
     uint32_t *direct_callees, *indirect_site_states;
     abc_call_info *call_info; size_t bytes_mapping_size; uint64_t transitions;
     abc_foreign_address *foreign; abc_foreign_bridge_fn *foreign_bridges;
-    struct abc_execution_image *execution;
+    struct abc_execution_image *execution,*lifecycle;
     struct abc_image *next;
 } abc_image;
 struct abc_vm {

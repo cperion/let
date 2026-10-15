@@ -578,10 +578,15 @@ local function engine(program)
       else for i in ipairs(node.results) do returned[i]=returned[i] or empty();returned[i].unknown=true end end
      end
      if known then state=states
-     else
+     elseif callable.unknown or node.invoke.value.type==S.Any then
       local supplied={{value=callable}};for _,a in ipairs(args) do supplied[#supplied+1]=a end
       opaque(supplied,state,node)
       for i in ipairs(node.results) do returned[i]=empty();returned[i].unknown=true end
+     else
+      -- A typed callable returned by an unfinished child query is lattice
+      -- bottom, not an opaque call. Its producer requeues this context when code
+      -- facts arrive. Inventing unknown here poisons otherwise known factories.
+      for i in ipairs(node.results) do returned[i]=empty() end
      end
     end
     for i,id in ipairs(node.results) do

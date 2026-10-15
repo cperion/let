@@ -108,10 +108,11 @@ let Point = { x: U32, nudge(): U32 = x }
 let nudge(p: Point, dx: U32): U32 = 42
 let main(): U32 = do let p = Point { x = 40 } return p.nudge(2) end
 ]],'')
-reject('slet-forbidden',[[
+local retained=C.typed{profile='slet',source=prelude..[[
 let make(p: Ref(Point)) = do let p... return do() nudge 2 return end end
 let main(): U32 = do let p = Point { x = 40 } let f = make(Ref(p)) f() return p.x end
-]])
+]]}
+check(require('let.layout').program(retained.program).owning,'Opened receiver closure requires concrete ownership')
 -- Merely defining a word inside a receiver scope must not capture that receiver.
 run([[
 let make(p: Ref(Point)) = do let p... return do() = 42 end
@@ -120,10 +121,11 @@ let main(): U32 = do let p = Point { x = 0 } let f = make(Ref(p)) return f() end
 run([[
 let main(): U32 = do let p = Point { x = 40 } let p... let nested() = do let deeper() = do nudge 2 return end deeper() return end nested() return p.x end
 ]],42)
-reject('borrow-return',[[
+local returned=C.typed{profile='slet',source=prelude..[[
 let identity(p: Ref(Point)): Ref(Point) = p
 let main(): Ref(Point) = do let p = Point { x = 40 } return p.identity() end
-]])
+]]}
+check(require('let.layout').program(returned.program).owning,'Returned receiver preserves owner placement')
 local function assembly(call)
  local unit=C.typed{profile='slet',source=prelude..'let main(): U32 = do let p = Point { x = 40 } '..call..' return p.x end'}
  return C.lower(unit.functions,{profile='slet'}).assembly
@@ -166,10 +168,11 @@ let main(): U32 = do let p = Point { x = 40 } action(Ref(p)) return p.x end
 run([[
 let main(): U32 = do let p = Point { x = 42 } let q = Point { x = 90 } let r = Ref(p) let recur(k: U32): U32 = do if k > 0 then return recur(k - 1) end return r.x end r = Ref(q) return recur(3) end
 ]],42)
-reject('slet-forbidden',[[
+local recursiveCapture=C.typed{profile='slet',source=[[
 let Holder = { action: (U32): U32 }
 let main(): U32 = do let n = 42 let recur(k: U32): U32 = do let step(v: U32): U32 = recur(v) let holder = Holder { action = step } if k > 0 then return holder.action(k - 1) end return n end return recur(3) end
-]],'')
+]]}
+check(recursiveCapture.program.phase=='checked-program','Retained recursive callable is checked before physical admission')
 reject('static-cycle',[[
 let add(a: U32, b: U32): U32 = a + b
 let main(): U32 = do let recur(k: U32): U32 = do let bound = add(recur(0)) return bound(k) end return recur(1) end
@@ -308,7 +311,8 @@ let main(): U32 = do
  return observe()
 end
 ]],82)
-reject('slet-forbidden','let make(p: Ref(Point)) = do let p... return do() = x end let main(): U32 = 0')
+local openedCapture=C.typed{profile='slet',source=prelude..'let make(p: Ref(Point)) = do let p... return do() = x end let main(): U32 = 0'}
+check(require('let.layout').program(openedCapture.program).owning,'Opened-field capture retains an owning environment requirement')
 check(assembly('let p... x += 2')==assembly('p.x += 2'),'opened field write produces identical ABC to qualified access')
 check(assembly('let p...')==assembly(''),'unused opening emits no field reads or copies')
 print(('receiver scopes: %d checks, %d VM executions'):format(checks,executions))
