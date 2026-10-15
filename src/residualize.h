@@ -14,5 +14,4 @@ typedef struct abc_execution_image {
 abc_status abc_residualize_module(const abc_module *module,uint8_t *image_base,const abc_vm *vm,
     abc_execution_mode mode,abc_execution_image **out,abc_error *error);
 void abc_execution_image_free(abc_execution_image *image);
-abc_status abc_compile_release(const abc_module *,uint8_t *,unsigned,abc_release_code **,abc_error *);
 #endif

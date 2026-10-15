@@ -2,11 +2,6 @@
 #include "owner.h"
 #include <assert.h>
 
-/* The current ABC host ABI is 64-bit (internal.h). Keep compiler frame records
- * explicit; a future wasm binding must generate its corresponding layout. */
-_Static_assert(sizeof(abc_owner_scope)==2*sizeof(uint64_t),"holding scope header ABI");
-_Static_assert(sizeof(abc_owner *)==sizeof(uint64_t),"holding scope slot ABI");
-
 static int allocation_layout(size_t bytes,size_t a,size_t *offset,size_t *total,size_t *alignment) {
     if(!a || (a&(a-1)) || sizeof(abc_owner)>SIZE_MAX-(a-1))return 0;
     *offset=(sizeof(abc_owner)+a-1)&~(a-1);
@@ -19,11 +14,6 @@ static int allocation_layout(size_t bytes,size_t a,size_t *offset,size_t *total,
 void *abc_owner_payload(const abc_owner *owner) {
     return (unsigned char *)(uintptr_t)owner+owner->payload_offset;
 }
-/* Explicit initialized-holding prefix, not a zero-filled payload assumption.
- * Generated construction advances it only after each holding is installed. */
-uint64_t *abc_owner_initialized(const abc_owner *owner) {
-    return &((abc_owner *)(uintptr_t)owner)->initialized;
-}
 abc_status abc_owner_new(abc_owner_context *context,size_t bytes,size_t align,abc_owner_kind kind,abc_release_fn release,abc_owner **out,abc_error *error) {
     size_t offset,total,alignment;
     if(!release||!out||kind>ABC_OWNER_SHARED ||
@@ -35,8 +25,7 @@ abc_status abc_owner_new(abc_owner_context *context,size_t bytes,size_t align,ab
     owner->payload_offset=offset;owner->kind=kind;
     if(kind==ABC_OWNER_SHARED)atomic_init(&owner->count.shared,1);
     else owner->count.local=1;
-    *abc_owner_initialized(owner)=0;
-    /* Source payload is uninitialized; only the prefix is valid. */
+    /* Payload initialization remains the C caller's responsibility. */
     context->allocations++;*out=owner;return ABC_OK;
 }
 abc_status abc_owner_retain(abc_owner_context *context,abc_owner *owner,abc_error *error) {
@@ -81,41 +70,8 @@ void abc_owner_drain(abc_owner_context *context) {
     }
     context->draining=false;
 }
-void abc_owner_release_field(abc_owner_context *context,abc_owner *owner,size_t offset,uint64_t ordinal) {
-    if(owner->initialized>=ordinal) {
-        abc_owner *child;memcpy(&child,(unsigned char *)abc_owner_payload(owner)+offset,sizeof child);
-        abc_owner_release(context,child);
-    }
-}
 abc_status abc_owner_replace(abc_owner_context *context,abc_owner **slot,abc_owner *incoming,abc_error *error) {
     if(!slot)return abc_fail(error,ABC_ARGUMENTS,UINT32_MAX,"missing holding destination");
     if(incoming){abc_status status=abc_owner_retain(context,incoming,error);if(status!=ABC_OK)return status;}
     abc_owner *old=*slot;*slot=incoming;abc_owner_release(context,old);return ABC_OK;
-}
-abc_owner **abc_owner_slot(abc_owner_scope *top,abc_owner_scope *scope,size_t slot) {
-    for(abc_owner_scope *s=top;s;s=s->previous)if(s==scope)return slot<s->slots?&s->held[slot]:NULL;
-    return NULL;
-}
-abc_status abc_owner_scope_enter(abc_owner_scope **top,void *storage,size_t bytes,abc_error *error) {
-    if(!storage||(uintptr_t)storage%_Alignof(abc_owner_scope)||bytes<sizeof(abc_owner_scope)||
-       (bytes-sizeof(abc_owner_scope))%sizeof(abc_owner *))
-        return abc_fail(error,ABC_ARGUMENTS,UINT32_MAX,"invalid holding scope storage");
-    for(abc_owner_scope *s=*top;s;s=s->previous)if(s==storage)
-        return abc_fail(error,ABC_INVALID,UINT32_MAX,"holding scope entered twice");
-    abc_owner_scope *scope=storage;scope->slots=(bytes-sizeof *scope)/sizeof(abc_owner *);
-    for(size_t i=0;i<scope->slots;i++)scope->held[i]=NULL;
-    scope->previous=*top;*top=scope;return ABC_OK;
-}
-abc_status abc_owner_scope_leave(abc_owner_context *context,abc_owner_scope **top,abc_owner_scope *scope,abc_error *error) {
-    if(!scope||*top!=scope)return abc_fail(error,ABC_INVALID,UINT32_MAX,"holding scopes must leave in call order");
-    *top=scope->previous;
-    for(size_t i=scope->slots;i;i--) {
-        abc_owner *held=scope->held[i-1];scope->held[i-1]=NULL;abc_owner_release(context,held);
-    }
-    return ABC_OK;
-}
-void abc_owner_unwind(abc_owner_context *context,abc_owner_scope **top) {
-    while(*top) {
-        abc_status status=abc_owner_scope_leave(context,top,*top,NULL);assert(status==ABC_OK);(void)status;
-    }
 }

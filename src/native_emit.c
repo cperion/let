@@ -75,33 +75,6 @@ int abc_native_emit_foreign(uint8_t *at,unsigned form,uint32_t argument_cells,
     }
     return 1;
 }
-int abc_native_emit_release_field(uint8_t *at,unsigned reg,uintptr_t callee,uint64_t offset,uint64_t ordinal) {
-    if(reg>=ABC_NATIVE_VALUE_REGISTERS)return 0;
-    const Stencil *s=copy(at,ABC_FORM_RELEASE_FIELD(reg));
-    for(unsigned i=0;i<s->nrel;i++) {
-        const Reloc *r=&s->rel[i];int64_t value;
-        if(r->hole==HOLE_NEXT)value=(int64_t)(intptr_t)(at+s->len);
-        else if(r->hole==HOLE_FINAL)value=(int64_t)callee;
-        else if(r->hole==HOLE_IMM)value=(int64_t)offset;
-        else if(r->hole==HOLE_STATE)value=(int64_t)ordinal;
-        else return 0;
-        patch(at+r->off,r->kind,r->addend,value);
-    }
-    return 1;
-}
-int abc_native_emit_release_entry(uint8_t *at,uint64_t bytes,uint64_t b,uint64_t c,abc_native_patch *body) {
-    const Stencil *s=copy(at,ABC_FORM_RELEASE_ENTRY);memset(body,0,sizeof *body);
-    for(unsigned i=0;i<s->nrel;i++) {
-        const Reloc *r=&s->rel[i];int64_t value;
-        if(r->hole==HOLE_TAKEN){if(abc_native_patch_present(body))return 0;reference(body,at+r->off,r);continue;}
-        if(r->hole==HOLE_IMM)value=(int64_t)bytes;
-        else if(r->hole==HOLE_BIAS)value=(int64_t)b;
-        else if(r->hole==HOLE_IMM2)value=(int64_t)c;
-        else return 0;
-        patch(at+r->off,r->kind,r->addend,value);
-    }
-    return abc_native_patch_present(body);
-}
 int abc_native_emit_guard(uint8_t *at,unsigned stack,uint64_t bytes,abc_native_bounds_fn bounds,uint64_t error) {
     if(stack>=3)return 0;
     const Stencil *s=copy(at,ABC_FORM_GUARD(stack));

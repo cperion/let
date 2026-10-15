@@ -85,10 +85,6 @@ static abc_status emit(abc_exec_emitter *emitter,unsigned form,const abc_exec_op
         unsigned r=form-ABC_FORM_MEMCPY_BASE;ok=v[0]<=UINT32_MAX&&abc_native_emit_copy(at,r/8,r%8,(uint32_t)v[0],(abc_native_copy_fn)(uintptr_t)v[1]);
     }else if(form>=ABC_FORM_FCALL_BASE&&form<ABC_FORM_FCALL_BASE+4){
         ok=v[0]%8==0&&v[0]/8<=INT32_MAX&&abc_native_emit_foreign(at,form,(uint32_t)(v[0]/8),(abc_foreign_bridge_fn)(uintptr_t)v[1],(const abc_extern *)(uintptr_t)v[2],(abc_foreign_address)(uintptr_t)v[3],v[4]);
-    }else if(form>=ABC_FORM_RELEASE_FIELD_BASE&&form<ABC_FORM_RELEASE_FIELD_BASE+8){
-        ok=abc_native_emit_release_field(at,form-ABC_FORM_RELEASE_FIELD_BASE,(uintptr_t)v[0],v[1],v[2]);
-    }else if(form==ABC_FORM_RELEASE_ENTRY){
-        ok=op->target!=ABC_EXEC_NO_LABEL&&abc_native_emit_release_entry(at,v[0],v[1],v[2],&patch);
     }else if(form>=ABC_FORM_GUARD_BASE&&form<ABC_FORM_GUARD_BASE+3){
         ok=abc_native_emit_guard(at,form-ABC_FORM_GUARD_BASE,v[0],(abc_native_bounds_fn)(uintptr_t)v[1],v[2]);
     }else if(form==ABC_FORM_RESOLVE_INDIRECT){

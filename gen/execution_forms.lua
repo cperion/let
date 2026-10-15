@@ -135,15 +135,6 @@ define('ABC_FORM_FINISH',#M.forms);add('finish','finish',{0},{'output:ptr'})
 define('ABC_FORM_RETURN_OK',#M.forms);add('return_ok','return_ok')
 define('ABC_FORM_LAZY_ENTRY',#M.forms)
 add('lazy_entry','native_lazy_entry',{}, {'state:ptr','prepare:fnptr'},nil,nil,true)
-base('RELEASE_FIELD');define('ABC_FORM_RELEASE_FIELD(R)','(ABC_FORM_RELEASE_FIELD_BASE+(R))')
-for r=0,R-1 do add(('release_field_%d'):format(r),'release_field',{r},
-  {'callee:fnptr','offset:u64','ordinal:u64'},nil,nil,true) end
-for _,kind in ipairs{'DATA','PROGRESS','ENQUEUE'} do
- base('RELEASE_'..kind);define('ABC_FORM_RELEASE_'..kind..'(R)','(ABC_FORM_RELEASE_'..kind..'_BASE+(R))')
- for r=0,R-1 do add(('release_%s_%d'):format(kind:lower(),r),'release_'..kind:lower(),{r},{'callee:fnptr'},nil,nil,true) end
-end
-define('ABC_FORM_RELEASE_ENTRY',#M.forms)
-add('release_entry','release_entry',{}, {'frame_bytes:u64','b_offset:u64','c_offset:u64','body:code'},nil,nil,true)
 define('ABC_FORM_COUNT',#M.forms)
 header[#header+1]='#endif'
 function M.header() return table.concat(header,'\n')..'\n' end

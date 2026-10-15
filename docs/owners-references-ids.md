@@ -1,15 +1,13 @@
 # Owners, references and ids
 
-**Status: approved collector-free design; qualified source inference and C runtime
-holding/release binding implemented; source counted placement pending.**
+**Status: approved collector-free semantics and qualified source inference; runtime
+ownership orchestration removed, replacement/source counted placement pending.**
 This is the ownership target for one Let language, replacing the tracing-GC target.
 WORKLIST O03 records formal/fresh-root, borrow/count/strict-edge inference; E01/E02
-and O04–O08 record the subsequent runtime binding. Explicit checked-IR fixtures now
-execute allocation, retain/move, direct known copy, prepared native release and
-failure cleanup in all four source modes. Universal allocation TypeOps and ownership
-SERVICE/ABC cleanup contexts are removed; a C iterative drain calls release glue,
-including for interpreted source. See runtime-interfaces §1.1 and the c-release
-evidence for exact admission, native-preparation policy and measured costs.
+and O04–O08 record the removed runtime binding and current removal checkpoint.
+Standalone C counting/queue code remains, but no source lifetime/cleanup binding is
+currently implemented. The c-release evidence describes the historical v3 checkpoint,
+not current admission or validation. The larger follow-up design was withdrawn.
 General source owning layouts and placement, containers and tasks are not implemented;
 the source checkpoint still rejects inferred counted escapes. Examples below remain target-language examples unless
 explicitly qualified by the worklist.

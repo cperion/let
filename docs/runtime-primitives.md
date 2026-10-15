@@ -1,14 +1,17 @@
 # Runtime primitives and resumable execution
 
-**Status: approved allocation-release/value-operation split; C reclamation and
-prepared direct-call native release glue implemented, including interpreted source
-execution. General source lifetimes, erased-value operations and other primitive
-families remain pending.** This records
+**Status: ownership orchestration removed; rebuilding from first principles.**
+Standalone C counting/queue algorithms remain, but the prepared native release,
+compiler lifetime and v3 call bindings described below have been removed. Those
+binding details are historical, not a selected replacement. The large revision7/v4
+proposal is withdrawn. Source counted admission remains closed. No builds/tests
+were run for this removal checkpoint. Unrelated task/container target protocols
+remain unchanged. This records
 the selected data structures and algorithms for the collector-free runtime and tasks.
 Private interface bindings, concrete fields/signatures and lock/state protocols are
 specified in [runtime-interfaces.md](runtime-interfaces.md); file-by-file changes are
-in [implementation-map.md](implementation-map.md). The current private v3 ABI and its
-qualified costs are recorded in runtime-interfaces §1.1 and WORKLIST E01/E02/O04–O08;
+in [implementation-map.md](implementation-map.md). The removed private v3 ABI and its
+historical costs are recorded in runtime-interfaces §1.1 and WORKLIST E01/E02/O04–O08;
 this is not a completed runtime/concurrency or source-ownership implementation. Changes to
 these choices require discussion, not an undocumented alternate implementation.
 

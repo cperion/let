@@ -666,7 +666,7 @@ function M.program(fnList, modules, foreigns)
     -- A foreign target is declared rather than defined, so it has a result contract and no body, which
     -- is all the call check needs to know about it.
     for _, foreign in ipairs(foreigns or {}) do
-        if foreign.target:sub(1,9)=='__let_rt_' then require('let.runtime').validate(foreign) end
+        if foreign.target:sub(1,9)=='__let_rt_' then D.bug('runtime-contract','Runtime primitive binding is not implemented') end
         definitions[foreign.target] = { results = foreign.results, inputs = foreign.inputs,
             foreign = true }
     end

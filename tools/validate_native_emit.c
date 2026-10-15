@@ -79,13 +79,6 @@ int main(void) {
         }else if(f==ABC_FORM_LAZY_ENTRY){
             values[HOLE_STATE]=(uintptr_t)&ext;values[HOLE_FINAL]=(uintptr_t)prepare;
             ok=abc_native_emit_lazy(at,&ext,prepare);
-        }else if(f>=ABC_FORM_RELEASE_FIELD_BASE&&f<ABC_FORM_RELEASE_FIELD_BASE+8){
-            values[HOLE_FINAL]=(uintptr_t)foreign_target;values[HOLE_IMM]=24;values[HOLE_STATE]=4;
-            ok=abc_native_emit_release_field(at,f-ABC_FORM_RELEASE_FIELD_BASE,(uintptr_t)foreign_target,24,4);
-        }else if(f==ABC_FORM_RELEASE_ENTRY){
-            values[HOLE_IMM]=80;values[HOLE_BIAS]=24;values[HOLE_IMM2]=40;values[HOLE_TAKEN]=(uintptr_t)(at+s->len-1);
-            abc_native_patch body={0};ok=abc_native_emit_release_entry(at,80,24,40,&body);
-            if(ok)abc_native_bind(&body,values[HOLE_TAKEN]);
         }else specialized=0;
         if(!specialized)continue;
         require(ok,"specialized emission",f);

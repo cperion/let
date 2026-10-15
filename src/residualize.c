@@ -1,7 +1,6 @@
 #include "residualize.h"
 #include "symbolic.h"
 #include "execution_emit.h"
-#include "runtime_call.h"
 #include "generated/execution_forms.h"
 _Static_assert(ABC_SYM_EQ==ABC_JBR_EQ && ABC_SYM_NE==ABC_JBR_NE &&
                ABC_SYM_LT==ABC_JBR_LT && ABC_SYM_LE==ABC_JBR_LE &&
@@ -40,7 +39,7 @@ struct Compiler {
     Version **versions, **function_entries; uint8_t *block, *recursive;
     Version **queue; size_t nq, qhead, qcap, virtual_calls, virtual_returns, virtual_tails, real_calls;
     abc_status status; abc_error *error; uint32_t current_pc;
-    struct abc_execution_image *image; unsigned lazy, register_count, release_glue;
+    struct abc_execution_image *image; unsigned lazy, register_count;
 };
 static int emitted(Compiler *c,abc_status status) {
     if(status!=ABC_OK)c->status=status;
@@ -65,7 +64,7 @@ static int place_memory_copy(Compiler *c,unsigned destination_register,unsigned 
 }
 static abc_status lazy_prepare(void *state,abc_error *error);
 static int place_fcall(Compiler *c,unsigned id,uint32_t abase,const abc_extern *ext,abc_foreign_address target,uint64_t error) {
-    abc_foreign_bridge_fn bridge=abc_primitive_index(ext->name)>=0?abc_runtime_invoke:abc_foreign_select(ext);
+    abc_foreign_bridge_fn bridge=abc_foreign_select(ext);
     const abc_exec_operands operands={.value={(uint64_t)abase*8,(uintptr_t)bridge,(uintptr_t)ext,(uintptr_t)target,error},.target=ABC_EXEC_NO_LABEL};
     return emit_form(c,id,&operands);
 }
@@ -580,34 +579,12 @@ static int native_emit_foreign(void *opaque,uint32_t pc,abc_symbolic_foreign *ef
     NativeSymbolicSink *sink=opaque;Compiler *c=sink->compiler;Context *x=sink->machine->context;const abc_extern *ext=&c->module->externs[effect->index];
     unsigned selected_stack=effect->selected_stack;
     uint32_t argument_base=x->n[selected_stack]-effect->arguments;
-    if(c->release_glue) {
-        int id=abc_primitive_index(ext->name);
-        if(id==ABC_PRIMITIVE_OWNER_DATA||id==ABC_PRIMITIVE_OWNER_INITIALIZED||id==ABC_PRIMITIVE_OWNER_ENQUEUE) {
-            JValue *input=&x->s[selected_stack][argument_base];
-            int reg=effect->results?writable(c,x,input):materialize(c,x,input);if(reg<0)return 0;
-            uintptr_t callee=id==ABC_PRIMITIVE_OWNER_DATA?(uintptr_t)abc_owner_payload:
-                id==ABC_PRIMITIVE_OWNER_INITIALIZED?(uintptr_t)abc_owner_initialized:(uintptr_t)abc_owner_release;
-            unsigned form=id==ABC_PRIMITIVE_OWNER_DATA?ABC_FORM_RELEASE_DATA(reg):
-                id==ABC_PRIMITIVE_OWNER_INITIALIZED?ABC_FORM_RELEASE_PROGRESS(reg):ABC_FORM_RELEASE_ENQUEUE(reg);
-            if(!place(c,form,callee,NULL))return 0;
-            if(effect->results)effect->result[0]=reg_value((unsigned)reg,selected_stack,(int32_t)argument_base);
-            return 1;
-        }
-        if(id!=ABC_PRIMITIVE_OWNER_RELEASE_FIELD||effect->arguments!=3||effect->results)
-            return emitted(c,abc_fail(c->error,ABC_ARGUMENTS,pc,"invalid direct release primitive"));
-        JValue *offset=&x->s[selected_stack][argument_base+1],*ordinal=&x->s[selected_stack][argument_base+2];
-        if(offset->kind!=VK_CONST||ordinal->kind!=VK_CONST||offset->constant%sizeof(abc_owner *)||!ordinal->constant)
-            return emitted(c,abc_fail(c->error,ABC_ARGUMENTS,pc,"release field needs constant aligned offset and ordinal"));
-        int reg=materialize(c,x,&x->s[selected_stack][argument_base]);if(reg<0)return 0;
-        const abc_exec_operands operands={.value={(uintptr_t)abc_owner_release_field,offset->constant,ordinal->constant},.target=ABC_EXEC_NO_LABEL};
-        return emit_form(c,ABC_FORM_RELEASE_FIELD(reg),&operands);
-    }
     for(uint32_t j=argument_base;j<x->n[selected_stack];j++){
         JValue *value=&x->s[selected_stack][j];value->dst_stack=(uint8_t)selected_stack;value->dst_home=(int32_t)j;
         if(!save_value(c,x,value))return 0;*value=rehome_value(*value,selected_stack,(int32_t)j);
     }
     if(!flush_context(c,x))return 0;abc_foreign_address target=abc_foreign_lookup(c->vm,ext->name);uint64_t error=(uint64_t)ABC_INVALID|((uint64_t)pc<<16);
-    return (target||abc_primitive_index(ext->name)>=0)&&place_fcall(c,ABC_FORM_FCALL(selected_stack,effect->results),argument_base,ext,target,error);
+    return target&&place_fcall(c,ABC_FORM_FCALL(selected_stack,effect->results),argument_base,ext,target,error);
 }
 
 static int native_emit_edge(void *opaque,uint32_t origin,uint32_t target) {
@@ -766,7 +743,6 @@ static int native_emit_tail(void *opaque,uint32_t pc,abc_symbolic_tail *effect) 
 
 static int native_emit_return(void *opaque,uint32_t pc,const abc_symbolic_return *effect) {
     NativeSymbolicSink *sink=opaque;Compiler *c=sink->compiler;Context *x=sink->machine->context;c->current_pc=pc;
-    if(c->release_glue)return !effect->results&&place(c,ABC_FORM_RETURN_OK,0,NULL);
     if(!effect->terminal){c->virtual_returns++;return 1;}
     unsigned source_stack=effect->source_stack;
     if(effect->results==1){if(x->n[source_stack]!=1)return 0;JValue *value=&x->s[source_stack][0];int reg=materialize(c,x,value);if(reg<0||(reg&&!place(c,ABC_FORM_MOV(0,reg),0,NULL)))return 0;}
@@ -870,40 +846,5 @@ abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const 
     if(c.status!=ABC_OK){free(image);free(entries);c.emitter->ops->destroy(c.emitter);}
     if(!c.lazy||c.status!=ABC_OK)free_preparation(&c);
     return c.status;
-}
-
-abc_status abc_compile_release(const abc_module *m,uint8_t *image_base,unsigned function,abc_release_code **out,abc_error *error) {
-    *out=NULL;const abc_function *fn=&m->functions[function];
-    Compiler c={.module=m,.image_base=image_base,.error=error,.status=ABC_OK,.register_count=7,.release_glue=1};
-    /* r7 is the direct native ABI's runtime-context argument, not an ABC cell
-     * or an allocator-created value. All value placement uses the same allocator. */
-    c.block=calloc(m->code_size,1);c.versions=calloc(m->code_size,sizeof *c.versions);
-    if(!c.block||!c.versions){free_preparation(&c);return abc_fail(error,ABC_NOMEM,fn->entry,"release preparation allocation failed");}
-    c.status=abc_native_emitter_create(m->code_size,&c.emitter,error);
-    if(c.status!=ABC_OK){free_preparation(&c);return c.status;}
-    discover_blocks(&c);
-    Context x={.c_origin=1};x.limit[JS_A]=fn->max_a;x.limit[JS_B]=fn->max_b;x.limit[JS_C]=fn->max_c-1;
-    Version *body=NULL;abc_exec_label entry=ABC_EXEC_NO_LABEL;
-    if(!push(&x,JS_C,reg_value(0,JS_C,-1)))c.status=abc_fail(error,ABC_NOMEM,fn->entry,"release argument allocation failed");
-    if(c.status==ABC_OK){body=version_for(&c,fn->entry,&x);if(!body&&c.status==ABC_OK)c.status=ABC_NOMEM;}
-    context_free(&x);
-    size_t b=(size_t)fn->max_a*8,cc=b+(size_t)fn->max_b*8+8;
-    size_t bytes=cc+(size_t)fn->max_c*8;
-    if(c.status==ABC_OK)c.status=c.emitter->ops->label(c.emitter,&entry,fn->entry,error);
-    if(c.status==ABC_OK)c.status=c.emitter->ops->bind(c.emitter,entry,fn->entry,error);
-    if(c.status==ABC_OK){
-        const abc_exec_operands op={.value={bytes,b,cc},.target=body->entry};
-        c.status=c.emitter->ops->emit(c.emitter,ABC_FORM_RELEASE_ENTRY,&op,fn->entry,error);
-    }
-    while(c.qhead<c.nq&&c.status==ABC_OK)
-        if(!compile_version(&c,c.queue[c.qhead++])&&c.status==ABC_OK)c.status=abc_fail(error,ABC_INVALID,fn->entry,"release compilation failed");
-    if(c.status==ABC_OK)c.status=c.emitter->ops->publish(c.emitter,fn->entry,error);
-    abc_release_code *code=NULL;
-    if(c.status==ABC_OK){code=malloc(sizeof *code);if(!code)c.status=abc_fail(error,ABC_NOMEM,fn->entry,"release entry allocation failed");}
-    if(c.status==ABC_OK){
-        *code=(abc_release_code){(abc_release_fn)c.emitter->ops->address(c.emitter,entry),c.emitter,function,bytes,NULL};
-        c.emitter->ops->discard_preparation(c.emitter);*out=code;
-    }else c.emitter->ops->destroy(c.emitter);
-    free_preparation(&c);return c.status;
 }
 

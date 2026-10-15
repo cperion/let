@@ -2,7 +2,6 @@
 #include "vm_internal.h"
 #include "residualize.h"
 #include "execution_emit.h"
-#include "runtime_call.h"
 #include "generated/banked.h"
 #include <sys/mman.h>
 #include <unistd.h>
@@ -67,7 +66,7 @@ abc_status abc_vm_create(const abc_limits *limits,abc_vm **out,abc_error *e) {
     if(cap>ABC_MAX_FILE) return abc_fail(e,ABC_INVALID,UINT32_MAX,"stack limit exceeds maximum");
     abc_vm *v=calloc(1,sizeof *v);
     if(!v) return abc_fail(e,ABC_NOMEM,UINT32_MAX,"VM allocation failed");
-    v->root.session=v;v->root.worker=&v->worker;
+    v->root.session=v;
     v->mode=limits ? limits->mode : ABC_EXEC_INTERPRETED;
     if(v->mode!=ABC_EXEC_INTERPRETED && v->mode!=ABC_EXEC_COMPILED && v->mode!=ABC_EXEC_LAZY && v->mode!=ABC_EXEC_THREADED) { free(v); return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid execution mode"); }
     abc_status status=abc_context_reserve(&v->root,cap,e);
@@ -79,7 +78,7 @@ abc_foreign_address abc_foreign_lookup(const abc_vm *v,const char *name) {
 }
 abc_status abc_vm_bind_foreign(abc_vm *v,const char *name,abc_foreign_address address,abc_error *e) {
     abc_clear(e); if(!v||!name||!address) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid foreign binding");
-    if(abc_primitive_reserved(name))return abc_fail(e,ABC_INVALID,UINT32_MAX,"runtime primitive names cannot be rebound as foreign symbols");
+    if(!strncmp(name,"__let_rt_",9))return abc_fail(e,ABC_INVALID,UINT32_MAX,"runtime primitive names cannot be rebound as foreign symbols");
     if(v->images) return abc_fail(e,ABC_INVALID,UINT32_MAX,"foreign bindings must be installed before loading modules");
     if(!(name[0]=='_'||(name[0]>='a'&&name[0]<='z')||(name[0]>='A'&&name[0]<='Z'))) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid foreign name");
     for(size_t i=1;name[i];i++) if(!(name[i]=='_'||(name[i]>='a'&&name[i]<='z')||(name[i]>='A'&&name[i]<='Z')||(name[i]>='0'&&name[i]<='9'))) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid foreign name");
@@ -92,13 +91,10 @@ static void image_free(abc_image *image) {
     if(image->bytes_mapping_size) munmap(image->bytes,image->bytes_mapping_size);
     else free(image->bytes);
     free(image->direct_callees); free(image->call_info); free(image->indirect_site_states);
-    while(image->releases){abc_release_code *next=image->releases->next;abc_release_code_free(image->releases);image->releases=next;}
     free(image->foreign); free(image->foreign_bridges); free(image);
 }
 void abc_vm_free(abc_vm *v) {
     if(!v) return;
-    abc_owner_unwind(&v->worker.owners,&v->root.scopes);
-    abc_owner_drain(&v->worker.owners);
     while(v->images) {
         abc_image *i=v->images; v->images=i->next;
         /* Lazy native state still reads module metadata during destruction. */
@@ -143,9 +139,8 @@ static abc_status vm_image(abc_vm *v,const abc_module *m,abc_image **out,abc_err
         if(!i->foreign||!i->foreign_bridges){image_free(i);return abc_fail(e,ABC_NOMEM,UINT32_MAX,"foreign table allocation failed");}
         for(uint32_t index=0;index<m->extern_count;index++) {
             i->foreign[index]=abc_foreign_lookup(v,m->externs[index].name);
-            int runtime=abc_primitive_index(m->externs[index].name)>=0;
-            i->foreign_bridges[index]=runtime?abc_runtime_invoke:abc_foreign_select(&m->externs[index]);
-            if((!runtime&&!i->foreign[index])||!i->foreign_bridges[index]) {
+            i->foreign_bridges[index]=abc_foreign_select(&m->externs[index]);
+            if(!i->foreign[index]||!i->foreign_bridges[index]) {
                 image_free(i);return abc_fail(e,ABC_NOT_FOUND,UINT32_MAX,"unbound or unsupported foreign symbol '%s'",m->externs[index].name);
             }
         }
@@ -255,12 +250,6 @@ abc_status abc_vm_call(abc_vm *v,const abc_module *m,const char *name,const uint
     if(status==ABC_OK) {
         prepare_entry(context,image,(unsigned)fi,args,nargs);
         status=execution_status(context,execute(context,(unsigned)fi));
-        if(status==ABC_OK&&context->scopes)
-            status=abc_fail(&context->error,ABC_INVALID,UINT32_MAX,"runtime call returned with initialized holding scopes");
-        /* Runtime records remain readable until consumed. Cleanup is C code;
-         * it does not enter an ABC engine or consume the exhausted task stack. */
-        abc_owner_unwind(&v->worker.owners,&context->scopes);
-        abc_owner_drain(&v->worker.owners);
         if(status==ABC_OK) {
             if(v->mode!=ABC_EXEC_INTERPRETED){context->na=f->results;context->nb=context->ca=context->cb=0;}
             if(vm_depth(context,'a')!=f->results||vm_depth(context,'b'))status=abc_fail(&context->error,ABC_INVALID,UINT32_MAX,"invalid final result shape");

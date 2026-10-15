@@ -38,9 +38,10 @@ spill/resume bindings; PARKING/PARKED/NOTIFIED handshake; mutex-protected channe
 and worker deques; select arbitration; generation-based idle wakeups; and immutable
 per-realization native publication with atomic entry slots. These are the baseline,
 not alternative suggestions. WORKLIST E binds them to the actual VM ABI and coordinates
-O/C/D/T/P/W. The qualified C release binding is implemented (runtime-interfaces §1.1);
-general source counted execution, other primitive families and performance acceptance
-remain open.
+O/C/D/T/P/W. The v3 ownership binding has been removed; its replacement is not yet
+selected. Only standalone C counting/queue algorithms remain. The subsequent large
+revision7/v4 proposal is withdrawn. General source counted execution remains closed;
+this removal checkpoint was not built or tested.
 
 ## Structured task runtime target (not implemented)
 

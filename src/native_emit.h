@@ -20,8 +20,6 @@ int abc_native_emit_simple(uint8_t *at,unsigned form,uint64_t immediate,abc_nati
 int abc_native_emit_copy(uint8_t *at,unsigned destination,unsigned source,uint32_t bytes,abc_native_copy_fn copy_fn);
 int abc_native_emit_foreign(uint8_t *at,unsigned form,uint32_t argument_cells,
     abc_foreign_bridge_fn bridge,const abc_extern *external,abc_foreign_address target,uint64_t error);
-int abc_native_emit_release_field(uint8_t *,unsigned,uintptr_t,uint64_t,uint64_t);
-int abc_native_emit_release_entry(uint8_t *,uint64_t,uint64_t,uint64_t,abc_native_patch *);
 int abc_native_emit_guard(uint8_t *at,unsigned stack,uint64_t bytes,abc_native_bounds_fn bounds,uint64_t error);
 int abc_native_emit_resolve(uint8_t *at,abc_native_resolve_fn resolver,uint32_t pc,
     int64_t a_bytes,int64_t b_bytes,int64_t c_bytes);

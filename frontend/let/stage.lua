@@ -128,7 +128,7 @@ end
 function Session:prepare(artifact, functions)
     usable(self)
     local code='\n'..artifact.assembly
-    if (code:match('\n%s*%.extern%s') or code:match('\n%s*FCALL[%.%s]')) and not require('let.runtime').staging(code) then
+    if code:match('\n%s*%.extern%s') or code:match('\n%s*FCALL[%.%s]') then
         D.reject('static-foreign','Foreign effects cannot execute during compilation')
     end
     local Assembler=dependency('assembler')

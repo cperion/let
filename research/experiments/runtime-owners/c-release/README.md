@@ -1,6 +1,10 @@
 # Direct callable release / C reclamation
 
-**Implemented for the private runtime binding, not general source counted placement.**
+**Historical v3 checkpoint at `c16666c8`; the binding has since been removed.**
+The commands, source manifests, validators and measurements below describe that
+checkpoint, not the current removal state. Runtime replacement is pending; no fresh
+build/test/performance claim accompanies removal. Preserve these logs as historical
+evidence. This checkpoint never completed general source counted placement.
 This supersedes the v2 TypeOps/SERVICE checkpoint in `../generated-cutover/` and
 v1 fixed-layout checkpoint in `../`. WORKLIST E01–E03/E05/O04–O08 and D07 remain open.
 

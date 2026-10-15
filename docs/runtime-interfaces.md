@@ -1,9 +1,17 @@
 # Implementer contract: primitive, owner and task interfaces
 
-**Target private interfaces; partial owner/runtime-call binding implemented.** This binds the approved choices in
+**Ownership binding removed; replacement pending.** The v3 catalog/dispatch,
+release preparation, scope-slot/prefix protocol and compiler lifetime client described
+in §§1, 1.1 and 3 below are now historical, not implementation instructions. Only the
+standalone C counting/queue core remains. Reserved runtime imports reject. The large
+revision7/v4 proposal was withdrawn, not adopted. No builds/tests were run for this
+removal checkpoint; WORKLIST E/O is current. Unrelated task/scheduler target protocols
+below are unchanged.
+
+The remaining target interfaces relate the approved choices in
 [runtime-primitives.md](runtime-primitives.md) to the current source tree. C fragments
 are interface specifications, not drop-in patches. Use the names/responsibilities
-below unless inspection reveals a material mismatch; discuss that mismatch rather
+below outside the explicitly retired ownership binding; discuss material mismatches rather
 than adding an adapter or alternate subsystem. Public file-format/tag assignments
 are deliberately not invented here; see §10's explicit release gates.
 
