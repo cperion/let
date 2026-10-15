@@ -198,6 +198,42 @@ ABC calls use explicit continuations, not recursive host execution. Stack limits
 include the required continuation resources. There is no semantic instruction
 fuel budget. Language aborts retain their reason and original bytecode offset.
 
+## Approved lifecycle-entry extension (revision 7)
+
+**Approved target; implementation status is tracked in WORKLIST E01.** This is the
+minimal C-entry relocation extension, not the withdrawn ownership runtime design.
+Revision 6 retains its exact existing format and instruction semantics. Revision 7
+uses the same instruction bytes, is restricted to profile 4, and requires sections
+1–10. It does not allocate new opcodes or cell kinds.
+
+### 10. Lifecycle C-entry relocations
+
+A u32 count followed by pairs of u32 writable-image offset and u32 function index,
+with the same 65,536-record limit as section 8. Each destination occupies eight
+bytes entirely within writable data. Records are sorted and nonoverlapping, both
+within this table and against section 8. Multiple destinations may name the same
+function. An empty table is valid; it introduces no C entries.
+
+A function named by this table is a lifecycle C entry, not an ordinary ABC-callable
+entry. Its function record must have exactly two address arguments, zero results,
+and zero hidden-result bytes. It cannot contain HALT, be exported, be targeted by
+CALL/TCALL or section 8, or be accepted by CALLI/TCALLI target resolution. Function
+bodies still obey the existing instruction, frame and kind verification rules.
+These structural checks alone do not prove non-failing cleanup behavior.
+
+The two arguments carry the counting/reclamation context and the concrete storage
+address. Delivery must prepare an actual C-callable void-return entry and patch its
+address before any source execution, including interpreted execution. A module-code
+identity or an ordinary native ABC entry is not a substitute. Addresses are never
+serialized. Unsupported delivery/execution/AOT paths must reject before publishing
+an image or output, not leave zero/unbound C-entry destinations executable.
+
+Assembly uses `.centry writable_offset function` in the foreign profile; its
+presence selects revision 7 and emits section 10. Without it, assembly remains
+revision 6. Optimizers retain C-entry functions as independent roots with unknown
+arguments and rewrite their function indices when pruning or reordering functions.
+They preserve the distinction from `.codeaddr`, including in address propagation.
+
 ## Compatibility and deferred work
 
 This remains a development format, not a promised stable interchange ABI.

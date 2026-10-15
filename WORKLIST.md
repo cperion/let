@@ -520,6 +520,19 @@ cleanup and release-code delivery around the small core. Unrelated task protocol
   verification and shared execution: cell/holding layouts, effects, clobbers, failure
   and completion/suspension. The old catalog path is removed, not a requirement to
   recreate that organizing layer. Any future encoding change requires approval.
+  **Approved encoding; coordinator, active:** the minimal revision-7/profile-4
+  C-entry relocation extension is approved in `docs/module-format.md` §10. Revision-6
+  bytes and `.codeaddr` meanings stay unchanged. This is not the withdrawn larger
+  revision7/v4 design. Scope: assembler → module loader/verifier → optimizer root/index
+  preservation; runtime and portable-C paths reject unsupported C-entry delivery.
+  Files: `tools/assembler.lua`, `src/internal.h`, `src/module.c`,
+  `src/memory_module.c`, `src/verify.c`, `src/optimize.c`, `gen/cold.lua`,
+  `src/vm.c`, `src/residualize.c`, `src/residual_c.c`, `src/cli.c`, `Makefile`,
+  and new `tools/validate_c_entries.lua`/`.c`; associated format/interface/map docs.
+  Removal set: no retired ownership machinery returns; section-8-only root/index
+  assumptions are replaced at their owners. Next: implement and validate the encoded
+  boundary, including malformed modules, pruning and fail-closed execution. Owning
+  source lowering, native lifecycle delivery and failure cleanup remain incomplete.
   **Binding removed:** no active catalog implementation or compiler runtime-call client.
   The obligation to define explicit primitive contracts remains; no replacement is selected.
   `__let_rt_` imports reject and cannot be rebound by the host. Staging rejects foreign
