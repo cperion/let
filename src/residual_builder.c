@@ -2605,6 +2605,15 @@ abc_residual_build_status abc_residual_build(
         return ABC_RESIDUAL_BUILD_INVALID;
     }
 
+    if (module->c_entry_count) {
+        if (diagnostic) {
+            diagnostic->status = ABC_RESIDUAL_BUILD_UNSUPPORTED;
+            snprintf(diagnostic->message, sizeof(diagnostic->message),
+                     "residual IR lifecycle entry ABI is not implemented");
+        }
+        return ABC_RESIDUAL_BUILD_UNSUPPORTED;
+    }
+
     memset(&b, 0, sizeof(b));
     b.module = module;
     b.options = options;

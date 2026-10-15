@@ -21,7 +21,7 @@ abc_status vm_resolve_indirect(abc_exec_context *run, uint32_t pc, uint64_t targ
     const abc_function *callee=NULL;
     if(target>=code_base && target-code_base<module->code_size)
         callee=abc_function_entry(module,(uint32_t)(target-code_base));
-    if(!callee || callee->has_halt)
+    if(!callee || callee->has_halt || callee->c_entry)
         return abc_fail(&run->error,ABC_INVALID,pc,"indirect target is not a callable function entry in this module");
     if(!abc_same_signature(signature,callee))
         return abc_fail(&run->error,ABC_ARGUMENTS,pc,"indirect target signature disagrees with call site");

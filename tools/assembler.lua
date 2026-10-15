@@ -33,7 +33,7 @@ end
 function M.assemble(source)
     local chunks,functions,function_names,labels,exports,fixups={},{},{},{},{},{}
     local signatures,sites,relocations,externs,extern_names={},{},{},{},{}
-    local writable,readonly,annotations={},{},{}
+    local writable,readonly,annotations,c_entries={},{},{},{}
     local line_to_offset,offset_to_line={},{}
     local profile,pc,image_bytes=1,0,0
     local profile_declared,current,pending_kind,line_number
@@ -69,6 +69,9 @@ function M.assemble(source)
             elseif directive=='.codeaddr' then
                 if profile<3 or #words~=3 or not identifier(words[3]) then error('use .codeaddr writable_offset function in callable profile',0) end
                 relocations[#relocations+1]={offset=small(words[2],32),name=words[3]};return
+            elseif directive=='.centry' then
+                if profile~=4 or #words~=3 or not identifier(words[3]) then error('use .centry writable_offset function in foreign profile',0) end
+                c_entries[#c_entries+1]={offset=small(words[2],32),name=words[3]};return
             elseif directive=='.data' or directive=='.rodata' or directive=='.datazero' then
                 if profile<2 or #words~=2 then error('image directives require a memory profile and one operand',0) end
                 local bytes
@@ -170,6 +173,15 @@ function M.assemble(source)
         for _,value in ipairs{fn.entry,fn.args,fn.results,fn.hidden} do records[#records+1]=int.pack(value,4) end
         if profile>=2 then records[#records+1]=fn.arg_kinds..fn.result_kinds end
     end
+    local function entryRelocations(entries)
+        local result={int.pack(#entries,4)}
+        table.sort(entries,function(a,b)return a.offset<b.offset end)
+        for _,entry in ipairs(entries) do
+            local index=function_names[entry.name];if not index then error('unknown relocated function '..entry.name,0) end
+            result[#result+1]=int.pack(entry.offset,4)..int.pack(index-1,4)
+        end
+        return table.concat(result)
+    end
     local sections={table.concat(records),code};records={int.pack(#exports,4)}
     for _,export in ipairs(exports) do
         local index=function_names[export[2]];if not index then error('unknown exported function '..export[2],0) end
@@ -186,20 +198,18 @@ function M.assemble(source)
             for _,value in ipairs{site.offset,signature.args,signature.results,signature.hidden} do records[#records+1]=int.pack(value,4) end
             records[#records+1]=signature.arg_kinds..signature.result_kinds
         end
-        sections[7]=table.concat(records);records={int.pack(#relocations,4)}
-        table.sort(relocations,function(a,b)return a.offset<b.offset end)
-        for _,relocation in ipairs(relocations) do
-            local index=function_names[relocation.name];if not index then error('unknown relocated function '..relocation.name,0) end
-            records[#records+1]=int.pack(relocation.offset,4)..int.pack(index-1,4)
-        end
-        sections[8]=table.concat(records)
+        sections[7]=table.concat(records)
+        sections[8]=entryRelocations(relocations)
     end
     if profile>=4 then
         records={int.pack(#externs,4)}
         for _,external in ipairs(externs) do records[#records+1]=string.char(external.args,external.results)..int.pack(#external.name,2)..external.arg_kinds..external.result_kinds..external.name end
         sections[9]=table.concat(records)
     end
-    local image='ABC2'..int.pack(manifest.revision,2)..string.char(8,profile)..int.pack(#sections,4)..int.pack(0,4)
+    -- Revision 7 adds C-entry metadata, not a different opcode map.
+    local revision=manifest.revision
+    if #c_entries>0 then revision=7;sections[10]=entryRelocations(c_entries) end
+    local image='ABC2'..int.pack(revision,2)..string.char(8,profile)..int.pack(#sections,4)..int.pack(0,4)
     for tag,payload in ipairs(sections) do image=image..int.pack(tag,4)..int.pack(#payload,4)..payload end
     return image,{lineToOffset=line_to_offset,offsetToLine=offset_to_line}
 end

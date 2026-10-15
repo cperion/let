@@ -106,6 +106,7 @@ void abc_vm_free(abc_vm *v) {
 }
 static abc_status vm_image(abc_vm *v,const abc_module *m,abc_image **out,abc_error *e) {
     *out=NULL;
+    if(m->c_entry_count)return abc_fail(e,ABC_INVALID,UINT32_MAX,"lifecycle C-entry delivery is not implemented");
     for(abc_image *i=v->images;i;i=i->next) if(i->module==m) { *out=i; return ABC_OK; }
     abc_image *i=calloc(1,sizeof *i);
     if(!i) return abc_fail(e,ABC_NOMEM,UINT32_MAX,"image allocation failed");

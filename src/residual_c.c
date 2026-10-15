@@ -1224,6 +1224,11 @@ abc_status abc_emit_c(const void *bytes, size_t size,
 
     status = abc_module_load(bytes, size, &module, error);
     if (status != ABC_OK) return status;
+    if (module->c_entry_count) {
+        status = abc_fail(error, ABC_INVALID, UINT32_MAX,
+                          "portable C lifecycle entries are not implemented");
+        goto done;
+    }
     if (module->memory_profile) {
         status = abc_fail(
             error, ABC_INVALID, UINT32_MAX,

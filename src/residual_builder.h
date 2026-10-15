@@ -46,7 +46,9 @@ typedef struct abc_residual_bundle abc_residual_bundle;
 /*
  * Unsupported source functions are recorded in the returned bundle for
  * per-function byte-copy fallback. The aggregate build remains successful;
- * allocation failure and malformed symbolic state remain fatal.
+ * allocation failure and malformed symbolic state remain fatal. A module with
+ * lifecycle C entries returns UNSUPPORTED without a bundle: its distinct entry
+ * ABI cannot be represented as an ordinary residual function or byte-copy fallback.
  */
 abc_residual_build_status abc_residual_build(
     const abc_module *module,

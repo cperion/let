@@ -10,7 +10,7 @@ void abc_module_free(abc_module *module) {
     if(module->exports)for(uint32_t index=0;index<module->export_count;index++)free(module->exports[index].name);
     if(module->externs)for(uint32_t index=0;index<module->extern_count;index++)free(module->externs[index].name);
     free(module->exports);free(module->functions);free(module->code);free(module->image);free(module->load_kinds);
-    free(module->sites);free(module->relocs);free(module->externs);free(module);
+    free(module->sites);free(module->relocs);free(module->c_entries);free(module->externs);free(module);
 }
 int abc_find_export(const abc_module *module,const char *name) {
     if(!module||!name)return -1;
@@ -55,9 +55,11 @@ abc_status abc_module_load(const void *bytes,size_t size,abc_module **out,abc_er
     abc_clear(error);if(out)*out=NULL;
     if(!out||!bytes||size<16||size>ABC_MAX_FILE)return abc_fail(error,ABC_INVALID,UINT32_MAX,"invalid module size or input");
     const uint8_t *header=bytes;
-    if(memcmp(header,"ABC2",4)||abc_u16(header+4)!=ABC_ISA_REVISION)
-        return abc_fail(error,ABC_INVALID,UINT32_MAX,"expected ABC2 ISA revision 6");
-    unsigned profile=header[7];
+    unsigned revision=abc_u16(header+4),profile=header[7];
+    if(memcmp(header,"ABC2",4)||(revision!=ABC_ISA_REVISION&&revision!=ABC_LIFECYCLE_REVISION))
+        return abc_fail(error,ABC_INVALID,UINT32_MAX,"expected ABC2 revision 6 or lifecycle revision 7");
+    if(revision==ABC_LIFECYCLE_REVISION&&profile!=4)
+        return abc_fail(error,ABC_INVALID,UINT32_MAX,"lifecycle revision 7 requires profile 4");
     if(header[6]!=8||profile<1||profile>4||abc_u32(header+12))return abc_fail(error,ABC_INVALID,UINT32_MAX,"invalid typed capability profile header");
     if(profile>=2)return abc_load_memory(bytes,size,out,error);
     if(abc_u32(header+8)!=3)return abc_fail(error,ABC_INVALID,UINT32_MAX,"integer profile requires functions, code and exports");
@@ -75,7 +77,7 @@ abc_status abc_module_load(const void *bytes,size_t size,abc_module **out,abc_er
         return abc_fail(error,ABC_INVALID,UINT32_MAX,"invalid function or export table");
     abc_module *module=calloc(1,sizeof *module);
     if(!module)return abc_fail(error,ABC_NOMEM,UINT32_MAX,"module allocation failed");
-    atomic_init(&module->references,1);module->function_count=functions;module->export_count=exports;module->code_size=lengths[2];
+    atomic_init(&module->references,1);module->revision=revision;module->function_count=functions;module->export_count=exports;module->code_size=lengths[2];
     module->functions=calloc(functions,sizeof *module->functions);module->exports=calloc(exports?exports:1,sizeof *module->exports);module->code=malloc(lengths[2]);
     abc_status status=ABC_INVALID;
 #define FAIL(...) do{status=abc_fail(error,ABC_INVALID,UINT32_MAX,__VA_ARGS__);goto failed;}while(0)

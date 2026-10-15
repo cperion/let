@@ -1,7 +1,7 @@
 # Code architecture for the VM
 
-This page describes the **current revision-6 implementation**, not every proposed
-capability. [spec.md](spec.md) separates machine contracts, architectural targets
+This page describes the **current revision-6 machine implementation** and the
+revision-7 lifecycle metadata boundary, not every proposed capability. [spec.md](spec.md) separates machine contracts, architectural targets
 and remaining gaps. [symmetric-isa.md](symmetric-isa.md) owns selected-stack
 semantics and instruction encoding; [module-format.md](module-format.md) owns the
 supported serialization boundary. `REFACTOR.md` records implementation evidence.
@@ -38,9 +38,12 @@ spill/resume bindings; PARKING/PARKED/NOTIFIED handshake; mutex-protected channe
 and worker deques; select arbitration; generation-based idle wakeups; and immutable
 per-realization native publication with atomic entry slots. These are the baseline,
 not alternative suggestions. WORKLIST E binds them to the actual VM ABI and coordinates
-O/C/D/T/P/W. The v3 ownership binding has been removed; its replacement is not yet
-selected. Only standalone C counting/queue algorithms remain. The subsequent large
-revision7/v4 proposal is withdrawn. General source counted execution remains closed.
+O/C/D/T/P/W. The v3 ownership binding has been removed; replacement source integration
+is pending. The standalone C counting/queue algorithms remain unbound. The subsequent
+large revision7/v4 proposal is withdrawn. A separately approved minimal revision-7
+C-entry format is now assembled, verified and preserved by the bytecode optimizer;
+executable delivery is explicitly rejected until actual C-callable entries are prepared.
+This is not a replacement cleanup engine. General source counted execution remains closed.
 The standalone core and ordinary incremental suite now pass validation; see WORKLIST
 E/O. That is not validation of a replacement source ownership binding.
 

@@ -36,7 +36,10 @@ The private `__let_rt_` namespace remains reserved, but its v3 runtime binding h
 been removed. All reserved runtime imports reject at module loading; host rebinding
 and source `extern` impersonation still reject. Retired primitives cannot fall through
 to host foreign calls. Staging rejects foreign execution without the removed runtime
-allowlist. No replacement ABI or module format has been adopted; source counted
-escapes remain rejected. See WORKLIST E/O for the unvalidated removal checkpoint.
+allowlist. The separately approved revision-7/profile-4 C-entry format adds section
+10 without changing extern declarations or FCALL semantics. Its metadata is verified
+and optimized, but VM image preparation and portable C reject executable C-entry
+delivery. It does not bind the reserved runtime namespace or admit source counted
+escapes. See WORKLIST E/O for current implementation and validation boundaries.
 
 Active API and optimizer tests exercise both banks, ordered arguments, live prefixes and single execution of effects; see `REFACTOR.md`.

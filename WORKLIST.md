@@ -508,7 +508,8 @@ foreign fallback. Source counted admission remains closed.
 
 Retained: standalone C allocation/checked-count/replacement/iterative-queue algorithms,
 source ownership proofs, ordinary ABC contexts/continuations and immutable executable
-publication. No replacement layout, cleanup ABI, module format or task system was added.
+publication. That removal added no replacement layout, cleanup ABI, module format or
+task system. The subsequent minimal C-entry encoding is tracked under E01 below.
 The removal and core edits were initially untested as requested. Subsequently authorized
 validation now passes: incremental build/full `validate`, standalone owner113 checks,
 focused ASan/UBSan/LSan and a128KiB host-stack run. Evidence is under
@@ -520,23 +521,33 @@ cleanup and release-code delivery around the small core. Unrelated task protocol
   verification and shared execution: cell/holding layouts, effects, clobbers, failure
   and completion/suspension. The old catalog path is removed, not a requirement to
   recreate that organizing layer. Any future encoding change requires approval.
-  **Approved encoding; coordinator, active:** the minimal revision-7/profile-4
-  C-entry relocation extension is approved in `docs/module-format.md` §10. Revision-6
-  bytes and `.codeaddr` meanings stay unchanged. This is not the withdrawn larger
-  revision7/v4 design. Scope: assembler → module loader/verifier → optimizer root/index
-  preservation; runtime and portable-C paths reject unsupported C-entry delivery.
-  Files: `tools/assembler.lua`, `src/internal.h`, `src/module.c`,
-  `src/memory_module.c`, `src/verify.c`, `src/optimize.c`, `gen/cold.lua`,
-  `src/vm.c`, `src/residualize.c`, `src/residual_c.c`, `src/cli.c`, `Makefile`,
-  and new `tools/validate_c_entries.lua`/`.c`; associated format/interface/map docs.
-  Removal set: no retired ownership machinery returns; section-8-only root/index
-  assumptions are replaced at their owners. Next: implement and validate the encoded
-  boundary, including malformed modules, pruning and fail-closed execution. Owning
-  source lowering, native lifecycle delivery and failure cleanup remain incomplete.
+  **Owner: coordinator; state: partial.** The minimal revision-7/profile-4 encoding
+  is approved and implemented in `docs/module-format.md` §10, independently of the
+  withdrawn larger revision7/v4 design. Native lifecycle delivery, source placement,
+  owning-result transport and activation failure cleanup are not implemented.
+  Next integration: prepare real C-callable lifecycle entries before source execution,
+  then connect storage/holdings and unwind before opening counted admission.
   **Binding removed:** no active catalog implementation or compiler runtime-call client.
-  The obligation to define explicit primitive contracts remains; no replacement is selected.
+  Explicit primitive signatures/runtime bindings remain unimplemented.
   `__let_rt_` imports reject and cannot be rebound by the host. Staging rejects foreign
   execution without the removed allowlist. v1/v2/v3 evidence is historical only.
+  - [x] **C-entry encoding boundary:** `.centry` selects revision 7/profile 4 and
+    section 10; ordinary revision-6 assembly and `.codeaddr` meanings are unchanged.
+    Loader/verifier check table extent/order, overlap within/across relocation tables,
+    two-address/no-result/no-hidden-storage signatures and ABC-call/export exclusion.
+    Optimizer retains C entries as independent roots and remaps their indices after
+    pruning. Current VM image preparation/direct residualization reject delivery in
+    all four modes; tooling residual IR and portable C reject the unsupported ABI.
+    Files: `tools/assembler.lua`, module/internal/verifier/optimizer/CLI files,
+    `gen/cold.lua`, VM/residualizer/residual-builder/portable-C consumers, and
+    `Makefile` (including missing private-header dependencies for generated/PIC code).
+    `tools/validate_c_entries.lua`/`.c`: 180 format/optimizer checks and 193 resolver,
+    rejection/publication and ordinary-execution checks. Incremental `all` and focused
+    integration pass; revision-6 oracle143/1144 executions, optimizer50/308 pairs,
+    symmetric24, residual315, API/ISA, portable-C12, program37/1 and ownership170/56
+    regressions pass. No lifecycle body executed, no source ownership completion,
+    full-suite/clean-build/sanitizer/performance claim. Evidence:
+    `research/experiments/runtime-owners/c-entry-format/`.
 
 - [ ] **E02** Bind allocation release, direct known-type copy and localized erased
   operations per runtime-interfaces §3; checked local/shared counts, holding transfers

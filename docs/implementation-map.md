@@ -56,18 +56,20 @@ WORKLIST E/O and `research/experiments/runtime-owners/core/`. This is not source
 
 | IDs | Existing files | New files / concrete responsibility |
 | --- | --- | --- |
-| E01 | `tools/opcodes.lua`, `tools/gen_opcodes.lua`, `gen/semantics.lua`, `gen/banked.lua`, `gen/symbolic.lua`, `frontend/let/abc.lua`, `src/verify.c`, `Makefile` | Old catalog/generator/metadata wiring removed. Replacement explicit contracts are pending; reserved runtime imports reject |
+| E01 | `tools/assembler.lua`, `src/internal.h`, `src/module.c`, `src/memory_module.c`, `src/verify.c`, `src/optimize.c`, `src/cli.c`, `gen/cold.lua`, `Makefile` | Revision-7/profile-4 section-10 C-entry metadata implemented; explicit `.centry`, typed entry-role validation, distinct optimizer roots/index rewriting and ABC target exclusion. `tools/validate_c_entries.lua`/`.c` cover format and fail-closed boundaries. VM/residualizer/tooling-builder/portable-C consumers reject executable C-entry delivery, which is still pending. No new instruction/cell kind or replacement primitive catalog; reserved runtime imports still reject |
 | E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`: standalone C concrete-allocation/count/replacement/queue core; no stored payload offset, progress or traffic counters. Optional typed C field-drop callback; no source/VM binding. Standalone core passes113 checks and focused sanitizers; no source integration claim. Release binding/compiler, scope-slot/prefix machinery, runtime dispatcher and frontend holding client removed. `layout.lua` selects an explicit borrowed contract after executable admission; general source placement/owning layouts remain rejected. ABC cells/widths/offsets consume that contract; replacement runtime binding pending |
 | E03, T03–T04 | `src/execution_emit.h`, `src/residualize.c/.h`, `src/symbolic.c/.h`, `src/vm.c`, `src/vm_internal.h`, `src/threaded.h`, `src/threaded_emit.c`, `src/native_image.c`, `gen/banked.lua`, `gen/cold.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `gen/execution_forms.lua` | `src/execution_context.h`: persistent root/context-bound limits; no owner worker or scope state in the VM. Ownership SERVICE/snapshots/cleanup context removed; source entry returns packed status. `src/task.h/.c` and PARK/task scheduling remain pending |
 | E04 | same E03 bindings plus P/T files below | Exact ticket/state/lock protocol in `task.c`, `channel.c`, `task_select.c`, `scheduler.c`; no generic concurrency facade |
 | E05 | `src/native_image.c`, `src/native_emit.c/.h`, `src/execution_emit.h`, `src/residualize.c/.h`, `src/vm.c` | Fresh-page RX publication/atomic entry slots implemented; published bytes never reopen RW. Emitter region diagnostics replace contiguous-code views. Qualify fragmentation and broader image sharing/lifetime |
-| E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | `tools/validate_owner_core.c` covers the standalone C core only. Old v3 owner fixtures remain removed; source ownership/task integration coverage belongs to the replacement |
+| E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | `tools/validate_owner_core.c` covers the standalone C core only. `tools/validate_c_entries.lua`/`.c` cover the new encoded boundary, not lifecycle execution. Old v3 owner fixtures remain removed; source ownership/task integration coverage belongs to the replacement |
 | O01–O03 | `frontend/let/semantic.lua`, `source_state.lua`, `analysis.lua`, `access.lua`, `check.lua`, `frontend/ir.asdl`, generated `schema/ir.lua`; S metadata above | `frontend/let/program.lua` owns the completed graph and access/ownership results; `ownership.lua` retains the root/borrow/count/edge solver and iterative SCC diagnostics. `check.lua` is structural/type-only. Removed function proof annotations and checker-driven inference; semantic/compiler/demand/specialization producers now pass a checked program to ABC. `tests/program.lua` and `tests/ownership.lua` cover the boundary and proofs. Counted execution remains closed; see WORKLIST O03 |
 
 Historical v1/v2/v3 evidence remains under `research/experiments/runtime-owners/`.
-It describes removed bindings, not current execution. No replacement ABI/format,
-cleanup engine, release register reservation or source counted admission was added.
-Ordinary ABC execution and immutable executable publication are retained.
+It describes removed bindings, not current execution. The subsequent minimal C-entry
+format is tracked separately under E01 and `runtime-owners/c-entry-format/`; it does
+not restore those bindings. No cleanup engine, release register reservation or source
+counted admission was added. Ordinary ABC execution and immutable executable
+publication are retained.
 
 `src/dynamic.c`, `src/dynamic.h`, `src/whippet_types.h` and archived tracing engines
 are not runtime prerequisites. Audit their references before removal; do not add them

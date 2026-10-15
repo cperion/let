@@ -1,0 +1,8 @@
+revision-6 ISA metadata: byte map, mirror contracts, layouts and decoding passed
+validated residual arena, IDs, whole-program invariants, and readable dumps (315 checks)
+revision-6 assembly/verifier/interpreter: 24 original/mirrored contracts passed
+validated 143 oracle cases / 1144 mirrored four-mode executions; assembled all 286 public core/EXT forms
+validated four-mode image copies, A/B/tail callable observations, foreign calls, and stable native linkage
+validated 12 mirrored portable C residual arithmetic, branch, loop, call, and export cases
+program boundary: 37 checks, 1 VM execution
+ownership inference: 170 checks, 56 VM executions

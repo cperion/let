@@ -810,6 +810,7 @@ void abc_execution_image_free(abc_execution_image *image) {
 }
 abc_status abc_residualize_module(const abc_module *m,uint8_t *image_base,const abc_vm *vm,abc_execution_mode mode,abc_execution_image **out,abc_error *e) {
     abc_clear(e); if(out) *out=NULL; if(!m||!vm||!out||(mode!=ABC_EXEC_COMPILED&&mode!=ABC_EXEC_LAZY&&mode!=ABC_EXEC_THREADED)) return abc_fail(e,ABC_INVALID,UINT32_MAX,"invalid residualizer input");
+    if(m->c_entry_count)return abc_fail(e,ABC_INVALID,UINT32_MAX,"lifecycle C-entry delivery is not implemented");
     Compiler c={0}; c.module=m; c.vm=vm; c.image_base=image_base; c.error=e; c.status=ABC_OK;c.lazy=mode==ABC_EXEC_LAZY;
     c.block=calloc(m->code_size,1); c.versions=calloc(m->code_size,sizeof *c.versions); c.function_entries=calloc(m->function_count,sizeof *c.function_entries); c.recursive=calloc(m->function_count,1);
     if(!c.block||!c.versions||!c.function_entries||!c.recursive){free_preparation(&c);return abc_fail(e,ABC_NOMEM,UINT32_MAX,"residualizer allocation failed");}

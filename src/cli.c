@@ -15,6 +15,8 @@ static int number(const char *s,uint64_t *out) {
     *out=negative ? 0-v : v; return 1;
 }
 static void disassemble(const abc_module *m) {
+    if(m->revision==ABC_LIFECYCLE_REVISION)printf("ABC2 revision 7; lifecycle entry metadata\n");
+    for(uint32_t i=0;i<m->c_entry_count;i++)printf("C-entry image[%u] = function %u\n",m->c_entries[i].offset,m->c_entries[i].function);
     for(uint32_t i=0;i<m->function_count;i++) {
         const abc_function *f=&m->functions[i]; printf("function %u: %u arguments, %u results",i,f->arguments,f->results);
         if (m->memory_profile) {
@@ -22,6 +24,7 @@ static void disassemble(const abc_module *m) {
             printf(" -> "); for (uint32_t j=0;j<f->results;j++) putchar(f->result_kinds[j]==ABC_KIND_FLOAT ? 'f' : f->result_kinds[j]==ABC_KIND_ADDR ? 'a' : 'i');
             if (f->hidden_bytes) printf("; hidden=%u bytes",f->hidden_bytes);
         }
+        if(f->c_entry)printf("; lifecycle C entry (not ABC-callable)");
         putchar('\n');
         for(uint32_t pc=f->entry;pc<f->end;) {
             abc_decoded_instruction instruction;

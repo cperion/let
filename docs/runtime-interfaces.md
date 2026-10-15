@@ -31,6 +31,26 @@ release-code delivery remain unresolved integration work. The standalone core pa
 incremental suite also passes. Native header is32 bytes. Evidence:
 `research/experiments/runtime-owners/core/`. This is not completed source ownership.
 
+## Current C-entry encoding boundary
+
+The separately approved minimal revision-7/profile-4 extension is now implemented
+in the assembler, loader/verifier and bytecode optimizer; see
+[module-format.md §10](module-format.md#10-lifecycle-c-entry-relocations).
+Section 10 declares C-entry image relocations, distinct from section-8 ABC code
+identities. Targets have two address arguments, no results or hidden result storage,
+and cannot be ABC call targets or exports. No instruction bytes or operand kinds
+changed. Optimizer roots and index rewriting retain the distinct entry role.
+
+**This does not deliver callable cleanup code.** VM image preparation and direct
+residualization reject modules with C entries in every execution mode; the tooling
+residual builder and portable-C emitter also reject this unsupported ABI explicitly.
+An empty section 10 introduces no lifecycle entries. The next integration must
+prepare actual C-callable entries before source execution, including interpreted
+execution, and validate their non-failing cleanup contract. It must then connect
+source storage/holdings and activation cleanup before opening counted admission.
+No owner scope registry, release cache, interpreter or retired runtime binding was
+restored. The historical sections below remain historical.
+
 ## 1. Authoritative primitive catalog
 
 `gen/runtime_primitives.lua` is implemented for the initial owner/scope family,

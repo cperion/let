@@ -15,24 +15,28 @@
 #define ABC_MUSTTAIL __attribute__((musttail))
 _Static_assert(sizeof(void *) == 8, "ABC2 requires a 64-bit host");
 enum { ABC_MAX_FILE = 16 * 1024 * 1024, ABC_MAX_FUNCTIONS = 65536 };
+/* Format-only extension; instruction bytes still use ABC_ISA_REVISION (6). */
+enum { ABC_LIFECYCLE_REVISION = 7 };
 /* Serialized kinds retain INT=0, ADDR=1 and FLOAT=2 compatibility. */
 enum { ABC_KIND_INT, ABC_KIND_ADDR, ABC_KIND_FLOAT, ABC_KIND_BLOCK = 4 };
 typedef struct {
-    uint32_t entry, end, arguments, results, hidden_bytes, max_a, max_b, max_c; unsigned has_halt;
+    uint32_t entry, end, arguments, results, hidden_bytes, max_a, max_b, max_c; unsigned has_halt, c_entry;
     uint8_t argument_kinds[255], result_kinds[255];
 } abc_function;
 typedef struct { char *name; uint32_t function; } abc_export;
 typedef struct { char *name; uint8_t arguments, results, argument_kinds[10], result_kinds[1]; } abc_extern;
 typedef abc_status (*abc_foreign_bridge_fn)(const abc_extern *,abc_foreign_address,const uint64_t *,uint64_t *);
-typedef struct { uint32_t offset, function; } abc_code_reloc;
+typedef struct { uint32_t offset, function; } abc_entry_reloc;
 struct abc_module {
     uint8_t *code; size_t code_size;
     abc_function *functions; uint32_t function_count;
     abc_export *exports; uint32_t export_count;
     uint8_t *image, *load_kinds; uint32_t data_size, image_size;
-    unsigned memory_profile, callable_profile, foreign_profile; atomic_uint references;
+    unsigned revision, memory_profile, callable_profile, foreign_profile; atomic_uint references;
     abc_function *sites; uint32_t site_count;
-    abc_code_reloc *relocs; uint32_t reloc_count;
+    abc_entry_reloc *relocs; uint32_t reloc_count;
+    /* Separate address domains: section 8 is ABC identity, section 10 is C ABI. */
+    abc_entry_reloc *c_entries; uint32_t c_entry_count;
     abc_extern *externs; uint32_t extern_count;
 };
 static inline uint16_t abc_u16(const uint8_t *p) { return (uint16_t)(p[0] | (uint16_t)p[1] << 8); }

@@ -1,14 +1,17 @@
-# ABC2 revision-6 modules
+# ABC2 modules: revision 6 and the revision-7 lifecycle extension
 
 This document specifies the typed formats implemented by `src/module.c`,
 `src/memory_module.c` and `src/verify.c`. Instruction bytes and selected-stack
 semantics are defined in [symmetric-isa.md](symmetric-isa.md), generated from
 `tools/opcodes.lua`. Format revision and capability profile are independent.
 
-Only **revision 6, profiles 1–4** load in the current runtime. Old revisions are
-rejected, not translated or reinterpreted. Profile 5/dynamic execution is not
-implemented by this loader. Profile-specific documents supplement, but do not override, this
-header or the revision-6 instruction contracts.
+The loader accepts **revision 6, profiles 1–4**, and **revision 7, profile 4** with
+lifecycle C-entry metadata (§10). Revision-7 metadata can be verified and optimized;
+modules with C entries currently reject VM image preparation and portable-C emission
+because C-entry delivery is not implemented. Other revisions are rejected, not
+translated or reinterpreted. Profile 5/dynamic execution is not implemented by this
+loader. Profile-specific documents supplement, but do not override, this header or
+the unchanged revision-6 instruction contracts.
 
 ## Header and sections
 
@@ -18,18 +21,19 @@ relative to the code section. The header is 16 bytes:
 | Offset | Field | Value |
 | --- | --- | --- |
 | 0 | 4 bytes magic | `ABC2` |
-| 4 | u16 ISA/format revision | 6 |
+| 4 | u16 ISA/format revision | 6; or 7 for profile 4 with section 10 |
 | 6 | u8 target pointer size | 8 |
 | 7 | u8 capability profile | 1, 2, 3 or 4 |
 | 8 | u32 section count | as below |
 | 12 | u32 reserved | 0 |
 
-| Profile | Capabilities | Required section tags |
-| --- | --- | --- |
-| 1 | Integer cells | 1–3 |
-| 2 | Typed memory, addresses and binary64 | 1–6 |
-| 3 | Memory plus indirect callables | 1–8 |
-| 4 | Callables plus named foreign calls | 1–9 |
+| Revision | Profile | Capabilities | Required section tags |
+| --- | --- | --- | --- |
+| 6 | 1 | Integer cells | 1–3 |
+| 6 | 2 | Typed memory, addresses and binary64 | 1–6 |
+| 6 | 3 | Memory plus indirect callables | 1–8 |
+| 6 | 4 | Callables plus named foreign calls | 1–9 |
+| 7 | 4 | Above plus lifecycle C-entry relocations | 1–10 |
 
 Each section is a u32 tag, u32 payload length and that many payload bytes.
 Exactly one of each required section is present; order is arbitrary. Unknown or
@@ -106,7 +110,8 @@ Instruction counts and site metadata must agree.
 CALLI.X gathers arguments, including the environment, from X and takes the target
 from the opposite stack. The target must be an exact public entry address in the
 same module with the matching complete ABI, not an arbitrary native entry or an
-interior code address. A HALT-containing function is not bytecode-callable.
+interior code address. A HALT-containing function or lifecycle C entry is not
+bytecode-callable, even if its argument/result kinds match the call site.
 
 ### 8. Code-address relocations
 
@@ -198,9 +203,9 @@ ABC calls use explicit continuations, not recursive host execution. Stack limits
 include the required continuation resources. There is no semantic instruction
 fuel budget. Language aborts retain their reason and original bytecode offset.
 
-## Approved lifecycle-entry extension (revision 7)
+## Lifecycle-entry extension (revision 7)
 
-**Approved target; implementation status is tracked in WORKLIST E01.** This is the
+**Encoded boundary implemented; executable delivery pending (WORKLIST E01).** This is the
 minimal C-entry relocation extension, not the withdrawn ownership runtime design.
 Revision 6 retains its exact existing format and instruction semantics. Revision 7
 uses the same instruction bytes, is restricted to profile 4, and requires sections

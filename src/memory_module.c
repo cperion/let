@@ -5,25 +5,27 @@ static int value_kind(unsigned kind) {return kind==ABC_KIND_INT||kind==ABC_KIND_
 abc_status abc_load_memory(const void *bytes,size_t size,abc_module **out,abc_error *error) {
     const uint8_t *header=bytes;const uint16_t endian=1;
     if(*(const uint8_t *)&endian!=1)return abc_fail(error,ABC_INVALID,UINT32_MAX,"memory profile requires little-endian host memory");
-    unsigned profile=header[7],foreign=profile==4,callable=profile>=3,section_count=foreign?9:callable?8:6;
+    unsigned revision=abc_u16(header+4),lifecycle=revision==ABC_LIFECYCLE_REVISION;
+    unsigned profile=header[7],foreign=profile==4,callable=profile>=3,section_count=lifecycle?10:foreign?9:callable?8:6;
     if(abc_u32(header+8)!=section_count)return abc_fail(error,ABC_INVALID,UINT32_MAX,"invalid profile section count");
-    const uint8_t *sections[10]={0};uint32_t lengths[10]={0};size_t offset=16;
+    const uint8_t *sections[11]={0};uint32_t lengths[11]={0};size_t offset=16;
     for(unsigned index=0;index<section_count;index++) {
         if(size-offset<8)return abc_fail(error,ABC_INVALID,UINT32_MAX,"truncated section header");
         uint32_t tag=abc_u32(header+offset),length=abc_u32(header+offset+4);offset+=8;
         if(tag<1||tag>section_count||sections[tag]||length>size-offset)return abc_fail(error,ABC_INVALID,UINT32_MAX,"invalid, duplicate or unsupported section");
         sections[tag]=header+offset;lengths[tag]=length;offset+=length;
     }
-    if(offset!=size||lengths[1]<4||!lengths[2]||lengths[3]<4||lengths[6]<4||(callable&&(lengths[7]<4||lengths[8]<4))||(foreign&&lengths[9]<4))
+    if(offset!=size||lengths[1]<4||!lengths[2]||lengths[3]<4||lengths[6]<4||(callable&&(lengths[7]<4||lengths[8]<4))||(foreign&&lengths[9]<4)||(lifecycle&&lengths[10]<4))
         return abc_fail(error,ABC_INVALID,UINT32_MAX,"missing sections or trailing bytes");
     uint32_t functions=abc_u32(sections[1]),exports=abc_u32(sections[3]),annotations=abc_u32(sections[6]);
     uint32_t sites=callable?abc_u32(sections[7]):0,relocations=callable?abc_u32(sections[8]):0,externs=foreign?abc_u32(sections[9]):0;
-    if(!functions||functions>ABC_MAX_FUNCTIONS||exports>ABC_MAX_FUNCTIONS||sites>ABC_MAX_FUNCTIONS||relocations>ABC_MAX_FUNCTIONS||externs>65535||lengths[6]!=4+(uint64_t)annotations*5||(callable&&lengths[8]!=4+(uint64_t)relocations*8)||(uint64_t)lengths[4]+lengths[5]>ABC_MAX_FILE)
+    uint32_t c_entries=lifecycle?abc_u32(sections[10]):0;
+    if(!functions||functions>ABC_MAX_FUNCTIONS||exports>ABC_MAX_FUNCTIONS||sites>ABC_MAX_FUNCTIONS||relocations>ABC_MAX_FUNCTIONS||c_entries>ABC_MAX_FUNCTIONS||externs>65535||lengths[6]!=4+(uint64_t)annotations*5||(callable&&lengths[8]!=4+(uint64_t)relocations*8)||(lifecycle&&lengths[10]!=4+(uint64_t)c_entries*8)||(uint64_t)lengths[4]+lengths[5]>ABC_MAX_FILE)
         return abc_fail(error,ABC_INVALID,UINT32_MAX,"invalid table or image size");
     abc_module *module=calloc(1,sizeof *module);
     if(!module)return abc_fail(error,ABC_NOMEM,UINT32_MAX,"module allocation failed");
-    atomic_init(&module->references,1);module->memory_profile=1;module->callable_profile=callable;module->foreign_profile=foreign;
-    module->function_count=functions;module->export_count=exports;module->site_count=sites;module->reloc_count=relocations;module->extern_count=externs;
+    atomic_init(&module->references,1);module->revision=revision;module->memory_profile=1;module->callable_profile=callable;module->foreign_profile=foreign;
+    module->function_count=functions;module->export_count=exports;module->site_count=sites;module->reloc_count=relocations;module->c_entry_count=c_entries;module->extern_count=externs;
     module->code_size=lengths[2];module->data_size=lengths[4];module->image_size=lengths[4]+lengths[5];
     module->functions=calloc(functions,sizeof *module->functions);module->exports=calloc(exports?exports:1,sizeof *module->exports);
     module->code=malloc(lengths[2]);module->load_kinds=calloc(lengths[2],1);module->image=malloc(module->image_size?module->image_size:1);
@@ -81,8 +83,26 @@ abc_status abc_load_memory(const void *bytes,size_t size,abc_module **out,abc_er
         }
         if(offset!=lengths[7])FAIL("trailing indirect signature bytes");
         for(uint32_t index=0;index<relocations;index++) {
-            const uint8_t *record=sections[8]+4+index*8;abc_code_reloc *relocation=&module->relocs[index];relocation->offset=abc_u32(record);relocation->function=abc_u32(record+4);
+            const uint8_t *record=sections[8]+4+index*8;abc_entry_reloc *relocation=&module->relocs[index];relocation->offset=abc_u32(record);relocation->function=abc_u32(record+4);
             if((uint64_t)relocation->offset+8>module->data_size||relocation->function>=functions||(index&&relocation->offset<(uint64_t)module->relocs[index-1].offset+8))FAIL("invalid or overlapping code image relocation");
+        }
+    }
+    if(c_entries) {
+        module->c_entries=calloc(c_entries,sizeof *module->c_entries);
+        if(!module->c_entries){status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"C-entry table allocation failed");goto failed;}
+        uint32_t code_index=0;
+        for(uint32_t index=0;index<c_entries;index++) {
+            const uint8_t *record=sections[10]+4+index*8;abc_entry_reloc *relocation=&module->c_entries[index];
+            relocation->offset=abc_u32(record);relocation->function=abc_u32(record+4);
+            if((uint64_t)relocation->offset+8>module->data_size||relocation->function>=functions||
+               (index&&relocation->offset<(uint64_t)module->c_entries[index-1].offset+8))FAIL("invalid or overlapping C-entry image relocation");
+            /* Both tables are ordered: one merge scan rejects cross-domain overlap. */
+            while(code_index<relocations&&(uint64_t)module->relocs[code_index].offset+8<=relocation->offset)code_index++;
+            if(code_index<relocations&&module->relocs[code_index].offset<(uint64_t)relocation->offset+8)FAIL("C-entry and code-address relocations overlap");
+            abc_function *function=&module->functions[relocation->function];
+            if(function->arguments!=2||function->results||function->hidden_bytes||
+               function->argument_kinds[0]!=ABC_KIND_ADDR||function->argument_kinds[1]!=ABC_KIND_ADDR)FAIL("C entry requires two address arguments, no results and no hidden result storage");
+            function->c_entry=1;
         }
     }
     if(foreign) {

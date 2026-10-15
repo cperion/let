@@ -99,7 +99,19 @@ abc_status abc_verify_module(abc_module *module,abc_error *error) {
         unsigned kind=abc_instruction_info(module->code+pc)->kind;
         if(kind!=K_ICALL&&kind!=K_ITCALL)BAD("indirect signature is not on an indirect call");
     }
-    for(uint32_t index=0;index<module->reloc_count;index++)if(module->functions[module->relocs[index].function].has_halt)BAD("code relocation names a HALT function");
+    for(uint32_t index=0;index<module->reloc_count;index++) {
+        const abc_function *function=&module->functions[module->relocs[index].function];pc=function->entry;
+        if(function->has_halt)BAD("code relocation names a HALT function");
+        if(function->c_entry)BAD("code relocation cannot name a lifecycle C entry");
+    }
+    for(uint32_t index=0;index<module->c_entry_count;index++) {
+        const abc_function *function=&module->functions[module->c_entries[index].function];pc=function->entry;
+        if(function->has_halt)BAD("lifecycle C entry cannot contain HALT");
+    }
+    for(uint32_t index=0;index<module->export_count;index++) {
+        const abc_function *function=&module->functions[module->exports[index].function];pc=function->entry;
+        if(function->c_entry)BAD("lifecycle C entry cannot be exported");
+    }
     /* Edges, metadata and statically addressed image accesses are checked even in unreachable code. */
     for(uint32_t index=0;index<module->function_count;index++) {
         const abc_function *function=&module->functions[index];
@@ -121,6 +133,7 @@ abc_status abc_verify_module(abc_module *module,abc_error *error) {
                 if(target>=0&&target<=UINT32_MAX)callee=abc_function_entry(module,(uint32_t)target);
                 if(!callee)BAD("call target is not a function entry");
                 if(callee->has_halt)BAD("a function containing HALT is host-entry-only");
+                if(callee->c_entry)BAD("ABC call cannot target a lifecycle C entry");
                 if(operand[kind==K_CALL?4:5]!=callee->arguments)BAD("call argument count disagrees with function table");
             } else if(kind==K_ICALL||kind==K_ITCALL) {
                 callee=abc_find_site(module,pc);

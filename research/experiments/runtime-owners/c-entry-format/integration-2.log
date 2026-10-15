@@ -1,0 +1,88 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/symbolic_dispatch.c -o build/generated/symbolic_dispatch.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c build/generated/symbolic_fold.c -o build/generated/symbolic_fold.o
+/tmp/clang20 -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Ibuild/generated -c build/generated/residual_ir.c -o build/generated/residual_ir.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_ir.c -o build/residual_ir.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_validate.c -o build/residual_validate.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/residual_dump.c -o build/residual_dump.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/symbolic_dispatch.c -o build/pic/symbolic_dispatch.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c build/generated/symbolic_fold.c -o build/pic/symbolic_fold.o
+cp tools/assembler.lua build/assembler.lua
+/tmp/clang20 -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -Ibuild/generated -c build/generated/residual_ir.c -o build/pic/generated_residual_ir.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residual_ir.c -o build/pic/residual_ir.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residual_validate.c -o build/pic/residual_validate.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -fPIC -c src/residual_analysis.c -o build/pic/residual_analysis.o
+make: 'build/validate-isa' is up to date.
+rm -f build/libabc.a
+rm -f build/libabc-tool.a
+ar rcs build/libabc-tool.a build/module.o build/memory_module.o build/verify.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/generated/residual_ir.o build/residual_ir.o build/residual_analysis.o build/residual_validate.o build/residual_dump.o build/residual_builder.o build/residual_c.o build/optimize.o
+ar rcs build/libabc.a build/module.o build/memory_module.o build/verify.o build/foreign.o build/vm.o build/semantics.o build/symbolic.o build/generated/symbolic_dispatch.o build/generated/symbolic_fold.o build/banked_0.o build/banked_1.o build/banked_2.o build/banked_3.o build/banked_4.o build/banked_5.o build/banked_6.o build/banked_7.o build/residualize.o build/native_emit.o build/native_image.o build/threaded_emit.o build/generated/threaded.o build/owner.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_residual_ir.c build/libabc-tool.a -lm -o build/validate-residual-ir
+/tmp/clang20 -shared -O2 -g -pthread -Wl,-z,defs build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/foreign.o build/pic/vm.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/banked_0.o build/pic/banked_1.o build/pic/banked_2.o build/pic/banked_3.o build/pic/banked_4.o build/pic/banked_5.o build/pic/banked_6.o build/pic/banked_7.o build/pic/residualize.o build/pic/native_emit.o build/pic/native_image.o build/pic/threaded_emit.o build/pic/threaded.o build/pic/owner.o -lm -o build/libabc.so
+/tmp/clang20 -shared -O2 -g -pthread build/pic/module.o build/pic/memory_module.o build/pic/verify.o build/pic/semantics.o build/pic/symbolic.o build/pic/symbolic_dispatch.o build/pic/symbolic_fold.o build/pic/generated_residual_ir.o build/pic/residual_ir.o build/pic/residual_validate.o build/pic/residual_analysis.o build/pic/residual_builder.o build/pic/residual_c.o build/pic/optimize.o -lm -o build/libabc-opt.so
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_c_entries.c build/libabc.a build/libabc-tool.a -lm -o build/validate-c-entries
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict tools/validate_optimizer_foreign.c build/libabc.a -lm -lpthread -o build/validate-optimizer-foreign
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Wno-cast-function-type-strict tools/validate_api.c build/libabc.a -o build/validate-api
+/tmp/clang20 -O2 -g -pthread build/cli.o build/libabc.a -o build/abc-runtime
+cp tools/abc build/abc
+/tmp/lua-compat tools/validate_c_entries.lua build/c-entry-tests
+/tmp/lua-compat tools/validate_optimizer_isa.lua build/abc-runtime build/optimizer-isa build/validate-optimizer-foreign
+chmod +x build/abc
+C-entry format: 180 assembler/loader/optimizer checks; no lifecycle execution
+build/validate-c-entries build/c-entry-tests/entries.abc build/c-entry-tests/optimized.abc build/c-entry-tests/ordinary.abc build/c-entry-tests/empty.abc
+C-entry boundaries: 193 checks; ABC target exclusion and fail-closed delivery in four modes; no lifecycle execution
+sub-c: optimized emission and four-mode execution PASS
+sub-c-mirror: optimized emission and four-mode execution PASS
+nested-sub: optimized emission and four-mode execution PASS
+nested-sub-mirror: optimized emission and four-mode execution PASS
+divide: optimized emission and four-mode execution PASS
+divide-mirror: optimized emission and four-mode execution PASS
+shift: optimized emission and four-mode execution PASS
+shift-mirror: optimized emission and four-mode execution PASS
+normalize: optimized emission and four-mode execution PASS
+normalize-mirror: optimized emission and four-mode execution PASS
+capture: optimized emission and four-mode execution PASS
+capture-mirror: optimized emission and four-mode execution PASS
+immediate-branch: optimized emission and four-mode execution PASS
+immediate-branch-mirror: optimized emission and four-mode execution PASS
+fused-branch: optimized emission and four-mode execution PASS
+fused-branch-mirror: optimized emission and four-mode execution PASS
+phi-results: optimized emission and four-mode execution PASS
+phi-results-mirror: optimized emission and four-mode execution PASS
+switch: optimized emission and four-mode execution PASS
+switch-mirror: optimized emission and four-mode execution PASS
+halt: optimized emission and four-mode execution PASS
+halt-mirror: optimized emission and four-mode execution PASS
+halt-argument: optimized emission and four-mode execution PASS
+halt-argument-mirror: optimized emission and four-mode execution PASS
+memory-addresses: optimized emission and four-mode execution PASS
+memory-addresses-mirror: optimized emission and four-mode execution PASS
+halt-empty: optimized emission and four-mode execution PASS
+halt-empty-mirror: optimized emission and four-mode execution PASS
+trap: optimized emission and four-mode execution PASS
+trap-mirror: optimized emission and four-mode execution PASS
+known-check: optimized emission and four-mode execution PASS
+known-check-mirror: optimized emission and four-mode execution PASS
+check: optimized emission and four-mode execution PASS
+check-mirror: optimized emission and four-mode execution PASS
+call-AA: optimized emission and four-mode execution PASS
+call-AA-mirror: optimized emission and four-mode execution PASS
+call-AB: optimized emission and four-mode execution PASS
+call-AB-mirror: optimized emission and four-mode execution PASS
+call-BA: optimized emission and four-mode execution PASS
+call-BA-mirror: optimized emission and four-mode execution PASS
+call-BB: optimized emission and four-mode execution PASS
+call-BB-mirror: optimized emission and four-mode execution PASS
+recursive-b: optimized emission and four-mode execution PASS
+recursive-b-mirror: optimized emission and four-mode execution PASS
+tail-b: optimized emission and four-mode execution PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+foreign original/optimized: ordered arguments, live prefix and single effect PASS
+tail-b-mirror: optimized emission and four-mode execution PASS
+foreign-difference: optimized emission and four-mode execution PASS
+foreign-difference-mirror: optimized emission and four-mode execution PASS
+foreign-observe: optimized emission and four-mode execution PASS
+foreign-observe-mirror: optimized emission and four-mode execution PASS
+optimizer ISA: 50 mirrored modules, 308 original/optimized execution pairs

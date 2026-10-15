@@ -16,7 +16,7 @@ RUNTIME_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o bu
 RUNTIME_OBJ += build/owner.o
 RUNTIME_PIC += build/pic/owner.o
 ASDLC_SRC = tools/asdlc/main.c tools/asdlc/arena.c tools/asdlc/parser.c tools/asdlc/validate.c tools/asdlc/emit_c.c
-.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet validate-owner-core
+.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet validate-owner-core validate-c-entries
 all: build/abc build/abc-opt build/libabc-opt.so build/libabc.so build/libabc.a build/generated/stencils.h
 build:
 	mkdir -p build
@@ -25,6 +25,8 @@ build/opcodes.h: tools/gen_opcodes.lua tools/opcodes.lua gen/semantics.lua | bui
 build/generated:
 	mkdir -p $@
 $(RUNTIME_OBJ) $(RUNTIME_PIC): src/execution_context.h
+# Explicit generated/PIC rules also consume private module/function layouts.
+$(RUNTIME_OBJ) $(RUNTIME_PIC) $(TOOL_OBJ) $(TOOL_PIC): src/internal.h
 build/owner.o build/pic/owner.o: src/owner.h
 build/abc-asdlc: $(ASDLC_SRC) tools/asdlc/asdlc.h | build
 	$(CC) $(CFLAGS) $(WARN) -Itools $(ASDLC_SRC) -o $@
@@ -136,6 +138,11 @@ build/validate-owner-core: tools/validate_owner_core.c build/owner.o src/owner.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/owner.o -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free -o $@
 validate-owner-core: build/validate-owner-core
 	build/validate-owner-core
+build/validate-c-entries: tools/validate_c_entries.c build/libabc.a build/libabc-tool.a src/vm_internal.h src/residual_builder.h src/residualize.h include/abc_tool.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a build/libabc-tool.a -lm -o $@
+validate-c-entries: build/validate-c-entries build/libabc.so build/libabc-opt.so build/abc-runtime
+	$(LUA) tools/validate_c_entries.lua build/c-entry-tests
+	build/validate-c-entries build/c-entry-tests/entries.abc build/c-entry-tests/optimized.abc build/c-entry-tests/ordinary.abc build/c-entry-tests/empty.abc
 build/validate-lifetime: tools/validate_lifetime.c build/libabc.a include/abc.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a -lm -o $@
 build/validate-capacity-frontiers: tools/validate_capacity_frontiers.c build/libabc.a src/internal.h include/abc.h
@@ -211,7 +218,7 @@ validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi 
 	cd frontend && LUA="$(LUA)" $(LUA) tests/staging_sessions.lua
 	$(LUA) tools/validate_slet_frontend.lua
 	CC="$(CC)" $(LUA) tools/validate_c_aot.lua
-validate: validate-owner-core validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
+validate: validate-c-entries validate-owner-core validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
 	build/abc asm tools/validate_capacity_frontiers.abcasm -o build/validate-capacity-frontiers.abc
 	build/validate-capacity-frontiers build/validate-capacity-frontiers.abc
 	build/validate-execution-emit

@@ -795,16 +795,20 @@ static int mark_residual_callees(const abc_module *m,const FunctionCode *functio
     (void)m;for(uint32_t i=0;i<functions[fi].call_count;i++){uint32_t target=functions[fi].calls[i].target;if(!live[target]){live[target]=1;*changed=1;}}return 1;
 }
 static int mark_live_functions(const abc_module *m,const FunctionCode *functions,uint8_t *live){
-    for(uint32_t i=0;i<m->export_count;i++)live[m->exports[i].function]=1;for(uint32_t i=0;i<m->reloc_count;i++)live[m->relocs[i].function]=1;int changed=1;while(changed){changed=0;for(uint32_t fi=0;fi<m->function_count;fi++)if(live[fi]&&!mark_residual_callees(m,functions,fi,live,&changed))return 0;}return 1;
+    for(uint32_t i=0;i<m->export_count;i++)live[m->exports[i].function]=1;
+    for(uint32_t i=0;i<m->reloc_count;i++)live[m->relocs[i].function]=1;
+    for(uint32_t i=0;i<m->c_entry_count;i++)live[m->c_entries[i].function]=1;
+    int changed=1;while(changed){changed=0;for(uint32_t fi=0;fi<m->function_count;fi++)if(live[fi]&&!mark_residual_callees(m,functions,fi,live,&changed))return 0;}return 1;
 }
-static int rewrite_code_relocs(Bytes *out,const abc_module *m,const uint32_t *new_index,const uint8_t *p,uint32_t size){
-    if(size!=4u+8u*m->reloc_count||abc_u32(p)!=m->reloc_count||!emit32(out,m->reloc_count))return 0;for(uint32_t i=0;i<m->reloc_count;i++){uint32_t at=4+8*i;if(abc_u32(p+at)!=m->relocs[i].offset||abc_u32(p+at+4)!=m->relocs[i].function||!emit32(out,m->relocs[i].offset)||!emit32(out,new_index[m->relocs[i].function]))return 0;}return 1;
+static int rewrite_entry_relocs(Bytes *out,const abc_entry_reloc *entries,uint32_t count,const uint32_t *new_index,const uint8_t *p,uint32_t size){
+    if(size!=4u+8u*count||abc_u32(p)!=count||!emit32(out,count))return 0;
+    for(uint32_t i=0;i<count;i++){uint32_t at=4+8*i;if(abc_u32(p+at)!=entries[i].offset||abc_u32(p+at+4)!=entries[i].function||!emit32(out,entries[i].offset)||!emit32(out,new_index[entries[i].function]))return 0;}return 1;
 }
 static int write_module(const abc_module *m,FunctionCode *functions,const void *input,size_t input_size,void **out,size_t *out_size,abc_provenance **provenance,size_t *provenance_count) {
     Bytes code={0},ft={0},xt={0},module={0};abc_provenance *map=NULL;size_t map_count=0,map_at=0;uint32_t live_count=0;
     uint32_t *entries=calloc(m->function_count,sizeof *entries),*new_index=calloc(m->function_count,sizeof *new_index);uint8_t *live=calloc(m->function_count,1);
     if(!entries||!new_index||!live)goto failed;
-    if(m->export_count||m->reloc_count){if(!mark_live_functions(m,functions,live))goto failed;}else memset(live,1,m->function_count);for(uint32_t i=0;i<m->function_count;i++)if(live[i]){new_index[i]=live_count++;entries[i]=(uint32_t)code.size;if(!append(&code,functions[i].code,functions[i].length))goto failed;}
+    if(m->export_count||m->reloc_count||m->c_entry_count){if(!mark_live_functions(m,functions,live))goto failed;}else memset(live,1,m->function_count);for(uint32_t i=0;i<m->function_count;i++)if(live[i]){new_index[i]=live_count++;entries[i]=(uint32_t)code.size;if(!append(&code,functions[i].code,functions[i].length))goto failed;}
     if(provenance){for(uint32_t i=0;i<m->function_count;i++)if(live[i]){if(functions[i].optimized)map_count+=functions[i].provenance_count;else for(uint32_t pc=m->functions[i].entry;pc<m->functions[i].end;pc+=abc_instruction_length(m->code+pc))map_count++;}map=calloc(map_count?map_count:1,sizeof *map);if(!map)goto failed;
         for(uint32_t i=0;i<m->function_count;i++)if(live[i]){if(functions[i].optimized){for(uint32_t j=0;j<functions[i].provenance_count;j++)map[map_at++]=(abc_provenance){entries[i]+functions[i].provenance[j].output_offset,functions[i].provenance[j].input_offset};}else for(uint32_t pc=m->functions[i].entry;pc<m->functions[i].end;pc+=abc_instruction_length(m->code+pc))map[map_at++]=(abc_provenance){entries[i]+pc-m->functions[i].entry,pc};}
     }
@@ -817,7 +821,11 @@ static int write_module(const abc_module *m,FunctionCode *functions,const void *
     const uint8_t *bytes=input;if(input_size<16||!append(&module,bytes,16))goto failed;uint32_t section_count=abc_u32(bytes+8);size_t at=16;for(uint32_t i=0;i<section_count;i++){if(at+8>input_size)goto failed;uint32_t tag=abc_u32(bytes+at),length=abc_u32(bytes+at+4);at+=8;if(at+length>input_size)goto failed;
         if(tag==1){if(!section(&module,tag,ft.data,(uint32_t)ft.size))goto failed;}else if(tag==2){if(!section(&module,tag,code.data,(uint32_t)code.size))goto failed;}else if(tag==3){if(!section(&module,tag,xt.data,(uint32_t)xt.size))goto failed;}
         else if((tag==6&&m->memory_profile)||(tag==7&&m->callable_profile)){Bytes rewritten={0};if(!rewrite_pc_section(&rewritten,tag,bytes+at,length,m,functions,entries,live)||!section(&module,tag,rewritten.data,(uint32_t)rewritten.size)){free(rewritten.data);goto failed;}free(rewritten.data);}
-        else if(tag==8&&m->callable_profile){Bytes rewritten={0};if(!rewrite_code_relocs(&rewritten,m,new_index,bytes+at,length)||!section(&module,tag,rewritten.data,(uint32_t)rewritten.size)){free(rewritten.data);goto failed;}free(rewritten.data);}
+        else if((tag==8&&m->callable_profile)||(tag==10&&m->revision==ABC_LIFECYCLE_REVISION)){
+            Bytes rewritten={0};const abc_entry_reloc *relocs=tag==8?m->relocs:m->c_entries;
+            uint32_t count=tag==8?m->reloc_count:m->c_entry_count;
+            if(!rewrite_entry_relocs(&rewritten,relocs,count,new_index,bytes+at,length)||!section(&module,tag,rewritten.data,(uint32_t)rewritten.size)){free(rewritten.data);goto failed;}free(rewritten.data);
+        }
         else if(!section(&module,tag,bytes+at,length))goto failed;at+=length;
     }
     if(at!=input_size)goto failed;*out=module.data;*out_size=module.size;if(provenance){*provenance=map;*provenance_count=map_at;}free(entries);free(new_index);free(live);free(code.data);free(ft.data);free(xt.data);return 1;
@@ -838,7 +846,12 @@ static abc_status optimize_impl(const void *input,size_t input_size,void **outpu
     void *bytes=NULL;size_t size=0;abc_provenance *map=NULL;size_t map_count=0;int optimized=0;
     CallGraph graph={0};FunctionCode *functions=calloc(m->function_count,sizeof *functions);uint8_t *needed=calloc(m->function_count,1),*dirty=calloc(m->function_count,1);ArgumentFact **facts=calloc(m->function_count,sizeof *facts);
     if(!functions||!needed||!dirty||!facts||!build_call_graph(m,&graph)){free(functions);free(needed);free(dirty);free(facts);free_call_graph(&graph);status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer allocation failed");goto done;}
-    int roots=m->export_count||m->reloc_count;if(roots){for(uint32_t i=0;i<m->export_count;i++)if(!activate_function_facts(m,facts,needed,dirty,m->exports[i].function,1))goto optimize_failed;for(uint32_t i=0;i<m->reloc_count;i++)if(!activate_function_facts(m,facts,needed,dirty,m->relocs[i].function,1))goto optimize_failed;}else for(uint32_t i=0;i<m->function_count;i++)if(!activate_function_facts(m,facts,needed,dirty,i,1))goto optimize_failed;
+    int roots=m->export_count||m->reloc_count||m->c_entry_count;
+    if(roots){
+        for(uint32_t i=0;i<m->export_count;i++)if(!activate_function_facts(m,facts,needed,dirty,m->exports[i].function,1))goto optimize_failed;
+        for(uint32_t i=0;i<m->reloc_count;i++)if(!activate_function_facts(m,facts,needed,dirty,m->relocs[i].function,1))goto optimize_failed;
+        for(uint32_t i=0;i<m->c_entry_count;i++)if(!activate_function_facts(m,facts,needed,dirty,m->c_entries[i].function,1))goto optimize_failed;
+    }else for(uint32_t i=0;i<m->function_count;i++)if(!activate_function_facts(m,facts,needed,dirty,i,1))goto optimize_failed;
     optimized=1;for(;;){uint32_t i=0;while(i<m->function_count&&!dirty[i])i++;if(i==m->function_count)break;dirty[i]=0;clear_function_code(&functions[i]);
         if(!residualize_function(m,&graph,i,facts[i],&functions[i])){clear_function_code(&functions[i]);if(!retain_function(m,i,&functions[i])){status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer allocation failed");optimized=0;break;}}
         for(uint32_t j=0;j<functions[i].call_count;j++)if(!join_call_facts(m,facts,needed,dirty,&functions[i].calls[j])){status=abc_fail(error,ABC_INVALID,UINT32_MAX,"optimizer residual call facts are invalid");optimized=0;break;}if(!optimized)break;
