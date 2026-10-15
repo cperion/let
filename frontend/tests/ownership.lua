@@ -1,7 +1,8 @@
 package.path='./?.lua;./?/init.lua;../tools/?.lua;../build/?.lua;'..package.path
 local C=require('let.compiler')
 local S=require('let.schema')
-local Check=require('let.check')
+local Program=require('let.program')
+local Layout=require('let.layout')
 local Owner=require('let.ownership')
 local D=require('let.diag')
 local I,B,O,L=S.Ir,S.Borrow,S.Ownership,S.List
@@ -10,17 +11,17 @@ local function check(ok,message) checks=checks+1;assert(ok,message) end
 local function reject(code,source,profiles)
  local last
  for _,profile in ipairs(profiles or {'slet','let'}) do
-  local ok,err=pcall(C.typed,{profile=profile,source=source,name='ownership.'..profile})
+  local ok,err=pcall(function()
+   local unit=C.typed{profile=profile,source=source,name='ownership.'..profile}
+   return Layout.program(unit.program)
+  end)
   check(not ok and D.is(err) and err.code==code,profile..'/'..code..': '..tostring(err))
   check(O.Summary:isclassof(err.ownership),'ownership rejection has canonical proof evidence')
   last=err
  end
  return last
 end
-local function fn(unit,id)
- for _,f in ipairs(unit.functions) do if f.id==id then return f end end
- error('missing function '..id)
-end
+local function summary(unit,id) return assert(unit.program.ownership[id]).summary end
 local function run(source,wanted,profile)
  local unit=C.typed({profile=profile or 'slet',source=source,name='ownership.'..(profile or 'slet')},{staticMode='interpreted'})
  for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do for _,optimize in ipairs{false,true} do
@@ -49,7 +50,7 @@ let main(): U32 = do
  return p.saved.x
 end
 ]],42)
-local boundedSummary=fn(bounded,'main').ownership
+local boundedSummary=summary(bounded,'main')
 check(#boundedSummary.edges==0 and #boundedSummary.counted==0,'bounded self/interior access has no owning edge')
 check(#boundedSummary.borrows>0,'bounded retention has independent activation evidence')
 local self=reject('Ref-cycle',prelude..[[
@@ -150,7 +151,7 @@ let main(): U32 = do
  return value
 end
 ]],42,'let')
-check(#fn(safeClosure,'main').ownership.counted==0,'bounded environment/button graph remains borrowed')
+check(#summary(safeClosure,'main').counted==0,'bounded environment/button graph remains borrowed')
 local put=run(prelude..[[
 let put(holder: Ref(Box), value: Ref(Point)): Unit = do holder.saved = value return end
 let forward(holder: Ref(Box), value: Ref(Point)): Unit = put(holder,value)
@@ -161,11 +162,11 @@ let main(): U32 = do
  return box.saved.x
 end
 ]],42)
-local formal=fn(put,'put').ownership
+local formal=summary(put,'put')
 check(#formal.edges==1 and formal.edges[1].holder.kind=='Formal' and formal.edges[1].target.kind=='Formal',
  'generic summary exports formal owning inequality, not a type-reach test')
-check(#fn(put,'main').ownership.edges==0,'actual bounded bindings discharge the generic retention inequality')
-check(#fn(put,'forward').ownership.edges==1,'forwarding preserves the instantiated summary')
+check(#summary(put,'main').edges==0,'actual bounded bindings discharge the generic retention inequality')
+check(#summary(put,'forward').edges==1,'forwarding preserves the instantiated summary')
 local selfLink=[[
 let self_link(p: Ref(Box)): Unit = do p.saved = Ref(p.child) return end
 ]]
@@ -177,10 +178,10 @@ let main(): U32 = do
  return box.saved.x
 end
 ]],42)
-local conditional=fn(boundedFormal,'self_link').ownership.edges[1]
+local conditional=summary(boundedFormal,'self_link').edges[1]
 check(conditional and conditional.holder==conditional.target and conditional.holder.kind=='Formal',
  'formal-only self inequality remains conditional on the calling ownership specialization')
-check(#fn(boundedFormal,'main').ownership.edges==0,'bounded actual root discharges conditional self inequality')
+check(#summary(boundedFormal,'main').edges==0,'bounded actual root discharges conditional self inequality')
 local owningFormal=reject('Ref-cycle',factories..selfLink..[[
 let main(seed: Ref(Point)): Ref(Box) = do let p=make(seed) self_link(p) return p end
 ]])
@@ -193,7 +194,7 @@ let identity(p: Ref(Point), n: U32): Ref(Point) = do
 end
 let main(): U32 = do let p = Point { x = 42 } let r = identity(Ref(p),4) return r.x end
 ]],42)
-check(#fn(recursive,'main').ownership.counted==0,'recursive forwarding preserves actual borrowed input root')
+check(#summary(recursive,'main').counted==0,'recursive forwarding preserves actual borrowed input root')
 local growing=reject('Ref-cycle',[[
 let Node = { next: Ref(Node), value: U32 }
 let chain(seed: Ref(Node), n: U32): Ref(Node) = do
@@ -212,8 +213,8 @@ let state = Point { x = 42 }
 let expose(): Ref(Point) = Ref(state)
 let main(): U32 = do let r = expose() return r.x end
 ]],42)
-local moduleResult=fn(module,'expose').ownership.results[1].roots[1]
-check(moduleResult.kind=='Module' and #fn(module,'expose').ownership.counted==0,'module roots require no count')
+local moduleResult=summary(module,'expose').results[1].roots[1]
+check(moduleResult.kind=='Module' and #summary(module,'expose').counted==0,'module roots require no count')
 local raw=run([[
 let Point = { x: U32 }
 let main(): U32 = do
@@ -223,15 +224,15 @@ let main(): U32 = do
  return p.x
 end
 ]],42)
-check(#fn(raw,'main').ownership.holdings==0,'raw pointers supply neither strong edges nor lifetime proof')
+check(#summary(raw,'main').holdings==0,'raw pointers supply neither strong edges nor lifetime proof')
 for _,profile in ipairs{'slet','let'} do
  local rawReturn=C.typed{profile=profile,source=[[
 let Point = { x: U32 }
 let unchecked(): Ptr(U32) = do let p = Point { x = 42 } return Ptr(p.x) end
 let main(): U32 = 0
 ]]}
- local summary=fn(rawReturn,'unchecked').ownership
- check(#summary.results==0 and #summary.counted==0,'raw pointer return must not export a checked owner loan')
+ local facts=summary(rawReturn,'unchecked')
+ check(#facts.results==0 and #facts.counted==0,'raw pointer return must not export a checked owner loan')
 end
 -- A checked-IR factory also exercises reachable result-state transport: read an
 -- address-bearing field of two independently instantiated roots after the calls.
@@ -252,10 +253,11 @@ local caller=I.Fn('caller_ir',I.Entry,0,L{},L{S.Ref(Point),S.Ref(Point)},L{},L{
  I.Read(ar,S.Ref(Point),I.Project(I.Deref(I.Local(ap),Holder),I.Field('value'))),
  I.Read(br,S.Ref(Point),I.Project(I.Deref(I.Local(bp),Holder),I.Field('value'))),
  I.Return(L{I.Ref(ar,S.Ref(Point)),I.Ref(br,S.Ref(Point))})})
-local ok,err=pcall(Check.program,{make,caller})
+local program=Program.analyze({make,caller})
+local ok,err=pcall(Layout.program,program)
 check(not ok and err.code=='borrow-return','inference does not enable unimplemented counted ABI')
-check(caller.ownership~=nil,'all summaries publish before placement rejection')
-local results=caller.ownership.results
+check(program.ownership.caller_ir~=nil and caller.ownership==nil,'the checked program owns summaries before placement rejection')
+local results=program.ownership.caller_ir.summary.results
 check(#results==2 and #results[1].roots==1 and #results[2].roots==1,'fresh root contents transport without cross-call contamination')
 check(results[1].roots[1]~=results[2].roots[1],'two retained input roots remain distinct through factory fields')
 for _,r in ipairs(results) do check(r.roots[1].source.kind=='Local' and r.roots[1].source.frame=='caller_ir','field reads recover actual caller roots') end

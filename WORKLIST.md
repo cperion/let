@@ -572,6 +572,23 @@ cleanup and release-code delivery around the small core. Unrelated task protocol
 
 Authority: `docs/owners-references-ids.md`; corresponds to O1–O3 in frontend plan.
 
+**Structural cut completed — coordinator, O03–O05/E01 remain partial:**
+`frontend/let/program.lua` now owns checked functions/declarations and program-local
+access/ownership results. Removed inference from `Check.program`, mutable function
+proof annotations and the old implicit layout APIs. Semantic construction, source
+compilation/imports, demand execution, specialization, lowering and snapshot/staging
+consumers use the new boundary. `layout.lua` selects the explicit borrowed contract
+only after rejecting counted requirements; ABC uses it for cells, widths and offsets.
+Proof algorithms and ordinary ABC remain. Typed counted programs can be analyzed,
+but cannot execute. IR nodes are frozen by caller contract, not a deep-copy/proxy
+mechanism; transformations create and analyze a new graph. No owning ABI/runtime
+binding or cleanup mechanism was added. `validate-slet` passes after two migration
+errors were fixed; final program/ownership/access/lowering/lambda checks pass after
+review cleanup. New boundary coverage:37 checks/1 VM execution. Evidence:
+`research/experiments/frontend-syntax/program-boundary/README.md`.
+Next: design per-root owning materialization, holding locations and failure cleanup;
+then integrate those producers/consumers before widening executable admission.
+
 - [ ] **O01** Freeze adversarial proof tests: self/interior edges, closure cycles,
   stored borrows, branch joins, COW self-insertion and hidden module access.
 - [ ] **O02** Specify actual-root provenance, independent borrow extents and strict
@@ -590,7 +607,8 @@ Authority: `docs/owners-references-ids.md`; corresponds to O1–O3 in frontend p
   conditional on actual borrowing/owning bindings; recursive call families fold
   finitely without treating convergence/equal family names as lifetime evidence.
   Replaced the hardcoded frame-return/store checks with these inferred requirements;
-  `check.lua` still rejects counted placement as unimplemented. That source-inference
+  `layout.lua` rejects counted placement at executable admission; `program.lua`
+  owns the analysis rather than attaching it to functions. That source-inference
   chunk alone made no counted ABI, allocation, retain/release, reclamation or GC-removal
   claim; the later limited runtime binding is tracked separately under E01/E02/O07/O08.
   **Validation:** ownership170 checks/56 bounded VM executions (four modes,
@@ -612,8 +630,9 @@ Authority: `docs/owners-references-ids.md`; corresponds to O1–O3 in frontend p
   allocate escaping roots separately from activations before publishing any address.
   Runtime allocations now have stable final addresses; general **source** selection,
   owning-ref/slice/callable representations and ABI transport remain unimplemented.
-  `check.lua` still rejects inferred counted source escapes. Do not mistake the new
-  now-removed checked-IR lifetime builder/fixtures for completed source ownership lowering.
+  `layout.lua` still rejects inferred counted source escapes at executable admission.
+  The explicit borrowed-layout contract is not owning materialization. Do not mistake
+  the now-removed checked-IR lifetime fixtures for completed source ownership lowering.
 - [ ] **O05** Implement retain/release obligations, borrow elision and alias-aware moves
   through assignments, calls, returns, sums, containers and erased callables.
 - [ ] **O06** Specify overflow, allocation failure, partial construction, abort/teardown
@@ -622,7 +641,7 @@ Authority: `docs/owners-references-ids.md`; corresponds to O1–O3 in frontend p
   no host-recursive destruction, user finalizers, tracing or collector fallback.
   **Generated binding removed.** Standalone C draining remains; source lifetime
   emission, generated release delivery and failure cleanup are not implemented.
-  Counted source requirements and retired runtime imports reject. Historical evidence
+  Counted source execution and retired runtime imports reject. Historical evidence
   is retained in `research/experiments/runtime-owners/`, not a current completion claim.
 - [ ] **O08** Validate long graphs, rejected cycles, independent borrows, captures,
   exact lifetimes and all execution bindings; measure count traffic and owner retention.

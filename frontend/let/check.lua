@@ -430,7 +430,7 @@ function M.expr(expr, locals, storages)
             end
         elseif expr.literal.kind=='Bytes' then
             local Layout=require('let.layout')
-            if not Layout.pointerFree(expr.type) or #expr.literal.bytes~=Layout.layout(expr.type).size then
+            if not Layout.pointerFree(expr.type) or #expr.literal.bytes~=Layout.scalar:layout(expr.type).size then
                 D.bug('ir-literal','Aggregate snapshot disagrees with its pointer-free layout')
             end
         else
@@ -661,6 +661,8 @@ function M.arg(arg, locals, storages)
     D.bug("ir-arg", "Unknown argument variant " .. tostring(arg.kind))
 end
 
+-- Structural/type validation only. Program analysis and executable admission
+-- are separate boundaries; checking IR never publishes lifetime facts.
 function M.program(fnList, modules, foreigns)
     local definitions = {}
     -- A foreign target is declared rather than defined, so it has a result contract and no body, which
@@ -691,7 +693,7 @@ function M.program(fnList, modules, foreigns)
     for _,data in ipairs(modules or fnList.moduleData or {}) do
         if not Ir.ModuleData:isclassof(data) then D.bug('ir-module','Expected typed module data') end
         local root=data.root;local Layout=require('let.layout')
-        if identities[root.identity] or not Layout.pointerFree(root.type) or #data.bytes~=Layout.layout(root.type).size then
+        if identities[root.identity] or not Layout.pointerFree(root.type) or #data.bytes~=Layout.scalar:layout(root.type).size then
             D.bug('ir-module','Duplicate root or invalid durable module image')
         end
         identities[root.identity]=root;roots[root]=true
@@ -703,10 +705,6 @@ function M.program(fnList, modules, foreigns)
         end})
         M.function_(fn,definitions)
     end
-    local Access = require('let.access')
-    local queries = Access.program(fnList)
-    require('let.ownership').program(fnList, queries)
-    Access.validate(fnList, queries)
     return true
 end
 

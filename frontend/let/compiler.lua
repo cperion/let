@@ -5,6 +5,7 @@ local Parse = require("let.parse")
 local Walk = require("let.walk")
 local ABC = require("let.abc")
 local Semantic = require("let.semantic")
+local Program = require("let.program")
 
 local M = {}
 
@@ -145,9 +146,8 @@ function M.compile(options)
     local lowerOptions = {}
     for key, value in pairs(options or {}) do lowerOptions[key] = value end
     lowerOptions.profile = unit.profile.name
-    lowerOptions.foreigns = unit.foreigns
     if lowerOptions.exports == nil then lowerOptions.exports = Semantic.exports(unit) end
-    local artifact = ABC.lower(unit.functions, lowerOptions)
+    local artifact = ABC.lower(unit.program, lowerOptions)
     artifact.sourceUnit = unit
     return artifact
 end
@@ -199,7 +199,7 @@ local function typedFile(path, session)
         local loaded={unit=unit,functions=functions,namespace=unit.namespace,typeCells=unit.typeCells,foreigns=unit.foreigns};cache[modulePath]=loaded;active[modulePath]=nil;return loaded
     end
     local loaded=load(path,true)
-    return {phase="typed-ir",unit=loaded.unit,functions=loaded.functions,
+    return {phase="typed-ir",unit=loaded.unit,functions=loaded.functions,program=loaded.unit.program,
         foreigns=loaded.foreigns,modules=cache}
 end
 
@@ -211,15 +211,16 @@ function M.compileFile(path, options)
     options=options or {}
     local loaded=M.typedFile(path,options);local lowerOptions={} for key,value in pairs(options) do lowerOptions[key]=value end
     lowerOptions.profile=M.profileForPath(path).name
-    lowerOptions.foreigns=loaded.foreigns
     if lowerOptions.exports==nil then lowerOptions.exports=Semantic.exports(loaded.unit) end
-    local artifact=ABC.lower(loaded.functions,lowerOptions);artifact.sourceUnit=loaded.unit;artifact.modules=loaded.modules;return artifact
+    local artifact=ABC.lower(loaded.program,lowerOptions);artifact.sourceUnit=loaded.unit;artifact.modules=loaded.modules;return artifact
 end
 
 
--- The semantic frontend supplies verified ASDL Ir.Fn nodes to this shared backend.
+-- Explicit raw-IR entry: establish a new checked program. Source compilation
+-- above already owns that program and passes it directly to the same lowerer.
 function M.lower(functions, options)
-    return ABC.lower(functions, options)
+    options=options or {}
+    return ABC.lower(Program.analyze(functions,options.modules,options.foreigns),options)
 end
 
 -- Canonical ABC optimization is implemented once in C. LuaJIT callers use FFI

@@ -24,9 +24,7 @@ end
 local Layout=require('let.layout')
 local unsupported
 local memoryWidth
-local layout,align=Layout.layout,Layout.align
-local cellKind,valueComponents=Layout.cellKind,Layout.valueComponents
-local rawAggregateSafe,abiComponents,cellKinds=Layout.pointerFree,Layout.abiComponents,Layout.cellKinds
+local align=Layout.align
 
 local function rootStorage(place)
     while place and (place.kind=="Project" or place.kind=="Index") do place=place.base end
@@ -37,15 +35,15 @@ unsupported = function(what)
     D.todo("abc-lowering", "ABC lowering is not implemented for " .. what)
 end
 
-local function requireScalar(ty, where)
-    local kind = cellKind(ty)
+local function requireScalar(physical, ty, where)
+    local kind = physical:cellKind(ty)
     if kind == false then unsupported(where .. " of type " .. S.display(ty)) end
     return kind
 end
 
-local function countCells(types)
+local function countCells(physical, types)
     local count = 0
-    for _,ty in ipairs(types) do local kinds=cellKinds(ty);if kinds==false then unsupported("cell representation of "..S.display(ty)) end;count=count+#kinds end
+    for _,ty in ipairs(types) do local kinds=physical:cellKinds(ty);if kinds==false then unsupported("cell representation of "..S.display(ty)) end;count=count+#kinds end
     return count
 end
 
@@ -77,12 +75,13 @@ local function other(stack) return stack == "A" and "B" or "A" end
 local Function = {}
 Function.__index = Function
 
-function Function.new(fn, definitions, profile, constants, metadata)
+function Function.new(fn, definitions, profile, constants, metadata, physical)
     if not identifier(fn.id) then D.reject("lower-name", "Invalid ABC function name " .. tostring(fn.id)) end
     constants = constants or {};metadata=metadata or {}
 
     local self = setmetatable({
         fn = fn,
+        physical = physical,
         definitions = definitions,
         profile = profile,
         lines = {},
@@ -107,17 +106,17 @@ function Function.new(fn, definitions, profile, constants, metadata)
         if node.kind=="Addr" or node.kind=="BorrowArg" then local id=rootStorage(node.place);if id then self.addressTaken[id]=true end end
     end})
     self.profile=profile
-    local physical = 0;self.inputPhysical={}
+    local inputOffset = 0;self.inputPhysical={}
     for index,input in ipairs(fn.inputs) do
-        local kinds=input.kind=="InPlace" and {"a"} or cellKinds(input.type)
+        local kinds=input.kind=="InPlace" and {"a"} or physical:cellKinds(input.type)
         if kinds==false then unsupported("function input of type "..S.display(input.type)) end
-        self.inputPhysical[index-1]={base=physical,count=#kinds};physical=physical+#kinds;self.inputCells=self.inputCells+#kinds
+        self.inputPhysical[index-1]={base=inputOffset,count=#kinds};inputOffset=inputOffset+#kinds;self.inputCells=self.inputCells+#kinds
     end
-    for _,result in ipairs(fn.results) do if cellKinds(result)==false then unsupported("function result of type "..S.display(result)) end end
+    for _,result in ipairs(fn.results) do if physical:cellKinds(result)==false then unsupported("function result of type "..S.display(result)) end end
     for _,param in ipairs(fn.params) do
         local input=self.inputPhysical[param.input];if not input then D.bug("lower-param","Parameter has no physical input") end
         if param.kind=="ValueParam" then
-            local components=abiComponents(param.type)
+            local components=physical:abiComponents(param.type)
             if components==false or #components~=input.count then D.bug("lower-param","Parameter representation disagrees with input")
             elseif #components==1 then self.valueSlots[param.binding.id]={parameter=input.base,type=param.type}
             elseif #components>1 then local holder={type=param.type,cells={}};for i,component in ipairs(components) do holder.cells[i]={parameter=input.base+i-1,type=component} end;self.valueSlots[param.binding.id]=holder end
@@ -130,15 +129,15 @@ function Function.new(fn, definitions, profile, constants, metadata)
 
     local function reserve(map,id,ty,place,forceFrame)
         if map[id] then D.bug("lower-slot","IR slot "..tostring(id).." is defined twice") end
-        local components=abiComponents(ty)
-        if components and #components>0 and not cellKind(ty)
+        local components=physical:abiComponents(ty)
+        if components and #components>0 and not physical:cellKind(ty)
             and (not place or (ty:isTaggedType() and not self.addressTaken[id] and not forceFrame)) then
             local holder={type=ty,cells={}};for _,component in ipairs(components) do local slot={index=#self.locals+1,type=component};self.locals[#self.locals+1]=slot;holder.cells[#holder.cells+1]=slot end;map[id]=holder;return
         end
-        local kind=cellKind(ty)
+        local kind=physical:cellKind(ty)
         if kind and not forceFrame and not (place and self.addressTaken[id]) then local slot={index=#self.locals+1,type=ty};self.locals[#self.locals+1]=slot;map[id]=slot;return end
-        if not place then requireScalar(ty,"local value");return end
-        local item=layout(ty);if item.size<1 then unsupported("storage for zero-sized type "..S.display(ty)) end
+        if not place then requireScalar(physical,ty,"local value");return end
+        local item=physical:layout(ty);if item.size<1 then unsupported("storage for zero-sized type "..S.display(ty)) end
         if item.size>65535 then unsupported("frame object larger than 65535 bytes") end
         local slot={block=true,type=ty,layout=item,cells=math.floor((item.size+7)/8)}
         self.blocks[#self.blocks+1]=slot;self.blockCells=self.blockCells+slot.cells;map[id]=slot
@@ -229,13 +228,13 @@ function Function:storageDepth(storage) return self:depth(self:storageSlot(stora
 
 -- Packed values use the same cells as their ABI. Byte offsets below describe
 -- the existing little-endian object layout, not a second value representation.
-local function packedLeaves(ty,offset,out)
+local function packedLeaves(physical,ty,offset,out)
     out=out or {};offset=offset or 0
-    local item=layout(ty)
+    local item=physical:layout(ty)
     if ty:isRecord() then
-        for _,field in ipairs(ty.fields) do packedLeaves(field.type,offset+item.fields[field.name].offset,out) end
+        for _,field in ipairs(ty.fields) do packedLeaves(physical,field.type,offset+item.fields[field.name].offset,out) end
     elseif ty:isArray() then
-        for index=0,ty.length-1 do packedLeaves(ty.element,offset+index*item.stride,out) end
+        for index=0,ty.length-1 do packedLeaves(physical,ty.element,offset+index*item.stride,out) end
     elseif ty:isTaggedType() then
         for at=0,item.size-1,8 do out[#out+1]={offset=offset+at,width=math.min(8,item.size-at)*8,type=S.U64} end
     elseif ty~=S.Unit then out[#out+1]={offset=offset,width=item.size*8,type=ty} end
@@ -289,13 +288,15 @@ end
 
 function Function:blockLoad(slot,offset,ty,node,stack)
     stack=stack or "A"
-    local item=layout(ty)
+    local item=self.physical:layout(ty)
     if ty:isRecord() then for _,field in ipairs(ty.fields) do self:blockLoad(slot,offset+item.fields[field.name].offset,field.type,node,stack) end;return end
     if ty:isArray() then for index=0,ty.length-1 do self:blockLoad(slot,offset+index*item.stride,ty.element,node,stack) end;return end
-    if ty:isSlice() then self:blockLoad(slot,offset,S.Ref(ty.element),node,stack);self:blockLoad(slot,offset+8,S.U32,node,stack);return end
-    if ty:isView() then self:blockLoad(slot,offset,S.Ptr(S.Unit),node,stack);self:blockLoad(slot,offset+8,S.Ref(S.Unit),node,stack);return end
+    if ty:isSlice() or ty:isView() then
+        local first=item.fields[ty:isSlice() and 'data' or 'code'];local second=item.fields[ty:isSlice() and 'length' or 'environment']
+        self:blockLoad(slot,offset+first.offset,first.type,node,stack);self:blockLoad(slot,offset+second.offset,second.type,node,stack);return
+    end
     if ty:isTaggedType() then for at=0,item.size-1,8 do self:instruction("FADDR."..stack.." "..slot.frameOffset,node);self:instruction('LD'..(math.min(8,item.size-at)*8)..'.'..stack..' '..(offset+at),node) end;return end
-    local width=memoryWidth(ty);if not width then unsupported("memory load of "..S.display(ty)) end
+    local width=memoryWidth(self.physical,ty);if not width then unsupported("memory load of "..S.display(ty)) end
     self:instruction("FADDR."..stack.." "..slot.frameOffset,node)
     if ty==S.F64 then self:instruction(".loadkind float",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end
     self:instruction("LD"..width.."."..stack.." "..offset,node)
@@ -304,13 +305,15 @@ end
 function Function:blockStore(slot,offset,ty,node,stack)
     stack=stack or "A"
     local address=other(stack)
-    local item=layout(ty)
+    local item=self.physical:layout(ty)
     if ty:isRecord() then for index=#ty.fields,1,-1 do local field=ty.fields[index];self:blockStore(slot,offset+item.fields[field.name].offset,field.type,node,stack) end;return end
     if ty:isArray() then for index=ty.length-1,0,-1 do self:blockStore(slot,offset+index*item.stride,ty.element,node,stack) end;return end
-    if ty:isSlice() then self:blockStore(slot,offset+8,S.U32,node,stack);self:blockStore(slot,offset,S.Ref(ty.element),node,stack);return end
-    if ty:isView() then self:blockStore(slot,offset+8,S.Ref(S.Unit),node,stack);self:blockStore(slot,offset,S.Ptr(S.Unit),node,stack);return end
+    if ty:isSlice() or ty:isView() then
+        local first=item.fields[ty:isSlice() and 'data' or 'code'];local second=item.fields[ty:isSlice() and 'length' or 'environment']
+        self:blockStore(slot,offset+second.offset,second.type,node,stack);self:blockStore(slot,offset+first.offset,first.type,node,stack);return
+    end
     if ty:isTaggedType() then for index=math.floor((item.size-1)/8),0,-1 do local at=index*8;self:instruction("FADDR."..address.." "..slot.frameOffset,node);self:instruction('ST'..(math.min(8,item.size-at)*8)..'.'..address..' '..(offset+at),node) end;return end
-    local width=memoryWidth(ty);if not width then unsupported("memory store of "..S.display(ty)) end
+    local width=memoryWidth(self.physical,ty);if not width then unsupported("memory store of "..S.display(ty)) end
     self:instruction("FADDR."..address.." "..slot.frameOffset,node);self:instruction("ST"..width:gsub("S$","").."."..address.." "..offset,node)
 end
 
@@ -341,24 +344,24 @@ function Function:placeBase(place,node,stack)
         if slot.address then self:instruction("CGET."..stack.." "..self:depth(slot),node);return 0 end
         unsupported("address of non-addressable scalar local")
     elseif place.kind=="Project" then
-        local baseType=self:placeType(place.base);local field=layout(baseType).fields[place.field.name]
+        local baseType=self:placeType(place.base);local field=self.physical:layout(baseType).fields[place.field.name]
         if not field then D.bug("lower-field","Unknown projected field "..tostring(place.field.name)) end
         return self:placeBase(place.base,node,stack)+field.offset
     elseif place.kind=="Deref" then
         self:loadPlace(place.base,node,stack);return 0
     elseif place.kind=="Index" then
-        local baseType=self:placeType(place.base);local item=layout(baseType)
+        local baseType=self:placeType(place.base);local item=self.physical:layout(baseType)
         self:address(place.base,node,stack)
         self:expr(place.index,opposite)
         self:instruction("DUP."..opposite,node);self:instruction("PUSH."..stack.." "..baseType.length,node);self:bounds(opposite,node)
         self:instruction("IDX."..stack.." "..item.stride,node);return 0
     elseif place.kind=="SliceIndex" then
-        local item=layout(place.type)
+        local item=self.physical:layout(place.type)
         self:expr(place.view,stack);self:instruction("MOVE."..stack,node)
         self:expr(place.index,stack);self:instruction("DUP."..stack,node);self:bounds(stack,node)
         self:instruction("MOVE."..stack,node);self:instruction("IDX."..stack.." "..align(item.size,item.align),node);return 0
     elseif place.kind=="PtrIndex" then
-        local item=layout(place.type);self:expr(place.view,stack);self:expr(place.index,opposite);self:instruction("IDX."..stack.." "..align(item.size,item.align),node);return 0
+        local item=self.physical:layout(place.type);self:expr(place.view,stack);self:expr(place.index,opposite);self:instruction("IDX."..stack.." "..align(item.size,item.align),node);return 0
     end
     unsupported("Ir."..tostring(place.kind).." place")
 end
@@ -369,12 +372,13 @@ function Function:address(place,node,stack)
     if offset~=0 then self:instruction("PUSH."..other(stack).." 1",node);self:instruction("IDX."..stack.." "..offset,node) end
 end
 
-memoryWidth=function(ty)
+memoryWidth=function(physical,ty)
     if ty==S.Bool or ty==S.U8 then return "8" end
     if ty==S.U16 then return "16" end
     if ty==S.U32 then return "32" end
     if ty==S.I32 then return "32S" end
-    if ty==S.U64 or ty==S.I64 or ty==S.F64 or ty:isRef() or ty:isPtr() then return "64" end
+    if ty:isRef() then return tostring(physical:layout(ty).size*8) end
+    if ty==S.U64 or ty==S.I64 or ty==S.F64 or ty:isPtr() then return "64" end
 end
 
 function Function:unitPlace(place,node,stack)
@@ -409,19 +413,22 @@ function Function:loadPlace(place,node,stack)
     end
     local ty=self:placeType(place)
     if ty:isTaggedType() then
-        local size=layout(ty).size
+        local size=self.physical:layout(ty).size
         for at=0,size-1,8 do local offset=self:placeBase(place,node,stack);self:instruction('LD'..(math.min(8,size-at)*8)..'.'..stack..' '..(offset+at),node) end
         return
     end
     if ty:isRecord() then for _,field in ipairs(ty.fields) do self:loadPlace(S.Ir.Project(place,S.Ir.Field(field.name)),node,stack) end;return end
     if ty:isArray() then for index=0,ty.length-1 do self:loadPlace(S.Ir.Index(place,S.Ir.Const(S.U32,S.Ir.UInt(index)),ty.element),node,stack) end;return end
     if ty:isSlice() or ty:isView() then
-        local offset=self:placeBase(place,node,stack);self:instruction(".loadkind addr",node);self:instruction("LD64."..stack.." "..offset,node)
+        local fields=self.physical:layout(ty).fields
+        local first=fields[ty:isSlice() and 'data' or 'code'];local second=fields[ty:isSlice() and 'length' or 'environment']
+        local offset=self:placeBase(place,node,stack);self:instruction(".loadkind addr",node)
+        self:instruction("LD"..memoryWidth(self.physical,first.type).."."..stack.." "..(offset+first.offset),node)
         offset=self:placeBase(place,node,stack)
-        if ty:isView() then self:instruction(".loadkind addr",node) end
-        self:instruction((ty:isView() and "LD64." or "LD32.")..stack.." "..(offset+8),node);return
+        if self.physical:cellKind(second.type)=='a' then self:instruction(".loadkind addr",node) end
+        self:instruction("LD"..memoryWidth(self.physical,second.type).."."..stack.." "..(offset+second.offset),node);return
     end
-    local width=memoryWidth(ty);if not width then unsupported("read of "..S.display(ty)) end
+    local width=memoryWidth(self.physical,ty);if not width then unsupported("read of "..S.display(ty)) end
     local offset=self:placeBase(place,node,stack)
     if ty==S.F64 then self:instruction(".loadkind float",node) elseif ty:isRef() or ty:isPtr() then self:instruction(".loadkind addr",node) end
     self:instruction("LD"..width.."."..stack.." "..offset,node)
@@ -433,17 +440,21 @@ function Function:storePlace(place,ty,node,stack)
     local address=other(stack)
     if place.kind=="Local" then local slot=self:storageSlot(place.storage);if slot.block then self:blockStore(slot,0,ty,node,stack);return end end
     if ty:isTaggedType() then
-        local size=layout(ty).size
+        local size=self.physical:layout(ty).size
         for index=math.floor((size-1)/8),0,-1 do local at=index*8;local offset=self:placeBase(place,node,address);self:instruction('ST'..(math.min(8,size-at)*8)..'.'..address..' '..(offset+at),node) end
         return
     end
     if ty:isRecord() then for index=#ty.fields,1,-1 do local field=ty.fields[index];self:storePlace(S.Ir.Project(place,S.Ir.Field(field.name)),field.type,node,stack) end;return end
     if ty:isArray() then for index=ty.length-1,0,-1 do self:storePlace(S.Ir.Index(place,S.Ir.Const(S.U32,S.Ir.UInt(index)),ty.element),ty.element,node,stack) end;return end
     if ty:isSlice() or ty:isView() then
-        local offset=self:placeBase(place,node,address);self:instruction((ty:isView() and "ST64." or "ST32.")..address.." "..(offset+8),node)
-        offset=self:placeBase(place,node,address);self:instruction("ST64."..address.." "..offset,node);return
+        local fields=self.physical:layout(ty).fields
+        local first=fields[ty:isSlice() and 'data' or 'code'];local second=fields[ty:isSlice() and 'length' or 'environment']
+        local offset=self:placeBase(place,node,address)
+        self:instruction("ST"..memoryWidth(self.physical,second.type).."."..address.." "..(offset+second.offset),node)
+        offset=self:placeBase(place,node,address)
+        self:instruction("ST"..memoryWidth(self.physical,first.type).."."..address.." "..(offset+first.offset),node);return
     end
-    local width=memoryWidth(ty);if not width then unsupported("store of "..S.display(ty)) end
+    local width=memoryWidth(self.physical,ty);if not width then unsupported("store of "..S.display(ty)) end
     local offset=self:placeBase(place,node,address)
     self:instruction("ST"..width:gsub("S$","").."."..address.." "..offset,node)
 end
@@ -530,7 +541,7 @@ function Function:expr(expr, stack)
                 local first=1
                 for fieldIndex=1,ordinal do
                     local ty=element and aggregate.type.element or aggregate.type.fields[fieldIndex].type
-                    local parts=valueComponents(ty)
+                    local parts=self.physical:valueComponents(ty)
                     if parts==false then unsupported('Get component representation') end
                     if fieldIndex==ordinal then
                         for index=first,first+#parts-1 do self:instruction("CGET."..stack.." "..self:depth(holder.cells[index]),expr) end
@@ -638,7 +649,7 @@ function Function:arguments(arguments, node, stack)
     stack=stack or "A"
     local cells = 0
     for _,argument in ipairs(arguments) do
-        if argument.kind=="ValueArg" then self:expr(argument.value,stack);local kinds=cellKinds(argument.value.type);if kinds==false then unsupported("argument of type "..S.display(argument.value.type)) end;cells=cells+#kinds
+        if argument.kind=="ValueArg" then self:expr(argument.value,stack);local kinds=self.physical:cellKinds(argument.value.type);if kinds==false then unsupported("argument of type "..S.display(argument.value.type)) end;cells=cells+#kinds
         elseif argument.kind=="BorrowArg" then self:address(argument.place,argument,stack);cells=cells+1
         else unsupported("argument "..tostring(argument.kind)) end
     end
@@ -767,12 +778,12 @@ function Function:statements(list)
             self:placeStore(stmt.place, stmt.value.type, stmt)
             index = index + 1
         elseif kind=="ConstructVariant" then
-            local slot=self.valueSlots[stmt.value.id];local item=layout(stmt.type)
+            local slot=self.valueSlots[stmt.value.id];local item=self.physical:layout(stmt.type)
             for _,cell in ipairs(slot.cells or {slot}) do self:instruction('PUSH.A 0',stmt);self:instruction('CSET.A '..self:depth(cell),stmt) end
             self:instruction('PUSH.A '..item.tags[stmt.tag],stmt);self:packedInsert(slot,0,32,stmt)
             if stmt.payload then
                 self:expr(stmt.payload)
-                local leaves=packedLeaves(S.caseOf(stmt.type,stmt.tag),item.payloadOffset)
+                local leaves=packedLeaves(self.physical,S.caseOf(stmt.type,stmt.tag),item.payloadOffset)
                 for at=#leaves,1,-1 do
                     local leaf=leaves[at]
                     if leaf.type==S.F64 then self:instruction('F2BITS.A',stmt) end
@@ -781,13 +792,13 @@ function Function:statements(list)
             end
             index=index+1
         elseif kind=="VariantMatches" then
-            local slot=self.valueSlots[stmt.variant.id];local item=layout(stmt.sum)
+            local slot=self.valueSlots[stmt.variant.id];local item=self.physical:layout(stmt.sum)
             self:packedRead(slot,0,32,stmt);self:instruction("PUSH.B "..item.tags[stmt.tag],stmt);self:instruction("EQ.A",stmt)
             self:storeValue(stmt.value,S.Bool,stmt);index=index+1
         elseif kind=="VariantPayload" then
-            local slot=self.valueSlots[stmt.variant.id];local item=layout(stmt.sum);local ty=S.caseOf(stmt.sum,stmt.tag)
+            local slot=self.valueSlots[stmt.variant.id];local item=self.physical:layout(stmt.sum);local ty=S.caseOf(stmt.sum,stmt.tag)
             if ty~=S.Unit then
-                for _,leaf in ipairs(packedLeaves(ty,item.payloadOffset)) do
+                for _,leaf in ipairs(packedLeaves(self.physical,ty,item.payloadOffset)) do
                     self:packedRead(slot,leaf.offset,leaf.width,stmt)
                     if leaf.type==S.F64 then self:instruction('BITS2F.A',stmt) end
                     self:normalize(leaf.type,stmt)
@@ -796,7 +807,7 @@ function Function:statements(list)
             end
             index=index+1
         elseif kind=="Switch" then
-            local slot=self.valueSlots[stmt.variant.id];local item=layout(stmt.sum);local done=self:label(stmt);local branches={}
+            local slot=self.valueSlots[stmt.variant.id];local item=self.physical:layout(stmt.sum);local done=self:label(stmt);local branches={}
             local fallback
             for _,case in ipairs(stmt.cases) do if case.fallback then fallback=case else local target=self:label(case);branches[#branches+1]={case=case,target=target};self:packedRead(slot,0,32,stmt);self:instruction("PUSH.B "..item.tags[case.tag],stmt);self:instruction("EQ.A",stmt);self:instruction("JNZ.A "..target,stmt) end end
             if not fallback then D.bug("lower-switch","Switch has no fallback") end
@@ -840,7 +851,7 @@ function Function:statements(list)
             index = index + 1
         elseif kind == "Return" then
             for _, value in ipairs(stmt.values) do self:expr(value) end
-            self:instruction("RET.A "..(self.inputCells+#self.locals+self.blockCells).." "..countCells(self.fn.results),stmt)
+            self:instruction("RET.A "..(self.inputCells+#self.locals+self.blockCells).." "..countCells(self.physical,self.fn.results),stmt)
             index = index + 1
         else
             unsupported("Ir." .. tostring(kind))
@@ -851,9 +862,9 @@ end
 function Function:lower()
     local argumentKinds, resultKinds = {}, {}
     for _,input in ipairs(self.fn.inputs) do
-        if input.kind=="InPlace" then argumentKinds[#argumentKinds+1]="a" else local kinds=cellKinds(input.type);if kinds==false then unsupported("function input of type "..S.display(input.type)) end;for _,kind in ipairs(kinds) do argumentKinds[#argumentKinds+1]=kind end end
+        if input.kind=="InPlace" then argumentKinds[#argumentKinds+1]="a" else local kinds=self.physical:cellKinds(input.type);if kinds==false then unsupported("function input of type "..S.display(input.type)) end;for _,kind in ipairs(kinds) do argumentKinds[#argumentKinds+1]=kind end end
     end
-    for _,ty in ipairs(self.fn.results) do local kinds=cellKinds(ty);if kinds==false then unsupported("function result of type "..S.display(ty)) end;for _,kind in ipairs(kinds) do resultKinds[#resultKinds+1]=kind end end
+    for _,ty in ipairs(self.fn.results) do local kinds=self.physical:cellKinds(ty);if kinds==false then unsupported("function result of type "..S.display(ty)) end;for _,kind in ipairs(kinds) do resultKinds[#resultKinds+1]=kind end end
     local header = ".function " .. self.fn.id .. " " .. #argumentKinds .. " " .. #resultKinds
     if self.profile ~= "integer" then
         header = header .. " " .. (#argumentKinds > 0 and table.concat(argumentKinds) or "-")
@@ -869,25 +880,26 @@ function Function:lower()
     return self.lines, self.lineMap
 end
 
-function M.lower(functions, options)
+function M.lower(program, options)
     options = options or {}
     if options.profile ~= "slet" and options.profile ~= "let" then
         D.reject("source-profile", "ABC lowering requires profile `let` or `slet`")
     end
+    local physical=Layout.program(program)
     if options.profile == "let" then
         D.reject("dynamic-lowering", "Dynamic ABC lowering is unavailable; Let parsing, typechecking and IR construction remain supported. Use SLet for executable ABC.")
     end
-    Check.program(functions, options.modules, options.foreigns)
+    local functions=program.functions
 
     local definitions,usesFloat,usesMemory,usesAddress,usesCallable={},false,false,false,false
     local floatConstants,floatData,floatCount={},{},0
     local stringConstants,stringOrder,stringData={},{},{}
     local viewInfo,indirectInfo,adapters,signatureNames,signatureLines={},{},{},{},{}
-    local function inputKinds(input) if input.kind=="InPlace" then return {"a"} end;local kinds=cellKinds(input.type);if kinds==false then unsupported("callable input of type "..S.display(input.type)) end;return kinds end
+    local function inputKinds(input) if input.kind=="InPlace" then return {"a"} end;local kinds=physical:cellKinds(input.type);if kinds==false then unsupported("callable input of type "..S.display(input.type)) end;return kinds end
     local function signatureFor(sig)
         local key=S.encode(sig);if signatureNames[key] then return signatureNames[key] end
         local name="_let_sig"..(#signatureLines+1);signatureNames[key]=name;local arguments={"a"};for _,input in ipairs(sig.inputs) do for _,kind in ipairs(inputKinds(input)) do arguments[#arguments+1]=kind end end
-        local results={};for _,ty in ipairs(sig.results) do local kinds=cellKinds(ty);if kinds==false then unsupported("callable result of type "..S.display(ty)) end;for _,kind in ipairs(kinds) do results[#results+1]=kind end end
+        local results={};for _,ty in ipairs(sig.results) do local kinds=physical:cellKinds(ty);if kinds==false then unsupported("callable result of type "..S.display(ty)) end;for _,kind in ipairs(kinds) do results[#results+1]=kind end end
         signatureLines[#signatureLines+1]=".signature "..name.." "..#arguments.." "..#results.." "..table.concat(arguments).." "..(#results>0 and table.concat(results) or "-");return name
     end
     local function inspectType(ty)
@@ -895,12 +907,12 @@ function M.lower(functions, options)
         if ty:isView() or ty:isOwned() then return end
         if ty:isSlice() then usesMemory=true;usesAddress=true;return end
         if ty:isRecord() or ty:isArray() or ty:isTaggedType() then
-            local components=abiComponents(ty)
+            local components=physical:abiComponents(ty)
             if components~=false then for _,component in ipairs(components) do inspectType(component) end end
             return
         end
         if ty:isRef() or ty:isPtr() then usesMemory=true;usesAddress=true end
-        local kind=requireScalar(ty,"scalar lowering")
+        local kind=requireScalar(physical,ty,"scalar lowering")
         if kind=="f" then usesFloat=true end
     end
     local function retainFloat(value)
@@ -916,7 +928,7 @@ function M.lower(functions, options)
     local function retainString(bytes)
         if stringConstants[bytes]==nil then stringConstants[bytes]=false;stringOrder[#stringOrder+1]=bytes end
     end
-    for _,foreign in ipairs(options.foreigns or {}) do if definitions[foreign.target] then D.reject("lower-duplicate","Duplicate foreign "..foreign.target) end;definitions[foreign.target]={id=foreign.target,inputs=foreign.inputs,results=foreign.results,foreign=true} end
+    for _,foreign in ipairs(program.foreigns) do if definitions[foreign.target] then D.reject("lower-duplicate","Duplicate foreign "..foreign.target) end;definitions[foreign.target]={id=foreign.target,inputs=foreign.inputs,results=foreign.results,foreign=true} end
     for _,fn in ipairs(functions) do if definitions[fn.id] then D.bug("lower-duplicate","Duplicate function "..fn.id) end;definitions[fn.id]=fn end
     local codeNames,codeOrder={},{}
     local adapterSerial=0
@@ -947,18 +959,18 @@ function M.lower(functions, options)
             if node.kind=='Global' then usesMemory=true;usesAddress=true end
             if node.kind=="InPlace" or node.kind=="PlaceParam" or node.kind=="Addr" or node.kind=="BorrowArg" or ((node.kind=="Read" or node.kind=="Store") and node.place.kind~="Local") then usesMemory=true end
             if node.kind=="Addr" or node.kind=="BorrowArg" then usesAddress=true end
-            if (node.kind=="Var" and not cellKind(node.type)) or node.kind=="ConstructVariant" then usesMemory=true end
+            if (node.kind=="Var" and not physical:cellKind(node.type)) or node.kind=="ConstructVariant" then usesMemory=true end
         end})
     end
-    if #(options.modules or functions.moduleData or {})>0 then usesMemory=true end
+    if #program.modules>0 then usesMemory=true end
     local dataSize=usesAddress and 8 or 0
     for _,info in ipairs(adapters) do info.codeOffset=dataSize;dataSize=dataSize+8 end
     for _,name in ipairs(codeOrder) do codeNames[name]=dataSize;dataSize=dataSize+8 end
     local moduleOffsets,snapshots,writableChunks={}, {}, {string.rep('\0',dataSize)}
     local readonlyRoots={}
-    for _,data in ipairs(options.modules or functions.moduleData or {}) do
+    for _,data in ipairs(program.modules) do
         if data.root.writable then
-            local offset=align(dataSize,layout(data.root.type).align)
+            local offset=align(dataSize,physical:layout(data.root.type).align)
             writableChunks[#writableChunks+1]=string.rep('\0',offset-dataSize)..(#data.bytes>0 and data.bytes or '\0')
             -- Even a zero-width root needs a stable, distinct addressable image
             -- location. This is root storage, not temporary operand scratch.
@@ -976,7 +988,7 @@ function M.lower(functions, options)
     local imageOffset=bias+stringOffset
     local aggregateData={}
     local function readonly(root,bytes)
-        local offset=align(imageOffset,layout(root.type).align)
+        local offset=align(imageOffset,physical:layout(root.type).align)
         aggregateData[#aggregateData+1]=string.rep('\0',offset-imageOffset)..(#bytes>0 and bytes or '\0')
         moduleOffsets[root]=offset;imageOffset=offset+math.max(1,#bytes)
     end
@@ -993,11 +1005,11 @@ function M.lower(functions, options)
     local function hex(bytes)
         return (bytes:gsub('.',function(byte) return string.format('%02x',byte:byte()) end))
     end
-    local profile=#(options.foreigns or {})>0 and "foreign" or usesCallable and "callables" or (usesFloat or usesMemory) and "memory" or "integer"
+    local profile=#program.foreigns>0 and "foreign" or usesCallable and "callables" or (usesFloat or usesMemory) and "memory" or "integer"
     local constants={floats=floatConstants,strings=stringConstants,modules=moduleOffsets,snapshots=snapshots,codes=codeNames}
     local metadata={viewInfo=viewInfo,indirectInfo=indirectInfo}
     local loweredFunctions={}
-    for index,fn in ipairs(functions) do loweredFunctions[index]=Function.new(fn,definitions,profile,constants,metadata) end
+    for index,fn in ipairs(functions) do loweredFunctions[index]=Function.new(fn,definitions,profile,constants,metadata,physical) end
     local loweredOutput={}
     for index,lowered in ipairs(loweredFunctions) do local fnLines,fnMap=lowered:lower();loweredOutput[index]={lines=fnLines,map=fnMap} end
     local lines, lineMap = {}, {}
@@ -1006,10 +1018,10 @@ function M.lower(functions, options)
         lineMap[#lines] = node or false
     end
     if profile~="integer" then append(".profile "..profile) end
-    for _,foreign in ipairs(options.foreigns or {}) do
+    for _,foreign in ipairs(program.foreigns) do
         local arguments,results={},{}
-        for _,input in ipairs(foreign.inputs) do if input.kind~="InValue" then unsupported("foreign borrowed input") end;for _,kind in ipairs(cellKinds(input.type)) do arguments[#arguments+1]=kind end end
-        for _,result in ipairs(foreign.results) do for _,kind in ipairs(cellKinds(result)) do results[#results+1]=kind end end
+        for _,input in ipairs(foreign.inputs) do if input.kind~="InValue" then unsupported("foreign borrowed input") end;for _,kind in ipairs(physical:cellKinds(input.type)) do arguments[#arguments+1]=kind end end
+        for _,result in ipairs(foreign.results) do for _,kind in ipairs(physical:cellKinds(result)) do results[#results+1]=kind end end
         append(".extern "..foreign.target.." "..(#arguments>0 and table.concat(arguments) or "-").." "..(#results>0 and table.concat(results) or "-"))
     end
     if dataSize>0 then append('.data '..hex(table.concat(writableChunks))) end
@@ -1023,19 +1035,21 @@ function M.lower(functions, options)
     for _,info in ipairs(adapters) do
         local target,statement=info.target,info.statement;local argumentKinds={"a"};local adapterCells=1
         for index=#statement.slots+1,#target.inputs do local kinds=inputKinds(target.inputs[index]);for _,kind in ipairs(kinds) do argumentKinds[#argumentKinds+1]=kind;adapterCells=adapterCells+1 end end
-        local resultKinds={};for _,ty in ipairs(target.results) do for _,kind in ipairs(cellKinds(ty)) do resultKinds[#resultKinds+1]=kind end end
+        local resultKinds={};for _,ty in ipairs(target.results) do for _,kind in ipairs(physical:cellKinds(ty)) do resultKinds[#resultKinds+1]=kind end end
         append(".function "..info.name.." "..adapterCells.." "..#resultKinds.." "..table.concat(argumentKinds).." "..(#resultKinds>0 and table.concat(resultKinds) or "-"),statement)
         if info.environment then
-            local envLayout=layout(info.environment)
+            local envLayout=physical:layout(info.environment)
             for index,input in ipairs(target.inputs) do if index>#statement.slots then break end;local field=info.fields[index];local offset=envLayout.fields[field.name].offset;local ty=field.type
-                if ty:isSlice() then
-                    append("  CGET.A 0",statement);append("  .loadkind addr",statement);append("  LD64.A "..offset,statement)
-                    append("  CGET.A 0",statement);append("  LD32.A "..(offset+8),statement)
-                elseif ty:isView() then
-                    append("  CGET.A 0",statement);append("  .loadkind addr",statement);append("  LD64.A "..offset,statement)
-                    append("  CGET.A 0",statement);append("  .loadkind addr",statement);append("  LD64.A "..(offset+8),statement)
+                if ty:isSlice() or ty:isView() then
+                    local fields=physical:layout(ty).fields
+                    local first=fields[ty:isSlice() and 'data' or 'code'];local second=fields[ty:isSlice() and 'length' or 'environment']
+                    append("  CGET.A 0",statement);append("  .loadkind addr",statement)
+                    append("  LD"..memoryWidth(physical,first.type)..".A "..(offset+first.offset),statement)
+                    append("  CGET.A 0",statement)
+                    if physical:cellKind(second.type)=='a' then append("  .loadkind addr",statement) end
+                    append("  LD"..memoryWidth(physical,second.type)..".A "..(offset+second.offset),statement)
                 else
-                    local width=memoryWidth(ty);if not width then unsupported("captured adapter load of "..S.display(ty)) end
+                    local width=memoryWidth(physical,ty);if not width then unsupported("captured adapter load of "..S.display(ty)) end
                     append("  CGET.A 0",statement);if ty==S.F64 then append("  .loadkind float",statement) elseif ty:isRef() or ty:isPtr() then append("  .loadkind addr",statement) end
                     append("  LD"..width..".A "..offset,statement)
                 end
@@ -1058,7 +1072,9 @@ function M.lower(functions, options)
         assembly = table.concat(lines, "\n") .. "\n",
         lineMap = lineMap,
         functions = functions,
-        moduleData=options.modules or functions.moduleData or {},
+        program = program,
+        layout = physical,
+        moduleData=program.modules,
         moduleOffsets=moduleOffsets,
     }
 end

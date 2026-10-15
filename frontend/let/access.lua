@@ -632,7 +632,7 @@ local function engine(program)
  return {request=request,drain=drain,stats=stats}
 end
 
-function M.program(functions)
+function M.analyze(functions)
  local start=os.clock();local program={};for _,fn in ipairs(functions) do program[fn.id]=build(fn) end
  -- Alpha-renaming is necessary only where a call can produce local root/code
  -- identities. Propagate that property through direct calls, including SCCs;
@@ -647,7 +647,7 @@ function M.program(functions)
    end
   end end
  end
- local queries=engine(program);local roots={}
+ local queries=engine(program);local roots,summaries={},{}
  for _,fn in ipairs(functions) do
   local args,state={},{}
   for i,input in ipairs(fn.inputs) do
@@ -688,11 +688,10 @@ function M.program(functions)
   table.sort(bounds,function(a,b) return key(a)<key(b) end)
   local invocations={};for _,v in pairs(summary.invocations) do invocations[#invocations+1]=v end
   table.sort(invocations,function(a,b) return key(a)<key(b) end)
-  fn.access={reads=footprint(summary.reads),writes=footprint(summary.writes),writable=footprint(summary.requirements),results=results,bounds=S.List(bounds),invocations=S.List(invocations)}
+  summaries[fn.id]={reads=footprint(summary.reads),writes=footprint(summary.writes),writable=footprint(summary.requirements),results=results,bounds=S.List(bounds),invocations=S.List(invocations)}
  end
  queries.stats.seconds=os.clock()-start
- functions.accessStats=queries.stats
- return roots
+ return roots,summaries,queries.stats
 end
 function M.validate(functions,roots)
  for _,fn in ipairs(functions) do

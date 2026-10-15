@@ -548,7 +548,7 @@ Recursive inference conservatively stabilizes these finite summaries, rejecting
 unprovable demands rather than inventing runtime ranks or a cycle detector. Immutable
 construction/COW has separate proof obligations and cannot point into mutable owners.
 The approved first private binding is now implemented in `frontend/ir.asdl`,
-`access.lua`, `ownership.lua` and `check.lua`: function summaries carry formal,
+`access.lua`, `ownership.lua` and `program.lua`: program-local function summaries carry formal,
 fresh, module and deferred owner variables, component results, holding obligations,
 independent borrow evidence, strict edges and counted requirements. The existing
 access worklist performs actual-root substitution and call-context qualification;
@@ -562,9 +562,13 @@ Formal-only inequalities remain conditional on borrowing/owning specialization;
 instantiation with concrete counted roots checks their contradictions.
 
 This is qualified source inference, not counted execution or a finalized public
-summary format. `check.lua` rejects inferred counted requirements until source
-placement, layouts and generated lifetime paths exist. The initial explicit checked-IR
-runtime binding in §1.1 does not discharge that source admission. Broader polymorphic/recursive borrowing precision,
+summary format. `check.lua` performs structural/type checks only. `program.lua`
+explicitly runs analysis and owns the results for the completed graph; it never
+publishes proofs on shared function nodes. `layout.lua` rejects counted requirements
+at executable admission, before selecting the current borrowed representation.
+Valid counted programs can therefore be typed/analyzed but not executed. Source
+placement and generated lifetime paths remain missing. The removed binding in §1.1
+does not discharge that admission. Broader polymorphic/recursive borrowing precision,
 erased/dynamic/container admission and separate-compilation/FFI contracts remain
 incomplete. See WORKLIST O03 and the ownership-inference evidence; a finite SCC
 solver alone is not a complete ownership language implementation.

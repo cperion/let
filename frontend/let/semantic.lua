@@ -2,6 +2,7 @@
 local S = require("let.schema")
 local IR = require("let.ir")
 local Check = require("let.check")
+local Program = require("let.program")
 local Walk = require("let.walk")
 local D = require("let.diag")
 local Source = require("let.source_state")
@@ -1333,11 +1334,20 @@ function Function:call(node, expected, discard, allResults, prepareOnly)
     return value
 end
 
+-- Empty products need no value binding. This is a source shape property, not
+-- an ABI query: reference representation has not been selected at this stage.
+local function emptyProduct(ty)
+    if ty==S.Unit then return true end
+    if ty:isArray() then return ty.length==0 or emptyProduct(ty.element) end
+    if ty:isRecord() then
+        for _,field in ipairs(ty.fields) do if not emptyProduct(field.type) then return false end end
+        return true
+    end
+    return false
+end
 function Function:snapshotArgument(value,origin)
     if value.sourceCallable or value.sourceDefinition or value.sourceTemplate or value.sourcePack then return value end
-    if value.kind=='Const' or value.kind=='Ref' then return value end
-    local components=require('let.layout').valueComponents(value.type)
-    if components~=false and #components==0 then return value end
+    if value.kind=='Const' or value.kind=='Ref' or emptyProduct(value.type) then return value end
     local id=self.builder:let(self.body,value.type,located(value,origin))
     local result=located(self.builder:ref(id,value.type),origin)
     result.schema=value.schema
@@ -2358,7 +2368,7 @@ function M.build(unit, options)
         checked[#checked+1]=fn
     end
     checked.moduleData=lambdaState.demands:data()
-    Check.program(checked, nil, foreigns)
+    unit.program=Program.analyze(checked,nil,foreigns)
     functions.moduleData=checked.moduleData
     local exportedTypes,exportedSchemas={},{}
     for _,item in ipairs(unit.ast.export.types) do

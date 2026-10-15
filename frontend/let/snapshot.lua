@@ -6,10 +6,10 @@ local D=require('let.diag')
 local ffi=require('let.abi')
 local M={}
 local function contract(ty)
- if not Layout.pointerFree(ty) or Layout.abiComponents(ty)==false then
+ if not Layout.pointerFree(ty) or Layout.scalar:abiComponents(ty)==false then
   D.reject('static-transport','No durable pointer-free transport for '..S.display(ty))
  end
- return Layout.layout(ty)
+ return Layout.scalar:layout(ty)
 end
 M.contract=contract
 local function cellBytes(cell)
@@ -18,7 +18,7 @@ local function cellBytes(cell)
 end
 -- Visit ABI cells in source order, carrying their byte range within an image.
 local function ranges(ty,base,visit)
- local item=Layout.layout(ty)
+ local item=Layout.scalar:layout(ty)
  if ty==S.Unit then return end
  if ty:isRecord() then
   for _,field in ipairs(ty.fields) do ranges(field.type,base+item.fields[field.name].offset,visit) end

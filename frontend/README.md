@@ -8,7 +8,8 @@ This directory is an intentional, self-contained snapshot of the reusable fronte
 - The ASDL runtime and list implementation under `vendor/`.
 - Diagnostics, lexer, parser and AST reflection.
 - The explicit-profile compiler entry point in `let/compiler.lua`.
-- Semantic type and structured-IR helpers, plus the reused structural/type verifier in `let/check.lua`.
+- Semantic type and structured-IR helpers, plus the structural/type verifier in `let/check.lua`.
+- `let/program.lua`: explicit checked-program ownership of access/ownership proofs; no inference hidden in checking or mutable proof annotations on functions. `let/layout.lua` selects the current borrowed physical contract at executable admission; valid counted source can be analyzed but still cannot execute.
 - Schema-driven traversal, lexical capture resolution and typed-IR analysis.
 - The production typed-IR backend in `let/abc.lua`. It lowers the implemented scalar boundary to verifier-accepted ABC instead of evaluating it in Lua.
 - The in-process VM-backed static execution bridge in `let/stage.lua`. It assembles and verifies the same lowered artifact, owns VM/module sessions under an explicit host-selected policy, and returns exact scalar cells and supported pointer-free aggregate byte images. It does not execute source operations in Lua.

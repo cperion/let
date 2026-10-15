@@ -14,7 +14,10 @@ local function run(text,wanted,unoptimized,prelude)
  return unit
 end
 local function rejects(code,text,profile)
- local ok,err=pcall(C.typed,{profile=profile or 'slet',source=prefix..text,name='anonymous-reject.slet'},options)
+ local ok,err=pcall(function()
+  local unit=C.typed({profile=profile or 'slet',source=prefix..text,name='anonymous-reject.slet'},options)
+  return require('let.layout').program(unit.program)
+ end)
  check(not ok and D.is(err) and err.code==code,code..': '..tostring(err))
 end
 local function parse(text) return P.source(text..'\nreturn { functions = {} }','anonymous-parse.let') end

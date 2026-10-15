@@ -5,7 +5,10 @@ local checks,executions=0,0
 local function check(ok,message) checks=checks+1;assert(ok,message) end
 local options={staticMode='interpreted',staticOptimize=false}
 local function reject(code,text,profile)
- local ok,err=pcall(C.typed,{profile=profile or 'slet',source=text,name='rest-reject.slet'},options)
+ local ok,err=pcall(function()
+  local unit=C.typed({profile=profile or 'slet',source=text,name='rest-reject.slet'},options)
+  return require('let.layout').program(unit.program)
+ end)
  check(not ok and D.is(err) and err.code==code,code..': '..tostring(err))
 end
 local function run(text,args,wanted,unoptimized)

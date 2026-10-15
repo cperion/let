@@ -18,7 +18,10 @@ local function run(source,wanted,prefix)
  return execute(C.typed{profile='slet',source=(prefix or prelude)..source,name='receiver-scope.slet'},wanted)
 end
 local function reject(code,source,prefix)
- local ok,err=pcall(C.typed,{profile='slet',source=(prefix or prelude)..source,name='receiver-reject.slet'})
+ local ok,err=pcall(function()
+  local unit=C.typed{profile='slet',source=(prefix or prelude)..source,name='receiver-reject.slet'}
+  return require('let.layout').program(unit.program)
+ end)
  check(not ok and D.is(err) and err.code==code,code..': '..tostring(err))
 end
 run('let main(): U32 = do let p = Point { x = 40 } p.nudge(2) return p.x end',42)

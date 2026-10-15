@@ -9,7 +9,9 @@ Standalone C counting/queue code remains, but no source lifetime/cleanup binding
 currently implemented. The c-release evidence describes the historical v3 checkpoint,
 not current admission or validation. The larger follow-up design was withdrawn.
 General source owning layouts and placement, containers and tasks are not implemented;
-the source checkpoint still rejects inferred counted escapes. Examples below remain target-language examples unless
+typing now retains valid counted requirements on the checked program, while executable
+admission still rejects them. Cycle and unsafe-access proof failures still reject during
+analysis. Examples below remain target-language examples unless
 explicitly qualified by the worklist.
 
 This revision incorporates the engineering decisions approved after the initial

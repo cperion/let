@@ -260,11 +260,11 @@ local anyStringMain=I.Fn("any_string_main",I.Entry,0,L{},L{S.U32},L{},L{
     I.Let(castString,S.String,I.Convert(ref(boxedString,S.Any),S.String)),
     I.Let(stringAnyLength,S.U32,I.SliceLength(ref(castString,S.String),S.U32)),
     I.Return(L{ref(stringAnyLength,S.U32)})})
-local escapeOK,escapeError=pcall(require('let.check').program,{add,captureTarget,makeAdder,captureMain})
+local escapeOK,escapeError=pcall(Compiler.lower,{add,captureTarget,makeAdder,captureMain},{profile='slet'})
 check(not escapeOK and D.is(escapeError) and escapeError.code=='borrow-return',
     'frame-backed adapters cannot escape without an implemented environment owner')
 local managedFunctions={add,anyMain,anyStringMain}
-require('let.check').program(managedFunctions)
+require('let.program').analyze(managedFunctions)
 local managedOK,managedError=pcall(Compiler.lower,managedFunctions,{profile="let",exports={"any_main","any_string_main"}})
 check(not managedOK and D.is(managedError) and managedError.code=='dynamic-lowering',
     'verified managed IR does not produce obsolete dynamic ABC')

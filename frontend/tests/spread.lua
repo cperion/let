@@ -5,7 +5,10 @@ local checks,executions,optimizerBlockers=0,0,0
 local optimizers=arg[1]=='--unoptimized' and {false} or {false,true}
 local function check(ok,message) checks=checks+1;assert(ok,message) end
 local function reject(code,source,options)
- local ok,err=pcall(C.typed,{profile='slet',source=source,name='spread-reject.slet'},options)
+ local ok,err=pcall(function()
+  local unit=C.typed({profile='slet',source=source,name='spread-reject.slet'},options)
+  return require('let.layout').program(unit.program)
+ end)
  check(not ok and D.is(err) and err.code==code,code..': '..tostring(err))
 end
 local function run(source,args,expected,options)

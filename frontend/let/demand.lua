@@ -148,8 +148,8 @@ function Session:requireValues(context, expressions, resolve, origin)
         local fn=I.Fn(name,I.Entry,0,L{},L(types),L{},L(body))
         functions[#functions+1]=fn
         functions.moduleData=self:data()
-        require('let.check').program(functions)
-        local artifact=require('let.abc').lower(functions,{profile='slet',exports={name}})
+        local program=require('let.program').analyze(functions)
+        local artifact=require('let.abc').lower(program,{profile='slet',exports={name}})
         if not self.vm then self.vm=require('let.stage').open{mode=self.mode,optimize=self.optimize} end
         local executed=self.vm:prepare(artifact,functions):call{entry=name}
         local constants={}

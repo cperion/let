@@ -138,16 +138,18 @@ No runtime namespace, new initializer evaluator or compatibility alias mode is a
   facts and root-preserving global alias resolution.
 - `frontend/ir.asdl` and generated schema: shared invocation/provenance summary records,
   not an alternative execution representation.
-- `access.lua`, `check.lua`: summary construction/composition, state/result linkage,
-  required outlives checks; remove raw cross-context slot replay and the unknown-bit
-  shortcut that loses retention obligations.
+- `access.lua`, `ownership.lua`: summary construction/composition, state/result linkage
+  and required outlives checks. `program.lua` owns their results for the completed graph;
+  `check.lua` is structural/type-only. Raw cross-context slot replay and the unknown-bit
+  shortcut must not lose retention obligations.
 - Existing module/session/layout/ABC execution remain the mechanisms. No new scalar
   evaluator/inliner, physical allocator, register placement pass, ISA/ABI reinterpretation,
   host recursion, cleanup policy or GC/counting machinery.
 
 ## Acceptance and cost evidence
 
-- Direct and higher-order versions of the external Holder store both reject.
+- Direct and higher-order versions of the external Holder store both require counted
+  storage and currently reject at executable admission, not as invalid source typing.
 - Pure/nonretaining callback controls remain admitted; unknown contracts reject with
   the missing requirement rather than presumed ownership.
 - Capture-before-write reference snapshots; opened live-place captures after writes;

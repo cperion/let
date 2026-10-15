@@ -206,6 +206,7 @@ validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi 
 	cd frontend && $(LUA) tests/spread.lua --unoptimized
 	cd frontend && $(LUA) tests/rest_templates.lua
 	cd frontend && $(LUA) tests/access_proofs.lua
+	cd frontend && $(LUA) tests/program.lua
 	cd frontend && $(LUA) tests/ownership.lua
 	cd frontend && LUA="$(LUA)" $(LUA) tests/staging_sessions.lua
 	$(LUA) tools/validate_slet_frontend.lua

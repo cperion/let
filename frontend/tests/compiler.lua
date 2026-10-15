@@ -259,7 +259,7 @@ let main(): U32 = do
 end
 return { functions = { main } }
 ]=]
-ok,err=pcall(Compiler.typed,{profile="let",source=retainedMethodSource,name="retained-method.let"})
+ok,err=pcall(Compiler.compile,{profile="let",source=retainedMethodSource,name="retained-method.let"})
 check(not ok and D.is(err) and err.code=='borrow-return','Retained method escape requires an actual receiver/environment owner: '..tostring(err))
 ok,err=pcall(Compiler.typed,{profile="slet",source=retainedMethodSource,name="retained-method.slet"})
 check(not ok and err.code=="slet-forbidden","SLet rejects retained method receivers")
@@ -475,7 +475,7 @@ let main(): U32 = do
 end
 return { functions = { main } }
 ]]
-ok,err=pcall(Compiler.typed,{profile="let",source=closureSource,name="closure.let"})
+ok,err=pcall(Compiler.compile,{profile="let",source=closureSource,name="closure.let"})
 check(not ok and D.is(err) and err.code=='borrow-return','Capturing a frame-owned record cannot escape without counted ownership')
 
 local indirectPartialSource=[=[
@@ -486,7 +486,7 @@ let main(): U32 = bind(add, 2)(40)
 let managed(): U32 = bind(make(1), 2)(39)
 return { functions = { main, managed } }
 ]=]
-ok,err=pcall(Compiler.typed,{profile="let",name="indirect-partial.let",source=indirectPartialSource})
+ok,err=pcall(Compiler.compile,{profile="let",name="indirect-partial.let",source=indirectPartialSource})
 check(not ok and D.is(err) and err.code=='borrow-return','A returned local partial environment requires actual ownership')
 ok,err=pcall(Compiler.typed,{profile="slet",name="indirect-partial.slet",source=indirectPartialSource})
 check(not ok and err.code=="slet-forbidden","SLet rejects retained indirect partial application")
@@ -604,7 +604,7 @@ if ok then
   local result=Compiler.stage(err.functions,{profile="slet",entry="main",exports={"main"},mode="interpreted"})
   check(tonumber(result.cells[1])==42,"Direct captured lambda preserves its scalar capture")
 end
-ok,err=pcall(Compiler.typed,{profile="slet",name="borrow.slet",source=[[
+ok,err=pcall(Compiler.compile,{profile="slet",name="borrow.slet",source=[[
 let bad(): Slice(U32) = do
   let xs = [1, 2]
   return Slice(xs)
@@ -612,7 +612,7 @@ end
 return { functions = { bad } }
 ]]})
 check(not ok and D.is(err) and err.code=="borrow-return","source view lifetime checking rejects a local slice return")
-ok,err=pcall(Compiler.typed,{profile="slet",name="borrow-ref.slet",source=[[
+ok,err=pcall(Compiler.compile,{profile="slet",name="borrow-ref.slet",source=[[
 let Item = { value: U32 }
 let bad(): Ref(Item) = do
   let x = Item { value = 42 }
@@ -643,10 +643,10 @@ let bad(): Holders = do
 end
 return { functions = { bad } }]],
 }) do
-  ok,err=pcall(Compiler.typed,{profile="slet",name="nested-borrow.slet",source=source})
+  ok,err=pcall(Compiler.compile,{profile="slet",name="nested-borrow.slet",source=source})
   check(not ok and D.is(err) and err.code=="borrow-return","SLet rejects local borrows hidden by control or aggregates")
 end
-ok,err=pcall(Compiler.typed,{profile="let",name="escaping-views.let",source=[[
+ok,err=pcall(Compiler.compile,{profile="let",name="escaping-views.let",source=[[
 let Pair = { x: U32, y: U32 }
 let make_ref(): Ref(Pair) = do
   let p = Pair { x = 40, y = 2 }
@@ -664,7 +664,7 @@ end
 return { functions = { main } }
 ]]})
 check(not ok and D.is(err) and err.code=='borrow-return','Let also rejects local reference/slice escapes until counted owners exist')
-ok,err=pcall(Compiler.typed,{profile="let",name="retained-captures.let",source=[[
+ok,err=pcall(Compiler.compile,{profile="let",name="retained-captures.let",source=[[
 let Pair = { x: U32 }
 let make_ref_reader(): (U32): U32 = do
   let p = Pair { x = 40 }
@@ -684,7 +684,7 @@ end
 return { functions = { main } }
 ]]})
 check(not ok and D.is(err) and err.code=='borrow-return','Returned captured frame access requires real counted ownership')
-ok,err=pcall(Compiler.typed,{profile="let",name="retained-aggregate.let",source=[[
+ok,err=pcall(Compiler.compile,{profile="let",name="retained-aggregate.let",source=[[
 let Target = { value: U32 }
 let Holder = { r: Ref(Target), s: Slice(U32) }
 let make(): Holder = do

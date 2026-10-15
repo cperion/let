@@ -3,7 +3,7 @@
 local ffi = require("ffi")
 local S = require("let.schema")
 local IR = require("let.ir")
-local Check = require("let.check")
+local Program = require("let.program")
 local ABC = require("let.abc")
 local D = require("let.diag")
 
@@ -63,19 +63,19 @@ function M.build(functions, options)
     body[#body+1]=I.Return(L(returned))
     local wrapper=I.Fn(name,I.Entry,0,L(inputs),L(target.results),L(params),L(body))
     local combined={} for _,fn in ipairs(functions) do combined[#combined+1]=fn end;combined[#combined+1]=wrapper
-    Check.program(combined)
-    return wrapper,combined
+    combined.moduleData=functions.moduleData
+    return wrapper,Program.analyze(combined,options.modules,options.foreigns)
 end
 
 function M.specialize(functions, options)
-    local wrapper,combined=M.build(functions,options)
+    local wrapper,program=M.build(functions,options)
     local lower={} for key,value in pairs(options or {}) do lower[key]=value end
     lower.profile=lower.profile or "slet";lower.exports={wrapper.id}
-    local artifact=ABC.lower(combined,lower)
+    local artifact=ABC.lower(program,lower)
     local ok,Assembler=pcall(require,"assembler");if not ok then D.internal("specialize-host","Cannot load assembler: "..tostring(Assembler)) end
     local bytes,locations=Assembler.assemble(artifact.assembly)
     local module,provenance=require('let.optimize').optimizeMapped(bytes)
-    return {phase="specialized",entry=wrapper.id,fn=wrapper,functions=combined,artifact=artifact,module=module,locations=locations,provenance=provenance}
+    return {phase="specialized",entry=wrapper.id,fn=wrapper,functions=program.functions,program=program,artifact=artifact,module=module,locations=locations,provenance=provenance}
 end
 
 return M

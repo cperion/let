@@ -2,14 +2,17 @@ package.path='./?.lua;./?/init.lua;../tools/?.lua;../build/?.lua;'..package.path
 local C=require('let.compiler')
 local S=require('let.schema')
 local IR=require('let.ir')
-local Check=require('let.check')
+local Program=require('let.program')
 local D=require('let.diag')
 local I,L=S.Ir,S.List
 local checks,executions=0,0
 local function check(ok,message) checks=checks+1;assert(ok,message) end
 local function reject(code,source,profiles)
  for _,profile in ipairs(profiles or {'slet','let'}) do
-  local ok,err=pcall(C.typed,{profile=profile,source=source,name='access-proof.'..profile})
+  local ok,err=pcall(function()
+   local unit=C.typed{profile=profile,source=source,name='access-proof.'..profile}
+   return require('let.layout').program(unit.program)
+  end)
   check(not ok and D.is(err) and err.code==code,profile..'/'..code..': '..tostring(err))
  end
 end
@@ -152,7 +155,7 @@ let main(): U32 = do
  return p.x
 end
 ]],42)
-check(#safeHigher.functions[1].access.invocations>0,'formal invocation obligation is published')
+check(#safeHigher.program.access[safeHigher.functions[1].id].invocations>0,'formal invocation obligation is published')
 -- Query live places at the invocation point, not at wrapper entry or after all
 -- its stores. The two intermediate snapshots must remain independent.
 runCallable(prelude..[[
@@ -320,7 +323,7 @@ local identity=run(prelude..[[
 let identity(p: Ref(Point)): Ref(Point) = p
 let main(): U32 = do let p = Point { x = 40 } let r = identity(Ref(p)) r.x += 2 return p.x end
 ]],42)
-check(identity.functions[1].access.results[1].components[1].loans.sources[1].kind=='ValueInput','identity exports actual input provenance')
+check(identity.program.access[identity.functions[1].id].results[1].components[1].loans.sources[1].kind=='ValueInput','identity exports actual input provenance')
 run(prelude..[[
 let Holder = { value: Ref(Point) }
 let put(holder: Ref(Holder), value: Ref(Point)): Unit = do holder.value = value return end
@@ -336,7 +339,7 @@ let state = Point { x = 40 }
 let expose(): Ref(Point) = Ref(state)
 let main(): U32 = do let r = expose() r.x += 2 return state.x end
 ]],42,{staticMode='interpreted'})
-check(module.functions[1].access.results[1].components[1].loans.sources[1].kind=='Global','module references retain module-root identity')
+check(module.program.access[module.functions[1].id].results[1].components[1].loans.sources[1].kind=='Global','module references retain module-root identity')
 run('let expose(): Slice(U8) = "*" let main(): U32 = U32(expose()[0])',42)
 -- Return state from a PlaceParam method follows its stores, rather than keeping
 -- the entry field as an alias. The caller instantiates its owner constraint.
@@ -362,7 +365,7 @@ local place=I.Project(I.Local(storage),I.Field('x'))
 local mutation=I.Fn('mutate',I.Body,0,L{S.inPlace(Point)},L{S.Unit},L{I.PlaceParam(0,storage,Point)},L{I.Store(place,I.Const(S.U32,I.UInt(1))),I.Return(L{I.Const(S.Unit,I.UInt(0))})})
 local caller=I.Fn('main',I.Entry,0,L{},L{S.Unit},L{},L{I.Call(L{I.Value(1)},'mutate',L{I.BorrowArg(I.Global(root))}),I.Return(L{I.Const(S.Unit,I.UInt(0))})})
 local functions={mutation,caller};functions.moduleData={I.ModuleData(root,bytes)}
-local ok,err=pcall(Check.program,functions)
+local ok,err=pcall(Program.analyze,functions)
 check(not ok and D.is(err) and err.code=='readonly-write','callee mutation cannot acquire readonly module permissions')
 -- Borrow/callable metadata closes a cyclic holding graph over finite qualified
 -- definitions. This is typing/analysis convergence only, not runtime qualification
@@ -379,25 +382,26 @@ local cyclic=I.Fn('cyclic',I.Entry,0,L{},L{S.U32},L{},L{
  I.Loop(L{I.Read(before,view,I.Local(cell)),
   I.View(after,view,'forwarded',L{I.ValueArg(I.Ref(before,view))},environment),
   I.Store(I.Local(cell),I.Ref(after,view)),I.Next})})
-Check.program({constant,forwarded,cyclic})
-check(cyclic.access~=nil,'cyclic callable holding graph reaches a finite metadata fixed point')
+local cyclicProgram=Program.analyze({constant,forwarded,cyclic})
+check(cyclicProgram.access.cyclic~=nil,'cyclic callable holding graph reaches a finite metadata fixed point')
 -- Explicit unknown implementations do not manufacture returned borrow provenance.
 local b=IR.builder();local value=b:valueId()
 local foreign=I.Foreign('unknown',L{},L{S.Ref(S.U32)})
 local unknown=I.Fn('unknown_result',I.Entry,0,L{},L{S.Ref(S.U32)},L{},L{I.Call(L{value},'unknown',L{}),I.Return(L{b:ref(value,S.Ref(S.U32))})})
-ok,err=pcall(Check.program,{unknown},nil,{foreign})
+ok,err=pcall(Program.analyze,{unknown},nil,{foreign})
 check(not ok and D.is(err) and err.code=='borrow-proof','opaque result does not acquire a lifetime proof')
 local opaqueView=S.View(S.Sig({}, {S.Ref(S.U32)}))
 local callee,borrowed=I.Value(1),I.Value(2)
 local indirect=I.Fn('opaque_indirect',I.Entry,0,L{},L{S.Ref(S.U32)},L{},L{
  I.View(callee,opaqueView,'unknown',L{},nil),I.Indirect(L{borrowed},I.Ref(callee,opaqueView),L{}),
  I.Return(L{I.Ref(borrowed,S.Ref(S.U32))})})
-ok,err=pcall(Check.program,{indirect},nil,{foreign})
+ok,err=pcall(Program.analyze,{indirect},nil,{foreign})
 check(not ok and D.is(err) and err.code=='borrow-proof','concrete opaque view retains the missing-result proof, not a nonexistent signature field')
 -- Loan origins cannot masquerade as footprint addresses. Symbolic targets are
 -- explicit, and actual caller storage replaces them when summaries compose.
 for _,fn in ipairs(safeHigher.functions) do
- for _,footprint in ipairs{fn.access.reads,fn.access.writes,fn.access.writable} do
+ local access=safeHigher.program.access[fn.id]
+ for _,footprint in ipairs{access.reads,access.writes,access.writable} do
   for _,loc in ipairs(footprint.writes) do
    check(S.Borrow.Target:isclassof(loc.root),'footprint root is a target, not an owner loan')
    if loc.root.kind=='StorageRoot' then
@@ -411,7 +415,7 @@ local heldInput,ignored=I.Value(1),I.Value(2)
 local opaqueBorrow=I.Fn('opaque_borrow',I.Entry,0,L{S.inValue(S.Ref(S.U32))},L{S.Unit},L{I.ValueParam(0,heldInput,S.Ref(S.U32))},L{
  I.Call(L{ignored},'uncontracted',L{I.ValueArg(I.Ref(heldInput,S.Ref(S.U32)))}),
  I.Return(L{I.Const(S.Unit,I.UInt(0))})})
-ok,err=pcall(Check.program,{opaqueBorrow},nil,{borrowingForeign})
+ok,err=pcall(Program.analyze,{opaqueBorrow},nil,{borrowingForeign})
 check(not ok and D.is(err) and err.code=='borrow-proof','opaque supplied borrow requires a retention contract')
 -- Unknown target provenance remains unknown after a dereference/projection.
 local nestedTy=S.Record{value=S.Ref(S.U32)}
@@ -421,7 +425,7 @@ local unknownField=I.Fn('unknown_field',I.Entry,0,L{},L{S.Ref(S.U32)},L{},L{
  I.Call(L{pointer},'unknown_holder',L{}),I.Var(pointerCell,S.Ref(nestedTy),I.Ref(pointer,S.Ref(nestedTy))),
  I.Read(field,S.Ref(S.U32),I.Project(I.Deref(I.Local(pointerCell),nestedTy),I.Field('value'))),
  I.Return(L{I.Ref(field,S.Ref(S.U32))})})
-ok,err=pcall(Check.program,{unknownField},nil,{nestedForeign})
+ok,err=pcall(Program.analyze,{unknownField},nil,{nestedForeign})
 check(not ok and D.is(err) and err.code=='borrow-proof','unknown dereferenced field cannot acquire an owner proof')
 -- A recursive unchecked pointer walk must converge without inventing an
 -- unbounded owner-path family. It retains an explicitly unknown footprint.
@@ -432,5 +436,5 @@ let walk(p: Ptr(U32), n: U32): Unit = do
 end
 let main(): U32 = 0
 ]]}
-check(recursive.functions[1].access.writes.unknown,'unchecked pointer walk retains unknown effects')
+check(recursive.program.access[recursive.functions[1].id].writes.unknown,'unchecked pointer walk retains unknown effects')
 print(('access proofs: %d checks, %d VM executions'):format(checks,executions))

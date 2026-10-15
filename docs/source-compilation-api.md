@@ -27,6 +27,31 @@ restrictions remain until the migration is implemented. This proposal does not a
 checker for editor use. A future incomplete-analysis API would need an explicit
 result contract and is not a substitute for completed typing.
 
+### 1.1 Checked-program and executable boundaries (implemented)
+
+`typed` and `typedFile` expose `.program`: the completed, dependency-inclusive IR
+functions, module/foreign declaration vectors, `.access[id]`,
+`.ownership[id].summary` and `.accessStats`. `let/program.lua` owns this analysis.
+`Check.program` only validates IR structure/types; it does not infer lifetimes or
+attach proofs to `Ir.Fn` nodes. Source compilation lowers its existing program;
+demand fragments and specialization create and analyze their own completed graphs.
+The public raw-IR `Compiler.lower(functions, options)` explicitly analyzes a new
+program, including its supplied module/foreign declarations.
+
+The program captures its vectors, not deep copies of every IR/type node. Nodes are
+frozen by caller contract after analysis. A transformation constructs a new graph
+and obtains a new program; lowering does not hash, revalidate or silently refresh an
+old program after in-place mutation. Private `ABC.lower` consumes that program, not
+a bare function list or a separate set of proof annotations.
+
+`Layout.program` is the ownership-related executable-admission boundary. It rejects
+counted requirements before selecting the currently implemented borrowed contract.
+Layout consumers use that contract for cells, byte layouts and ABI components;
+pointer-free staging/snapshots use `Layout.scalar`, which cannot select a reference
+representation. Typing a valid counted program is consequently supported without
+claiming it can execute. Cycles and unsafe-access proof failures still reject during
+analysis. Owning placement, lifetime emission and runtime cleanup remain unimplemented.
+
 ## 2. Proposed call shapes
 
 ```lua

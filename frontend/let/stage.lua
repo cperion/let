@@ -45,7 +45,7 @@ local function transportTypes(fn,field)
         if field=='inputs' and value.kind~='InValue' then D.reject('static-transport','Staging cannot transport borrowed inputs') end
         Snapshot.contract(ty)
         if ty~=S.Unit then values[#values+1]=ty end
-        for _,part in ipairs(Layout.abiComponents(ty)) do cells[#cells+1]=part end
+        for _,part in ipairs(Layout.scalar:abiComponents(ty)) do cells[#cells+1]=part end
     end
     return cells,values
 end
@@ -167,7 +167,7 @@ function Program:call(options)
     if #supplied~=#inputValues then D.reject('static-arguments',string.format('Static entry `%s` needs %d values but received %d',entry,#inputValues,#supplied)) end
     local Snapshot=require('let.snapshot');local flattened={}
     for index,ty in ipairs(inputValues) do
-        if require('let.layout').cellKind(ty) then flattened[#flattened+1]=supplied[index]
+        if require('let.layout').scalar:cellKind(ty) then flattened[#flattened+1]=supplied[index]
         else
             local snapshot=supplied[index]
             if type(snapshot)~='table' or snapshot.type~=ty then D.reject('static-argument','Aggregate argument needs an exact typed snapshot') end
@@ -202,7 +202,7 @@ function Program:call(options)
         for index in ipairs(resultTypes) do cells[index]=ffi.new('uint64_t',output[index-1]) end
         local at=1
         for index,ty in ipairs(outputValues) do
-            if require('let.layout').cellKind(ty) then values[index]={type=ty,bits=cells[at]};at=at+1
+            if require('let.layout').scalar:cellKind(ty) then values[index]={type=ty,bits=cells[at]};at=at+1
             else values[index],at=Snapshot.fromCells(ty,cells,at) end
         end
         local moduleData={}

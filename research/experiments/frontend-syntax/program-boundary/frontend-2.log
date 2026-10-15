@@ -1,0 +1,18 @@
+cd frontend && /tmp/lua-compat tests/symmetric.lua "/tmp/clang20"
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)
+build/abc asm tools/validate_lifetime.abcasm -o build/validate-lifetime.abc
+build/validate-lifetime build/validate-lifetime.abc
+validated 48 public module/VM lifetime cases (all mode pairs, uncalled and called images)
+cd frontend && /tmp/lua-compat tools/embed.lua --check
+schemas up to date
+cd frontend && /tmp/lua-compat tests/schemas.lua
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+cd frontend && /tmp/lua-compat tests/type_names.lua
+luajit: ./let/semantic.lua:1340: attempt to call field 'valueComponents' (a nil value)
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/type_names.lua:36: in main chunk
+	[C]: at 0x6442f3aa2120
+make: *** [Makefile:188: validate-slet] Error 1

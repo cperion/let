@@ -178,7 +178,7 @@ function M.solve(events,results,unknown)
  local summary=O.Summary(list(roots),results,list(events.holdings),list(borrows),list(edges),list(requirements),unknown)
  return summary,witness(edges)
 end
-local function diagnostic(code,message,site,events,summary,cycle)
+local function diagnostic(code,message,site,spans,summary,cycle)
  if cycle then
   local function name(root)
    local source=root.source
@@ -195,11 +195,11 @@ local function diagnostic(code,message,site,events,summary,cycle)
   message=message..': '..name(first.holder)..' -> '..name(first.target)..
    ' at '..first.site.point.frame..'#'..first.site.point.ordinal..' ('..#cycle..' edge cycle; full witness attached)'
  end
- local err=D.make('reject',code,message,events.spans[site])
- -- Proof evidence remains available on rejection, including unsupported placement.
+ local err=D.make('reject',code,message,spans[site])
+ -- Preserve the actual-root witness with the rejected proof.
  err.ownership=summary;err.witness=cycle;error(err,0)
 end
-function M.infer(functions,queries)
+function M.analyze(functions,queries)
  local inferred={}
  for _,fn in ipairs(functions) do
   local query=queries[fn.id];local results={}
@@ -211,34 +211,16 @@ function M.infer(functions,queries)
   end
   table.sort(results,function(a,b) return key(a)<key(b) end)
   local summary,cycle=M.solve(query.ownership,S.List(results),query.unknown)
-  fn.ownership=summary
-  inferred[#inferred+1]={summary=summary,cycle=cycle,events=query.ownership}
+  inferred[fn.id]={summary=summary,cycle=cycle,spans=query.ownership.spans}
  end
  return inferred
 end
-function M.program(functions,queries)
- local inferred=M.infer(functions,queries)
- -- Publish every summary and check the complete program's concrete cycles before
- -- rejecting missing placement. A factory's missing lowering must not conceal a
- -- cycle formed only by its caller.
- for _,entry in ipairs(inferred) do
-  if entry.cycle then diagnostic('Ref-cycle','Owning references require a cyclic strict owner order',entry.cycle[1].site,entry.events,entry.summary,entry.cycle) end
- end
- for _,entry in ipairs(inferred) do
-  local summary=entry.summary
-  -- Inference is not placement. Until counted layouts/release are implemented,
-  -- retain the executable-admission rejection, now backed by inferred evidence.
-  local first
-  for _,r in ipairs(summary.counted) do
-   if not first or (r.reason=='return' and first.reason~='return') then first=r end
-  end
-  if first then
-   local returned=first.reason=='return'
-   diagnostic(returned and 'borrow-return' or 'borrow-store',returned and
-    'Returned value requires counted storage; counted placement and release are not implemented' or
-    'Retained access requires counted storage; counted placement and release are not implemented',
-    first.site,entry.events,summary)
-  end
+function M.validate(functions,inferred)
+ -- Check the complete graph. Unsupported placement is an executable-admission
+ -- decision, not a failed proof, and must never conceal a caller's concrete cycle.
+ for _,fn in ipairs(functions) do
+  local entry=inferred[fn.id]
+  if entry.cycle then diagnostic('Ref-cycle','Owning references require a cyclic strict owner order',entry.cycle[1].site,entry.spans,entry.summary,entry.cycle) end
  end
 end
 return M
