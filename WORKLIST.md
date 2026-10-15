@@ -504,6 +504,17 @@ This coordinates O/C/D/T/P/W, not a new parallel runtime. Locked channel rings a
 worker deques, select arbitration, task-owned spill/wait records, intrusive release
 and immutable per-realization publication are selected—not open-ended alternatives.
 
+**E/O layer redesign — design only, awaiting approval.** Coordinator proposal:
+[`docs/runtime-ownership-layer-design.md`](docs/runtime-ownership-layer-design.md).
+It replaces per-allocation release binding and scope-slot orchestration with prepared
+runtime imports, shared allocation facts, cleanup-valid actual storage and C commit
+operations. It specifies source representations/results, partial construction,
+module/task/code lifetimes, revision7/v4 compatibility, concrete removals and validation.
+The proposed24-byte header, eager preparation, cleanup ABI and resource policy are
+NOT implemented or approved; the current C-release evidence below remains the baseline.
+Next action: user review of the complete contract, then a coherent producer/consumer
+cutover—not another helper facade. E/O completion and counted source admission are unchanged.
+
 - [ ] **E01** Implement the catalog contract in `gen/runtime_primitives.lua` and its
   generated frontend/C metadata (runtime-interfaces §1); bind to source lowering, verifier,
   shared computation and emitter consumers: cell/holding layouts, effects, clobbers,

@@ -48,6 +48,11 @@ New tests: `frontend/tests/source_demands.lua`, `source_snapshots.lua`; wire the
 
 ## E / O — Primitive contracts, ownership and execution state
 
+Design under review: [runtime ownership layer proposal](runtime-ownership-layer-design.md).
+Its §12 identifies the proposed replacement/removal set. It is not an implemented
+mapping or approved replacement for the current responsibilities below; WORKLIST
+records its design status and the existing C-release baseline separately.
+
 | IDs | Existing files | New files / concrete responsibility |
 | --- | --- | --- |
 | E01 | `tools/opcodes.lua`, `tools/gen_opcodes.lua`, `gen/semantics.lua`, `gen/banked.lua`, `gen/symbolic.lua`, `frontend/let/abc.lua`, `src/verify.c`, `Makefile` | `gen/runtime_primitives.lua`: authoritative effect/holding/layout catalog; generated `build/generated/runtime_primitives.h` and frontend metadata, never hand-edited |
