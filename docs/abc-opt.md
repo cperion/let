@@ -29,7 +29,7 @@ The ABC sink performs these steps once when producing a module:
 6. Emit reachable functions, branches, calls, descriptors, sections, relocations and residual-to-source provenance.
 7. Reload and verify the output module before atomically publishing it.
 
-Effectful operations, explicit traps, potentially trapping checks, foreign boundaries and managed-allocation safepoints are ordering barriers. The optimizer can propagate values through a barrier only when doing so cannot move or remove observable work. IEEE operations retain their original expression grouping. Function signatures and result-cell order never change.
+Effectful operations, explicit traps, potentially trapping checks and foreign/call synchronization boundaries are ordering barriers. The residual effect field named `safepoint` conservatively marks call boundaries; it does not register tracing roots or invoke collection. The optimizer can propagate values through a barrier only when doing so cannot move or remove observable work. IEEE operations retain their original expression grouping. Function signatures and result-cell order never change.
 
 VM stack checks remain defined by the optimized verified module's computed maxima. Stack exhaustion is a genuine host resource failure, not a language abort or observable language result; semantic differential tests run with sufficient stack and do not ignore unexpected resource failures. Tail-position conversion may reduce required call-stack storage. `abc-opt` does not add a fuel mechanism or synthesize logical resource failures. Provenance for a retained or folded trap points to the original abort/check offset, including its inlined call chain.
 

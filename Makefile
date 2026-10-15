@@ -16,7 +16,7 @@ RUNTIME_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o bu
 RUNTIME_OBJ += build/owner.o build/lifetime.o
 RUNTIME_PIC += build/pic/owner.o build/pic/lifetime.o
 ASDLC_SRC = tools/asdlc/main.c tools/asdlc/arena.c tools/asdlc/parser.c tools/asdlc/validate.c tools/asdlc/emit_c.c
-.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet validate-owner-core validate-source-owners validate-c-entries
+.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet validate-owner-core validate-source-owners validate-c-entries validate-no-collector
 all: build/abc build/abc-opt build/libabc-opt.so build/libabc.so build/libabc.a build/generated/stencils.h
 build:
 	mkdir -p build
@@ -225,7 +225,10 @@ validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi 
 	cd frontend && LUA="$(LUA)" $(LUA) tests/staging_sessions.lua
 	$(LUA) tools/validate_slet_frontend.lua
 	CC="$(CC)" $(LUA) tools/validate_c_aot.lua
-validate: validate-c-entries validate-owner-core validate-source-owners validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
+validate-no-collector:
+	$(LUA) tools/validate_no_collector.lua
+
+validate: validate-no-collector validate-c-entries validate-owner-core validate-source-owners validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
 	build/abc asm tools/validate_capacity_frontiers.abcasm -o build/validate-capacity-frontiers.abc
 	build/validate-capacity-frontiers build/validate-capacity-frontiers.abc
 	build/validate-execution-emit

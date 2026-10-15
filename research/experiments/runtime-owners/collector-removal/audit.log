@@ -1,0 +1,4 @@
+/tmp/lua-compat tools/validate_no_collector.lua
+collector-free dependency audit: 234 active files, 17 negative/positive guard probes; archives/build artifacts excluded
+/tmp/lua-compat tools/validate_no_collector.lua
+collector-free dependency audit: 234 active files, 17 negative/positive guard probes; archives/build artifacts excluded

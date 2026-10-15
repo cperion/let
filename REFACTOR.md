@@ -34,6 +34,23 @@ platform allocation/free, not an unmeasured worker-cache/remote-free subsystem.
 
 ## Status and latest decisions
 
+### D07 — dormant collector removed, active dependencies guarded
+
+Deleted all81 tracked `vendor/whippet` files. The former dynamic/any/Whippet headers,
+active collector build/CI wiring, root/collection calls and obsolete GC fixtures were
+already absent. No owner-core, lifecycle, foreign synchronization, trap or stack-limit
+implementation changed. The residual effect field named `safepoint` remains a generic
+call barrier, not a GC hook. Historical archives and raw logs are untouched.
+
+`tools/validate_no_collector.lua` now runs in `make validate`, with17 dependency
+probes; eight additional filesystem controls qualify API/link/vendor/archive rejection
+and allowed synchronization. Full incremental validation passes, including the existing
+1110-check/352-call source matrix, C1043242 cleanup checks and lifetime/foreign tests.
+Built runtime/tooling artifacts contain no collector symbols or dynamic dependency.
+Evidence: `runtime-owners/collector-removal/`. No clean-build, new sanitizer, race or
+performance claim. Collector absence is delivered; broader ownership/public/FFI/module
+and task contracts remain separate incomplete work in WORKLIST.
+
 ### Connected source owning storage and C lifecycle delivery — E01/E02/O04–O08
 
 The post-removal replacement now consumes the exact checked source graph into a

@@ -1,0 +1,37 @@
+empty active fixture exit=0
+collector-free dependency audit: 1 active files, 17 negative/positive guard probes; archives/build artifacts excluded
+empty collector directory exit=1
+luajit: tools/validate_no_collector.lua:48: retired vendor/whippet path exists
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate_no_collector.lua:48: in main chunk
+	[C]: at 0x5cd201fb1120
+collector API exit=1
+luajit: tools/validate_no_collector.lua:65: src/owner.c: collector dependency/API reference
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate_no_collector.lua:65: in main chunk
+	[C]: at 0x569d4178c120
+collector link dependency exit=1
+luajit: tools/validate_no_collector.lua:65: Makefile: collector dependency/API reference
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate_no_collector.lua:65: in main chunk
+	[C]: at 0x56b071c0f120
+preserved archive is excluded exit=0
+collector-free dependency audit: 1 active files, 17 negative/positive guard probes; archives/build artifacts excluded
+archive imported into active source exit=1
+luajit: tools/validate_no_collector.lua:65: src/owner.c: archived implementation referenced by active code/tooling
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate_no_collector.lua:65: in main chunk
+	[C]: at 0x5aacae662120
+archive symlink into active source exit=1
+luajit: tools/validate_no_collector.lua:65: src/owner.c: archived implementation referenced by active code/tooling
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate_no_collector.lua:65: in main chunk
+	[C]: at 0x612d3306a120
+generic call synchronization preserved exit=0
+collector-free dependency audit: 2 active files, 17 negative/positive guard probes; archives/build artifacts excluded
+PASS: 8 filesystem-level dependency guard controls

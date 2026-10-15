@@ -1,0 +1,19 @@
+Dynamic dependencies (runtime and optimizer):
+ 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [ld-linux-x86-64.so.2]
+ 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]
+ 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+
+Collector symbols in active runtime/tooling artifacts (expect none):
+none
+
+Retired source paths (expect absent):
+vendor/whippet absent
+src/whippet_types.h absent
+src/any_repr.h absent
+src/dynamic.c absent
+src/dynamic.h absent

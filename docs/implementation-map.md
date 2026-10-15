@@ -72,18 +72,19 @@ not restore those bindings. The source-cutover evidence separately qualifies the
 concrete source path without a cleanup engine or release register reservation.
 Ordinary ABC execution and immutable executable publication are retained.
 
-`src/dynamic.c`, `src/dynamic.h`, `src/whippet_types.h` and archived tracing engines
-are not runtime prerequisites. Audit their references before removal; do not add them
-to Makefile object lists to obtain an allocator or descriptor implementation.
+**D07 collector removal:** `vendor/whippet` has been deleted. The old
+`src/dynamic.c/.h`, `src/any_repr.h` and `src/whippet_types.h` were already absent;
+no active build/CI dependency, tracing adapter, root registration, collection hook or
+obsolete GC fixture remained to remove. `tools/validate_no_collector.lua`, wired into
+`make validate`, guards active paths, collector APIs/link flags and archive imports,
+with negative controls. Historical archives/raw evidence remain unchanged and must
+not feed active builds. The existing residual `safepoint` effect bit is conservative
+call synchronization, not a collection mechanism; this removal preserves it.
 
-**D07 is mandatory removal, not permanent exclusion from linking:** delete
-`vendor/whippet` and `src/whippet_types.h`, and remove active Whippet integration
-from Makefile, CI/dependency metadata, tracing adapters/descriptors, root registration,
-collection safepoints and obsolete tests/examples. Audit `src/dynamic.c/.h` and
-`src/any_repr.h` for remaining dependencies without deleting unrelated scalar/value
-contracts. Preserve replacement lifetime/error/foreign synchronization guarantees.
-Historical archives may retain original sources/references but never feed an active
-build. The exit criterion is no active Whippet dependency or dormant collector path.
+The supported source lifetime/error/foreign boundaries are validated separately in
+E/O. Removing the dormant collector does not implement owning public/foreign transport,
+persistent owning modules, generalized ownership or tasks. Current removal evidence:
+`research/experiments/runtime-owners/collector-removal/`.
 
 ## C / D / L — Containers, dynamic values and library
 

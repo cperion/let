@@ -405,8 +405,9 @@ Initial investigation:
 `research/experiments/frontend-syntax/packed-tagged/float-bitcasts/cost-investigation/`.
 Candidate patches, exact reproduction/measurement limitations and decision:
 `research/experiments/frontend-syntax/packed-tagged/float-bitcasts/transparent-ext/`.
-Collector-free ownership/cutover and final Whippet removal remain next; independent
-optimizer/frame-access and higher-order frontend efficiency remain separate.
+The later E01 source cutover and D07 collector-removal slice are recorded below;
+general ownership, independent optimizer/frame-access and higher-order frontend
+efficiency remain separate.
 
 **Remaining grammar gate:** named keyed-requirement declarations share the elaborator,
 but no keyed `do` constructor spelling has been approved/added. Do not claim every
@@ -780,10 +781,25 @@ Dependency: O/C and explicit representation/encoding approval; not archived prof
   not enter the active build. Completion requires an active-dependency/reference
   audit and integrated validation of replacement lifetime/error/foreign boundaries.
   **Whippet absence is a release criterion, not optional cleanup.**
-  Current runtime-binding audit finds no active Whippet/GC allocation/root references
-  in src/include/gen/tools/build/CI; the old dynamic/any/Whippet headers are absent.
-  `vendor/whippet` still exists. D07 is not complete: replacement source lifetime,
-  exported/foreign and module-owner boundaries remain incomplete.
+  **Owner: coordinator; state: partial (collector-removal deliverable complete).**
+  - [x] Delete the81 tracked files under `vendor/whippet` (no dormant vendor fallback).
+    The old dynamic/any/Whippet headers were already absent. No additional active
+    dependency/build/CI integration, tracing adapter, GC root/collection call or obsolete
+    GC example/test remained. Archives and raw experiment logs are unchanged.
+  - [x] Add `tools/validate_no_collector.lua` and `make validate-no-collector`, included
+    in `validate`: active-file/API/link/archive-reference audit and17 guard probes.
+    Eight filesystem controls additionally cover reintroduced empty vendor directories,
+    APIs/link dependencies, archive imports/symlinks and preserved generic barriers.
+    The existing residual effect field named `safepoint` is call synchronization,
+    not collection; owner/lifetime code, foreign synchronization/traps/limits are unchanged.
+  - [x] Full incremental `make validate` passes, including1110 source checks/352 calls,
+    C1043242 cleanup checks,48 module/VM lifetime cases and four-mode foreign/API tests.
+    Built runtime/tooling symbol and dynamic-link audits find no collector dependency.
+    No clean rebuild, new sanitizer, performance or concurrency qualification claimed.
+    Evidence: `research/experiments/runtime-owners/collector-removal/`.
+  Remaining prerequisite work is broader replacement ownership, owning public/FFI and
+  persistent module-owner boundaries under O/E/C/T—not a surviving collector path.
+  Next: design the next generalized concrete-ownership slice before implementation.
 
 ## L — Text and library contracts
 
