@@ -4,8 +4,9 @@
 Standalone C counting/queue algorithms remain, but the prepared native release,
 compiler lifetime and v3 call bindings described below have been removed. Those
 binding details are historical, not a selected replacement. The large revision7/v4
-proposal is withdrawn. Source counted admission remains closed. No builds/tests
-were run for this removal checkpoint. Unrelated task/container target protocols
+proposal is withdrawn. Source counted admission remains closed. Subsequent standalone
+core tests/sanitizers and the ordinary full incremental suite pass; see WORKLIST E/O
+and `research/experiments/runtime-owners/core/`. Unrelated task/container targets
 remain unchanged. This records
 the selected data structures and algorithms for the collector-free runtime and tasks.
 Private interface bindings, concrete fields/signatures and lock/state protocols are

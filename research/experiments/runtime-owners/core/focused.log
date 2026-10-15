@@ -1,0 +1,3 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_owner_core.c build/owner.o -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free -o build/validate-owner-core
+build/validate-owner-core
+owner core: 113 checks; 100001-object chain, branching queue, shared-thread release; header 32 bytes; no source/VM binding claim

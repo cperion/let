@@ -4,8 +4,8 @@
 release preparation, scope-slot/prefix protocol and compiler lifetime client described
 in §§1, 1.1 and 3 below are now historical, not implementation instructions. Only the
 standalone C counting/queue core remains. Reserved runtime imports reject. The large
-revision7/v4 proposal was withdrawn, not adopted. No builds/tests were run for this
-removal checkpoint; WORKLIST E/O is current. Unrelated task/scheduler target protocols
+revision7/v4 proposal was withdrawn, not adopted. The removal checkpoint was initially untested; subsequent standalone-core and
+ordinary incremental suites pass (WORKLIST E/O). Unrelated task/scheduler target protocols
 below are unchanged.
 
 The remaining target interfaces relate the approved choices in
@@ -26,8 +26,10 @@ type descriptor or instrumentation counters remain. Retain needs only the owner/
 sink. Release enqueues into an explicit thread-confined context; drain invokes field
 release and frees iteratively. Retain-before-replace is provided. The C caller must
 initialize fields before release/publication. Source constructor/failure cleanup and
-release-code delivery remain unresolved integration work. This simplification has
-not been built or tested; it is not completed source ownership.
+release-code delivery remain unresolved integration work. The standalone core passes
+113 checks, focused ASan/UBSan/LSan and a128KiB host-stack run; the existing full
+incremental suite also passes. Native header is32 bytes. Evidence:
+`research/experiments/runtime-owners/core/`. This is not completed source ownership.
 
 ## 1. Authoritative primitive catalog
 

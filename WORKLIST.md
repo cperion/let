@@ -498,7 +498,7 @@ Dependency: audit baseline; S/O as needed for individual paths.
 
 ## E — Shared runtime primitive and suspension engineering
 
-**Removal checkpoint — replacement pending, not validated.** User authorized cutting
+**Ownership binding removed; standalone core validated, integration pending.** User authorized cutting
 out the ownership orchestration before adding replacement code, with no builds/tests.
 Coordinator removed the v3 runtime dispatch/catalog, release-binding/cache/compiler,
 ownership-specific execution forms, scope/slot/prefix machinery and generated holding
@@ -509,11 +509,12 @@ foreign fallback. Source counted admission remains closed.
 Retained: standalone C allocation/checked-count/replacement/iterative-queue algorithms,
 source ownership proofs, ordinary ABC contexts/continuations and immutable executable
 publication. No replacement layout, cleanup ABI, module format or task system was added.
-Final diff/reference review found no retired-binding references in active source/build
-inputs. No build or test was run. Build products are stale and earlier green suites
-are historical, not validation of this checkpoint.
-Next: settle the small C core plus source lifetime/failure-cleanup boundary from first
-principles, then implement that contract. Unrelated container/task protocols are unchanged.
+The removal and core edits were initially untested as requested. Subsequently authorized
+validation now passes: incremental build/full `validate`, standalone owner113 checks,
+focused ASan/UBSan/LSan and a128KiB host-stack run. Evidence is under
+`research/experiments/runtime-owners/core/`; this does not restore the removed source
+binding or establish performance. Next: settle and implement source lifetime/failure
+cleanup and release-code delivery around the small core. Unrelated task protocols are unchanged.
 
 - [ ] **E01** Define and bind explicit runtime-operation contracts to source lowering,
   verification and shared execution: cell/holding layouts, effects, clobbers, failure
@@ -527,7 +528,7 @@ principles, then implement that contract. Unrelated container/task protocols are
 - [ ] **E02** Bind allocation release, direct known-type copy and localized erased
   operations per runtime-interfaces §3; checked local/shared counts, holding transfers
   and iterative release across all source execution backends.
-  **Standalone C core simplified (unbuilt/untested):** `src/owner.h/.c` now takes
+  **Standalone C core implemented and tested:** `src/owner.h/.c` now takes
   complete concrete allocation size/alignment; the owner is its first member. No
   stored payload offset, descriptor, progress word or production traffic counters.
   Header contains count, immutable local/shared policy, optional C field-drop callback
@@ -535,7 +536,13 @@ principles, then implement that contract. Unrelated container/task protocols are
   preserve CAS/release/acquire ordering. Release enqueues; drain calls field drops and
   frees iteratively. Retain-before-replace remains failure-safe. Static immortal
   owners remain no-ops. VM code delivery, constructor/failure cleanup and source
-  placement are NOT implemented. No builds/tests run at the user's request.
+  placement are NOT implemented. `tools/validate_owner_core.c`113 checks cover
+  allocation/extent/alignment/failure outputs, local/shared counts, overflow, zero-count
+  rejection, replacement, branching and100001-object queues, and cross-thread final
+  release. Native header measured32 bytes. Wrappers observe no allocation attempts
+  during drain. Full incremental `validate`, focused ASan/UBSan/LSan on the core/test
+  and a128KiB host-stack run pass. No clean-build, TSan/race proof, source integration
+  or performance claim. Evidence: `research/experiments/runtime-owners/core/README.md`.
 - [ ] **E03** Change `vm_internal.h`, `execution_emit.h`, `vm.c`, residualizer and
   both emitter/generator bindings per runtime-interfaces §§2,5,8; bind task context,
   allocator-generated spill/resume entries, result

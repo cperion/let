@@ -50,17 +50,18 @@ New tests: `frontend/tests/source_demands.lua`, `source_snapshots.lua`; wire the
 
 **Removal checkpoint:** the v3 owner orchestration and subsequent large redesign
 proposal have been removed. Standalone C counting/queue code and source proofs remain;
-replacement source lifetime/cleanup integration is pending. No builds/tests were run
-for this cut. See WORKLIST E/O; historical passing suites do not qualify this state.
+replacement source lifetime/cleanup integration is pending. Subsequent incremental
+build/full validation and standalone core sanitizer/small-stack checks pass; see
+WORKLIST E/O and `research/experiments/runtime-owners/core/`. This is not source ownership.
 
 | IDs | Existing files | New files / concrete responsibility |
 | --- | --- | --- |
 | E01 | `tools/opcodes.lua`, `tools/gen_opcodes.lua`, `gen/semantics.lua`, `gen/banked.lua`, `gen/symbolic.lua`, `frontend/let/abc.lua`, `src/verify.c`, `Makefile` | Old catalog/generator/metadata wiring removed. Replacement explicit contracts are pending; reserved runtime imports reject |
-| E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`: standalone C concrete-allocation/count/replacement/queue core; no stored payload offset, progress or traffic counters. Optional typed C field-drop callback; no source/VM binding. Current simplification is unbuilt/untested. Release binding/compiler, scope-slot/prefix machinery, runtime dispatcher and frontend holding client removed. Source placement/owning layouts remain rejected; replacement binding pending |
+| E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`: standalone C concrete-allocation/count/replacement/queue core; no stored payload offset, progress or traffic counters. Optional typed C field-drop callback; no source/VM binding. Standalone core passes113 checks and focused sanitizers; no source integration claim. Release binding/compiler, scope-slot/prefix machinery, runtime dispatcher and frontend holding client removed. Source placement/owning layouts remain rejected; replacement binding pending |
 | E03, T03–T04 | `src/execution_emit.h`, `src/residualize.c/.h`, `src/symbolic.c/.h`, `src/vm.c`, `src/vm_internal.h`, `src/threaded.h`, `src/threaded_emit.c`, `src/native_image.c`, `gen/banked.lua`, `gen/cold.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `gen/execution_forms.lua` | `src/execution_context.h`: persistent root/context-bound limits; no owner worker or scope state in the VM. Ownership SERVICE/snapshots/cleanup context removed; source entry returns packed status. `src/task.h/.c` and PARK/task scheduling remain pending |
 | E04 | same E03 bindings plus P/T files below | Exact ticket/state/lock protocol in `task.c`, `channel.c`, `task_select.c`, `scheduler.c`; no generic concurrency facade |
 | E05 | `src/native_image.c`, `src/native_emit.c/.h`, `src/execution_emit.h`, `src/residualize.c/.h`, `src/vm.c` | Fresh-page RX publication/atomic entry slots implemented; published bytes never reopen RW. Emitter region diagnostics replace contiguous-code views. Qualify fragmentation and broader image sharing/lifetime |
-| E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | Old v3 owner validator/fixtures removed with that binding. New integrated ownership/task coverage belongs to the replacement; no current validation claim |
+| E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | `tools/validate_owner_core.c` covers the standalone C core only. Old v3 owner fixtures remain removed; source ownership/task integration coverage belongs to the replacement |
 | O01–O03 | `frontend/let/semantic.lua`, `source_state.lua`, `analysis.lua`, `access.lua`, `check.lua`, `frontend/ir.asdl`, generated `schema/ir.lua`; S metadata above | `frontend/let/ownership.lua` now implements the qualified source-only formal/fresh-root, borrow/count/edge binding and iterative SCC diagnostics; `frontend/tests/ownership.lua` covers that inference. Broader generalization/export contracts and counted execution remain incomplete; see WORKLIST O03 |
 
 Historical v1/v2/v3 evidence remains under `research/experiments/runtime-owners/`.

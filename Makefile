@@ -16,7 +16,7 @@ RUNTIME_PIC = build/pic/module.o build/pic/memory_module.o build/pic/verify.o bu
 RUNTIME_OBJ += build/owner.o
 RUNTIME_PIC += build/pic/owner.o
 ASDLC_SRC = tools/asdlc/main.c tools/asdlc/arena.c tools/asdlc/parser.c tools/asdlc/validate.c tools/asdlc/emit_c.c
-.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet
+.PHONY: all clean validate validate-optimizer-isa validate-frontend-symmetric validate-slet validate-owner-core
 all: build/abc build/abc-opt build/libabc-opt.so build/libabc.so build/libabc.a build/generated/stencils.h
 build:
 	mkdir -p build
@@ -132,6 +132,10 @@ build/abc: tools/abc build/abc-runtime build/abc-opt build/libabc.so $(addprefix
 	chmod +x $@
 build/embed: examples/embed.c build/libabc.a include/abc.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a -o $@
+build/validate-owner-core: tools/validate_owner_core.c build/owner.o src/owner.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/owner.o -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free -o $@
+validate-owner-core: build/validate-owner-core
+	build/validate-owner-core
 build/validate-lifetime: tools/validate_lifetime.c build/libabc.a include/abc.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(WARN) $< build/libabc.a -lm -o $@
 build/validate-capacity-frontiers: tools/validate_capacity_frontiers.c build/libabc.a src/internal.h include/abc.h
@@ -206,7 +210,7 @@ validate-slet: validate-frontend-symmetric build/abc build/validate-staging-abi 
 	cd frontend && LUA="$(LUA)" $(LUA) tests/staging_sessions.lua
 	$(LUA) tools/validate_slet_frontend.lua
 	CC="$(CC)" $(LUA) tools/validate_c_aot.lua
-validate: validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
+validate: validate-owner-core validate-slet validate-optimizer-isa all build/validate-api build/validate-cache build/validate-symbolic build/validate-capture build/validate-asdlc build/validate-residual-ir build/validate-isa build/validate-banked-isa build/validate-stencil-operands build/validate-call-graph build/validate-backedges build/validate-execution-forms build/validate-native-emit build/validate-execution-emit build/validate-capacity-frontiers
 	build/abc asm tools/validate_capacity_frontiers.abcasm -o build/validate-capacity-frontiers.abc
 	build/validate-capacity-frontiers build/validate-capacity-frontiers.abc
 	build/validate-execution-emit
