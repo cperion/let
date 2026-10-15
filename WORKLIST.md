@@ -527,10 +527,15 @@ principles, then implement that contract. Unrelated container/task protocols are
 - [ ] **E02** Bind allocation release, direct known-type copy and localized erased
   operations per runtime-interfaces §3; checked local/shared counts, holding transfers
   and iterative release across all source execution backends.
-  **Standalone core retained:** `src/owner.h/.c` contains checked local/shared counts,
-  allocation, retain-before-replace and the C iterative queue. Scope/slot lookup,
-  generic initialized-prefix state and generated field-release helpers are deleted.
-  This core is not connected to source execution. Replacement integration is pending.
+  **Standalone C core simplified (unbuilt/untested):** `src/owner.h/.c` now takes
+  complete concrete allocation size/alignment; the owner is its first member. No
+  stored payload offset, descriptor, progress word or production traffic counters.
+  Header contains count, immutable local/shared policy, optional C field-drop callback
+  and dead-queue link. Retain preserves overflow/no-resurrection rules; shared counts
+  preserve CAS/release/acquire ordering. Release enqueues; drain calls field drops and
+  frees iteratively. Retain-before-replace remains failure-safe. Static immortal
+  owners remain no-ops. VM code delivery, constructor/failure cleanup and source
+  placement are NOT implemented. No builds/tests run at the user's request.
 - [ ] **E03** Change `vm_internal.h`, `execution_emit.h`, `vm.c`, residualizer and
   both emitter/generator bindings per runtime-interfaces §§2,5,8; bind task context,
   allocator-generated spill/resume entries, result

@@ -18,6 +18,17 @@ are deliberately not invented here; see §10's explicit release gates.
 Execution work follows WORKLIST's substantial-chunk policy. Interfaces and their
 producers/consumers/tests migrate together, not as unused helper libraries.
 
+Current standalone core (`src/owner.h/.c`, not a source-runtime binding):
+`abc_owner_alloc` takes the complete allocation extent/alignment, local/shared policy
+and optional C field-drop function. The concrete object embeds `abc_owner` first;
+its C layout supplies field offsets. No per-owner payload offset, construction prefix,
+type descriptor or instrumentation counters remain. Retain needs only the owner/error
+sink. Release enqueues into an explicit thread-confined context; drain invokes field
+release and frees iteratively. Retain-before-replace is provided. The C caller must
+initialize fields before release/publication. Source constructor/failure cleanup and
+release-code delivery remain unresolved integration work. This simplification has
+not been built or tested; it is not completed source ownership.
+
 ## 1. Authoritative primitive catalog
 
 `gen/runtime_primitives.lua` is implemented for the initial owner/scope family,

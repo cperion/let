@@ -4,30 +4,42 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 
-/* Standalone C core. Source allocation/cleanup binding is not implemented. */
+/* Private C core; no source/VM lifetime binding yet. */
 typedef enum { ABC_OWNER_LOCAL, ABC_OWNER_SHARED, ABC_OWNER_IMMORTAL } abc_owner_kind;
-struct abc_owner;
-struct abc_owner_context;
-typedef void (*abc_release_fn)(struct abc_owner_context *,struct abc_owner *);
+typedef struct abc_owner abc_owner;
+typedef struct abc_owner_context abc_owner_context;
+/* Release outgoing holdings by enqueueing only. Never free this object, drain,
+ * allocate, suspend or invoke source code. NULL means no outgoing holdings. */
+typedef void (*abc_drop_fields_fn)(abc_owner_context *,abc_owner *);
 
-typedef struct abc_owner {
+/* Embed as the first member of the concrete allocation. Offsets/extent belong
+ * to its caller and drop function, not a runtime layout descriptor.
+ * kind and drop_fields are immutable after initialization. */
+struct abc_owner {
     union { uint64_t local; _Atomic uint64_t shared; } count;
-    abc_release_fn release_outgoing;
-    struct abc_owner *release_next;
-    size_t payload_offset;
+    abc_drop_fields_fn drop_fields;
+    abc_owner *next_dead;
     abc_owner_kind kind;
-} abc_owner;
+};
 
-typedef struct abc_owner_context {
-    abc_owner *release_head, *release_tail;
+/* Zero-initialize once; confined to the thread currently draining this queue. */
+struct abc_owner_context {
+    abc_owner *head, *tail;
     bool draining;
-    size_t allocations, frees, retains, releases, release_entries;
-} abc_owner_context;
+};
 
-abc_status abc_owner_new(abc_owner_context *,size_t,size_t,abc_owner_kind,abc_release_fn,abc_owner **,abc_error *);
-abc_status abc_owner_retain(abc_owner_context *,abc_owner *,abc_error *);
+/* bytes includes the header. Payload is uninitialized: the C caller must make
+ * its fields cleanup-valid before releasing/publishing. Failure leaves *out
+ * unchanged. Allocated objects are local/shared; immortal objects are static. */
+abc_status abc_owner_alloc(size_t bytes,size_t alignment,abc_owner_kind,
+    abc_drop_fields_fn,abc_owner **out,abc_error *);
+/* Requires an existing holding/borrow protecting owner; never resurrects zero. */
+abc_status abc_owner_retain(abc_owner *,abc_error *);
+/* Decrement/enqueue only, including when called by drop_fields. NULL is a no-op. */
 void abc_owner_release(abc_owner_context *,abc_owner *);
+/* Complete queued field drops and frees, iteratively and without allocation. */
 void abc_owner_drain(abc_owner_context *);
-abc_status abc_owner_replace(abc_owner_context *,abc_owner **,abc_owner *,abc_error *);
-void *abc_owner_payload(const abc_owner *);
+/* Retain before replacement; failure leaves slot/count unchanged. Enqueues old
+ * owner without draining. Slot is exclusively writable by this caller. */
+abc_status abc_owner_replace(abc_owner_context *,abc_owner **slot,abc_owner *incoming,abc_error *);
 #endif
