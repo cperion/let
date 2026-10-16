@@ -14,7 +14,10 @@ Unrelated task/container targets remain unchanged. This records
 the selected data structures and algorithms for the collector-free runtime and tasks.
 Private interface bindings, concrete fields/signatures and lock/state protocols are
 specified in [runtime-interfaces.md](runtime-interfaces.md); file-by-file changes are
-in [implementation-map.md](implementation-map.md). The removed private v3 ABI and its
+in [implementation-map.md](implementation-map.md). The concrete compiler-side lifetime
+algorithm and private call binding proposed for the replacement are in
+[source-lifetime-lowering.md](source-lifetime-lowering.md), explicitly under review,
+not current execution. The removed private v3 ABI and its
 historical costs are recorded in runtime-interfaces §1.1 and WORKLIST E01/E02/O04–O08;
 this is not a completed runtime/concurrency or source-ownership implementation. Changes to
 these choices require discussion, not an undocumented alternate implementation.

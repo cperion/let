@@ -734,8 +734,8 @@ switch, type-implies-holding publication/result policy, unconditional scratch co
 single-use-count-only move policy, and empty cleanup frames/entries. Preserve the
 address casts, packed tagged layout, concrete active-case drops, counting/queue core
 and lifetime error guarantees. No legacy/new dispatcher or runtime ownership plan.
-Actual files: `frontend/ir.asdl`, `frontend/let/{access,ownership,program,layout,
-placement,check,abc}.lua`, regenerated schema, affected source proof/call/ownership
+Actual files: `frontend/ir.asdl`, `frontend/let/{access,ownership,program,compiler,
+layout,placement,check,abc}.lua`, regenerated schema, affected source proof/call/ownership
 tests and `tools/validate_source_owners.c`; align the interface/ownership documents
 and implementation map with the approved boundary. No runtime replacement or new
 heap ABI has been approved.
@@ -780,10 +780,19 @@ reject explicitly. `validate-source-owners` deliberately fails at executable adm
 full validation, new source lifecycle execution, sanitizers and performance have NOT
 passed for this checkpoint. Historical generated images are not fresh source evidence.
 Evidence: `runtime-owners/lifetime-lowering-removal/README.md` and its logs.
-Next action: implement the already-approved proof-directed replacement, starting with
-source-site protection/transfer contracts and their actual lowering consumers. The
-removal is not a completed lifetime fix; no renewed approval is needed within the
-agreed scope.
+Removal checkpoint: `2b46dd89`. The user subsequently required an actual data-structure
+and algorithm specification, not the earlier responsibilities outline.
+**Detailed binding — Owner: coordinator; State: design/review, not implementation.**
+`docs/source-lifetime-lowering.md` now proposes concrete loan/guard/version records,
+CFG liveness and invalidation rules, conditional/join/loop decisions, private consuming
+inputs and mixed borrowed/fresh outputs, instance binding, move/failure sequencing,
+compiler APIs and exact acceptance cases. In particular, result data stays in ABC
+cells; only actual result holdings use appended `InPlace` slot arguments. This is a
+proposed private ABI refinement, not a newly approved runtime/public ABI or a tested
+implementation. The specification is kept in a separate jj change from removal.
+Next action: review this concrete binding with the user before replacement coding.
+The earlier approval established direction/removal order, not completeness of the
+previously missing interfaces. All executable admission failures above remain.
 
 - [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
   allocate escaping roots separately from activations before publishing any address.

@@ -661,6 +661,10 @@ shared function nodes. The former program-wide borrowed/owning layout selection 
 materializer have been removed. `layout.lua` currently rejects counted requirements;
 `placement.lua` retains only the concrete field-drop emitter. The replacement must
 consume per-use borrow/transfer/acquisition proofs before choosing physical contracts.
+The proposed detailed compiler binding is [source-lifetime-lowering.md](source-lifetime-lowering.md):
+loan/guard/version records, fixed-point rules, private input/result signatures, concrete
+moves and failure sequencing. It is a design under review, not an implemented or
+already-approved extension of this runtime ABI.
 The preceding concrete source binding above, not historical §1.1, records the first
 connected executable slice. Broader polymorphic/recursive borrowing precision,
 erased/dynamic/container admission and separate-compilation/FFI contracts remain
