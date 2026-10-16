@@ -680,7 +680,8 @@ then integrate those producers/consumers before widening executable admission.
   recursive borrow precision, COW/containers, erased/dynamic and separate-compilation
   contracts, finalized rank/placement and lifetime execution remain open. Evidence:
   `research/experiments/frontend-syntax/ownership-inference/README.md`.
-**Owning-tagged deliverable complete — coordinator (O04–O08/E01/E02 remain partial):**
+**Owning-tagged functional qualification complete; lifetime-lowering architectural
+acceptance reopened — coordinator (O04–O08/E01/E02 remain partial):**
 user-approved EXT10/11 ADDR2BITS/BITS2ADDR use shared raw-identity computation, both
 banks and unchanged native/threaded placement (no added stencil or cell kind).
 `placement.lua`, `layout.lua`, `abc.lua`, opcode/tooling definitions and tests now
@@ -699,9 +700,63 @@ Source recursion/failure cleanup and separate C-built100001-node tagged release 
 entries,131788 native body bytes (A) versus134113 (B), maximum callback homes48 bytes;
 nested variant(2) uses3 owners/35 non-null acquires/120 peak owner bytes. These are
 storage/traffic measurements, not timing or a like-for-like speedup comparison.
-Evidence: `research/experiments/runtime-owners/tagged-values/`. Next action: design
-context-specific physical instances; persistent modules, erasure/containers and
-public/foreign/task transport remain separate approval/integration boundaries.
+Evidence: `research/experiments/runtime-owners/tagged-values/`. These passing checks
+qualify cleanup of the generated holdings, not the necessity of those holdings.
+The lifetime-lowering correction below supersedes the next-step recommendation.
+Persistent modules, erasure/containers and public/foreign/task transport remain
+separate approval/integration boundaries.
+
+**Lifetime-lowering correction — Owner: coordinator; State: approved design
+(O03–O08/E01/E02).** User approved the concrete cutover and explicitly requested
+removal of the obsolete lowering before implementing its replacement. User rejected
+counting as the default lowering model. The defect
+predates tagged support: `layout.lua` chooses a program-wide owning representation;
+`placement.lua` reads counted requirements but does not consume individual borrow
+proofs. Its whole-function `borrowing` gate, type-based `describe`/`resultRecord`,
+`publish` and `copy` turn access-containing values into holdings and scratch copies.
+An empty non-borrowed activation even gets an empty C cleanup entry. The generated
+`leaf` retains its new root into return storage before releasing the local root;
+that should transfer the existing holding, not acquire another one.
+
+Approved integration boundary: source proof production through private function
+contracts, concrete storage and generated cleanup, not a later peephole pass. Extend
+existing ordered access facts with protection/last-use information; make ownership
+summaries distinguish borrowed transport, transfer and independent acquisition at
+actual source sites. Instantiate private call contracts before physical layout.
+Borrowed results preserve their input/root provenance; consumed holdings identify
+actual source storage so transfer clears the source before any failing call boundary.
+Emit ordinary ABC value transport for borrows; generate cleanup storage only for
+real holdings. Keep real acquisition failure transactions, root identity, source
+value-copy semantics, cycle proofs, continuations and iterative reclamation.
+
+Removal set: the program-wide reference-width decision, whole-function ownership
+switch, type-implies-holding publication/result policy, unconditional scratch copies,
+single-use-count-only move policy, and empty cleanup frames/entries. Preserve the
+address casts, packed tagged layout, concrete active-case drops, counting/queue core
+and lifetime error guarantees. No legacy/new dispatcher or runtime ownership plan.
+Actual files: `frontend/ir.asdl`, `frontend/let/{access,ownership,program,layout,
+placement,check,abc}.lua`, regenerated schema, affected source proof/call/ownership
+tests and `tools/validate_source_owners.c`; align the interface/ownership documents
+and implementation map with the approved boundary. No runtime replacement or new
+heap ABI has been approved.
+
+Acceptance targets, not current results: zero count traffic for local borrows,
+borrowed returns and read-only matching even in a program with escaping allocations;
+zero extra retains for a fresh-root return or constructor/result forwarding; the
+three-root nested fixture must not manufacture intermediate holdings. Assert exact
+traffic, frame/cleanup absence and unchanged values across calls, branches/loops,
+mutation and failure; keep positive independent-sharing and partial-acquire tests.
+Measure code bytes, cleanup storage and peak retained bytes, not just final outputs.
+
+Approved policy boundary: ownership §2.1 specifies a separately counted escaping
+root from creation; §3 and runtime-primitives §2 require count-free protected borrows
+and transfers. The repair retains that escaping-root allocation policy but stops
+treating every alias as another holding. The assistant's earlier suggestion of
+uncounted escaping heap objects was not an approved private allocation contract and
+must not be slipped into this cutover. Next action: remove the obsolete organizing
+path first, checkpoint its actual incomplete state, then implement the approved
+proof-directed replacement. This specification change is separate from implementation;
+no implementation changes or new runtime validation have been made yet.
 
 - [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
   allocate escaping roots separately from activations before publishing any address.
