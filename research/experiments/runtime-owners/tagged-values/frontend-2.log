@@ -1,0 +1,17 @@
+compiler
+luajit: BUG [ir-type] Get needs a record aggregate
+stack traceback:
+	[C]: in function 'error'
+	tests/../let/diag.lua:21: in function 'bug'
+	tests/../let/check.lua:505: in function 'expr'
+	tests/../let/check.lua:512: in function 'expr'
+	tests/../let/check.lua:640: in function 'place'
+	tests/../let/check.lua:627: in function 'place'
+	tests/../let/check.lua:97: in function 'checkList'
+	tests/../let/check.lua:386: in function 'function_'
+	tests/../let/check.lua:711: in function 'program'
+	tests/../let/placement.lua:596: in function 'program'
+	tests/../let/abc.lua:902: in function 'lower'
+	tests/../let/compiler.lua:150: in function 'checkedSource'
+	tests/compiler.lua:176: in main chunk
+	[C]: at 0x610ee98ef120

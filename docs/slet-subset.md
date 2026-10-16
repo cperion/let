@@ -27,10 +27,13 @@ No source computation executes in Lua.
 - Record and array literals, field selection, nested addressable places, indexing with bounds
   checks, aliases, assignment, and compound assignment.
 - Record and array arguments/results use a deterministic recursively flattened ABC call ABI.
-  GC-free sums use their fixed raw layout across calls, including aggregate payloads. Managed or
-  address-bearing sum ABIs remain conservative rather than hiding roots in raw cells.
-- `Ref(place)`, `Slice(Array)`, slice/string indexing, and `.length`. References and views use
-  the checked address-then-length ABI where applicable.
+  Pointer-free sums use their fixed packed layout across calls, including aggregate payloads.
+  Materialized private owning sums now use that same tag/aligned-union layout, explicit
+  address-bit casts and active-case holdings. Public/foreign packed-address sum ABIs remain closed.
+- `Ref(place)`, `Slice(Array)`, slice/string indexing, and `.length`. Proven borrowed
+  references use target-only transport; retained references carry data/root-owner,
+  and retained slices add length. Callable transport keeps code/environment and its
+  retention bound.
 - Sum constructors and exhaustive keyed matching with expression-lambda handlers.
 - Capture-free typed lambdas. Parameter types can come from an expected signature,
   or be written on the lambda with results inferred from its body; repeating both
@@ -40,28 +43,30 @@ No source computation executes in Lua.
 - Interpreted, eager, and lazy staging produce equal results and byte-identical optimized modules
   for the covered scalar, aggregate, sum, slice, reference, and callable fixtures.
 
-Every accepted SLet program is also accepted as Let with the same observable behavior. SLet
-never permits `Any`, a managed capture, managed allocation, or a GC root. A lambda that captures
-a local value therefore rejects with `slet-forbidden`. Returning a reference or slice of current
-invocation storage rejects with `borrow-return`; the corresponding Let source promotes the backing
-record or array into managed storage.
+The former count-free-only restriction is superseded by the connected source ownership
+binding. Supported `.slet` factories, captures, known typed partials, returned references/
+slices and owning tagged payloads execute with counted concrete storage and failure cleanup.
+There is no tracing collector. Counted roots allocate from creation, not by late promotion.
+Unsafe access and strong cycles reject during analysis; unresolved physical contracts still
+reject during materialization. `.let` executable lowering remains `dynamic-lowering`, even
+where its checked source semantics are shared. See [runtime interfaces](runtime-interfaces.md#current-concrete-source-binding)
+and the source-cutover/tagged-values evidence for the qualified boundary.
 
 ## Deliberate limits
 
-Top-level computed partial initializers (the historical `partial.slet`) and runtime
-partial application (the historical `closures.slet`) are not currently supported by
-production SLet. Tests require their explicit `semantic-todo` and `static-required`
-diagnostics respectively; archived bootstrap success is not production support.
+Known typed runtime partials and keyed captures are qualified by `source_owners.lua`;
+this does not imply every historical example or erased/dynamic callable is supported.
+Persistent owning module initialization and owning public/foreign/task transport remain
+closed, along with unresolved context-dependent physical instances.
 
 This subset is not an implicit partial evaluator. Ordinary saturated calls remain residual.
 `Compiler.stage` is an explicit host-selected static boundary. Automatic evaluation requires a
 sound proof of totality, effect-freedom, and no language abort; purity alone is insufficient.
 There is no fuel, timeout, instruction, specialization-count, or logical-allocation budget.
 
-The remaining source gaps are recursive type cells, schema methods, nested word declarations,
-keyed word requirements/supply, raw-pointer constructors, `extern`, `defer`, general block-bodied
-lambdas, managed/address-bearing sums across function boundaries, type exports, non-literal module
-initialization, and complete source-level lifetime/provenance analysis.
+The live remaining work and dependencies are in [WORKLIST.md](../WORKLIST.md), not
+this page's historical gap list. Generalized ownership precision, erasure/containers,
+module/public/foreign/task boundaries and unified `.let` execution remain incomplete.
 Unsupported checked-IR lowering reports `abc-lowering`; unsupported source construction reports
 a stable source diagnostic instead of invoking another backend.
 

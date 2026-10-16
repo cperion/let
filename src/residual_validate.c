@@ -331,15 +331,19 @@ static int validate_operation(validator *v, const abc_residual_function *functio
         const abc_residual_value *input = validate_value_use(v, operation->value.unary.input, function, block, node_ordinal, id, origin, "unary operand");
         if (!input) return 0;
         unsigned op = operation->value.unary.operation;
-        if (op == ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS || op == ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_FLOAT) {
+        if (op == ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS || op == ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_FLOAT ||
+            op == ABC_ASDL_RESIDUAL_UNARY_OP_ADDRESS_TO_BITS || op == ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_ADDRESS) {
             if (node->results.count != 1) return fail(v, id, origin, "bitcast must have one result");
             const entity *result = require_entity(v, node->results.items[0], ENTITY_VALUE, id, origin, "bitcast result");
             if (!result) return 0;
             abc_residual_type output = ((const abc_residual_value *)result->object)->type;
             int integer = input->type == ABC_ASDL_RESIDUAL_TYPE_CELL || input->type == ABC_ASDL_RESIDUAL_TYPE_U32 ||
                           input->type == ABC_ASDL_RESIDUAL_TYPE_I32 || input->type == ABC_ASDL_RESIDUAL_TYPE_U64 || input->type == ABC_ASDL_RESIDUAL_TYPE_I64;
-            if (op == ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS ? input->type != ABC_ASDL_RESIDUAL_TYPE_F64 || output != ABC_ASDL_RESIDUAL_TYPE_CELL
-                                                            : !integer || output != ABC_ASDL_RESIDUAL_TYPE_F64)
+            int to_bits = op == ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS || op == ABC_ASDL_RESIDUAL_UNARY_OP_ADDRESS_TO_BITS;
+            abc_residual_type kind = op == ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS || op == ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_FLOAT
+                ? ABC_ASDL_RESIDUAL_TYPE_F64 : ABC_ASDL_RESIDUAL_TYPE_ADDRESS;
+            if (to_bits ? input->type != kind || output != ABC_ASDL_RESIDUAL_TYPE_CELL
+                        : !integer || output != kind)
                 return fail(v, id, origin, "bitcast disagrees with operand/result kinds");
             if (node->effect.may_trap || node->effect.reads_memory || node->effect.writes_memory || node->effect.calls || node->effect.safepoint)
                 return fail(v, id, origin, "bitcast cannot have effects");

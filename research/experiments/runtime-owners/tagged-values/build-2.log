@@ -1,0 +1,7 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -c src/cli.c -o build/cli.o
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/abc_opt.c build/libabc-tool.a -lm -o build/abc-opt
+cp tools/opcodes.lua build/opcodes.lua
+/tmp/clang20 -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof -Iinclude -Isrc -Ibuild tools/validate_isa.c -o build/validate-isa
+/tmp/clang20 -O2 -g -pthread build/cli.o build/libabc.a -o build/abc-runtime
+cp tools/abc build/abc
+chmod +x build/abc

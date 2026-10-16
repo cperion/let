@@ -218,7 +218,8 @@ static int native_emit_unary(void *opaque,uint32_t origin,unsigned opcode,unsign
     NativeSymbolicSink *sink=opaque; Compiler *c=sink->compiler; Context *x=sink->machine->context;
     c->current_pc=origin;if(folded)return 1;
     /* Kind-only raw identity: the verified value retains its existing placement. */
-    if(opcode==ABC_OPERATION_F2BITS||opcode==ABC_OPERATION_BITS2F) { *result=input;return 1; }
+    if(opcode==ABC_OPERATION_F2BITS||opcode==ABC_OPERATION_BITS2F||
+       opcode==ABC_OPERATION_ADDR2BITS||opcode==ABC_OPERATION_BITS2ADDR) { *result=input;return 1; }
     int ui=unary_index(opcode); JValue *value=top(x,stack,0); int reg=writable(c,x,value);
     if(ui<0||reg<0||!place(c,ABC_FORM_UNARY(ui,reg),0,NULL)) {
         if(c->status==ABC_OK)c->status=abc_fail(c->error,ABC_NOMEM,origin,"native symbolic sink emission failed");

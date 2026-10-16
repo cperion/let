@@ -52,8 +52,8 @@ is required even for interpreted/threaded owning source.
 
 `src/lifetime.c` additionally rejects ABC calls, abort/HALT, C-stack growth/shrink,
 checked conversions, trapping integer operations and every foreign call except the
-exact non-failing field-drop binding. Generated bodies are straight-line concrete
-field addresses plus enqueues. This is not a termination/pointer-safety proof for
+exact non-failing field-drop binding. Generated bodies use concrete
+field addresses plus enqueues, with finite tag branches for active union payloads. This is not a termination/pointer-safety proof for
 arbitrary handwritten bytecode. Their C stack storage is proportional to verified
 home extents; no generalized native resource-bound qualification is claimed.
 
@@ -65,7 +65,15 @@ Counted local roots allocate from creation. Context-dependent unresolved instanc
 reject rather than promote an allocation family. References carry data/root-owner;
 projections preserve the root. Proven pointer-free borrowed functions use one-cell
 access arguments, preserving `InPlace` lifetime constraints in physical IR.
-Concrete records/arrays/slices and callable environments carry their actual holdings.
+Concrete records/arrays/slices, tagged alternatives and callable environments carry
+their actual holdings. Tagged values use the existing aligned tag/union layout and
+packed cells, with explicit ADDR2BITS/BITS2ADDR transitions for address leaves.
+Compiler-only conditional traversal generates active-case copy/move/drop code; no
+runtime descriptor or tag-induced boxing is introduced. Before acquiring into reused
+scratch unions, their logical bytes are zeroed and enclosing tags published. Every
+successful acquisition is then cleanup-visible, even if a later field acquire fails.
+Proven borrowed bodies with unchanged types and call contracts keep ordinary value
+slot selection rather than being wrapped in an aggregate activation block.
 Owning results use an appended caller-owned result-record pointer; callable environment
 argument0 and the existing ABC hidden-result convention retain their meanings.
 
@@ -101,8 +109,10 @@ indirect owning and multi-result returns, arrays and slices execute in raw/optim
 four-mode tests. Acquisition/allocation failures, traps, stack exhaustion and RX
 publication failure are tested. See the source-cutover evidence for exact counts and
 focused sanitizer limits. Public owning/foreign transport, persistent owning modules,
-erasure, owning variants/containers/tasks, context-specific physical cloning and
-unified executable `.let` remain unavailable. This is not completion of general
+erasure, containers/tasks, context-specific physical cloning and
+unified executable `.let` remain unavailable. Tagged source qualification is recorded
+in `research/experiments/runtime-owners/tagged-values/`, including both lifecycle banks,
+partial acquisition failure, and actual generated branched C drops without source TLS. This is not completion of general
 ownership or the library/task runtime.
 
 ## 1. Historical retired primitive catalog

@@ -1,0 +1,6 @@
+luajit: line 26374: 256 does not fit u8
+stack traceback:
+	[C]: in function 'error'
+	../tools/assembler.lua:156: in function 'assemble'
+	tests/source_owners.lua:201: in main chunk
+	[C]: at 0x57a09ae1f120

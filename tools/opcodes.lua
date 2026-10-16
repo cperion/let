@@ -101,6 +101,6 @@ neutral('JMP32','I32','JMP32')
 neutral('ABORT','U8','ABORT')
 for _,name in ipairs{'ADDC','SUBC','MULC','XORC'} do extended(name,'U8','OPC','UNARY') end
 for _,name in ipairs{'BEQI','BNEI','BLTI','BLEI','BGTI','BGEI','BLTUI','BLEUI','BGTUI','BGEUI'} do extended(name,'I8_I16','BRI','CONDITION') end
-for _,name in ipairs{'F2BITS','BITS2F'} do extended(name,'NONE',nil,'UNARY',2) end
-assert(#M.ops==256 and #M.ext_ops==16 and #M.operations==147,'incomplete revision-6 manifest')
+for _,name in ipairs{'F2BITS','BITS2F','ADDR2BITS','BITS2ADDR'} do extended(name,'NONE',nil,'UNARY',2) end
+assert(#M.ops==256 and #M.ext_ops==18 and #M.operations==149,'incomplete revision-6 manifest')
 return M

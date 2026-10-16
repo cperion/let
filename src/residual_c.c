@@ -319,7 +319,7 @@ static int validate_subset(c_emitter *emitter) {
                         ABC_ASDL_RESIDUAL_UNARY_OP_SIGN_EXTEND32)
                         return emit_failure(
                             emitter, node->origin.offset,
-                            "portable C does not support float unary operations");
+                            "portable C does not support float/address unary operations");
                     break;
                 case ABC_ASDL_RESIDUAL_OPERATION_BINARY:
                     if (operation->value.binary.operation >

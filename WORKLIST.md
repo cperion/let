@@ -680,14 +680,28 @@ then integrate those producers/consumers before widening executable admission.
   recursive borrow precision, COW/containers, erased/dynamic and separate-compilation
   contracts, finalized rank/placement and lifetime execution remain open. Evidence:
   `research/experiments/frontend-syntax/ownership-inference/README.md`.
-**Approved next slice — coordinator, design (O04–O08/E01/E02):** owning tagged
-values and symmetric address-bit casts, approved by the user. Contract and exact
-encoding assignments: `docs/tagged-value-lowering.md`, approved extension section.
-Scope: canonical packed tag/union transport, active-alternative acquisition/move/drop,
-cleanup-visible partial construction, ordinary call/result boundaries. Files/removals
-and the acceptance boundary are specified there. Next action: integrate compiler,
-shared machine/tooling bindings and source failure tests before qualification.
-Context cloning, persistent owning modules and public/foreign/task transport stay open.
+**Owning-tagged deliverable complete — coordinator (O04–O08/E01/E02 remain partial):**
+user-approved EXT10/11 ADDR2BITS/BITS2ADDR use shared raw-identity computation, both
+banks and unchanged native/threaded placement (no added stencil or cell kind).
+`placement.lua`, `layout.lua`, `abc.lua`, opcode/tooling definitions and tests now
+integrate packed tag/aligned-union values, active-case acquisition/move/drop, and
+cleanup-visible partial construction. Removed blanket physical variant rejection and
+flat-offset-only cleanup. Public/foreign address-bearing tag ABIs remain closed.
+Bounded tagged references need no heap promotion; unchanged proven borrowed bodies
+retain ordinary slot selection. Duplicate carrier captures and whole-payload reads
+just to clear moved owners were eliminated after exposing the existing u8 C-index limit.
+Full incremental `tagged-values/validate-reviewed.log`: source1763 checks/568 calls, C2508342 checks,
+four modes/raw+optimized/both lifecycle banks; existing packed-value1894/496 and
+machine/tooling/collector guards pass. Focused ASan/UBSan/leaks pass on seven runtime
+units plus the harness (generated code uninstrumented, function checks disabled).
+Source recursion/failure cleanup and separate C-built100001-node tagged release on a
+128KiB pthread stack are qualified, not task/race support. Expanded fixture:92 C
+entries,131788 native body bytes (A) versus134113 (B), maximum callback homes48 bytes;
+nested variant(2) uses3 owners/35 non-null acquires/120 peak owner bytes. These are
+storage/traffic measurements, not timing or a like-for-like speedup comparison.
+Evidence: `research/experiments/runtime-owners/tagged-values/`. Next action: design
+context-specific physical instances; persistent modules, erasure/containers and
+public/foreign/task transport remain separate approval/integration boundaries.
 
 - [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
   allocate escaping roots separately from activations before publishing any address.
@@ -695,13 +709,15 @@ Context cloning, persistent owning modules and public/foreign/task transport sta
   creation, materializes root-preserving refs/slices/arrays/callable environments and
   appended owning-result storage, and structurally checks a separate physical graph.
   Borrowed pointer-free-reference functions retain one-address contracts without counts.
-  Context-dependent unresolved instances, persistent owning modules, variants/erasure
+  Tagged alternatives now share canonical packed transport and active-case holdings.
+  Context-dependent unresolved instances, persistent owning modules, erasure
   and owning public/foreign/task ABI remain closed. See E01 source-cutover evidence.
 - [ ] **O05** Implement retain/release obligations, borrow elision and alias-aware moves
   through assignments, calls, returns, sums, containers and erased callables.
   **Partial:** concrete copy retains into cleanup-visible scratch before replacement;
   single-use same-loop moves clear sources. Borrowed-function specialization avoids
-  owner traffic. Sums/containers/erased paths and generalized context cloning remain open.
+  owner traffic. Active tagged payloads are now integrated; containers/erased paths
+  and generalized context cloning remain open.
 - [ ] **O06** Specify overflow, allocation failure, partial construction, abort/teardown
   and FFI retention/handle policies; no wrapping counts or implicit unsafe pointer proof.
   **Partial:** local source allocation/overflow/partial construction/trap/stack failures
@@ -710,7 +726,8 @@ Context cloning, persistent owning modules and public/foreign/task transport sta
   remain unsupported, not inferred from raw pointers.
 - [ ] **O07** Implement generated allocation-free iterative release and failure cleanup;
   no host-recursive destruction, user finalizers, tracing or collector fallback.
-  **Supported slice implemented:** straight-line source-generated field drops execute
+  **Supported slice implemented:** concrete source-generated field drops, including
+  finite active-tag branches, execute
   through genuine C entries and enqueue only; the C core drains iteratively without
   allocation. Concrete activation records release actual established holdings on
   normal/failing exits. Exact current coverage is under E01; generalized representation,
@@ -719,7 +736,9 @@ Context cloning, persistent owning modules and public/foreign/task transport sta
   exact lifetimes and all execution bindings; measure count traffic and owner retention.
   **Current source evidence:** E01 and `runtime-owners/source-cutover/` qualify the
   supported connected slice, including source25-environment versus C-built100001-owner
-  graphs. No current count-cost/performance or generalized concurrency acceptance.
+  graphs. `runtime-owners/tagged-values/` extends source/tagged cleanup, exact owner
+  traffic and peak owner-byte measurements. No current timing/performance or generalized
+  concurrency acceptance.
   **Historical C-release evidence at `c16666c8`, not the removal checkpoint:**
   the now-retired `frontend/tests/runtime_owners.lua`84 checks/80 VM
   executions; C4304 checks. Both banks/raw+optimized/four modes; live banks/C,

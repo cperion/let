@@ -1,0 +1,9 @@
+build/source-owners.abc: bytecode=80484 image=820 lifecycle-functions=92 relocations=92 native-body=131788 native-storage=135168 max-callback-home-bytes=48 owner=32 activation-header=16
+build/source-owners-opt.abc: bytecode=80430 image=820 lifecycle-functions=92 relocations=92 native-body=131788 native-storage=135168 max-callback-home-bytes=48 owner=32 activation-header=16
+build/source-owners-b.abc: bytecode=80484 image=820 lifecycle-functions=92 relocations=92 native-body=134113 native-storage=139264 max-callback-home-bytes=48 owner=32 activation-header=16
+build/source-owners-b-opt.abc: bytecode=80430 image=820 lifecycle-functions=92 relocations=92 native-body=134113 native-storage=139264 max-callback-home-bytes=48 owner=32 activation-header=16
+ 95615 build/source-owners.abc
+ 95523 build/source-owners-opt.abc
+ 95615 build/source-owners-b.abc
+ 95523 build/source-owners-b-opt.abc
+382276 total

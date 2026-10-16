@@ -190,8 +190,10 @@ The selected bank comes from F8/F9. These selectors are revision-6 assignments; 
 | `0D` | `BGEUI.X` | i8 constant, i16 displacement | 5 |
 | `0E` | `F2BITS.X` | none | 2 |
 | `0F` | `BITS2F.X` | none | 2 |
+| `10` | `ADDR2BITS.X` | none | 2 |
+| `11` | `BITS2ADDR.X` | none | 2 |
 
-The bitcasts are additive revision-6 assignments, requiring profile 2+. Existing valid bytecode retains its meaning; earlier engines reject these previously unassigned selectors. Selectors 10–FF are unassigned. No dynamic, word, GC or fused-guard selectors are allocated in this typed revision. EXT executes declared typed operations through the same semantic definitions and cache bindings; it is not an opaque execution fallback. No separate EXT rejection subsystem or dedicated rejection project is part of this migration; normal format verification uses the declared instruction set.
+The bitcasts are additive revision-6 assignments, requiring profile 2+. Existing valid bytecode retains its meaning; earlier engines reject these previously unassigned selectors. Selectors 12–FF are unassigned. No dynamic, word, GC or fused-guard selectors are allocated in this typed revision. EXT executes declared typed operations through the same semantic definitions and cache bindings; it is not an opaque execution fallback. No separate EXT rejection subsystem or dedicated rejection project is part of this migration; normal format verification uses the declared instruction set.
 
 ## 3. Exact instruction layouts
 
@@ -286,6 +288,13 @@ Immediate arithmetic computes `X0 op sign_extend(i8)`, without touching Y. C-ope
 - FNEG toggles the sign bit on X0 without changing the other payload bits.
 - I2FS/I2FU convert signed/unsigned integer X0 to binary64, round-to-nearest ties-to-even.
 - F2IS accepts finite X0 in [-2^63, 2^63); F2IU accepts finite X0 in [0, 2^64). They truncate toward zero and return integer bits on X. Outside the specified input interval, including NaN and infinities, abort reason is 3. This preserves the existing interval check before conversion.
+- `ADDR2BITS.X` replaces address-kind X0 with its exact 64 integer bits;
+  `BITS2ADDR.X` restores address kind from integer bits. They are raw identities,
+  not numeric conversions, memory operations, allocation or ownership operations.
+  Y, C and live prefixes are unchanged; empty or incorrectly typed operands reject.
+  They do not validate a pointer, extend its lifetime or create a safe source `Ref`.
+  Native/threaded bindings retain existing symbolic placement without a stencil;
+  packed address payloads need no scratch-memory reinterpretation.
 - There is no implicit boxing, tagging, float normalization or reinterpret cast. `F2BITS.X` explicitly replaces float-kind X0 with integer-kind X0; `BITS2F.X` performs the inverse. Both preserve all 64 bits, including negative zero and signalling/quiet NaN payloads, without arithmetic, allocation, traps, safepoints or changes to Y/C/live prefixes. Empty or incorrectly typed selected operands reject. Existing memory load-kind annotations and ABI kinds also supply floating literals/values.
 
 These rules retain the existing typed numeric policy while changing operand orientation and providing missing mirrored forms. They do not adopt a new floating environment or error ABI.
@@ -412,7 +421,7 @@ Retain the existing profile-specific section payload structures, except that cod
 | 3 | Profile 2 plus indirect callable views | 1–8, adding indirect-site signatures and code-address relocations |
 | 4 | Profile 3 plus named typed foreign calls | 1–9, adding extern signatures |
 
-The six neutral instructions are not automatically legal in every profile: CALLOC/CFREE require profile 2 or higher. Float/memory operations require profile 2, CALLI/TCALLI profile 3, FCALL profile 4. The C-operand arithmetic and immediate-branch EXT forms are legal in profile 1 and higher; F2BITS/BITS2F require profile 2 and higher. Profile 1 retains integer-only function records; profiles 2–4 retain their explicit kind vectors. Existing section framing, loader size limits, export names, hidden-result storage responsibilities and relocation payload structures are otherwise unchanged.
+The six neutral instructions are not automatically legal in every profile: CALLOC/CFREE require profile 2 or higher. Float/memory operations require profile 2, CALLI/TCALLI profile 3, FCALL profile 4. The C-operand arithmetic and immediate-branch EXT forms are legal in profile 1 and higher; F2BITS/BITS2F and ADDR2BITS/BITS2ADDR require profile 2 and higher. Profile 1 retains integer-only function records; profiles 2–4 retain their explicit kind vectors. Existing section framing, loader size limits, export names, hidden-result storage responsibilities and relocation payload structures are otherwise unchanged.
 
 All function entries, branch targets, site signatures and load-kind annotations refer to the new instruction starts. Indirect signatures cover every CALLI/TCALLI, including unreachable ones. Code-address relocations continue to refer to functions rather than serialized process addresses. They do not become native entry pointers in a portable module.
 

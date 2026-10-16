@@ -34,6 +34,38 @@ platform allocation/free, not an unmeasured worker-cache/remote-free subsystem.
 
 ## Status and latest decisions
 
+### Packed owning tagged values and raw address casts — O04–O08/E01/E02
+
+The separately approved extension is integrated: EXT10/11 ADDR2BITS/BITS2ADDR
+preserve all64 bits and selected-bank placement through shared computation, without
+new cell kinds, stencils or scratch memory for reinterpretation. The existing tag/
+aligned union remains canonical for values and call transport. Owning results still
+use caller-owned records; public/foreign packed-address contracts stay closed.
+
+Compiler-only conditional holding traversal generates active-case acquire/move/drop
+code. Concrete scratch unions are zeroed and tagged before publishing each acquisition;
+failed partial copies unwind only established holdings. Generated C callbacks branch
+and enqueue, never interpret a layout or enter source execution. Moves account for
+statement-level variant uses as well as expression references. Duplicate carrier copies
+and whole-payload reads for move cleanup were removed after the first integrated nested
+fixture exceeded existing u8 C-slot limits. Proven borrowed bodies with unchanged types
+and call contracts keep ordinary slot selection, not aggregate activation wrappers.
+
+Evidence: `runtime-owners/tagged-values/`. Full incremental validation passes with
+1763 source checks/568 VM calls and2508342 C cleanup checks, four modes, raw/optimized,
+both lifecycle banks. Focused ASan/UBSan/leak checks pass on seven C runtime units and
+the harness; generated code remains uninstrumented and JIT-incompatible function checks
+are disabled. Separate C-built100001-node tagged chains/duplicate-child holdings drain
+on a128KiB pthread stack without source TLS, recursive drain or allocation. This is not
+task/race qualification. Pointer-free packed1894/496 regressions remain green.
+
+The expanded corpus has92 lifecycle entries:131788 native body bytes in stack-A form,
+134113 in stack-B form, maximum callback homes48 bytes excluding the ABI frame. A nested
+variant uses3 owners but35 acquires; neither traffic nor code cost is zero. These counts
+and peak owner bytes are measured, not timing, RSS or a like-for-like speedup comparison.
+Context cloning, persistent module holdings, erasure/containers, public/FFI/task transport,
+portable-C lifecycle delivery and executable `.let` remain separate incomplete work.
+
 ### D07 — dormant collector removed, active dependencies guarded
 
 Deleted all81 tracked `vendor/whippet` files. The former dynamic/any/Whippet headers,

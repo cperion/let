@@ -10,9 +10,16 @@ static abc_decoded_instruction decode(const uint8_t *code, size_t length) {
 }
 
 int main(void) {
-    assert(ABC_ISA_REVISION == 6 && OP_COUNT == 256 && EXT_COUNT == 16);
-    assert(ABC_OPERATION_COUNT == 147);
+    assert(ABC_ISA_REVISION == 6 && OP_COUNT == 256 && EXT_COUNT == 18);
+    assert(ABC_OPERATION_COUNT == 149);
     assert(EXT_F2BITS == 0x0e && EXT_BITS2F == 0x0f);
+    assert(EXT_ADDR2BITS == 0x10 && EXT_BITS2ADDR == 0x11);
+    assert(abc_extended_instructions[EXT_ADDR2BITS].minimum_profile == 2);
+    assert(abc_extended_instructions[EXT_BITS2ADDR].minimum_profile == 2);
+    assert(abc_extended_instructions[EXT_ADDR2BITS].unary_input_kind == 2);
+    assert(abc_extended_instructions[EXT_ADDR2BITS].unary_result_kind == 1);
+    assert(abc_extended_instructions[EXT_BITS2ADDR].unary_input_kind == 1);
+    assert(abc_extended_instructions[EXT_BITS2ADDR].unary_result_kind == 2);
     assert(abc_extended_instructions[EXT_F2BITS].minimum_profile == 2);
     assert(abc_extended_instructions[EXT_BITS2F].minimum_profile == 2);
     assert(abc_extended_instructions[EXT_F2BITS].unary_input_kind == 3);
@@ -81,7 +88,11 @@ int main(void) {
     assert(instruction.metadata->operation == ABC_OPERATION_BITS2F);
     assert(instruction.selected_stack == ABC_STACK_B && instruction.length == 2);
     assert(!abc_decode_instruction(bits_to_float, 1, &instruction));
-    const uint8_t reserved_selector[] = {0xf8, 0x10};
+    const uint8_t bits_to_address[] = {0xf9, 0x11};
+    instruction = decode(bits_to_address, sizeof bits_to_address);
+    assert(instruction.metadata->operation == ABC_OPERATION_BITS2ADDR);
+    assert(instruction.selected_stack == ABC_STACK_B && instruction.length == 2);
+    const uint8_t reserved_selector[] = {0xf8, 0x12};
     assert(!abc_decode_instruction(reserved_selector, 2, &instruction));
 
     const uint8_t indirect_call[] = {0xd5, 2};

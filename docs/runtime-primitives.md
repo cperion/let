@@ -104,9 +104,11 @@ Cross-worker freeing uses the allocator integration in §8, not a source destruc
 Prepared release routines return to this C loop without recursive host release.
 They use a normal native spill frame, not persistent ABC cleanup stacks or a second
 VM context. Reclamation does not require SERVICE/PARK exits or register snapshots.
-The current compiler-private generator supplies fixed owning offsets; direct-call
-branch/initialized-element-loop execution is qualified with checked-IR fixtures,
-not yet generalized source layout production.
+The current compiler-private generator supplies concrete owning offsets and finite
+active-tag branches, qualified with actual source-produced layouts and failure cleanup.
+Fixed arrays are statically traversed. Dynamic initialized-element loops and general
+container layout production remain separate work; historical checked-IR loop fixtures
+are not their source integration evidence.
 
 ## 3. Concrete containers
 

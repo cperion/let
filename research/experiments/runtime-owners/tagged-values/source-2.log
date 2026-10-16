@@ -1,0 +1,7 @@
+luajit: REJECT [not-a-place] at source-owners.slet:184 `v` is not addressable
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:193: in main chunk
+	[C]: at 0x62903ad45120

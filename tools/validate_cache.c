@@ -17,7 +17,9 @@ static void validate_dead_arguments(abc_vm *session) {
         OP_DUP_A,OP_DROP_A,OP_CPUSH_A,OP_CPOP,OP_MOVE_A,OP_COPY_B,
         OP_CGET0_A,OP_CSET0_A,OP_DIVU_A,OP_SHL_A,OP_POW_A,
         OP_SUB_A,OP_SUB_B,OP_DIVU_B,OP_SHL_B,OP_POW_B,
-        OP_EXT_A,OP_EXT_B,OP_EXT_A,OP_EXT_B};
+        OP_EXT_A,OP_EXT_B,OP_EXT_A,OP_EXT_B,OP_EXT_A,OP_EXT_B,OP_EXT_A,OP_EXT_B};
+    static const uint8_t casts[]={EXT_F2BITS,EXT_BITS2F,EXT_ADDR2BITS,EXT_BITS2ADDR};
+    const size_t first_cast=sizeof ops/sizeof *ops-2*(sizeof casts/sizeof *casts);
     unsigned cases=0;
     for(unsigned ca=0;ca<=4;ca++) for(unsigned cb=0;cb<=4-ca;cb++)
     for(unsigned cc=0;cc<=3;cc++) for(unsigned pattern=0;pattern<2;pattern++)
@@ -66,7 +68,7 @@ static void validate_dead_arguments(abc_vm *session) {
         default: abort();
         }
         uint8_t code[3]={ops[op],OP_HALT_A,OP_HALT_A};
-        if(ops[op]==OP_EXT_A||ops[op]==OP_EXT_B)code[1]=(uint8_t)(op<sizeof ops/sizeof *ops-2?EXT_F2BITS:EXT_BITS2F);
+        if(ops[op]==OP_EXT_A||ops[op]==OP_EXT_B)code[1]=casts[(op-first_cast)/2];
         vm->error=(abc_error){0};vm->code=code;vm->done=0;
         abc_exec_context *previous=abc_active_context;abc_active_context=vm;
         unsigned state=(ca*5+cb)*4+cc;

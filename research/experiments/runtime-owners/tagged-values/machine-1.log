@@ -1,0 +1,5 @@
+source ownership cleanup: 1087002 checks; four modes, raw/optimized, both lifecycle banks, allocation/acquire failures, trap, stack limit, generated C drain
+revision-6 ISA metadata: byte map, mirror contracts, layouts and decoding passed
+validated residual arena, IDs, whole-program invariants, and readable dumps (331 checks)
+revision-6 assembly/verifier/interpreter: 36 original/mirrored contracts passed
+validated 147 oracle cases / 1176 mirrored four-mode executions; assembled all 290 public core/EXT forms

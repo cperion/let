@@ -1,0 +1,10 @@
+/tmp/clang20 -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror -Wno-newline-eof tools/validate_source_owners.c build/libabc.a -lm -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=abc_owner_replace,--wrap=abc_owner_drain,--wrap=mprotect -o build/validate-source-owners
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+luajit: REJECT [not-a-place] at source-owners.slet:164 `x` is not addressable
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: at 0x617c5385d120
+make: *** [Makefile:146: validate-source-owners] Error 1

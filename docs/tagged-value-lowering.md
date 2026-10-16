@@ -1,7 +1,7 @@
 # Packed tagged values and explicit storage
 
-Status: **packed lowering and approved explicit float-bitcast extension implemented;
-focused and full incremental validation passed**. The earlier nested-extraction
+Status: **packed lowering, approved float/address bitcasts and the private owning-tagged
+slice implemented; focused and full incremental validation passed**. The earlier nested-extraction
 shift defect is corrected. F2BITS/BITS2F now supply exact integer/binary64 kind
 transitions, using additive revision-6 EXT selectors 0E/0F (profile 2+); earlier
 engines reject those selectors. No numeric conversion or scratch-memory fallback
@@ -16,10 +16,13 @@ This is not a new source feature, bytecode revision or replacement optimizer.
 Investigation and measured probes:
 [composition investigation](../research/experiments/frontend-syntax/word-bindings/composition-investigation.md).
 
-## Approved owning-tagged extension (not yet qualified)
+## Approved owning-tagged extension — implemented and qualified
 
-User-approved next slice: O04–O08/E01/E02, coordinated here as one integrated
-replacement. Keep the existing tag/aligned union and packed-cell transport. Extend
+User-approved slice: O04–O08/E01/E02, integrated across source, physical lowering,
+shared machine computation and tooling. Full incremental validation and focused
+ASan/UBSan/leak checks pass; evidence and limits are in
+[`runtime-owners/tagged-values/`](../research/experiments/runtime-owners/tagged-values/README.md).
+The broad work IDs remain partial; this qualification covers the boundary below. Keep the existing tag/aligned union and packed-cell transport. Extend
 concrete materialization to managed alternatives, nested records/arrays and callable
 payloads, including pointer-free variants within owning functions. Do not add boxing,
 a second sum representation, a runtime layout interpreter or a slot registry.
@@ -53,7 +56,7 @@ allocation-free pointer-free value lowering. Measure generated size/ownership tr
 claim no speedup without timings. Public owning/FFI, erasure, containers, persistent
 module teardown, context cloning and portable-C lifecycle ABI remain separate gates.
 
-## Problem and invariant
+## Original problem and invariant
 
 Supported address-free tagged values already cross the ABC call ABI as packed u64
 cells. `frontend/let/abc.lua` nevertheless copies tagged value parameters into frame
@@ -73,10 +76,11 @@ values as well as call transport. Do not separately invent an internal sum forma
 Retain existing type layout as the authority for tags, payload offsets, alignment,
 field offsets, array strides and logical byte size.
 
-This covers the currently admitted raw/address-free tagged ABI, including supported
-integer, bool, f64, record, fixed-array and nested tagged payloads. It must not
-silently admit previously rejected address-bearing/managed sums or additional
-aggregate call ABIs. Existing other aggregate representations remain unchanged.
+The original packed-only scope covers the raw/address-free tagged ABI, including
+integer, bool, f64, record, fixed-array and nested tagged payloads. The separately
+approved extension above admits private materialized address-bearing/managed sums
+and their aggregate components, not new public/foreign transport contracts.
+Existing other aggregate representations remain unchanged.
 No fixed-size-only shortcut for the measured option(u32) fixture.
 
 ## Producers, consumers and data flow
@@ -165,12 +169,24 @@ checks to simulate the old compiler's resource footprint.
 The approved extension updates `tools/opcodes.lua`, `gen/semantics.lua` and generated
 metadata/folding, verifier, existing unary backend bindings, optimizer emission,
 `schema/residual.asdl` and its builder/validator. Native/threaded casts retain the
-same symbolic value and placement without emitting a stencil. The optimizer must
+same symbolic value and placement without emitting a stencil. The address extension
+likewise exposes typed AddressToBits/BitsToAddress tooling operations; portable C
+continues to reject address-valued programs and the lifecycle ABI. The optimizer must
 retain explicit bytecode kind transitions even for folded raw constants. Residual
 tooling exposes typed FloatToBits/BitsToFloat operations; portable C still rejects
 float operations rather than implying general float support.
 Canonical source/IR schemas, optimizer eligibility, public ABI/layout, continuations
-and GC/root policies are unchanged.
+and collector-free ownership policies are unchanged. The private packed-address layout
+is admitted only after concrete materialization, not by weakening public/foreign gates.
+
+The materializer uses compiler-only conditional holding trees. Runtime cleanup receives
+ordinary finite branches and concrete offsets, never a path table. Reused scratch unions
+are zeroed before their enclosing tags and acquired owner fields are published; copying
+inactive bytes must not turn old scalar bits into holdings. Last-use accounting includes
+Switch/VariantMatches/VariantPayload uses, not only expression references. Clearing moved
+owners reads tags alone. Immutable carrier captures are reused rather than copied again.
+Proven borrowed functions whose types and every call contract are unchanged retain their
+original ordinary value/local lowering, avoiding unnecessary aggregate frames.
 
 ## Validation and measurement
 

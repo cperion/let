@@ -112,7 +112,10 @@ for _,fixture in ipairs(fixtures) do
 end
 -- Kind-only casts still require a selected operand of exactly the declared kind.
 for _,body in ipairs{' F2BITS.A\n', ' PUSH.A 1\n F2BITS.A\n',
- ' PUSH.A 1\n BITS2F.A\n BITS2F.A\n', ' GADDR.A 0\n BITS2F.A\n'} do
+ ' PUSH.A 1\n BITS2F.A\n BITS2F.A\n', ' GADDR.A 0\n BITS2F.A\n',
+ ' ADDR2BITS.A\n', ' BITS2ADDR.A\n', ' PUSH.A 1\n ADDR2BITS.A\n',
+ ' PUSH.A 1\n BITS2F.A\n ADDR2BITS.A\n', ' GADDR.A 0\n BITS2ADDR.A\n',
+ ' PUSH.A 1\n BITS2F.A\n BITS2ADDR.A\n'} do
  for mirror=0,1 do
   local text='.profile memory\n.datazero 8\n.function main 0 0 - -\n'..body..' DROP.A\n RET.A 0 0\n.export main\n'
   if mirror==1 then text=text:gsub('%.([AB])',function(bank)return bank=='A' and '.B' or '.A' end) end
@@ -122,4 +125,7 @@ for _,body in ipairs{' F2BITS.A\n', ' PUSH.A 1\n F2BITS.A\n',
  end
 end
 assert(not pcall(assembler.assemble,'.function main 0 1\n PUSH.A 0\n BITS2F.A\n RET.A 0 1\n.export main\n'),'bitcasts must require profile 2+')
+for _,cast in ipairs{'ADDR2BITS','BITS2ADDR'} do
+ assert(not pcall(assembler.assemble,'.function main 0 0\n PUSH.A 0\n '..cast..'.A\n DROP.A\n RET.A 0 0\n.export main\n'),'address bitcasts must require profile 2+')
+end
 print(('revision-6 assembly/verifier/interpreter: %d original/mirrored contracts passed'):format(cases))

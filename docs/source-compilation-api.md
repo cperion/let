@@ -45,7 +45,8 @@ old program after in-place mutation. Private `ABC.lower` consumes that program, 
 a bare function list or a separate set of proof annotations.
 
 `Layout.program` selects borrowed or owning representation from checked facts.
-`ABC.lower` materializes owning programs through `let/placement.lua`: a distinct
+`ABC.lower` materializes counted programs and retained-capable tagged values through
+`let/placement.lua` (including bounded tags with no counted roots): a distinct
 `physical-program` contains concrete storage, holding operations, caller result
 records and generated lifecycle bodies. `Layout.physical` describes this graph;
 `Check.program(..., true)` structurally checks it without rerunning source inference.
@@ -54,11 +55,12 @@ physical graph as `.materialized`. Pointer-free staging/snapshots use `Layout.sc
 
 Cycles and unsafe-access proofs still reject during analysis. Physical admission
 rejects unresolved context-specific placement, owning public/foreign transport,
-persistent module holdings, owning variants and erasure. Supported `.slet` factories,
-reference/slice/array and callable transport execute with normal/failure cleanup;
+persistent module holdings and erasure. Packed address-bearing tags remain private,
+not a new public/foreign aggregate ABI. Supported `.slet` factories,
+reference/slice/array, tagged and callable transport execute with normal/failure cleanup;
 `.let` execution remains `dynamic-lowering`. Staging does not authorize the lifetime
 foreign bindings. See [runtime-interfaces.md](runtime-interfaces.md#current-concrete-source-binding)
-and `research/experiments/runtime-owners/source-cutover/` for the implemented boundary.
+and `research/experiments/runtime-owners/{source-cutover,tagged-values}/` for the implemented boundary.
 
 ## 2. Proposed call shapes
 

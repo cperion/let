@@ -289,16 +289,17 @@ static void check_builder_scalars(void) {
               "selected check did not consume its supplied value");
         abc_residual_bundle_free(bundle);
 
-        uint8_t bitcasts[] = {(uint8_t)(0x14+bank), (uint8_t)(0xf8+bank), 0x0f,
-                             (uint8_t)(0xf8+bank), 0x0e, (uint8_t)(0x8a+bank), 1, 1};
+        for(unsigned address=0;address<2;address++) {
+        uint8_t bitcasts[] = {(uint8_t)(0x14+bank), (uint8_t)(0xf8+bank), (uint8_t)(address?0x11:0x0f),
+                             (uint8_t)(0xf8+bank), (uint8_t)(address?0x10:0x0e), (uint8_t)(0x8a+bank), 1, 1};
         source=(abc_function){.end=sizeof(bitcasts),.arguments=1,.results=1};
         module.code=bitcasts;module.code_size=sizeof(bitcasts);module.functions=&source;
         bundle=build_checked(&module);
         const abc_residual_program *bitprogram=abc_residual_bundle_program(bundle);
         function=&bitprogram->functions.items[0];
         to_float=node_at(function,1);from_float=node_at(function,3);
-        check(to_float->operation.value.unary.operation==ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_FLOAT &&
-              from_float->operation.value.unary.operation==ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS &&
+        check(to_float->operation.value.unary.operation==(address?ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_ADDRESS:ABC_ASDL_RESIDUAL_UNARY_OP_BITS_TO_FLOAT) &&
+              from_float->operation.value.unary.operation==(address?ABC_ASDL_RESIDUAL_UNARY_OP_ADDRESS_TO_BITS:ABC_ASDL_RESIDUAL_UNARY_OP_FLOAT_TO_BITS) &&
               from_float->operation.value.unary.input.value==to_float->results.items[0].value,
               "raw bitcast identity/result linkage lost");
         check(!to_float->effect.may_trap&&!to_float->effect.reads_memory&&!to_float->effect.writes_memory&&
@@ -306,10 +307,11 @@ static void check_builder_scalars(void) {
               "raw bitcast must not introduce effects");
         for(size_t i=0;i<bitprogram->values.count;i++) {
             const abc_residual_value *v=&bitprogram->values.items[i];
-            if(v->id.value==to_float->results.items[0].value)check(v->type==ABC_ASDL_RESIDUAL_TYPE_F64,"raw bits must acquire float type");
+            if(v->id.value==to_float->results.items[0].value)check(v->type==(address?ABC_ASDL_RESIDUAL_TYPE_ADDRESS:ABC_ASDL_RESIDUAL_TYPE_F64),"raw bits must acquire declared type");
             if(v->id.value==from_float->results.items[0].value)check(v->type==ABC_ASDL_RESIDUAL_TYPE_CELL,"float bits must acquire integer type");
         }
         abc_residual_bundle_free(bundle);
+        }
     }
 }
 

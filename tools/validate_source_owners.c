@@ -8,7 +8,9 @@
 
 static unsigned checks,active,in_drain,allocations,frees,acquires,fail_alloc,fail_acquire,drain_allocations;
 static void *live[131072];static size_t extents[131072];static unsigned used,searchable;
-static abc_drop_fields_fn concrete_drop;
+static abc_drop_fields_fn concrete_drop,tagged_drop;
+static unsigned hold_calls;
+static size_t live_bytes,peak_bytes;
 static unsigned reject_publication,publication_failures;
 int __real_mprotect(void *,size_t,int);
 int __wrap_mprotect(void *p,size_t n,int protection) {
@@ -30,18 +32,22 @@ void *__wrap_aligned_alloc(size_t alignment,size_t bytes) {
     if(in_drain)drain_allocations++;
     if(active&&++allocations==fail_alloc)return NULL;
     void *p=__real_aligned_alloc(alignment,bytes);
-    if(active&&p){CHECK(used<sizeof live/sizeof *live);live[used]=p;extents[used++]=bytes;searchable=used;}
+    if(active&&p){CHECK(used<sizeof live/sizeof *live);live[used]=p;extents[used++]=bytes;searchable=used;
+        live_bytes+=bytes;if(live_bytes>peak_bytes)peak_bytes=live_bytes;}
     return p;
 }
 void __wrap_free(void *p) {
     if(active&&p)for(unsigned i=searchable;i;i--)if(live[i-1]==p) {
         abc_owner *owner=p;CHECK(owner->kind==ABC_OWNER_LOCAL);CHECK(owner->count.local==0);
         if(extents[i-1]==48&&owner->drop_fields)concrete_drop=owner->drop_fields;
+        if(extents[i-1]==80&&owner->drop_fields)tagged_drop=owner->drop_fields;
+        CHECK(live_bytes>=extents[i-1]);live_bytes-=extents[i-1];
         live[i-1]=NULL;frees++;while(searchable&&!live[searchable-1])searchable--;break;
     }
     __real_free(p);
 }
 abc_status __wrap_abc_owner_replace(abc_owner_context *context,abc_owner **slot,abc_owner *incoming,abc_error *error) {
+    if(active)hold_calls++;
     if(active&&incoming&&++acquires==fail_acquire) {
         CHECK(incoming->kind==ABC_OWNER_LOCAL);uint64_t count=incoming->count.local;abc_owner *old=*slot;
         incoming->count.local=UINT64_MAX;
@@ -62,11 +68,12 @@ static abc_module *load(const char *path) {
     CHECK(status==ABC_OK);free(bytes);return m;
 }
 static void begin(unsigned allocation_failure,unsigned acquire_failure) {
-    CHECK(!active);active=1;used=searchable=allocations=frees=acquires=drain_allocations=0;fail_alloc=allocation_failure;fail_acquire=acquire_failure;
+    CHECK(!active);active=1;used=searchable=allocations=frees=acquires=drain_allocations=hold_calls=0;
+    live_bytes=peak_bytes=0;fail_alloc=allocation_failure;fail_acquire=acquire_failure;
 }
 static void finish(abc_vm *vm) {
     for(unsigned i=0;i<used;i++)CHECK(!live[i]);
-    CHECK(frees==used);CHECK(!drain_allocations);CHECK(!vm->root.cleanup);
+    CHECK(frees==used);CHECK(!live_bytes);CHECK(!drain_allocations);CHECK(!vm->root.cleanup);
     CHECK(!vm->root.owners.head&&!vm->root.owners.tail&&!vm->root.owners.draining);
     CHECK(!abc_active_context);active=0;
 }
@@ -113,16 +120,21 @@ int main(int argc,char **argv) {
             CHECK(signature.arguments==1&&signature.argument_kinds[0]==ABC_KIND_ADDR);
             begin(0,0);CHECK(run(vm,m,"read_only",(uintptr_t)&borrowed,91,&error)==ABC_OK);CHECK(!allocations&&!acquires);
             begin(0,0);CHECK(run(vm,m,"borrow_local",91,91,&error)==ABC_OK);CHECK(!allocations&&!acquires);
-            const char *extra[]={"pair_result","array","slice","borrow","projection","indirect_result","partial","keyed","self_replace","zero_width","opened"};
-            const uint64_t wanted[]={203,20403,203,2,2,2,7,5,2,2,2};const unsigned owners[]={2,4,1,2,1,2,0,1,2,2,2};
+            begin(0,0);CHECK(run(vm,m,"variant",0,0,&error)==ABC_OK);CHECK(!allocations&&!acquires);
+            const char *extra[]={"pair_result","array","slice","borrow","projection","indirect_result","partial","keyed","self_replace","zero_width","opened",
+                "variant","variant_replace","variant_nested","variant_indirect","variant_callable","variant_slice","variant_loop","variant_scalar","variant_multi","variant_raw"};
+            const uint64_t wanted[]={203,20403,203,2,2,2,7,5,2,2,2,2,521,9,2,3,203,1,2,203,4};
+            const unsigned owners[]={2,4,1,2,1,2,0,1,2,2,2,1,4,3,2,2,1,2,1,2,1};
             for(unsigned test=0;test<sizeof extra/sizeof *extra;test++) {
                 begin(0,0);CHECK(run(vm,m,extra[test],2,wanted[test],&error)==ABC_OK);
                 if(owners[test]&&allocations!=owners[test])fprintf(stderr,"%s: %u owner allocations, expected %u\n",extra[test],allocations,owners[test]);
                 CHECK(owners[test]?allocations==owners[test]:allocations>0);
                 unsigned count=acquires,allocated=allocations;
+                if(file==1&&mode==0)printf("traffic %s: owners=%u holds=%u nonnull-acquires=%u peak-owner-bytes=%zu\n",extra[test],allocated,hold_calls,count,peak_bytes);
                 for(unsigned i=1;i<=allocated;i++){begin(i,0);CHECK(run(vm,m,extra[test],2,0,&error)==ABC_NOMEM);CHECK(allocations==i&&frees==i-1);}
                 for(unsigned i=1;i<=count;i++){begin(0,i);CHECK(run(vm,m,extra[test],2,0,&error)==ABC_NOMEM);CHECK(acquires==i);}
             }
+            begin(0,0);CHECK(run(vm,m,"variant_fail",2,0,&error)==ABC_ABORT);CHECK(error.reason==1&&allocations==3);
             begin(0,0);CHECK(run(vm,m,"deep_graph",42,42,&error)==ABC_OK);CHECK(allocations==25);unsigned graph_acquires=acquires;
             begin(25,0);CHECK(run(vm,m,"deep_graph",42,0,&error)==ABC_NOMEM);CHECK(frees==24);
             begin(0,graph_acquires);CHECK(run(vm,m,"deep_graph",42,0,&error)==ABC_NOMEM);CHECK(acquires==graph_acquires);
@@ -143,12 +155,27 @@ int main(int argc,char **argv) {
                 CHECK(!pthread_attr_init(&attr));CHECK(!pthread_attr_setstacksize(&attr,128*1024));
                 CHECK(!pthread_create(&thread,&attr,drain_thread,&input));CHECK(!pthread_join(thread,NULL));CHECK(!pthread_attr_destroy(&attr));
                 CHECK(allocations==100001&&frees==100001&&!context.head&&!context.tail);finish(vm);
+                /* TaggedBox is header32 + {sentinel/pad, tag/pad, union32}.
+                   Exercise one/pair/noise branches without source TLS, including
+                   two holdings to one child and scalar bits in inactive owner slots. */
+                CHECK(tagged_drop);head=NULL;begin(0,0);
+                for(unsigned i=0;i<100001;i++) {
+                    abc_owner *owner=NULL;CHECK(abc_owner_alloc(80,8,ABC_OWNER_LOCAL,tagged_drop,&owner,&error)==ABC_OK);
+                    uint64_t *fields=(uint64_t *)(owner+1);fields[0]=17;fields[1]=i?2:1;
+                    fields[2]=123;fields[3]=i?(uintptr_t)head:456;fields[4]=789;fields[5]=321;
+                    if(i==100000){fields[1]=3;fields[5]=(uintptr_t)head;CHECK(abc_owner_retain(head,&error)==ABC_OK);}
+                    head=owner;
+                }
+                input=(drain_input){&context,head};CHECK(!pthread_attr_init(&attr));CHECK(!pthread_attr_setstacksize(&attr,128*1024));
+                CHECK(!pthread_create(&thread,&attr,drain_thread,&input));CHECK(!pthread_join(thread,NULL));CHECK(!pthread_attr_destroy(&attr));
+                CHECK(allocations==100001&&frees==100001&&!context.head&&!context.tail);finish(vm);
             }
             abc_vm_free(vm);
             /* Fail after owning callers exist, before the recursive child can
                establish its next activation. The ordinary stack limit survives. */
             limits.stack_cells=1024;CHECK(abc_vm_create(&limits,&vm,&error)==ABC_OK);CHECK(abc_vm_load(vm,m,&error)==ABC_OK);
             begin(0,0);CHECK(run(vm,m,"deep",10000,0,&error)==ABC_STACK);CHECK(allocations>0);
+            begin(0,0);CHECK(run(vm,m,"variant_deep",10000,0,&error)==ABC_STACK);CHECK(allocations>0);
             begin(0,0);CHECK(run(vm,m,"main",2,203,&error)==ABC_OK);
             abc_vm_free(vm);
         }

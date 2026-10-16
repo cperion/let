@@ -43,6 +43,15 @@ function M.program(source,options)
   local name=prefix..serial;named[name]=true;return name
  end
  local function managed(ty) return Ownership.checkedAccess(ty) end
+ local function privateTagged(ty)
+  if ty:isTaggedType() then return not Layout.pointerFree(ty) end
+  if ty:isRecord() then for _,f in ipairs(ty.fields) do if privateTagged(f.type) then return true end end end
+  if ty:isArray() then return privateTagged(ty.element) end
+  return false
+ end
+ -- Private flattening is not permission to widen unrelated public/foreign
+ -- aggregate ABIs. Managed borrowed inputs retain their separate admission below.
+ local function newAggregateABI(ty) return not managed(ty) and Layout.scalar:abiComponents(ty)==false end
  local describe,signature
  local borrowing={}
  for _,fn in ipairs(source.functions) do
@@ -127,7 +136,11 @@ function M.program(source,options)
   elseif ty:isArray() then
    local part=describe(ty.element);d.type=S.Array(part.type,ty.length)
    for index=0,ty.length-1 do for _,p in ipairs(part.paths) do d.paths[#d.paths+1]=prepend(p,index) end end
-  elseif ty:isTaggedType() and managed(ty) then reject('Owning variant payload layout has not been resolved')
+  elseif ty:isTaggedType() then
+   local cases={};for _,f in ipairs(S.alternatives(ty)) do
+    local part=describe(f.type);cases[f.name]=part.type;local key={case=f.name}
+    for _,p in ipairs(part.paths) do d.paths[#d.paths+1]=prepend(p,key) end
+   end;d.type=S.Sum(cases)
   elseif ty==S.Any then reject('Erased owning values need a resolved physical contract') end
   return d
  end
@@ -135,8 +148,8 @@ function M.program(source,options)
  for _,name in ipairs(options.exports or {}) do
   local fn=definitions[name]
   if fn then
-   for _,input in ipairs(fn.inputs) do if (input.kind=='InPlace' or managed(input.type)) and not borrowing[fn.id] then reject('Public owning/access inputs are not supported: '..name) end end
-   for _,ty in ipairs(fn.results) do if managed(ty) then reject('Public owning/access results are not supported: '..name) end end
+   for _,input in ipairs(fn.inputs) do if privateTagged(input.type) or (input.kind=='InValue' and newAggregateABI(input.type)) or ((input.kind=='InPlace' or managed(input.type)) and not borrowing[fn.id]) then reject('Public owning/access inputs are not supported: '..name) end end
+   for _,ty in ipairs(fn.results) do if managed(ty) or privateTagged(ty) or newAggregateABI(ty) then reject('Public owning/access results are not supported: '..name) end end
   end
  end
  for _,data in ipairs(source.modules) do
@@ -144,8 +157,8 @@ function M.program(source,options)
   program.modules[#program.modules+1]=data
  end
  for _,external in ipairs(source.foreigns) do
-  for _,input in ipairs(external.inputs) do if input.kind~='InValue' or managed(input.type) then reject('Foreign ownership transport is not supported') end end
-  for _,ty in ipairs(external.results) do if managed(ty) then reject('Foreign ownership transport is not supported') end end
+  for _,input in ipairs(external.inputs) do if input.kind~='InValue' or managed(input.type) or privateTagged(input.type) or newAggregateABI(input.type) then reject('Foreign ownership transport is not supported') end end
+  for _,ty in ipairs(external.results) do if managed(ty) or privateTagged(ty) or newAggregateABI(ty) then reject('Foreign ownership transport is not supported') end end
   program.foreigns[#program.foreigns+1]=external;definitions[external.target]=external;contracts[external.target]=signature(external.inputs,external.results)
  end
  for _,op in ipairs{'alloc','hold','clear','enter','leave','drop'} do
@@ -153,49 +166,89 @@ function M.program(source,options)
   for _,ty in ipairs(ts) do ins[#ins+1]=S.inValue(ty) end
   program.foreigns[#program.foreigns+1]=I.Foreign(names[op],L(ins),L{})
  end
- local function at(p,ty,path,b)
-  for _,key in ipairs(path) do
-   if type(key)=='number' then ty=ty.element;p=I.Index(p,b:u32(key),ty)
-   else ty=S.field(ty,key);p=field(p,key) end
+ -- Compiler-only holding paths form a traversal tree. Case nodes guard union
+ -- payloads; they are never serialized or interpreted by the runtime.
+ local function tree(d)
+  if d.tree then return d.tree end
+  local root={children={}};local keys={}
+  for _,path in ipairs(d.paths) do
+   local node=root;local encoded={}
+   for _,key in ipairs(path) do
+    local name=type(key)=='table' and 'case:'..key.case or type(key)..':'..key
+    if type(key)=='table' then d.conditional=true end
+    encoded[#encoded+1]=#name..':'..name
+    node.byKey=node.byKey or {};local child=node.byKey[name]
+    if not child then child={key=key,children={}};node.byKey[name]=child;node.children[#node.children+1]=child end
+    node=child
+   end
+   node.owner=true;keys[#keys+1]=table.concat(encoded,'/')
   end
-  return p
+  d.tree=root;d.key=table.concat(keys,';');return root
  end
- local function offset(ty,path)
-  local n=0
-  for _,key in ipairs(path) do local item=physical:layout(ty)
-   if type(key)=='number' then n=n+key*item.stride;ty=ty.element
-   else n=n+item.fields[key].offset;ty=item.fields[key].type end
-  end
-  return n
+ local function component(ty,key)
+  local item=physical:layout(ty)
+  if type(key)=='table' then return S.caseOf(ty,key.case),item.payloadOffset end
+  if type(key)=='number' then return ty.element,key*item.stride end
+  return item.fields[key].type,item.fields[key].offset
  end
  local drops={}
  local function drop(d,header)
   if #d.paths==0 then return nil end
   header=header or 0
   local key=S.encode(d.type)..':'..header
-  -- The descriptor is compiler data. Only concrete field operations enter the module.
-  for _,p in ipairs(d.paths) do key=key..':'..offset(d.type,p) end
+  local root=tree(d);key=key..':'..d.key
   if drops[key] then return drops[key] end
   local name=fresh('_let_drop_');drops[key]=name
-  local lines={'.function '..name..' 2 0 aa -'}
-  for _,p in ipairs(d.paths) do
-   lines[#lines+1]='  CGET.A 0';lines[#lines+1]='  CGET.A 1'
-   local n=header+offset(d.type,p)
-   if n~=0 then lines[#lines+1]='  PUSH.B 1';lines[#lines+1]='  IDX.A '..n end
-   lines[#lines+1]='  FCALL.A '..names.drop
+  local lines={'.function '..name..' 2 0 aa -'};local labels=0
+  local function emit(line) lines[#lines+1]='  '..line end
+  local function label() labels=labels+1;return '_drop_'..labels end
+  local function address(n)
+   emit('CGET.A 1');if n~=0 then emit('PUSH.B 1');emit('IDX.A '..n) end
   end
+  local function visit(node,ty,n)
+   if node.owner then emit('CGET.A 0');address(n);emit('FCALL.A '..names.drop);return end
+   local done=ty:isTaggedType() and label()
+   for _,child in ipairs(node.children) do
+    local part,offset=component(ty,child.key);local skip
+    if type(child.key)=='table' then
+     skip=label();address(n);emit('LD32.A 0');emit('PUSH.B '..physical:layout(ty).tags[child.key.case]);emit('EQ.A');emit('JZ.A '..skip)
+    end
+    visit(child,part,n+offset)
+    if skip then emit('JMP '..done);lines[#lines+1]=skip..':' end
+   end
+   if done then lines[#lines+1]=done..':' end
+  end
+  visit(root,d.type,header)
   lines[#lines+1]='  RET.A 2 0';program.lifecycle[name]=lines;return name
+ end
+ local function sameContract(fn,c)
+  if c.output or #fn.inputs~=#c.inputs or #fn.results~=#c.results then return false end
+  for i,input in ipairs(fn.inputs) do if input~=c.inputs[i] then return false end end
+  for i,ty in ipairs(fn.results) do if ty~=c.results[i] then return false end end
+  return true
  end
  local function transform(fn)
   local borrowed=borrowing[fn.id]
+  -- A proven borrowed body whose types AND call contracts are unchanged needs
+  -- no ownership materialization. Keep ordinary value/local slot selection;
+  -- do not turn its scalar or packed values into an aggregate activation block.
+  local unchanged=borrowed and sameContract(fn,contracts[fn.id])
+  if unchanged then Walk.walk(fn,{enter=function(node)
+   if not unchanged then return false end
+   if S.Ty.V:isclassof(node) and node:isRef() then unchanged=false;return false end
+   if node.kind=='Call' and not sameContract(definitions[node.target],contracts[node.target]) then unchanged=false;return false end
+  end}) end
+  if unchanged then program.functions[#program.functions+1]=fn;return end
   local describe=borrowed and function(ty) return {type=ty:isRef() and P or ty,paths={}} end or describe
   local b=IR.builder();local body=L{};local values,storage,addressed,moves={},{},{},{}
   local definitionsAt,uses,usedAt={},{},{}
   local function usesIn(node,loop)
    if S.Ty.V:isclassof(node) then return end
    if node.kind=='Loop' then loop=node end
-   if I.Ref:isclassof(node) then local id=node.value.id;uses[id]=(uses[id] or 0)+1;usedAt[id]=loop
-   elseif node.kind=='Let' or node.kind=='Read' or node.kind=='View' then definitionsAt[node.value.id]=loop
+   local function use(id) uses[id]=(uses[id] or 0)+1;usedAt[id]=loop end
+   if node.kind=='Switch' or node.kind=='VariantMatches' or node.kind=='VariantPayload' then use(node.variant.id) end
+   if I.Ref:isclassof(node) then use(node.value.id)
+   elseif node.kind=='Let' or node.kind=='Read' or node.kind=='View' or node.kind=='ConstructVariant' or node.kind=='VariantPayload' or node.kind=='VariantMatches' then definitionsAt[node.value.id]=loop
    elseif node.kind=='Call' or node.kind=='Indirect' then for _,id in ipairs(node.results) do definitionsAt[id.id]=loop end end
    for _,child in ipairs(Walk.nodeChildren(node)) do usesIn(child,loop) end
   end
@@ -216,6 +269,7 @@ function M.program(source,options)
    return field(framePlace,name)
   end
   local function read(list,ty,p) return b:ref(b:read(list,ty,p),ty) end
+  local function valueId(list,ty,value) return value.kind=='Ref' and value.value or b:let(list,ty,value) end
   local function address(p,ty) return b:convert(b:addr(p,S.Ptr(ty),S.Borrow.WriteAccess),P) end
   local function ptr(p,ty) return I.PtrIndex(b:convert(p,S.Ptr(ty)),b:u32(0),ty) end
   local function null() return b:nullPtr(P) end
@@ -225,15 +279,87 @@ function M.program(source,options)
   local function clear(list,p,d)
    local name=drop(d);if name then invoke(list,'clear',{address(p,d.type),b:code(name,P,true)}) end
   end
-  local function clearOwners(list,p,d)
-   for _,path in ipairs(d.paths) do b:store(list,at(p,d.type,path,b),null()) end
+  local zeroValues={}
+  local function zero(list,ty)
+   if ty:isPtr() then return b:nullPtr(ty) end
+   if ty:isRecord() then local parts={};for _,f in ipairs(ty.fields) do parts[#parts+1]=zero(list,f.type) end;return b:make(ty,parts) end
+   if ty:isArray() then local parts={};for _=1,ty.length do parts[#parts+1]=zero(list,ty.element) end;return b:make(ty,parts) end
+   if ty:isView() then return b:callable(null(),null(),ty) end
+   if ty:isTaggedType() then
+    if zeroValues[ty] then return zeroValues[ty] end
+    local first=S.alternatives(ty)[1];local value=b:valueId()
+    local payload=first.type~=S.Unit and zero(list,first.type) or nil
+    b:emit(list,I.ConstructVariant(value,ty,first.name,payload));zeroValues[ty]=b:ref(value,ty);return zeroValues[ty]
+   end
+   return b:const(ty,ty==S.F64 and I.Float(0) or ty==S.Bool and I.Boolean(false) or I.UInt(0))
+  end
+  local function payloadPlace(p,ty,tag)
+   local byte=I.PtrIndex(b:convert(address(p,ty),S.Ptr(S.U8)),b:u32(physical:layout(ty).payloadOffset),S.U8)
+   return ptr(address(byte,S.U8),S.caseOf(ty,tag))
+  end
+  local function owners(list,p,d,incoming,acquire)
+   local function visit(list,node,p,ty,value)
+    if node.owner then
+     if acquire then invoke(list,'hold',{address(p,P),value}) else b:store(list,p,null()) end
+    elseif ty:isTaggedType() then
+     if not value then
+      -- Clearing a moved value needs its tag, not a copy of its entire payload.
+      local tag=read(list,S.U32,ptr(address(p,ty),S.U32))
+      for _,child in ipairs(node.children) do
+       local name=child.key.case;local branch=L{}
+       visit(branch,child,payloadPlace(p,ty,name),S.caseOf(ty,name),nil)
+       b:emit(list,I.If(b:bin('Eq',tag,b:u32(physical:layout(ty).tags[name]),S.Bool),branch,L{}))
+      end
+      return
+     end
+     local id=valueId(list,ty,value);local cases={};local alternatives=S.alternatives(ty)
+     for index,case in ipairs(alternatives) do
+      local branch=L{};local child=node.byKey and node.byKey['case:'..case.name]
+      if acquire then
+       -- Scratch was zeroed in full before changing any tag. Publish the active
+       -- case before its first acquire, including all enclosing union tags.
+       b:store(branch,ptr(address(p,ty),S.U32),b:u32(index-1))
+      end
+      if child then
+       local payload
+       if value then local v=b:valueId();b:emit(branch,I.VariantPayload(v,id,ty,case.name));payload=b:ref(v,case.type) end
+       visit(branch,child,payloadPlace(p,ty,case.name),case.type,payload)
+      end
+      cases[#cases+1]=I.Case(case.name,index==#alternatives,branch)
+     end
+     b:emit(list,I.Switch(id,ty,L(cases)))
+    else
+     for _,child in ipairs(node.children) do
+      local key=child.key;local part=component(ty,key)
+      local sub=type(key)=='number' and I.Index(p,b:u32(key),part) or field(p,key)
+      visit(list,child,sub,part,value and member(value,key,part))
+     end
+    end
+   end
+   visit(list,tree(d),p,d.type,incoming)
+  end
+  local function clearOwners(list,p,d) owners(list,p,d,nil,false) end
+  local function zeroUnions(list,p,d)
+   local function visit(node,p,ty)
+    if ty:isTaggedType() then
+     local size=physical:layout(ty).size;assert(size%8==0,'an owning union has address alignment')
+     local words=b:convert(address(p,ty),S.Ptr(S.U64))
+     for i=0,size/8-1 do b:store(list,I.PtrIndex(words,b:u32(i),S.U64),b:int(S.U64,0)) end
+    else
+     for _,child in ipairs(node.children) do
+      local key=child.key;local part=component(ty,key)
+      visit(child,type(key)=='number' and I.Index(p,b:u32(key),part) or field(p,key),part)
+     end
+    end
+   end
+   visit(tree(d),p,d.type)
   end
   local function copy(list,destination,d,value)
    if d.type==S.Unit then return end
    if #d.paths==0 then b:store(list,destination,value);return end
    -- Capture the entire incoming value before any destination mutation. Newly
    -- retained fields are published immediately in cleanup-visible scratch storage.
-   local captured=b:ref(b:let(list,d.type,value),d.type)
+   local captured=b:ref(valueId(list,d.type,value),d.type)
    local moved=moves[value]
    if moved then
     -- A last, single use in the defining iteration transfers the actual holding.
@@ -242,11 +368,10 @@ function M.program(source,options)
    end
    local temporary=slot(d)
    clear(list,temporary,d)
-   for _,path in ipairs(d.paths) do
-    local incoming=captured;local ty=d.type
-    for _,key in ipairs(path) do ty=type(key)=='number' and ty.element or S.field(ty,key);incoming=member(incoming,key,ty) end
-    invoke(list,'hold',{address(at(temporary,d.type,path,b),P),incoming})
-   end
+   -- Clear stale non-owning union bytes too: changing a tag must never expose
+   -- old scalar/data bits as a newly initialized owner field.
+   if d.conditional then zeroUnions(list,temporary,d) end
+   owners(list,temporary,d,captured,true)
    -- All acquires succeeded. Fill data bits, drop old destination, then transfer
    -- the scratch holding. There are no failing operations between transfer/clear.
    b:store(list,temporary,captured)
@@ -457,8 +582,19 @@ function M.program(source,options)
      -- activation releases anything. Scalar returned cells have no holdings.
      if not borrowed then invoke(list,'leave',{b:ref(frameAddressId,P)}) end
      b:return_(list,returned)
-    elseif k=='ConstructVariant' or k=='VariantMatches' or k=='VariantPayload' or k=='Switch' then
-     reject('Variant materialization in an owning instance is not yet resolved')
+    elseif k=='ConstructVariant' then
+     local d=describe(s.type);local payload=s.payload and expr(list,s.payload);local id=b:valueId()
+     b:emit(list,I.ConstructVariant(id,d.type,s.tag,payload));publish(list,s.value.id,s.type,b:ref(id,d.type))
+    elseif k=='VariantMatches' or k=='VariantPayload' or k=='Switch' then
+     local d=describe(s.sum);local variant=valueId(list,d.type,expr(list,b:ref(s.variant,s.sum)))
+     if k=='Switch' then
+      local cases={};for _,case in ipairs(s.cases) do local branch=L{};statements(branch,case.body,inLoop);cases[#cases+1]=I.Case(case.tag,case.fallback,branch) end
+      b:emit(list,I.Switch(variant,d.type,L(cases)))
+     else
+      local id=b:valueId();b:emit(list,k=='VariantMatches' and I.VariantMatches(id,variant,d.type,s.tag) or I.VariantPayload(id,variant,d.type,s.tag))
+      local ty=k=='VariantMatches' and S.Bool or S.caseOf(s.sum,s.tag)
+      publish(list,s.value.id,ty,b:ref(id,describe(ty).type))
+     end
     else reject('Unresolved owning statement '..k) end
    end
   end
@@ -470,15 +606,10 @@ function M.program(source,options)
   -- record; its generated empty cleanup has the same non-failing C ABI.
   if not borrowed and not cleanup then cleanup=fresh('_let_drop_');program.lifecycle[cleanup]={'.function '..cleanup..' 2 0 aa -','  RET.A 2 0'} end
   local frameAddress=b:convert(b:addr(framePlace,S.Ptr(frameType),S.Borrow.WriteAccess),P)
-  local function zero(ty)
-   if ty:isPtr() then return b:nullPtr(ty) end
-   if ty:isRecord() then local parts={};for _,f in ipairs(ty.fields) do parts[#parts+1]=zero(f.type) end;return b:make(ty,parts) end
-   if ty:isArray() then local parts={};for _=1,ty.length do parts[#parts+1]=zero(ty.element) end;return b:make(ty,parts) end
-   if ty:isView() then return b:callable(null(),null(),ty) end
-   return b:const(ty,ty==S.F64 and I.Float(0) or ty==S.Bool and I.Boolean(false) or I.UInt(0))
-  end
   local entry=L{}
-  if #frameType.fields>0 then entry[#entry+1]=I.Var(frame,frameType,zero(frameType)) end
+  if #frameType.fields>0 then
+   local initial=zero(entry,frameType);entry[#entry+1]=I.Var(frame,frameType,initial)
+  end
   if not borrowed then
    entry[#entry+1]=I.Let(frameAddressId,P,frameAddress)
    invoke(entry,'enter',{b:ref(frameAddressId,P),b:code(cleanup,P,true)})

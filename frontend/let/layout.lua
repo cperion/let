@@ -42,13 +42,13 @@ function Layout:valueComponents(ty)
  local result={}
  if ty:isRecord() then
   for _,field in ipairs(ty.fields) do
-   local parts=self:valueComponents(field.type);if parts==false then return false end
+   local parts=self.packedAddresses and self:abiComponents(field.type) or self:valueComponents(field.type);if parts==false then return false end
    for _,part in ipairs(parts) do result[#result+1]=part end
   end
   return result
  end
  if ty:isArray() then
-  local parts=self:valueComponents(ty.element);if parts==false then return false end
+  local parts=self.packedAddresses and self:abiComponents(ty.element) or self:valueComponents(ty.element);if parts==false then return false end
   for _=1,ty.length do for _,part in ipairs(parts) do result[#result+1]=part end end
   return result
  end
@@ -95,7 +95,7 @@ function Layout:abiComponents(ty)
  local components=self:valueComponents(ty)
  if components~=false then return components end
  if ty:isTaggedType() then
-  if not M.pointerFree(ty) then unsupported('aggregate call ABI with managed or address-bearing sum '..S.display(ty)) end
+  if not self.packedAddresses and not M.pointerFree(ty) then unsupported('aggregate call ABI with managed or address-bearing sum '..S.display(ty)) end
   local result={};for _=1,math.floor((self:layout(ty).size+7)/8) do result[#result+1]=S.U64 end
   return result
  end
@@ -111,12 +111,34 @@ function M.program(program)
  assert(program.phase=='checked-program','layout needs a checked program')
  local owning=false
  for _,fn in ipairs(program.functions) do if #program.ownership[fn.id].summary.counted>0 then owning=true end end
- return setmetatable({program=program,owning=owning,reference={kind=not owning and 'a' or false,size=owning and 16 or 8,align=8}},Layout)
+ local materialize=owning
+ if not materialize then
+  local Walk,Ownership=require('let.walk'),require('let.ownership');local seen={}
+  local function needs(ty)
+   if seen[ty] then return end;seen[ty]=true
+   if ty:isTaggedType() and Ownership.checkedAccess(ty) then materialize=true
+   elseif ty:isRecord() then for _,f in ipairs(ty.fields) do needs(f.type) end
+   elseif ty:isArray() then needs(ty.element)
+   elseif ty:isOwned() then needs(ty.environment) end
+   -- Raw pointer/reference targets and callable signatures are not embedded
+   -- values. Actual payload reads/arguments expose their own types in the IR.
+  end
+  for _,fn in ipairs(program.functions) do
+   for _,input in ipairs(fn.inputs) do needs(input.type) end
+   for _,ty in ipairs(fn.results) do needs(ty) end
+   Walk.walk(fn,{enter=function(node)
+    if materialize or S.Ty.V:isclassof(node) then return false end
+    if S.Ir.Expr:isclassof(node) or node.kind=='Var' or node.kind=='Let' or node.kind=='Read' or node.kind=='View' or node.kind=='ConstructVariant' then needs(node.type)
+    elseif node.kind=='Switch' or node.kind=='VariantMatches' or node.kind=='VariantPayload' then needs(node.sum) end
+   end})
+  end
+ end
+ return setmetatable({program=program,owning=owning,materialize=materialize,reference={kind=not owning and 'a' or false,size=owning and 16 or 8,align=8}},Layout)
 end
 function M.physical(program)
  assert(program.phase=='physical-program','physical layout needs a materialized program')
  -- Ownership is explicit in concrete records and operations. Remaining View
  -- cells transport borrowed code/environment addresses, not another holding.
- return setmetatable({program=program,reference={kind='a',size=8,align=8}},Layout)
+ return setmetatable({program=program,packedAddresses=true,reference={kind='a',size=8,align=8}},Layout)
 end
 return M

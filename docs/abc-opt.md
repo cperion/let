@@ -68,6 +68,13 @@ typed Let IR -> ABC lowering -> abc-opt -> verified canonical ABC
                                          +-> eager/lazy JIT -> register-addressed stencils
 ```
 
+Raw bitcasts retain explicit bytecode kind transitions even when their input folds
+to a constant. This includes EXT10/11 ADDR2BITS/BITS2ADDR as well as F2BITS/BITS2F.
+They are effect-free identities, not memory round trips or ownership operations.
+Residual tooling exposes typed AddressToBits/BitsToAddress nodes; portable C's
+address-value and lifecycle-entry gates remain closed. Tagged cleanup preserves
+active-case control through ordinary branches and the existing lifecycle roots.
+
 ## Differential validation
 
 For each optimizer fixture, validation runs both the input and optimized module under interpreted, eager and lazy policies and compares results, language abort reasons, persistent image changes and externally visible effects. It also verifies deterministic output, second-run byte identity, conservative behavior with facts removed, source/bytecode provenance, and rejection of malformed optimizer output. Callable fixtures cover known lambdas, branch-selected finite sets, captures, receivers, partial applications, tail and non-tail invocation, managed/identity escape barriers, and unknown dynamic words.

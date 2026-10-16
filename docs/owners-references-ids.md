@@ -619,10 +619,11 @@ reopen them. Remaining binding/qualification and genuinely open interfaces inclu
 
 - broader inference/generalization and stable separate-compilation summary format
   beyond the implemented private source binding (runtime-interfaces §9);
-- connect the generated checked-IR runtime binding to source placement and all aggregate/
-  callable/module holdings, variants and initialized-element loops; qualify broader
-  failure/partial-construction, shared memory orders and foreign teardown beyond
-  the tested physical-layout clients;
+- generalize the connected concrete source binding beyond its qualified records,
+  fixed arrays, slices, callable environments and active tagged alternatives: resolve
+  context-specific instances, persistent module holdings, containers/initialized-element
+  loops and erasure; qualify broader shared memory orders and foreign teardown beyond
+  the tested source/physical-layout clients;
 - counted/reference/callable export ABI, raw-pointer capability boundary and dynamic
   encoding/profile revision (foreign code cannot be made safe by a documentation claim);
 - exact copy-out and iteration mutation semantics, empty text/pattern cases, position

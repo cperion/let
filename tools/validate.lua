@@ -123,9 +123,13 @@ local bitcasts=write('bitcasts',[[.profile memory
  CGET.A 0
  BITS2F.A
  F2BITS.A
+ BITS2ADDR.A
+ ADDR2BITS.A
  CGET.B 0
  BITS2F.B
  F2BITS.B
+ BITS2ADDR.B
+ ADDR2BITS.B
  MOVE.B
  MOVE.B
  CGET.A 0
@@ -140,6 +144,51 @@ end
 for _,bits in ipairs{'0','0x8000000000000000','1','0x000fffffffffffff','0x3ff8000000000000','0x7ff0000000000000','0xfff0000000000000','0x7ff8000012345678','0x7ff0000000000001','0xfff123456789abcd','0xffffffffffffffff'} do
  local raw=Int.format(Int.parse(bits),true)
  for _,modules in ipairs{bitcasts,bitcastOptimized} do same(modules,'main '..bits,'111 '..raw..' '..raw..' 222 '..raw) end
+end
+-- Actual image addresses survive the casts, aliases and a typed call. Neither
+-- backend nor optimizer may treat an integer carrier as a new owner or allocation.
+local addressCasts=write('address-casts',[[.profile memory
+.data 2a000000
+.function main 0 2 - ii
+ GADDR.A 0
+ ADDR2BITS.A
+ CALL.A load 1
+ GADDR.B 0
+ ADDR2BITS.B
+ CALL.B load 1
+ MOVE.B
+ RET.A 0 2
+.function load 1 1 i i
+ CGET.B 0
+ BITS2ADDR.B
+ ADDR2BITS.B
+ BITS2ADDR.B
+ LD32.B 0
+ RET.B 1 1
+.export main
+]])
+for _,module in ipairs(addressCasts) do
+ local output=module..'.opt';local message,status=capture(('%q %q -o %q'):format(root..'/build/abc-opt',module,output))
+ assert(status==0,message);same({module,output},'','42 42')
+end
+-- Folded producers must retain explicit address kinds across a call and equality.
+local addressConstants=write('address-constants',[[.profile memory
+.function main 0 1 - i
+ PUSH.A 0xffffffffffffffff
+ BITS2ADDR.A
+ CALL.A identity 1
+ PUSH.B 0xffffffffffffffff
+ BITS2ADDR.B
+ EQ.A
+ RET.A 0 1
+.function identity 1 1 a a
+ CGET.B 0
+ RET.B 1 1
+.export main
+]])
+for _,module in ipairs(addressConstants) do
+ local output=module..'.opt';local message,status=capture(('%q %q -o %q'):format(root..'/build/abc-opt',module,output))
+ assert(status==0,message);same({module,output},'','1')
 end
 -- Folded producer must retain an explicit float kind in optimized bytecode.
 local bitcastConstant=write('bitcast-constant',[[.profile memory
@@ -798,7 +847,7 @@ local function require_opcode(name)
 end
 for _,op in ipairs(manifest.ops) do if op.kind~=manifest.kind.EXT then require_opcode(op.name) end end
 for _,op in ipairs(manifest.ext_ops) do for _,bank in ipairs{'A','B'} do require_opcode(op.name..'_'..bank) end end
-assert(total==286,'revision-6 selected core/EXT coverage inventory changed')
+assert(total==290,'revision-6 selected core/EXT coverage inventory changed')
 assert(#missing==0,'validation misses public opcode forms: '..table.concat(missing,', '))
 print(('validated %d oracle cases / %d mirrored four-mode executions; assembled all %d public core/EXT forms'):format(checks,executions,total))
 -- Source integration lives in validate_slet_frontend.lua and uses only the

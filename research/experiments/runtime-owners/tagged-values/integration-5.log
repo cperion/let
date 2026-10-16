@@ -1,0 +1,25 @@
+cd frontend && /tmp/lua-compat tests/source_owners.lua
+source owning execution: 1762 checks, 568 four-mode original/optimized calls
+build/validate-source-owners build/source-owners.abc build/source-owners-opt.abc build/source-owners-b.abc build/source-owners-b-opt.abc
+traffic pair_result: owners=2 holds=2 nonnull-acquires=2 peak-owner-bytes=80
+traffic array: owners=4 holds=9 nonnull-acquires=9 peak-owner-bytes=184
+traffic slice: owners=1 holds=1 nonnull-acquires=1 peak-owner-bytes=40
+traffic borrow: owners=2 holds=4 nonnull-acquires=4 peak-owner-bytes=88
+traffic projection: owners=1 holds=1 nonnull-acquires=1 peak-owner-bytes=40
+traffic indirect_result: owners=2 holds=2 nonnull-acquires=2 peak-owner-bytes=80
+traffic partial: owners=2 holds=3 nonnull-acquires=3 peak-owner-bytes=104
+traffic keyed: owners=1 holds=1 nonnull-acquires=1 peak-owner-bytes=40
+traffic self_replace: owners=2 holds=4 nonnull-acquires=4 peak-owner-bytes=88
+traffic zero_width: owners=2 holds=2 nonnull-acquires=2 peak-owner-bytes=64
+traffic opened: owners=2 holds=2 nonnull-acquires=2 peak-owner-bytes=88
+traffic variant: owners=1 holds=5 nonnull-acquires=5 peak-owner-bytes=40
+traffic variant_replace: owners=4 holds=23 nonnull-acquires=23 peak-owner-bytes=200
+traffic variant_nested: owners=3 holds=35 nonnull-acquires=35 peak-owner-bytes=120
+traffic variant_indirect: owners=2 holds=6 nonnull-acquires=6 peak-owner-bytes=80
+traffic variant_callable: owners=2 holds=4 nonnull-acquires=4 peak-owner-bytes=88
+traffic variant_slice: owners=1 holds=3 nonnull-acquires=3 peak-owner-bytes=40
+traffic variant_loop: owners=2 holds=16 nonnull-acquires=16 peak-owner-bytes=80
+traffic variant_scalar: owners=1 holds=1 nonnull-acquires=1 peak-owner-bytes=40
+traffic variant_multi: owners=2 holds=10 nonnull-acquires=10 peak-owner-bytes=80
+traffic variant_raw: owners=1 holds=1 nonnull-acquires=1 peak-owner-bytes=40
+source ownership cleanup: 2508342 checks; four modes, raw/optimized, both lifecycle banks, allocation/acquire failures, trap, stack limit, generated C drain

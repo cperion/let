@@ -18,14 +18,15 @@ M.branch_order={'BEQ','BNE','BLT','BLE','BLTU','BLEU'}
 M.immediate_branch_order={'BEQI','BNEI','BLTI','BLEI','BGTI','BGEI','BLTUI','BLEUI','BGTUI','BGEUI'}
 M.float_binary_order={'FADD','FSUB','FMUL','FDIV','FLT','FLE','FEQ'}
 M.float_unary_order={'FNEG','I2FS','I2FU','F2IS','F2IU'}
--- Cell kind + 1 (zero is unspecified): integer=1, float=3. Raw identity,
+-- Cell kind + 1 (zero is unspecified): integer=1, address=2, float=3. Raw identity,
 -- not a numeric conversion or a memory/placement effect.
-M.bitcast_order={'F2BITS','BITS2F'}
-M.bitcasts={F2BITS={input_kind=3,result_kind=1},BITS2F={input_kind=1,result_kind=3}}
+M.bitcast_order={'F2BITS','BITS2F','ADDR2BITS','BITS2ADDR'}
+M.bitcasts={F2BITS={input_kind=3,result_kind=1},BITS2F={input_kind=1,result_kind=3},
+ ADDR2BITS={input_kind=2,result_kind=1},BITS2ADDR={input_kind=1,result_kind=2}}
 M.float_branch_order={'FBLT','FBLE','FBEQ'}
 M.float_binary={FADD='vm_fadd(x,y)',FSUB='vm_fsub(x,y)',FMUL='vm_fmul(x,y)',FDIV='vm_fdiv(x,y)',FLT='vm_flt(x,y)',FLE='vm_fle(x,y)',FEQ='vm_feq(x,y)'}
 M.float_branches={FBLT='vm_flt(x,y)',FBLE='vm_fle(x,y)',FBEQ='vm_feq(x,y)'}
-M.unary={NEG='0-x',NOT='~x',LNOT='x^1',ZX8='x&255',ZX16='x&65535',ZX32='x&UINT32_MAX',SX32='(uint64_t)(int64_t)abc_i32_from_u64(x)',F2BITS='x',BITS2F='x'}
+M.unary={NEG='0-x',NOT='~x',LNOT='x^1',ZX8='x&255',ZX16='x&65535',ZX32='x&UINT32_MAX',SX32='(uint64_t)(int64_t)abc_i32_from_u64(x)',F2BITS='x',BITS2F='x',ADDR2BITS='x',BITS2ADDR='x'}
 M.checks={CHKU8='x>255',CHKU16='x>65535',CHKU32='x>UINT32_MAX',CHKI32='abc_signed(x)<INT32_MIN || abc_signed(x)>INT32_MAX',CHKNN='x>>63'}
 M.comparisons={BEQ='x==y',BNE='x!=y',BLT='abc_signed(x)<abc_signed(y)',BLE='abc_signed(x)<=abc_signed(y)',BLTU='x<y',BLEU='x<=y',BGT='abc_signed(x)>abc_signed(y)',BGE='abc_signed(x)>=abc_signed(y)',BGTU='x>y',BGEU='x>=y'}
 

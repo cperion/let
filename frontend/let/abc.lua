@@ -235,6 +235,9 @@ local function packedLeaves(physical,ty,offset,out)
         for _,field in ipairs(ty.fields) do packedLeaves(physical,field.type,offset+item.fields[field.name].offset,out) end
     elseif ty:isArray() then
         for index=0,ty.length-1 do packedLeaves(physical,ty.element,offset+index*item.stride,out) end
+    elseif ty:isSlice() or ty:isView() then
+        local first=item.fields[ty:isSlice() and 'data' or 'code'];local second=item.fields[ty:isSlice() and 'length' or 'environment']
+        packedLeaves(physical,first.type,offset+first.offset,out);packedLeaves(physical,second.type,offset+second.offset,out)
     elseif ty:isTaggedType() then
         for at=0,item.size-1,8 do out[#out+1]={offset=offset+at,width=math.min(8,item.size-at)*8,type=S.U64} end
     elseif ty~=S.Unit then out[#out+1]={offset=offset,width=item.size*8,type=ty} end
@@ -542,14 +545,14 @@ function Function:expr(expr, stack)
             local selected=selector.kind=='Element' and ty.element or ty.fields[ordinal].type
             if aggregate.kind=='Make' then aggregate=aggregate.fields[ordinal];first,offset=1,0
             else
-                for index=1,ordinal-1 do first=first+#self.physical:valueComponents(selector.kind=='Element' and ty.element or ty.fields[index].type) end
+                for index=1,ordinal-1 do first=first+#self.physical:abiComponents(selector.kind=='Element' and ty.element or ty.fields[index].type) end
                 offset=offset+(selector.kind=='Element' and selector.index*item.stride or item.fields[selector.name].offset)
             end
             ty=selected
         end
         if aggregate.type==ty then return self:expr(aggregate,stack) end
         if aggregate.kind=='Ref' then
-            local holder=self.valueSlots[aggregate.value.id];local parts=self.physical:valueComponents(ty)
+            local holder=self.valueSlots[aggregate.value.id];local parts=self.physical:abiComponents(ty)
             if holder and holder.block then self:blockLoad(holder,offset,ty,expr,stack);return end
             if holder and parts then
                 for index=first,first+#parts-1 do self:instruction('CGET.'..stack..' '..self:depth(holder.cells and holder.cells[index] or holder),expr) end
@@ -791,7 +794,8 @@ function Function:statements(list)
                 local leaves=packedLeaves(self.physical,S.caseOf(stmt.type,stmt.tag),item.payloadOffset)
                 for at=#leaves,1,-1 do
                     local leaf=leaves[at]
-                    if leaf.type==S.F64 then self:instruction('F2BITS.A',stmt) end
+                    if leaf.type==S.F64 then self:instruction('F2BITS.A',stmt)
+                    elseif self.physical:cellKind(leaf.type)=='a' then self:instruction('ADDR2BITS.A',stmt) end
                     self:packedInsert(slot,leaf.offset,leaf.width,stmt)
                 end
             end
@@ -805,7 +809,8 @@ function Function:statements(list)
             if ty~=S.Unit then
                 for _,leaf in ipairs(packedLeaves(self.physical,ty,item.payloadOffset)) do
                     self:packedRead(slot,leaf.offset,leaf.width,stmt)
-                    if leaf.type==S.F64 then self:instruction('BITS2F.A',stmt) end
+                    if leaf.type==S.F64 then self:instruction('BITS2F.A',stmt)
+                    elseif self.physical:cellKind(leaf.type)=='a' then self:instruction('BITS2ADDR.A',stmt) end
                     self:normalize(leaf.type,stmt)
                 end
                 self:storeValue(stmt.value,ty,stmt)
@@ -894,7 +899,7 @@ function M.lower(program, options)
     if options.profile == "let" then
         D.reject("dynamic-lowering", "Dynamic ABC lowering is unavailable; Let parsing, typechecking and IR construction remain supported. Use SLet for executable ABC.")
     end
-    if physical.owning then program=require('let.placement').program(program,options);physical=Layout.physical(program) end
+    if physical.materialize then program=require('let.placement').program(program,options);physical=Layout.physical(program) end
     local functions=program.functions
 
     local definitions,usesFloat,usesMemory,usesAddress,usesCallable={},false,false,false,false
