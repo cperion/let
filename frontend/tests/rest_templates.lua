@@ -13,7 +13,8 @@ local function reject(code,text,profile)
 end
 local function promoted(text,profile)
  local unit=C.typed({profile=profile or 'slet',source=text,name='rest-promoted.slet'},options)
- check(require('let.layout').program(unit.program).owning,'Rest transport preserves counted placement requirements')
+ local required=false;for _,proof in pairs(unit.program.ownership) do required=required or #proof.summary.counted>0 end
+ check(required,'Rest transport preserves counted placement requirements')
 end
 local function run(text,args,wanted,unoptimized)
  local unit=C.typed({profile='slet',source=text,name='rest.slet'},options)

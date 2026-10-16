@@ -28,8 +28,9 @@ No source computation executes in Lua.
   checks, aliases, assignment, and compound assignment.
 - Record and array arguments/results use a deterministic recursively flattened ABC call ABI.
   Pointer-free sums use their fixed packed layout across calls, including aggregate payloads.
-  Materialized private owning sums now use that same tag/aligned-union layout, explicit
-  address-bit casts and active-case holdings. Public/foreign packed-address sum ABIs remain closed.
+  The packed tag/aligned-union layout and address-bit casts remain. Private owning
+  sums await the proof-directed lifetime replacement; public/foreign packed-address
+  sum ABIs remain closed.
 - `Ref(place)`, `Slice(Array)`, slice/string indexing, and `.length`. Proven borrowed
   references use target-only transport; retained references carry data/root-owner,
   and retained slices add length. Callable transport keeps code/environment and its
@@ -43,19 +44,21 @@ No source computation executes in Lua.
 - Interpreted, eager, and lazy staging produce equal results and byte-identical optimized modules
   for the covered scalar, aggregate, sum, slice, reference, and callable fixtures.
 
-The former count-free-only restriction is superseded by the connected source ownership
-binding. Supported `.slet` factories, captures, known typed partials, returned references/
-slices and owning tagged payloads execute with counted concrete storage and failure cleanup.
-There is no tracing collector. Counted roots allocate from creation, not by late promotion.
-Unsafe access and strong cycles reject during analysis; unresolved physical contracts still
-reject during materialization. `.let` executable lowering remains `dynamic-lowering`, even
-where its checked source semantics are shared. See [runtime interfaces](runtime-interfaces.md#current-concrete-source-binding)
-and the source-cutover/tagged-values evidence for the qualified boundary.
+The blanket source ownership materializer has been removed before its proof-directed
+replacement. Counted source currently rejects at executable admission; borrowed
+address-bearing sums also await that replacement. This is an incomplete cutover,
+not a return to a separate count-free language. There is no tracing collector.
+Unsafe access and strong cycles still reject during analysis. `.let` executable
+lowering remains `dynamic-lowering`. See
+[runtime interfaces](runtime-interfaces.md#retained-runtime-binding-and-preceding-source-materialization)
+and WORKLIST for current status; source-cutover/tagged-values evidence qualifies the
+preceding implementation.
 
 ## Deliberate limits
 
-Known typed runtime partials and keyed captures are qualified by `source_owners.lua`;
-this does not imply every historical example or erased/dynamic callable is supported.
+The `source_owners.lua` integration suite, including typed partials and keyed captures,
+remains enabled but fails at the current lifetime-lowering gate. Its preceding
+qualification did not cover every historical example or erased/dynamic callable.
 Persistent owning module initialization and owning public/foreign/task transport remain
 closed, along with unresolved context-dependent physical instances.
 

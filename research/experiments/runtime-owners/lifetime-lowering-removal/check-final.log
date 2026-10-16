@@ -1,0 +1,5 @@
+expected rejection: REJECT [ownership-materialization] Proof-directed lifetime lowering is not yet integrated: self_replace
+expected rejection: REJECT [ownership-materialization] Proof-directed lifetime lowering is not yet integrated: self_replace
+expected rejection: TODO [abc-lowering] ABC lowering is not implemented for aggregate call ABI with managed or address-bearing sum oneof {point:Ref(target=Record(meaning=s5:x:U32,fields=[Ty.Field(name = x,type = Ty.U32)(name=s1:x,type=U32)]))}
+retained drop generator: 396 descriptor uses match pre-removal bodies; 87 concrete callbacks
+ordinary borrowed source: 42, no lifetime imports or lifecycle entries

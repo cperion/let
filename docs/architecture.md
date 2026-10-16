@@ -39,16 +39,16 @@ and worker deques; select arbitration; generation-based idle wakeups; and immuta
 per-realization native publication with atomic entry slots. These are the baseline,
 not alternative suggestions. WORKLIST E binds them to the actual VM ABI and coordinates
 O/C/D/T/P/W. The v3 orchestration and subsequent large revision7/v4 proposal remain
-retired. The replacement consumes checked-source facts into concrete owning storage,
-caller-owned results and activation cleanup over the small C counting/queue core.
-The minimal revision-7 C-entry format is assembled, verified and preserved by the
-optimizer; all execution modes prepare actual native C-callable field drops before
-source execution. No release cache, slot registry, pinned register or second allocator
-returns. Factories, saved/replaced references, arrays/slices and captured/partial
-callables execute in the supported `.slet` slice. General erased/container/task,
-owned public/FFI and persistent owning module contracts remain closed. See WORKLIST
-E/O and `runtime-owners/source-cutover/` for full incremental and focused sanitizer
-evidence; this is not performance acceptance or completion of general ownership.
+retired. The subsequent blanket source materializer has now also been removed:
+it manufactured holdings from access-containing types instead of consuming individual
+borrow/transfer proofs. Counted source execution rejects during the approved
+proof-directed cutover. The small C counting/queue core, six lifetime bindings and
+concrete field-drop emitter remain. The minimal revision-7 C-entry format is assembled,
+verified and preserved by the optimizer; all execution modes retain native C-entry
+delivery. No release cache, slot registry, pinned register or second allocator returns.
+General erased/container/task, owning public/FFI and persistent owning module contracts
+remain closed. See WORKLIST E/O for current status; source-cutover/tagged-values evidence
+qualifies the preceding implementation, not present source admission or performance.
 
 ## Structured task runtime target (not implemented)
 

@@ -34,7 +34,7 @@ Ordinary foreign calls are host effects: the host function is responsible for po
 
 The private `__let_rt_` namespace remains reserved. Revision-7/profile-4 modules
 admit exactly six `__let_rt_source_` contracts defined in
-[runtime-interfaces.md](runtime-interfaces.md#current-concrete-source-binding).
+[runtime-interfaces.md](runtime-interfaces.md#retained-runtime-binding-and-preceding-source-materialization).
 Host rebinding, source extern impersonation, wrong signatures and retired v3 names
 reject; they cannot fall through to host foreign calls. The bindings connect concrete
 source storage/holdings and cleanup, not a primitive dispatcher. Staging still rejects

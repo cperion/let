@@ -1,16 +1,19 @@
 # Owners, references and ids
 
-**Status: approved collector-free semantics and qualified source inference; runtime
-ownership orchestration removed, replacement/source counted placement pending.**
+**Status: approved collector-free semantics and source inference; blanket source
+lifetime lowering removed, proof-directed replacement pending.**
 This is the ownership target for one Let language, replacing the tracing-GC target.
 WORKLIST O03 records formal/fresh-root, borrow/count/strict-edge inference; E01/E02
-and O04–O08 record the removed runtime binding and current removal checkpoint.
-Standalone C counting/queue code remains, but no source lifetime/cleanup binding is
-currently implemented. The c-release evidence describes the historical v3 checkpoint,
-not current admission or validation. The larger follow-up design was withdrawn.
-General source owning layouts and placement, containers and tasks are not implemented;
-typing now retains valid counted requirements on the checked program, while executable
-admission still rejects them. Cycle and unsafe-access proof failures still reject during
+and O04–O08 record the approved correction and current removal checkpoint. The C
+counting/queue core, six lifetime bindings and native C-entry delivery remain; the
+blanket source-to-physical materializer does not. Source-cutover/tagged evidence
+qualifies the preceding implementation, not present source admission. Historical
+v3 c-release evidence and the withdrawn larger design remain separate. Typing retains
+valid counted requirements on the checked program, while executable admission
+currently rejects them. Borrowed transport must not become a holding merely because
+its source type contains access. The approved correction keeps §2.1's counted
+escaping-root policy and consumes borrow/transfer obligations before physical layout.
+General containers, tasks and owning public/foreign contracts remain incomplete. Cycle and unsafe-access proof failures still reject during
 analysis. Examples below remain target-language examples unless
 explicitly qualified by the worklist.
 

@@ -1,10 +1,18 @@
 # Implementer contract: primitive, owner and task interfaces
 
-**Connected source ownership slice implemented.** The v3 catalog/dispatch,
+**Lifetime-lowering removal checkpoint: proof-directed replacement pending.**
+The blanket source materializer has been removed. Counted source currently rejects
+rather than falling back to borrowed execution; retained-capable tagged source also
+awaits the replacement. The C core, six runtime bindings, C-entry delivery and
+concrete active-tag drop generator remain. The source integration described below
+records the preceding checkpoint, not current executable admission. See WORKLIST
+O03–O08/E01/E02 for the approved correction and actual checks.
+
+The v3 catalog/dispatch,
 release preparation/cache, scope-slot/prefix protocol and compiler lifetime client
 in §§1, 1.1 and 3 below remain historical, not implementation instructions. Their
-replacement is the concrete source materializer and six narrow bindings described
-below. The large revision7/v4 proposal remains withdrawn. Unrelated task/scheduler
+replacement used the now-removed source materializer and the six narrow runtime
+bindings retained below. The large revision7/v4 proposal remains withdrawn. Unrelated task/scheduler
 target protocols are unchanged; WORKLIST E/O records incomplete general admission.
 
 The remaining target interfaces relate the approved choices in
@@ -57,9 +65,10 @@ field addresses plus enqueues, with finite tag branches for active union payload
 arbitrary handwritten bytecode. Their C stack storage is proportional to verified
 home extents; no generalized native resource-bound qualification is claimed.
 
-## Current concrete source binding
+## Retained runtime binding and preceding source materialization
 
-`frontend/let/placement.lua` consumes the exact checked program and produces a
+Before the removal checkpoint, `frontend/let/placement.lua` consumed the exact checked
+program and produced a
 separate physical graph, structurally checked without repeating ownership inference.
 Counted local roots allocate from creation. Context-dependent unresolved instances
 reject rather than promote an allocation family. References carry data/root-owner;
@@ -648,9 +657,11 @@ instantiation with concrete counted roots checks their contradictions.
 These are source inference facts, not a finalized public summary format.
 `check.lua` performs structural/type checks only. `program.lua` explicitly runs
 analysis and owns the results for the completed graph; it never publishes proofs on
-shared function nodes. `layout.lua` selects borrowed versus owning representation;
-`placement.lua` consumes counted facts and checks supported physical admission.
-The current concrete source binding above, not historical §1.1, implements the first
+shared function nodes. The former program-wide borrowed/owning layout selection and counted-only source
+materializer have been removed. `layout.lua` currently rejects counted requirements;
+`placement.lua` retains only the concrete field-drop emitter. The replacement must
+consume per-use borrow/transfer/acquisition proofs before choosing physical contracts.
+The preceding concrete source binding above, not historical §1.1, records the first
 connected executable slice. Broader polymorphic/recursive borrowing precision,
 erased/dynamic/container admission and separate-compilation/FFI contracts remain
 incomplete. See WORKLIST O03 and the ownership-inference evidence; a finite SCC

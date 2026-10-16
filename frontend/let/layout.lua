@@ -1,5 +1,6 @@
--- Physical layouts consume an admitted program contract, not source types alone.
--- Pointer-free snapshots use scalar below; only program() selects reference layout.
+-- Pointer-free snapshots use scalar below. Source admission must precede any
+-- reference layout; physical ownership is explicit in concrete types, not a
+-- program-wide switch that widens every source reference.
 local S=require('let.schema')
 local D=require('let.diag')
 local M={}
@@ -35,10 +36,9 @@ end
 function Layout:valueComponents(ty)
  local kind=self:cellKind(ty)
  if kind then return {ty} end
- if ty:isRef() then return {S.Ptr(S.Unit),S.Ptr(S.Unit)} end
  if ty==S.Unit then return {} end
  if ty:isSlice() then local parts=self:valueComponents(S.Ref(ty.element));parts[#parts+1]=S.U32;return parts end
- if ty:isView() then local r=reference(self);return r.size==16 and {S.Ptr(S.Unit),S.Ptr(S.Unit),S.Ptr(S.Unit)} or {S.Ptr(S.Unit),S.Ptr(S.Unit)} end
+ if ty:isView() then reference(self);return {S.Ptr(S.Unit),S.Ptr(S.Unit)} end
  local result={}
  if ty:isRecord() then
   for _,field in ipairs(ty.fields) do
@@ -109,31 +109,14 @@ end
 M.scalar=setmetatable({},Layout)
 function M.program(program)
  assert(program.phase=='checked-program','layout needs a checked program')
- local owning=false
- for _,fn in ipairs(program.functions) do if #program.ownership[fn.id].summary.counted>0 then owning=true end end
- local materialize=owning
- if not materialize then
-  local Walk,Ownership=require('let.walk'),require('let.ownership');local seen={}
-  local function needs(ty)
-   if seen[ty] then return end;seen[ty]=true
-   if ty:isTaggedType() and Ownership.checkedAccess(ty) then materialize=true
-   elseif ty:isRecord() then for _,f in ipairs(ty.fields) do needs(f.type) end
-   elseif ty:isArray() then needs(ty.element)
-   elseif ty:isOwned() then needs(ty.environment) end
-   -- Raw pointer/reference targets and callable signatures are not embedded
-   -- values. Actual payload reads/arguments expose their own types in the IR.
-  end
-  for _,fn in ipairs(program.functions) do
-   for _,input in ipairs(fn.inputs) do needs(input.type) end
-   for _,ty in ipairs(fn.results) do needs(ty) end
-   Walk.walk(fn,{enter=function(node)
-    if materialize or S.Ty.V:isclassof(node) then return false end
-    if S.Ir.Expr:isclassof(node) or node.kind=='Var' or node.kind=='Let' or node.kind=='Read' or node.kind=='View' or node.kind=='ConstructVariant' then needs(node.type)
-    elseif node.kind=='Switch' or node.kind=='VariantMatches' or node.kind=='VariantPayload' then needs(node.sum) end
-   end})
+ -- The blanket materializer has been removed. Until its replacement is
+ -- integrated, reject its inputs rather than silently compiling them borrowed.
+ for _,fn in ipairs(program.functions) do
+  if #program.ownership[fn.id].summary.counted>0 then
+   D.reject('ownership-materialization','Proof-directed lifetime lowering is not yet integrated: '..fn.id)
   end
  end
- return setmetatable({program=program,owning=owning,materialize=materialize,reference={kind=not owning and 'a' or false,size=owning and 16 or 8,align=8}},Layout)
+ return setmetatable({program=program,reference={kind='a',size=8,align=8}},Layout)
 end
 function M.physical(program)
  assert(program.phase=='physical-program','physical layout needs a materialized program')

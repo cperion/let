@@ -44,23 +44,25 @@ and obtains a new program; lowering does not hash, revalidate or silently refres
 old program after in-place mutation. Private `ABC.lower` consumes that program, not
 a bare function list or a separate set of proof annotations.
 
-`Layout.program` selects borrowed or owning representation from checked facts.
-`ABC.lower` materializes counted programs and retained-capable tagged values through
-`let/placement.lua` (including bounded tags with no counted roots): a distinct
-`physical-program` contains concrete storage, holding operations, caller result
-records and generated lifecycle bodies. `Layout.physical` describes this graph;
-`Check.program(..., true)` structurally checks it without rerunning source inference.
-Artifacts retain the exact source `.program` and `.functions`, exposing the separate
-physical graph as `.materialized`. Pointer-free staging/snapshots use `Layout.scalar`.
+The blanket `Layout.program` owning switch and `ABC.lower` materializer dispatch
+have been removed. During this cutover, counted programs explicitly reject with
+`ownership-materialization`; retained-capable tagged values also await the replacement.
+Ordinary admitted borrowed programs still lower directly. The approved replacement
+must select physical contracts from source borrow/transfer/acquisition proofs rather
+than from reference-containing types. `Layout.physical` and the structural
+`Check.program(..., true)` boundary remain available, as does concrete C-entry field-
+drop emission; no alternate owning execution path is installed.
+Artifacts retain the exact source `.program` and `.functions`; the `.materialized`
+field has no physical graph during this removal checkpoint. Pointer-free
+staging/snapshots use `Layout.scalar`.
 
-Cycles and unsafe-access proofs still reject during analysis. Physical admission
-rejects unresolved context-specific placement, owning public/foreign transport,
-persistent module holdings and erasure. Packed address-bearing tags remain private,
-not a new public/foreign aggregate ABI. Supported `.slet` factories,
-reference/slice/array, tagged and callable transport execute with normal/failure cleanup;
-`.let` execution remains `dynamic-lowering`. Staging does not authorize the lifetime
-foreign bindings. See [runtime-interfaces.md](runtime-interfaces.md#current-concrete-source-binding)
-and `research/experiments/runtime-owners/{source-cutover,tagged-values}/` for the implemented boundary.
+Cycles and unsafe-access proofs still reject during analysis. The replacement does
+not open owning public/foreign transport, persistent module holdings, erasure or a
+public packed-address ABI. `.let` execution remains `dynamic-lowering`. Staging does
+not authorize lifetime foreign bindings. See
+[runtime-interfaces.md](runtime-interfaces.md#retained-runtime-binding-and-preceding-source-materialization)
+and `research/experiments/runtime-owners/{source-cutover,tagged-values}/` for the
+preceding integrated boundary, not current source execution support.
 
 ## 2. Proposed call shapes
 

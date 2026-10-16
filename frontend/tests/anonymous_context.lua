@@ -22,7 +22,8 @@ local function rejects(code,text,profile)
 end
 local function promoted(text,profile)
  local unit=C.typed({profile=profile or 'slet',source=prefix..text,name='anonymous-promoted.slet'},options)
- check(require('let.layout').program(unit.program).owning,'Anonymous home retains counted placement requirements')
+ local required=false;for _,proof in pairs(unit.program.ownership) do required=required or #proof.summary.counted>0 end
+ check(required,'Anonymous home retains counted placement requirements')
 end
 local function parse(text) return P.source(text..'\nreturn { functions = {} }','anonymous-parse.let') end
 local sample=[[let run_session (...: Ref(Terminal), editor: Ref(Editor)) = do

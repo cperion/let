@@ -1,0 +1,6 @@
+luajit: ...ments/runtime-owners/lifetime-lowering-removal/check.lua:19: REJECT [lower-export] Unknown or invalid export main
+stack traceback:
+	[C]: in function 'assert'
+	...ments/runtime-owners/lifetime-lowering-removal/check.lua:19: in function 'rejected'
+	...ments/runtime-owners/lifetime-lowering-removal/check.lua:22: in main chunk
+	[C]: at 0x645b9a92d120

@@ -112,7 +112,7 @@ local retained=C.typed{profile='slet',source=prelude..[[
 let make(p: Ref(Point)) = do let p... return do() nudge 2 return end end
 let main(): U32 = do let p = Point { x = 40 } let f = make(Ref(p)) f() return p.x end
 ]]}
-check(require('let.layout').program(retained.program).owning,'Opened receiver closure requires concrete ownership')
+check(#retained.program.ownership.make.summary.counted>0,'Opened receiver closure requires concrete ownership')
 -- Merely defining a word inside a receiver scope must not capture that receiver.
 run([[
 let make(p: Ref(Point)) = do let p... return do() = 42 end
@@ -125,7 +125,7 @@ local returned=C.typed{profile='slet',source=prelude..[[
 let identity(p: Ref(Point)): Ref(Point) = p
 let main(): Ref(Point) = do let p = Point { x = 40 } return p.identity() end
 ]]}
-check(require('let.layout').program(returned.program).owning,'Returned receiver preserves owner placement')
+check(#returned.program.ownership.main.summary.counted>0,'Returned receiver preserves owner placement')
 local function assembly(call)
  local unit=C.typed{profile='slet',source=prelude..'let main(): U32 = do let p = Point { x = 40 } '..call..' return p.x end'}
  return C.lower(unit.functions,{profile='slet'}).assembly
@@ -312,7 +312,7 @@ let main(): U32 = do
 end
 ]],82)
 local openedCapture=C.typed{profile='slet',source=prelude..'let make(p: Ref(Point)) = do let p... return do() = x end let main(): U32 = 0'}
-check(require('let.layout').program(openedCapture.program).owning,'Opened-field capture retains an owning environment requirement')
+check(#openedCapture.program.ownership.make.summary.counted>0,'Opened-field capture retains an owning environment requirement')
 check(assembly('let p... x += 2')==assembly('p.x += 2'),'opened field write produces identical ABC to qualified access')
 check(assembly('let p...')==assembly(''),'unused opening emits no field reads or copies')
 print(('receiver scopes: %d checks, %d VM executions'):format(checks,executions))

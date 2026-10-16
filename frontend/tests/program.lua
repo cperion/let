@@ -45,8 +45,8 @@ Access.analyze=analyze
 check(calls==1,'source compile analyzes its completed graph once, not again in lowering')
 check(compiled.program==compiled.sourceUnit.program,'compile carries the semantic program into emission')
 
--- Valid owning source selects a concrete contract without repeating inference.
--- Execution materializes it; public ownership and staging remain separate gates.
+-- End-to-end acceptance for the source-to-physical boundary, intentionally
+-- unsatisfied during removal: no repeated inference; public/staging gates remain.
 local escaping=[[
 let Point = { x: U32 }
 let make(): Ref(Point) = do let p = Point { x = 42 } return Ref(p) end
@@ -55,8 +55,6 @@ let main(): U32 = 0
 for _,profile in ipairs{'slet','let'} do
  local owned=C.typed{profile=profile,source=escaping}
  check(#owned.program.ownership.make.summary.counted>0,'typing preserves the counted requirement')
- local contract=Layout.program(owned.program)
- check(contract.owning and contract:layout(S.Ref(S.U32)).size==16,'owning-capable values select address/owner storage')
  if profile=='slet' then
   Access.analyze=function() error('materialization repeated source analysis') end
   local emitted=ABC.lower(owned.program,{profile=profile,exports={'main'}})
@@ -96,9 +94,6 @@ check(first.functions[1]==base and second.functions[1]==changed,'each program ow
 check(first.access==oldAccess and first.ownership==oldOwnership and first.accessStats==oldStats,'later analysis does not mutate prior results')
 check(#first.ownership.value.summary.counted==0 and #second.ownership.value.summary.counted>0,'changed graph has its own ownership decision')
 check(second.access~=first.access and second.ownership~=first.ownership,'analysis results are not shared through function identities')
-local owningLayout=Layout.program(second)
-check(owningLayout.owning,'the transformed source has its own owning contract')
-check(#owningLayout:valueComponents(S.Slice(S.U32))==3 and owningLayout:layout(S.Slice(S.U32)).size==24,'owning slice layout flattens data, root owner and length')
 rejects('ownership-materialization',function() ABC.lower(second,{profile='slet',exports={'value'}}) end)
 local third=Program.analyze({base})
 check(third.access.value~=first.access.value and base.access==nil,'even reused function nodes have program-local access results')

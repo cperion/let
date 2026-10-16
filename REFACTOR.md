@@ -34,6 +34,28 @@ platform allocation/free, not an unmeasured worker-cache/remote-free subsystem.
 
 ## Status and latest decisions
 
+### Removal-first lifetime correction — O03–O08/E01/E02
+
+The user approved replacing blanket ownership lowering and explicitly requested its
+removal before replacement coding. The checked source analysis and counted escaping-
+root policy remain; blanket type-based holdings are not the target semantics.
+Removed the source-to-physical orchestrator, whole-function borrowing switch,
+unconditional publication/copy scratch, single-use-only move policy and empty
+cleanup records/entries from `placement.lua`. Removed the program-wide owning-width
+selector and ABC dispatch into that orchestrator. There is no forwarding alias or
+retired execution fallback. Source with counted requirements explicitly rejects until
+the replacement is integrated; the end-to-end source acceptance tests remain enabled
+and intentionally fail at that gate.
+
+The concrete field-drop algorithm is retained as `placement.drops`, separate from any
+decision to acquire a holding. A temporary immutable pre-removal oracle reproduces
+396 descriptor uses/87 concrete callbacks with identical executable drop bodies.
+The C core and lifecycle delivery, packed tagged operations and address casts are
+unchanged. Source proof tests no longer equate a counted requirement with a global
+fat-reference ABI. Focused checks and exact limitations are recorded in
+`research/experiments/runtime-owners/lifetime-lowering-removal/README.md`.
+This is a removal checkpoint, not completion of the approved lifetime replacement.
+
 ### Packed owning tagged values and raw address casts — O04–O08/E01/E02
 
 The separately approved extension is integrated: EXT10/11 ADDR2BITS/BITS2ADDR

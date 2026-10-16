@@ -1,0 +1,7 @@
+--- ownership ---
+ownership inference: 168 checks, 56 VM executions
+--- access_proofs ---
+access proofs: 176 checks, 112 VM executions
+--- packed_tagged ---
+packed tagged integer/storage subset: 737 checks, 200 VM executions
+packed tagged: 1894 checks, 496 VM executions

@@ -1,0 +1,4 @@
+expected rejection: REJECT [ownership-materialization] Proof-directed lifetime lowering is not yet integrated: self_replace
+expected rejection: REJECT [ownership-materialization] Proof-directed lifetime lowering is not yet integrated: self_replace
+retained drop generator: 396 descriptor uses match pre-removal bodies; 87 concrete callbacks
+ordinary borrowed source: 42, no lifetime imports or lifecycle entries

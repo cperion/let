@@ -1,10 +1,11 @@
 # Runtime primitives and resumable execution
 
-**Status: concrete source slice integrated; broader runtime remains incomplete.**
-The v3 orchestration described below remains historical, and the large revision7/v4
-proposal remains withdrawn. The current replacement directly materializes source
-storage, caller results and activation cleanup over the32-byte C counting/queue core,
-with actual revision-7 native C lifecycle entries in all four execution modes.
+**Status: blanket source lifetime lowering removed; proof-directed replacement pending.**
+The32-byte C counting/queue core, six lifetime bindings and revision-7 native C
+lifecycle delivery remain. Counted source execution currently rejects. The preceding
+source integration qualified cleanup of generated holdings, not their necessity;
+its whole-function/type-driven holding policy has been removed. The v3 orchestration
+below remains historical, and the large revision7/v4 proposal remains withdrawn.
 See runtime-interfaces' current concrete binding, WORKLIST E/O and
 `research/experiments/runtime-owners/source-cutover/` for exact supported contracts,
 full incremental checks and focused sanitizer limitations. General source ownership,

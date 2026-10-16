@@ -1,0 +1,8 @@
+build/validate-owner-core
+/tmp/lua-compat tools/validate_c_entries.lua build/c-entry-tests
+/tmp/lua-compat tools/validate_no_collector.lua
+owner core: 113 checks; 100001-object chain, branching queue, shared-thread release; header 32 bytes; no source/VM binding claim
+C-entry format: 180 assembler/loader/optimizer checks; no lifecycle execution
+build/validate-c-entries build/c-entry-tests/entries.abc build/c-entry-tests/optimized.abc build/c-entry-tests/ordinary.abc build/c-entry-tests/empty.abc
+C-entry boundaries: 193 checks; ABC target exclusion and fail-closed delivery in four modes; no lifecycle execution
+collector-free dependency audit: 234 active files, 17 negative/positive guard probes; archives/build artifacts excluded

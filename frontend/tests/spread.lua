@@ -111,7 +111,7 @@ let Box={n: U32}
 let choose(a: Ref(Box),b: Ref(Box)): Ref(Box) = a
 let main(): Ref(Box) = do let a=Box {n=1} let b=Box {n=2} let refs=[Ref(a),Ref(b)] return choose(...refs) end
 ]]}
-check(require('let.layout').program(escaping.program).owning,'Spread return requires owner placement rather than rejecting safe escape')
+check(#escaping.program.ownership.main.summary.counted>0,'Spread return requires owner placement rather than rejecting safe escape')
 -- An overridden contribution must still perform its potentially trapping work.
 local trapUnit=C.typed{profile='slet',source=point..'let main(n: U32): Point = Point {x=42,...Point {x=1/n,y=2}}',name='spread-trap.slet'}
 for _,optimize in ipairs(optimizers) do for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do

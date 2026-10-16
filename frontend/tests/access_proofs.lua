@@ -21,7 +21,6 @@ local function counted(reason,source,profiles)
   local unit=C.typed{profile=profile,source=source,name='access-proof.'..profile};local found=false
   for _,fn in ipairs(unit.functions) do for _,r in ipairs(unit.program.ownership[fn.id].summary.counted) do if r.reason==reason then found=true end end end
   check(found,profile..': expected counted '..reason..' obligation')
-  check(require('let.layout').program(unit.program).owning,'counted obligations select a physical owning contract')
  end
 end
 local function run(source,wanted,options)

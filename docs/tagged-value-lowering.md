@@ -1,7 +1,9 @@
 # Packed tagged values and explicit storage
 
-Status: **packed lowering, approved float/address bitcasts and the private owning-tagged
-slice implemented; focused and full incremental validation passed**. The earlier nested-extraction
+Status: **packed lowering and approved float/address bitcasts retained; blanket
+ownership materialization removed, proof-directed replacement pending**. Prior
+private owning-tagged qualification remains historical evidence, not current source
+admission; see WORKLIST O03–O08/E01/E02. The earlier nested-extraction
 shift defect is corrected. F2BITS/BITS2F now supply exact integer/binary64 kind
 transitions, using additive revision-6 EXT selectors 0E/0F (profile 2+); earlier
 engines reject those selectors. No numeric conversion or scratch-memory fallback
@@ -16,11 +18,13 @@ This is not a new source feature, bytecode revision or replacement optimizer.
 Investigation and measured probes:
 [composition investigation](../research/experiments/frontend-syntax/word-bindings/composition-investigation.md).
 
-## Approved owning-tagged extension — implemented and qualified
+## Approved owning-tagged extension — preceding qualification
 
-User-approved slice: O04–O08/E01/E02, integrated across source, physical lowering,
-shared machine computation and tooling. Full incremental validation and focused
-ASan/UBSan/leak checks pass; evidence and limits are in
+User-approved slice: O04–O08/E01/E02, previously integrated across source, physical
+lowering, shared machine computation and tooling. The blanket ownership lowering
+has since been removed; packed cells, address casts and concrete active-case drops
+remain for the replacement. The preceding full incremental validation and focused
+ASan/UBSan/leak checks passed; evidence and limits are in
 [`runtime-owners/tagged-values/`](../research/experiments/runtime-owners/tagged-values/README.md).
 The broad work IDs remain partial; this qualification covers the boundary below. Keep the existing tag/aligned union and packed-cell transport. Extend
 concrete materialization to managed alternatives, nested records/arrays and callable

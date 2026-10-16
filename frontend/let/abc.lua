@@ -895,11 +895,10 @@ function M.lower(program, options)
     if options.profile ~= "slet" and options.profile ~= "let" then
         D.reject("source-profile", "ABC lowering requires profile `let` or `slet`")
     end
-    local physical=Layout.program(program)
     if options.profile == "let" then
         D.reject("dynamic-lowering", "Dynamic ABC lowering is unavailable; Let parsing, typechecking and IR construction remain supported. Use SLet for executable ABC.")
     end
-    if physical.materialize then program=require('let.placement').program(program,options);physical=Layout.physical(program) end
+    local physical=Layout.program(program)
     local functions=program.functions
 
     local definitions,usesFloat,usesMemory,usesAddress,usesCallable={},false,false,false,false

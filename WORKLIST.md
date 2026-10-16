@@ -706,7 +706,7 @@ The lifetime-lowering correction below supersedes the next-step recommendation.
 Persistent modules, erasure/containers and public/foreign/task transport remain
 separate approval/integration boundaries.
 
-**Lifetime-lowering correction — Owner: coordinator; State: approved design
+**Lifetime-lowering correction — Owner: coordinator; State: partial, removal checkpoint
 (O03–O08/E01/E02).** User approved the concrete cutover and explicitly requested
 removal of the obsolete lowering before implementing its replacement. User rejected
 counting as the default lowering model. The defect
@@ -753,10 +753,37 @@ root from creation; §3 and runtime-primitives §2 require count-free protected 
 and transfers. The repair retains that escaping-root allocation policy but stops
 treating every alias as another holding. The assistant's earlier suggestion of
 uncounted escaping heap objects was not an approved private allocation contract and
-must not be slipped into this cutover. Next action: remove the obsolete organizing
-path first, checkpoint its actual incomplete state, then implement the approved
-proof-directed replacement. This specification change is separate from implementation;
-no implementation changes or new runtime validation have been made yet.
+must not be slipped into this cutover. Approved design is recorded separately at
+`fd81f206`. No new runtime ABI or uncounted heap policy is part of this correction.
+
+**Removal checkpoint completed, replacement not implemented:** removed the entire
+source-to-physical orchestrator from `placement.lua`; only its concrete field-drop
+emitter remains. Removed program-wide owning reference widths, whole-function
+borrowing/holding switches, type-based result/publication/copy policy, blanket scratch,
+single-use-only moves, empty cleanup frames and the ABC dispatch into that path.
+There is no forwarding alias or alternative owning engine. `layout.lua` explicitly
+rejects counted requirements until replacement; borrowed tagged accesses also remain
+unavailable. Source proofs, packed cells/address casts, C core and runtime/lifecycle
+bindings are unchanged. Proof tests no longer assert a global fat-reference layout;
+positive source integration tests remain enabled, not rewritten to accept the gap.
+
+Actual removal files: `frontend/let/{placement,layout,abc}.lua`,
+`frontend/tests/{program,ownership,access_proofs,anonymous_context,rest_templates,
+receiver_scopes,spread}.lua`; current-status/interface documents and
+`research/experiments/runtime-owners/lifetime-lowering-removal/`.
+Focused checks pass: ownership168/56 executions, access176/112, packed tagged1894/496;
+C owner core113, C-entry format180/boundary193, collector guard234 files/17 probes.
+The retained drop emitter reproduces396 descriptor uses/87 concrete callbacks against
+an immutable pre-removal oracle. An ordinary borrowed source call executes42 without
+lifetime imports or C entries; counted checked/raw source and borrowed tagged source
+reject explicitly. `validate-source-owners` deliberately fails at executable admission;
+full validation, new source lifecycle execution, sanitizers and performance have NOT
+passed for this checkpoint. Historical generated images are not fresh source evidence.
+Evidence: `runtime-owners/lifetime-lowering-removal/README.md` and its logs.
+Next action: implement the already-approved proof-directed replacement, starting with
+source-site protection/transfer contracts and their actual lowering consumers. The
+removal is not a completed lifetime fix; no renewed approval is needed within the
+agreed scope.
 
 - [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
   allocate escaping roots separately from activations before publishing any address.

@@ -29,7 +29,7 @@ local function countedProof(reason,source)
    for _,r in ipairs(proof.counted) do if r.reason==reason then found=proof;break end end
    if found then break end
   end
-  check(found~=nil,'checked source requires '..reason..' placement');check(Layout.program(unit.program).owning,'counted proof selects owning materialization');result=found
+  check(found~=nil,'checked source requires '..reason..' placement');result=found
  end
  return result
 end
@@ -266,7 +266,7 @@ local caller=I.Fn('caller_ir',I.Entry,0,L{},L{S.Ref(Point),S.Ref(Point)},L{},L{
  I.Read(br,S.Ref(Point),I.Project(I.Deref(I.Local(bp),Holder),I.Field('value'))),
  I.Return(L{I.Ref(ar,S.Ref(Point)),I.Ref(br,S.Ref(Point))})})
 local program=Program.analyze({make,caller})
-check(Layout.program(program).owning,'retained factory results select owning materialization')
+check(#program.ownership.caller_ir.summary.counted>0,'retained factory results preserve counted placement obligations')
 check(program.ownership.caller_ir~=nil and caller.ownership==nil,'the checked program owns summaries independently of physical emission')
 local results=program.ownership.caller_ir.summary.results
 check(#results==2 and #results[1].roots==1 and #results[2].roots==1,'fresh root contents transport without cross-call contamination')
