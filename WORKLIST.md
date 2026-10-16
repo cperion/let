@@ -680,6 +680,15 @@ then integrate those producers/consumers before widening executable admission.
   recursive borrow precision, COW/containers, erased/dynamic and separate-compilation
   contracts, finalized rank/placement and lifetime execution remain open. Evidence:
   `research/experiments/frontend-syntax/ownership-inference/README.md`.
+**Approved next slice — coordinator, design (O04–O08/E01/E02):** owning tagged
+values and symmetric address-bit casts, approved by the user. Contract and exact
+encoding assignments: `docs/tagged-value-lowering.md`, approved extension section.
+Scope: canonical packed tag/union transport, active-alternative acquisition/move/drop,
+cleanup-visible partial construction, ordinary call/result boundaries. Files/removals
+and the acceptance boundary are specified there. Next action: integrate compiler,
+shared machine/tooling bindings and source failure tests before qualification.
+Context cloning, persistent owning modules and public/foreign/task transport stay open.
+
 - [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
   allocate escaping roots separately from activations before publishing any address.
   **Partial implemented:** `placement.lua` selects checked counted local roots from

@@ -16,6 +16,43 @@ This is not a new source feature, bytecode revision or replacement optimizer.
 Investigation and measured probes:
 [composition investigation](../research/experiments/frontend-syntax/word-bindings/composition-investigation.md).
 
+## Approved owning-tagged extension (not yet qualified)
+
+User-approved next slice: O04–O08/E01/E02, coordinated here as one integrated
+replacement. Keep the existing tag/aligned union and packed-cell transport. Extend
+concrete materialization to managed alternatives, nested records/arrays and callable
+payloads, including pointer-free variants within owning functions. Do not add boxing,
+a second sum representation, a runtime layout interpreter or a slot registry.
+
+Assign additive revision-6 EXT selectors `10`/`11` (hex), profile 2+, to
+`ADDR2BITS.A/B` (address → integer) and `BITS2ADDR.A/B` (integer → address).
+Both preserve all 64 bits on the selected stack, leave its opposite/live prefixes
+unchanged, have no effects and use shared scalar computation. They do not create a
+safe source reference or an owner. Existing instruction bytes retain their meaning;
+older engines reject the new selectors. Tooling must preserve the explicit kind
+transitions even when constants fold. No temporary memory just for kind conversion.
+
+Actual frame/payload/result/scratch fields remain the holding inventory. Compiler-side
+tag-conditional traversal replaces the flat-offset-only cleanup assumption. Generated
+C entries branch on active tags and enqueue only active owner fields. Scratch starts
+cleanup-valid, including nested tags; each successful acquire is immediately visible
+to cleanup. Acquire before replacement; move clears active source holdings. Call-cell
+transport itself does not acquire, and owning results retain caller-owned result records.
+No new source invalid-tag semantics or rollback of ordinary writes is introduced.
+
+Files: `frontend/let/{placement,layout,abc}.lua`, structural IR checking as needed,
+`tools/opcodes.lua`, `gen/semantics.lua`, shared runtime/optimizer bindings,
+`schema/residual.asdl` and its builder/validator/C emitter, packed/source ownership and
+machine tests. Retire blanket variant rejection in materialized functions and the
+physical packed-address rejection; preserve source public/foreign ownership gates.
+
+Acceptance: exact pointer bits and kind checks in both banks; nested alternatives,
+replacement/self-replacement, direct/indirect calls, all acquisition-failure boundaries,
+active-case-only release, raw/optimized execution in four modes, and preservation of
+allocation-free pointer-free value lowering. Measure generated size/ownership traffic;
+claim no speedup without timings. Public owning/FFI, erasure, containers, persistent
+module teardown, context cloning and portable-C lifecycle ABI remain separate gates.
+
 ## Problem and invariant
 
 Supported address-free tagged values already cross the ABC call ABI as packed u64
