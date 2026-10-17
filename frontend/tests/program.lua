@@ -34,7 +34,7 @@ Check.program(program.functions,program.modules,program.foreigns)
 local artifact=ABC.lower(program,{profile='slet',exports={'main'}})
 local again=ABC.lower(program,{profile='slet',exports={'main'}})
 Access.analyze=analyze
-check(artifact.program==program and artifact.layout.program==program,'emission uses the exact program contract')
+check(artifact.program==program and artifact.layout.program.source==program,'physical emission retains the exact checked source contract')
 check(again.assembly==artifact.assembly,'reusing a checked program has stable emission')
 local result=Stage.execute(artifact,program.functions,{entry='main',mode='interpreted',optimize=false})
 check(tonumber(result.cells[1])==42,'admitted borrowed program still executes')
@@ -62,7 +62,9 @@ for _,profile in ipairs{'slet','let'} do
   check(emitted.materialized.source==owned.program and emitted.functions==owned.program.functions,'physical graph retains its exact checked source')
   check(C.lower(owned.functions,{profile=profile,exports={'main'}}).materialized~=nil,'raw lowering explicitly analyzes then materializes')
   rejects('ownership-materialization',function() C.compile{profile=profile,source=escaping,exports={'make'}} end)
-  rejects('static-foreign',function() Stage.execute(emitted,owned.functions,{entry='main',mode='interpreted'}) end)
+  check(not emitted.assembly:find('.extern',1,true) and not emitted.assembly:find('.function make ',1,true),'unrequested owning templates emit neither code nor lifetime foreign declarations')
+  local pure=Stage.execute(emitted,owned.functions,{entry='main',mode='interpreted',optimize=false})
+  check(tonumber(pure.cells[1])==0,'an unused owning template does not turn pure requested code into foreign execution')
  else
   rejects('dynamic-lowering',function() ABC.lower(owned.program,{profile=profile}) end)
   rejects('dynamic-lowering',function() C.lower(owned.functions,{profile=profile}) end)
@@ -103,4 +105,10 @@ local modules={data};local foreign=I.Foreign('external',L{},L{S.U32});local fore
 local declared=Program.analyze({base},modules,foreigns)
 modules[1]=nil;foreigns[1]=nil
 check(declared.modules[1]==data and declared.foreigns[1]==foreign,'module and foreign declaration vectors are captured with the graph')
-print(('program boundary: %d checks, 1 VM execution'):format(checks))
+local foreignValue=I.Value(1)
+local foreignCaller=I.Fn('foreign_main',I.Entry,0,L{},L{S.U32},L{},L{
+ I.Call(L{foreignValue},foreign.target,L{}),I.Return(L{I.Ref(foreignValue,S.U32)})})
+local foreignProgram=Program.analyze({foreignCaller},nil,{foreign})
+local foreignArtifact=ABC.lower(foreignProgram,{profile='slet',exports={'foreign_main'}})
+rejects('static-foreign',function() Stage.execute(foreignArtifact,{foreignCaller},{entry='foreign_main',mode='interpreted'}) end)
+print(('program boundary: %d checks, 2 VM executions'):format(checks))

@@ -1123,14 +1123,15 @@ end
 -- Temporary executable admission while physical lifetime lowering is absent.
 -- Source templates remain checked/immutable. In particular, an extent-only
 -- summary with no counted roots is not permission to reuse a live frame object.
-function M.requireBorrowed(program)
+function M.requireBorrowed(program,functions)
  assert(program.phase=='checked-program','borrowed admission needs a checked program')
+ functions=functions or program.functions
  local function reject(name)
   D.reject('ownership-materialization','Proof-directed lifetime lowering is not yet integrated: '..name)
  end
- for _,fn in ipairs(program.functions) do if #program.ownership[fn.id].summary.counted>0 then reject(fn.id) end end
+ for _,fn in ipairs(functions) do if #program.ownership[fn.id].summary.counted>0 then reject(fn.id) end end
  local loops={}
- for _,fn in ipairs(program.functions) do
+ for _,fn in ipairs(functions) do
   local graph=program.flow.functions[fn.id]
   if next(graph.addressed) then
    local cfg=control{graph=graph,facts=program.flow.contexts[program.flow.roots[fn.id]]}
@@ -1155,7 +1156,7 @@ function M.requireBorrowed(program)
   for parent in pairs(users[id] or {}) do if not affected[parent] then affected[parent]=true;work[#work+1]=parent end end
  end
  local entries={}
- for _,fn in ipairs(program.functions) do if affected[program.flow.roots[fn.id]] then entries[#entries+1]=fn.id end end
+ for _,fn in ipairs(functions) do if affected[program.flow.roots[fn.id]] then entries[#entries+1]=fn.id end end
  if #entries>0 then
   local requirements=M.reuseRequirements(M.bindLoans(program,entries))
   for _,name in ipairs(entries) do
@@ -1163,6 +1164,238 @@ function M.requireBorrowed(program)
    if #entry.summary.counted>0 or next(entry.unresolved) then reject(name) end
   end
  end
+end
+
+-- Concrete root/result resources. Carrier cells stay unchanged: these records
+-- identify actual owner slots, not ownership attached to every reference value.
+local function rootBindings(program,functions,entries)
+ local names={};for _,fn in ipairs(functions) do names[#names+1]=fn.id end
+ local contracts=M.bindLoans(program,entries)
+ local represented={};for _,c in pairs(contracts.contexts) do represented[c.facts.fn_id]=true end
+ local seeds={};for _,name in ipairs(entries) do seeds[#seeds+1]=name end
+ -- Referenced code must have a contract even when it is never invoked. Do not
+ -- give every unrequested definition an invented generic machine instance.
+ for _,name in ipairs(names) do if not represented[name] then seeds[#seeds+1]=name end end
+ contracts=M.bindLoans(program,seeds)
+ local reuse=M.reuseRequirements(contracts)
+ local counted={}
+ for _,entry in pairs(reuse.entries) do
+  for _,requirement in ipairs(entry.summary.counted) do counted[requirement.root]=true end
+  if next(entry.unresolved) then D.reject('ownership-materialization','Unresolved allocation-reuse protection') end
+ end
+ local caps=M.capabilities(contracts,contracts.nodes)
+ local states={}
+ local function reject(c,reason)
+  D.reject('ownership-materialization','Unresolved lifetime contract in '..c.facts.fn_id..': '..reason)
+ end
+ for _,c in pairs(contracts.contexts) do
+  local state={context=c,allocations={},holdings={},results={},returns={},calls={},components={}}
+  states[c]=state
+  for storage,ty in pairs(c.graph.storageTypes) do
+   local root=M.root(M.localSource(c.facts.fn_id,storage,c.facts.context,c.facts.folded))
+   if counted[root] then
+    if M.checkedAccess(ty) then reject(c,'concrete outgoing holding fields') end
+    local point=c.graph.storage_origins[storage]
+    if not point then reject(c,'counted input storage') end
+    if reuse.contexts[c].roots[root] then reject(c,'preservation across allocation reexecution') end
+    local resource={kind='Allocation',key='a:'..storage,storage=storage,type=ty,point=point,root=root}
+    state.allocations[storage]=resource;state.holdings[resource.key]=resource
+   end
+  end
+  -- A root kept in this activation is not an exit-contents resource. Such a
+  -- write requires a caller-owned resource contract before local cleanup.
+  for _,h in pairs(c.facts.ownership_events.holdings) do if counted[h.target] then
+   local source=h.holder.source
+   local localHolder=h.holder.kind=='Fresh' and source==M.localSource(c.facts.fn_id,source.storage,c.facts.context,c.facts.folded)
+   if not localHolder then reject(c,'escaping contents resource') end
+  end end
+  for point,parts in pairs(c.returns) do
+   state.returns[point]={}
+   for index,paths in pairs(parts) do for path,n in pairs(paths) do
+    local id=index..':'..key(path)
+    state.components[id]={index=index,path=path}
+    state.returns[point][id]={node=n}
+   end end
+  end
+ end
+ -- Resource demand is a finite call-graph fixed point, independent of scalar
+ -- values. A callee input-origin loan never creates a result resource.
+ local function resources(state,n)
+  local out,borrowed={},false
+  for origin in pairs(caps.origins[n]) do
+   if origin.frontier and origin.frontier~='input' and origin.frontier~='entry-contents' then reject(state.context,origin.frontier) end
+   if origin.kind=='Address' and #origin.edges==0 then
+    for _,target in pairs(origin.provenance) do
+     local source=target.source
+     local r=origin.context==state.context and state.allocations[source.storage]
+     if r and r.root==M.root(source) then out[r.key]=r else borrowed=true end
+    end
+   elseif origin.kind=='Result' and origin.context==state.context then
+    local id=origin.symbol.result..':'..key(origin.symbol.path)
+    local found=false
+    for _,call in pairs(state.context.calls[origin.symbol.call]) do
+     local result=states[call.callee].results[id]
+     if result then
+      local resourceKey='r:'..origin.symbol.call.ordinal..':'..result.role
+      local r=state.holdings[resourceKey]
+      if not r then
+       r={kind='Result',key=resourceKey,point=origin.symbol.call,role=result.role}
+       state.holdings[resourceKey]=r
+      end
+      out[resourceKey]=r;found=true
+     end
+    end
+    if not found then borrowed=true end
+   elseif origin.frontier=='input' or origin.frontier=='entry-contents' or origin.kind=='Address' then borrowed=true
+   else reject(state.context,'unbound result/contents origin') end
+  end
+  return out,borrowed
+ end
+ local changed=true
+ while changed do
+  changed=false
+  for _,state in pairs(states) do
+   local ids={};for id in pairs(state.components) do ids[#ids+1]=id end;table.sort(ids)
+   for role,id in ipairs(ids) do if not state.results[id] then
+    for _,ret in pairs(state.returns) do if ret[id] then
+     local required=resources(state,ret[id].node)
+     if next(required) then state.results[id]={role=role,index=state.components[id].index,path=state.components[id].path};changed=true;break end
+    end end
+   end end
+  end
+ end
+ -- A single concrete returned holding may protect several output components.
+ -- Start with the maximum alias relation, then split on distinct source slots;
+ -- this also handles recursive forwarding without an iteration/depth budget.
+ for _,state in pairs(states) do for _,r in pairs(state.results) do r.role=1 end end
+ changed=true
+ while changed do
+  changed=false
+  for _,state in pairs(states) do
+   -- Result-slot keys depend on the current callee partition, not root-family
+   -- equality. Rebuild them as partitions split.
+   for k,r in pairs(state.holdings) do if r.kind=='Result' then state.holdings[k]=nil end end
+   local ids,points={},{ }
+   for id in pairs(state.results) do ids[#ids+1]=id end;table.sort(ids)
+   for point in pairs(state.returns) do points[#points+1]=point end
+   table.sort(points,function(a,b) return a.ordinal<b.ordinal end)
+   local groups={};local count=0
+   for _,id in ipairs(ids) do
+    local pattern={}
+    for _,point in ipairs(points) do
+     local ret=state.returns[point][id];local rset,borrowed={ },false
+     if ret then rset,borrowed=resources(state,ret.node) end
+     local r,nextKey=next(rset)
+     if r and (next(rset,r) or borrowed) then reject(state.context,'receiving binding for alternative guards') end
+     pattern[#pattern+1]=r or '-'
+     if ret then ret.resource=r end
+    end
+    local signature=table.concat(pattern,';')
+    if not groups[signature] then count=count+1;groups[signature]=count end
+    local role=groups[signature]
+    if state.results[id].role~=role then state.results[id].role=role;changed=true end
+   end
+   state.result_count=count
+  end
+ end
+ for _,state in pairs(states) do
+  -- Include result slots used inside the function even when they are not
+  -- returned. No owning result may disappear just because its data is unused.
+  for point,calls in pairs(state.context.calls) do
+   local target
+   for _,call in pairs(calls) do
+    local child=states[call.callee]
+    if target and target.result_count~=child.result_count then reject(state.context,'indirect resource ABI') end
+    target=child
+   end
+   if target then
+    local stmt=state.context.graph.statement_at[point]
+    state.calls[point]={target=stmt.kind=='Call' and stmt.target or '*',resources=target.result_count}
+    for role=1,target.result_count do
+     local k='r:'..point.ordinal..':'..role
+     state.holdings[k]=state.holdings[k] or {kind='Result',key=k,point=point,role=role}
+    end
+    if target.result_count>0 then
+     local stmt=state.context.graph.statement_at[point]
+     if stmt.kind~='Call' then reject(state.context,'callable resource ABI') end
+     if reuse.contexts[state.context].results[point] then reject(state.context,'result preservation across call reexecution') end
+    end
+   end
+  end
+  -- Bind a fresh allocation directly to a final result slot when every return
+  -- routes that same holding there. It remains cleanup-visible in the caller
+  -- even if entry, allocation or construction fails.
+  for _,allocation in pairs(state.allocations) do
+   if not state.context.control.cyclic[allocation.point] then
+    local role,valid=nil,true
+    for _,ret in pairs(state.returns) do
+     local current
+     for id,value in pairs(ret) do if value.resource==allocation.key then current=state.results[id].role end end
+     if not current or role and role~=current then valid=false;break end
+     role=current
+    end
+    if valid and role then allocation.output=role end
+   end
+  end
+ end
+ local instances,byName={},{ }
+ for _,fn in ipairs(functions) do
+  local canonical,signature
+  for c,state in pairs(states) do if c.facts.fn_id==fn.id then
+   local parts={}
+   for storage,r in pairs(state.allocations) do parts[#parts+1]='a'..storage..':'..tostring(r.output) end
+   for id,r in pairs(state.results) do parts[#parts+1]='o'..id..':'..r.role end
+   for point,ret in pairs(state.returns) do for id,r in pairs(ret) do parts[#parts+1]='e'..point.ordinal..':'..id..':'..tostring(r.resource) end end
+   for point,call in pairs(state.calls) do parts[#parts+1]='c'..point.ordinal..':'..call.target..':'..call.resources end
+   table.sort(parts);local encoded=table.concat(parts,'|')
+   if signature and signature~=encoded then reject(c,'distinct normalized private instances') end
+   signature=encoded;canonical=state
+  end end
+  assert(canonical,'referenced function has no lifetime context')
+  canonical.id=fn.id;canonical.source=fn;canonical.decisions={}
+  instances[#instances+1]=canonical;byName[fn.id]=canonical
+ end
+ for _,name in ipairs(entries) do if byName[name].result_count>0 then reject(byName[name].context,'owning public result ABI') end end
+ return instances,contracts,reuse
+end
+
+-- Select code from explicit entry requests and referenced code identities. This
+-- walks declarations only to find references; it does not execute source or ask
+-- Access to analyze a different graph. Checked templates outside this closure do
+-- not acquire an executable ABI merely by being present in the source artifact.
+function M.bind(program,entries)
+ assert(program.phase=='checked-program','lifetime binding needs a checked program')
+ assert(type(entries)=='table','lifetime binding requires entry requests')
+ local definitions,foreigns={},{ }
+ for _,fn in ipairs(program.functions) do definitions[fn.id]=fn end
+ for _,f in ipairs(program.foreigns) do foreigns[f.target]=f end
+ local selected,usedForeign,pending={},{},{}
+ local function request(name)
+  if foreigns[name] then usedForeign[name]=true;return end
+  local fn=definitions[name]
+  if not fn then D.reject('lower-export','Unknown lifetime-binding entry '..tostring(name)) end
+  if not selected[name] then selected[name]=fn;pending[#pending+1]=fn end
+ end
+ for _,name in ipairs(entries) do
+  if foreigns[name] then D.reject('lower-export','A foreign declaration is not a source entry: '..name) end
+  request(name)
+ end
+ local cursor=1
+ while cursor<=#pending do
+  local fn=pending[cursor];cursor=cursor+1
+  require('let.walk').walk(fn,{enter=function(node)
+   if S.Ty.V:isclassof(node) then return false end
+   if node.kind=='Call' then request(node.target)
+   elseif node.kind=='View' or node.kind=='Code' then request(node.entry) end
+  end})
+ end
+ local functions,external={},{ }
+ for _,fn in ipairs(program.functions) do if selected[fn.id] then functions[#functions+1]=fn end end
+ for _,f in ipairs(program.foreigns) do if usedForeign[f.target] then external[#external+1]=f end end
+ local bound={phase='bound-program',source=program,entries={},instances={},call_bindings={},layout_contracts={},modules=program.modules,foreigns=external}
+ for _,name in ipairs(entries) do bound.entries[#bound.entries+1]=name end
+ bound.instances,bound.loans,bound.reuse=rootBindings(program,functions,entries)
+ return bound
 end
 
 function M.validate(functions,inferred)

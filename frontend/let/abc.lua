@@ -898,7 +898,11 @@ function M.lower(program, options)
     if options.profile == "let" then
         D.reject("dynamic-lowering", "Dynamic ABC lowering is unavailable; Let parsing, typechecking and IR construction remain supported. Use SLet for executable ABC.")
     end
-    local physical=Layout.program(program)
+    local entries=options.exports
+    if entries==nil then entries={};for _,fn in ipairs(program.functions) do entries[#entries+1]=fn.id end end
+    local bound=require('let.ownership').bind(program,entries)
+    program=require('let.placement').program(bound)
+    local physical=Layout.physical(program)
     local functions=program.functions
 
     local definitions,usesFloat,usesMemory,usesAddress,usesCallable={},false,false,false,false

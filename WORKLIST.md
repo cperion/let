@@ -905,6 +905,21 @@ No source-owner execution, full suite, sanitizer, count/storage/code-size or per
 qualification is claimed. The integration boundary remains concrete binding plus
 physical lowering, not the new prerequisite proofs or the strengthened admission gate.
 
+**Interrupted implicit-ownership cutover — coordinator, O03–O08/E01/E02;
+partial, superseded by the user's explicit-Rc decision.**
+Checkpoint contains entry-rooted `Ownership.bind`, incomplete `rootBindings`,
+`Placement.program` and the ABC physical boundary in
+`frontend/let/{ownership,placement,abc}.lua`; `frontend/tests/program.lua` now checks
+that an unrequested owning template does not contaminate a pure entry, while actual
+foreign execution still rejects during staging. A private pointer-free `leaf`
+allocated directly into a caller result slot and executed in a temporary probe
+(raw/optimized, four modes). Focused program36/2, ownership168/56 and access356/120
+checks passed. This is not full source-lifetime qualification: outgoing holdings,
+receiving bindings, preservation, normalized variants and owning callable/public
+contracts remain unresolved. No full suite, sanitizer, count-traffic or performance
+qualification was run. The user stopped this implementation and selected explicit
+`Rc(T)` with retain-on-copy; do not continue completing this implicit-resource solver.
+
 Next action in the approved scope: solve actual bound field/input/result guards,
 normalized aliases and preservation/rebinding across joins and loop reuse; seed and
 resolve capability requirements from those decisions; bind concrete consume/offer and
