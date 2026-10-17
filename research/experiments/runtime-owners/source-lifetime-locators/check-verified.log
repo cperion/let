@@ -1,0 +1,6 @@
+schemas up to date
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+ownership inference: 168 checks, 56 VM executions
+access proofs: 354 checks, 120 VM executions
+packed tagged integer/storage subset: 737 checks, 200 VM executions
+packed tagged: 1894 checks, 496 VM executions

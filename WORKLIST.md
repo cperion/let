@@ -877,6 +877,34 @@ Final checks: schema freshness/construction pass; ownership168/56 VM executions,
 access302/120, packed tags1894/496. Program integration still rejects `make`; counted
 source-owner execution is still not admitted. Evidence (including intermediate probes):
 `research/experiments/runtime-owners/source-lifetime-contracts/`.
+**Locator/reuse continuation — coordinator, O03/O04 partial; no item closed.**
+Actual files: `frontend/let/{ownership,layout}.lua`, `frontend/tests/access_proofs.lua`.
+Ownership now computes normal-CFG SCCs, temporal locator equality and per-alternative
+contents survival. Must availability meets predecessor witnesses; may availability
+identifies possible losses. Evaluated index/base dependencies, replacement, calls and
+allocation-site reexecution remain distinct. Dynamic alias classes do not prove equal
+indices. Snapshot demands follow original definitions, contents and input-relative
+returns; they retain logical loop-carried bindings and unresolved return/effect
+boundaries. A call's write is never permission to clear its field before entry.
+These are `source-locators` / `snapshot-demands`, not actual holding or container-lifetime
+certificates. Exact locator prerequisites do not yet select Transfer versus Acquire.
+`reuseRequirements` additionally finds carriers surviving an allocation site's reuse,
+requires those roots counted **from creation**, and records old-result reuse obligations
+without inventing result slots. It feeds strengthened requirements through the existing
+retention/count/cycle solver, including retained targets and caller cycles. Original
+checked summaries remain unchanged. Unknown reference/InPlace/erased call contracts
+remain obligations; scalar-only callback signatures do not invent owning contracts.
+`layout.lua` now delegates temporary borrowed admission to ownership. The old count-only
+gate was removed there: new reuse requirements and unresolved bindings cannot fall
+through to borrowed frame emission. Ordinary current-iteration frame use remains admitted.
+Checks/evidence are under `research/experiments/runtime-owners/source-lifetime-locators/`:
+schema freshness/construction, ownership168/56 VM executions, access356/120, packed
+tags1894/496. Program/source-owner probes still fail at the unchanged materialization
+boundary (`make`/`self_replace`); successful-execution acceptance tests remain intact.
+No source-owner execution, full suite, sanitizer, count/storage/code-size or performance
+qualification is claimed. The integration boundary remains concrete binding plus
+physical lowering, not the new prerequisite proofs or the strengthened admission gate.
+
 Next action in the approved scope: solve actual bound field/input/result guards,
 normalized aliases and preservation/rebinding across joins and loop reuse; seed and
 resolve capability requirements from those decisions; bind concrete consume/offer and

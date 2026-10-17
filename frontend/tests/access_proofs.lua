@@ -911,6 +911,269 @@ let main():U32=0
  check(missing,'forwarding through multiple result boundaries cannot conceal an unresolved callable contract')
  local scalar=I.Fn('scalar_contract',I.Entry,0,L{},L{S.U32},L{},L{
   I.Var(I.Storage(1),S.U32,I.Const(S.U32,I.UInt(42))),I.Read(I.Value(1),S.U32,I.Local(I.Storage(1))),I.Return(L{I.Ref(I.Value(1),S.U32)})})
- check(#Own.bindLoans(Program.analyze{scalar},{scalar.id}).nodes==0,'scalar-only binding has no synthetic lifetime nodes')
+ local scalarContracts=Own.bindLoans(Program.analyze{scalar},{scalar.id})
+ check(#scalarContracts.nodes==0,'scalar-only binding has no synthetic lifetime nodes')
+ check(not next(Own.locators(scalarContracts).reads),'scalar-only binding has no invented field locators')
+end
+-- Locator equality is temporal and operand-specific, never root-family equality.
+do
+ local Own=require('let.ownership');local B,T=S.Borrow,S.Lifetime
+ local ref=S.Ref(S.U32);local p,q,flag,i,j,saved,index=I.Value(1),I.Value(2),I.Value(3),I.Value(4),I.Value(5),I.Value(6),I.Value(7)
+ local slot=I.Storage(1);local array=I.Storage(2);local counter=I.Storage(3)
+ local function analyze(name,body,helpers)
+  local fn=I.Fn(name,I.Entry,0,L{S.inValue(ref),S.inValue(ref),S.inValue(S.Bool),S.inValue(S.U32),S.inValue(S.U32)},L{ref},L{
+   I.ValueParam(0,p,ref),I.ValueParam(1,q,ref),I.ValueParam(2,flag,S.Bool),I.ValueParam(3,i,S.U32),I.ValueParam(4,j,S.U32)},body)
+  local functions={fn};for _,helper in ipairs(helpers or {}) do functions[#functions+1]=helper end
+  local contracts=Own.bindLoans(Program.analyze(functions),{name});local c=contracts.entries[name]
+  local locators=Own.locators(contracts);local demands=Own.snapshotDemands(contracts,locators)
+  local function point(n) return B.Point(name,n) end
+  local function read(n,path)
+   for dep,node in pairs(c.dependencies) do if dep.kind=='Read' and dep.use.point==point(n) and dep.use.path==(path or B.Root) and node.locator==c.graph.statement_at[point(n)].place then return node end end
+   error('missing test read at '..name..'#'..n)
+  end
+  return locators,demands.contexts[c],read,point,c
+ end
+ local ret=I.Return(L{I.Ref(saved,ref)})
+ local loc,demands,read,point=analyze('locator_direct',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Store(I.Local(slot),I.Ref(q,ref)),ret})
+ local snapshot=read(2);local proof=Own.sameLocator(loc,snapshot,point(3))
+ check(proof and proof.current_occurrence and proof.evaluate_destination_first,'direct locator proof requires this occurrence and destination evaluation before a move')
+ check(loc.reads[snapshot].contents.before[point(3)] and not loc.reads[snapshot].contents.after[point(3)],'replacement kills the old contents after, not before, operand evaluation')
+ check(demands.sites[point(3)][snapshot].loans[T.Defined(point(2),saved.id,B.Root)],'saved original loan demands protection at replacement')
+ check(demands.sites[point(3)][snapshot].exact[B.Root],'direct replacement records an exact locator prerequisite, not an inferred holding')
+ loc,demands,read,point=analyze('locator_dead',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Store(I.Local(slot),I.Ref(q,ref)),I.Return(L{I.Ref(q,ref)})})
+ check(not next(demands.sites[point(3)]),'dead snapshots do not demand preservation')
+ loc,demands,read,point=analyze('locator_branch',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),
+  I.If(I.Ref(flag,S.Bool),L{I.Store(I.Local(slot),I.Ref(q,ref))},L{}),I.Store(I.Local(slot),I.Ref(q,ref)),ret})
+ snapshot=read(2)
+ check(not loc.reads[snapshot].contents.before[point(5)] and loc.reads[snapshot].contents.may_before[point(5)],'join uses a must meet, not a union of available field guards')
+ check(not Own.sameLocator(loc,snapshot,point(5)),'one surviving branch cannot certify the field on every path')
+ check(demands.sites[point(4)][snapshot] and demands.sites[point(5)][snapshot],'each possible first invalidation retains its source demand')
+ local xs=S.Array(ref,2)
+ local function at(value) return I.Index(I.Local(array),value,ref) end
+ loc,demands,read,point=analyze('locator_indices',L{
+  I.Var(array,xs,I.Make(xs,L{I.Ref(p,ref),I.Ref(q,ref)})),I.Read(saved,ref,at(I.Ref(i,S.U32))),
+  I.Store(at(I.Ref(j,S.U32)),I.Ref(q,ref)),ret})
+ snapshot=read(2)
+ check(not Own.sameLocator(loc,snapshot,point(3)),'two dynamic index operands do not become equal through one Element alias class')
+ check(demands.sites[point(3)][snapshot] and not next(demands.sites[point(3)][snapshot].exact),'uncertain replacement needs a selected-root/holding decision, not an invented exact move')
+ loc,demands,read,point=analyze('locator_captured_index',L{
+  I.Var(array,xs,I.Make(xs,L{I.Ref(p,ref),I.Ref(q,ref)})),I.Var(counter,S.U32,I.Ref(i,S.U32)),
+  I.Read(index,S.U32,I.Local(counter)),I.Read(saved,ref,at(I.Ref(index,S.U32))),
+  I.Store(I.Local(counter),I.Ref(j,S.U32)),I.Store(at(I.Ref(index,S.U32)),I.Ref(q,ref)),ret})
+ check(Own.sameLocator(loc,read(4),point(6)),'changing the index variable does not change its already-captured SSA value')
+ loc,demands,read,point=analyze('locator_disjoint_indices',L{
+  I.Var(array,xs,I.Make(xs,L{I.Ref(p,ref),I.Ref(q,ref)})),I.Read(saved,ref,at(I.Const(S.U32,I.UInt(1)))),
+  I.Read(I.Value(8),ref,at(I.Ref(i,S.U32))),I.Store(at(I.Const(S.U32,I.UInt(0))),I.Ref(q,ref)),ret})
+ check(loc.reads[read(2)].contents.after[point(4)],'an invalidated wildcard class is not expanded again to kill a disjoint exact index')
+ check(not loc.reads[read(3)].contents.after[point(4)],'the wildcard read itself is conservatively invalidated')
+ loc,demands,read,point=analyze('locator_loop_old',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Loop(L{
+   I.Store(I.Local(slot),I.Ref(q,ref)),I.If(I.Ref(flag,S.Bool),L{ret},L{I.Next})})})
+ snapshot=read(2)
+ check(not loc.reads[snapshot].contents.before[point(4)] and loc.reads[snapshot].contents.may_before[point(4)],'a static loop write does not preserve the old occurrence on its backedge')
+ check(not Own.sameLocator(loc,snapshot,point(4)),'a pre-loop snapshot cannot borrow each new occurrence of one static holding field')
+ loc,demands,read,point=analyze('locator_loop_current',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Loop(L{I.Read(saved,ref,I.Local(slot)),I.Store(I.Local(slot),I.Ref(q,ref)),
+   I.If(I.Ref(flag,S.Bool),L{ret},L{I.Next})})})
+ snapshot=read(3)
+ check(loc.reads[snapshot].repeated and loc.reads[snapshot].contents.before[point(4)],'a fresh read occurrence establishes its own pre-write snapshot each iteration')
+ check(not loc.reads[snapshot].contents.after[point(4)] and demands.sites[point(4)][snapshot],'every loop execution kills that occurrence, even with equal static version IDs')
+ local carried=I.Storage(14)
+ loc,demands,read,point=analyze('locator_loop_snapshots',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Var(carried,ref,I.Ref(q,ref)),I.Loop(L{
+   I.Read(I.Value(8),ref,I.Local(slot)),I.Read(saved,ref,I.Local(carried)),I.Store(I.Local(carried),I.Ref(I.Value(8),ref)),
+   I.Store(I.Local(slot),I.Ref(q,ref)),I.If(I.Ref(flag,S.Bool),L{ret},L{I.Next})})})
+ snapshot=read(4)
+ check(demands.reuses[point(4)] and next(demands.reuses[point(4)]),'old loop-carried loans are identified before their originating read site executes again')
+ local surviving=0;for _ in pairs(demands.sites[point(7)][snapshot].loans) do surviving=surviving+1 end
+ check(surviving>=2,'different surviving logical bindings are not collapsed into one static read occurrence')
+ local condition=I.Storage(4);local test=I.Value(10)
+ loc,demands,read,point=analyze('locator_index_reexecution',L{
+  I.Var(array,xs,I.Make(xs,L{I.Ref(p,ref),I.Ref(q,ref)})),I.Var(counter,S.U32,I.Ref(i,S.U32)),
+  I.Var(condition,S.Bool,I.Const(S.Bool,I.Boolean(true))),I.Var(slot,ref,I.Ref(p,ref)),
+  I.Loop(L{I.Read(index,S.U32,I.Local(counter)),I.Read(test,S.Bool,I.Local(condition)),
+   I.If(I.Ref(test,S.Bool),L{
+    I.Read(I.Value(8),ref,at(I.Ref(index,S.U32))),I.Store(I.Local(slot),I.Ref(I.Value(8),ref)),
+    I.Store(I.Local(counter),I.Ref(j,S.U32)),I.Store(I.Local(condition),I.Const(S.Bool,I.Boolean(false))),I.Next},L{
+    I.Store(at(I.Ref(index,S.U32)),I.Ref(q,ref)),I.Read(saved,ref,I.Local(slot)),ret})})})
+ snapshot=read(9)
+ check(loc.reads[snapshot].locator_kills[point(6)]=='operand-redefinition','executing the same index definition again kills the earlier evaluated operand')
+ check(not Own.sameLocator(loc,snapshot,point(14)),'static index value IDs cannot equate different loop executions')
+ check(demands.sites[point(14)][snapshot],'a snapshot transported through loop-carried storage retains its invalidation demand')
+ loc,demands,read,point=analyze('locator_false_trap',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Trap(I.Const(S.Bool,I.Boolean(false)),'not taken'),
+  I.Store(I.Local(slot),I.Ref(q,ref)),ret})
+ check(Own.sameLocator(loc,read(2),point(4)) and demands.sites[point(4)][read(2)],'a false conditional trap retains normal locator and protection demand flow')
+ local external=I.Storage(10)
+ local replace=I.Fn('locator_replace',I.Body,0,L{S.inPlace(ref),S.inValue(ref)},L{},L{
+  I.PlaceParam(0,external,ref),I.ValueParam(1,q,ref)},L{I.Store(I.Local(external),I.Ref(q,ref)),I.Return(L{})})
+ loc,demands,read,point=analyze('locator_call',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),
+  I.Call(L{},replace.id,L{I.BorrowArg(I.Local(slot)),I.ValueArg(I.Ref(q,ref))}),ret},{replace})
+ snapshot=read(2)
+ check(loc.reads[snapshot].losses[point(3)].reason=='call-write','callee writes invalidate the caller snapshot at the original call')
+ check(demands.sites[point(3)][snapshot] and not next(demands.sites[point(3)][snapshot].exact),'a callee may read before writing: callers cannot clear its field before entry')
+ local box=S.Record{child=ref};local boxRef=S.Ref(box)
+ local left,right,selected=I.Storage(11),I.Storage(12),I.Storage(13)
+ local function child(place) return I.Project(place,I.Field('child')) end
+ loc,demands,read,point=analyze('locator_changed_base',L{
+  I.Var(left,box,I.Make(box,L{I.Ref(p,ref)})),I.Var(right,box,I.Make(box,L{I.Ref(q,ref)})),
+  I.Var(selected,boxRef,I.Addr(I.Local(left),boxRef,B.WriteAccess)),
+  I.Read(saved,ref,child(I.Deref(I.Local(selected),box))),
+  I.Store(I.Local(selected),I.Addr(I.Local(right),boxRef,B.WriteAccess)),
+  I.Store(child(I.Deref(I.Local(selected),box)),I.Ref(q,ref)),ret})
+ snapshot=read(4)
+ local _,reason=Own.sameLocator(loc,snapshot,point(6))
+ check(reason=='changed-operands','identical place syntax cannot reread a mutated base to locate the old field')
+ check(loc.reads[snapshot].contents.before[point(6)],'changing the base variable does not destroy the old captured field itself')
+ loc,demands,read,point=analyze('locator_alternatives',L{
+  I.Var(left,box,I.Make(box,L{I.Ref(p,ref)})),I.Var(right,box,I.Make(box,L{I.Ref(q,ref)})),
+  I.Var(selected,boxRef,I.Addr(I.Local(left),boxRef,B.WriteAccess)),
+  I.If(I.Ref(flag,S.Bool),L{I.Store(I.Local(selected),I.Addr(I.Local(right),boxRef,B.WriteAccess))},L{}),
+  I.Read(saved,ref,child(I.Deref(I.Local(selected),box))),I.Store(child(I.Local(left)),I.Ref(q,ref)),ret})
+ snapshot=read(6);local alive,dead=0,0
+ for _,alternative in pairs(loc.reads[snapshot].alternatives) do
+  if alternative.contents.after[point(7)] then alive=alive+1 else dead=dead+1 end
+ end
+ check(alive==1 and dead==1,'read alternatives keep their own invalidation witnesses')
+ local alternatives=0;for _ in pairs(loc.reads[snapshot].losses[point(7)].alternatives) do alternatives=alternatives+1 end
+ check(alternatives==1,'a loss identifies the affected alternative, not a union of unrelated guards')
+ local view=S.View(S.Sig({},{}));local callback=I.Value(9)
+ local wrapper=I.Fn('locator_callback_wrapper',I.Body,0,L{S.inValue(view)},L{},L{I.ValueParam(0,callback,view)},L{
+  I.Indirect(L{},I.Ref(callback,view),L{}),I.Return(L{})})
+ local caller=I.Fn('locator_callback_caller',I.Entry,0,L{S.inPlace(ref),S.inValue(view),S.inValue(ref)},L{ref},L{
+  I.PlaceParam(0,slot,ref),I.ValueParam(1,callback,view),I.ValueParam(2,q,ref)},L{
+  I.Read(saved,ref,I.Local(slot)),I.Call(L{},wrapper.id,L{I.ValueArg(I.Ref(callback,view))}),
+  I.Store(I.Local(slot),I.Ref(q,ref)),ret})
+ local contracts=Own.bindLoans(Program.analyze{wrapper,caller},{caller.id});loc=Own.locators(contracts)
+ local context=contracts.entries[caller.id]
+ for dep,n in pairs(context.dependencies) do if dep.kind=='Read' and dep.use.point.ordinal==1 then snapshot=n end end
+ check(loc.reads[snapshot].losses[B.Point(caller.id,2)].reason=='unbound-effect','unknown effects survive a known wrapper even with no concrete writes')
+ check(not Own.sameLocator(loc,snapshot,B.Point(caller.id,3)),'missing call-effect edges cannot certify a field guard')
+ check(loc.reads[snapshot].descriptor.complete,'an InPlace input is a stable borrowed place, not a local allocation with a missing storage ID')
+ local identity=I.Fn('locator_identity',I.Body,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{I.Return(L{I.Ref(p,ref)})})
+ loc,demands,read,point=analyze('locator_forward',L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Call(L{I.Value(8)},identity.id,L{I.ValueArg(I.Ref(saved,ref))}),
+  I.Store(I.Local(slot),I.Ref(q,ref)),I.Return(L{I.Ref(I.Value(8),ref)})},{identity})
+ check(demands.sites[point(4)][read(2)].loans[T.Defined(point(3),8,B.Root)],'input-relative result forwarding retains the caller snapshot demand')
+ local source=C.typed{profile='slet',source=[[
+let Point={x:U32} let Box={child:Ref(Point)}
+let leaf(n:U32):Ref(Point)=do let p=Point{x=n} return Ref(p) end
+let parent():Ref(Box)=do let p=Box{child=leaf(1)} return Ref(p) end
+let main():U32=do let p=parent() let old=p.child p.child=leaf(2) return old.x end
+ ]]}
+ local bound=Own.bindLoans(source.program,{'main'});local actual=Own.locators(bound)
+ local needs=Own.snapshotDemands(bound,actual);local direct=false
+ for site,losses in pairs(needs.contexts[bound.entries.main].sites) do
+  for _,demand in pairs(losses) do if next(demand.exact) then
+   direct=true
+   check(bound.entries.main.graph.statement_at[site].kind=='Store','source preservation candidate attaches to the original field store')
+  end end
+ end
+ check(#source.program.ownership.main.summary.counted>0 and direct,'counted saved-child source reaches the locator/demand solver without opening physical admission')
+end
+-- Placement must be decided before creation if an earlier allocation occurrence
+-- remains observable after its frame storage would be reinitialized.
+do
+ local Own=require('let.ownership');local B,O=S.Borrow,S.Ownership
+ local ref=S.Ref(S.U32);local input,flag,number,old=I.Value(1),I.Value(2),I.Value(3),I.Value(4)
+ local carried,object=I.Storage(1),I.Storage(2)
+ local function fixture(name,selflink,survives)
+  local ty=selflink and S.Record{link=ref,x=S.U32} or S.Record{x=S.U32}
+  local initial=selflink and I.Make(ty,L{I.Ref(input,ref),I.Ref(number,S.U32)}) or I.Make(ty,L{I.Ref(number,S.U32)})
+  local field=I.Project(I.Local(object),I.Field('x'))
+  local body=L{I.Var(object,ty,initial),I.Read(old,S.U32,survives and I.Deref(I.Local(carried),S.U32) or field)}
+  if selflink then body:insert(I.Store(I.Project(I.Local(object),I.Field('link')),I.Addr(field,ref,B.WriteAccess))) end
+  if survives then body:insert(I.Store(I.Local(carried),I.Addr(field,ref,B.WriteAccess))) end
+  body:insert(I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next}))
+  local fn=I.Fn(name,I.Entry,0,L{S.inValue(ref),S.inValue(S.Bool),S.inValue(S.U32)},L{S.U32},L{
+   I.ValueParam(0,input,ref),I.ValueParam(1,flag,S.Bool),I.ValueParam(2,number,S.U32)},L{
+   I.Var(carried,ref,I.Ref(input,ref)),I.Loop(body)})
+  local program=Program.analyze{fn};local bound=Own.bindLoans(program,{name})
+  return program,bound
+ end
+ local program,bound=fixture('reuse_frame_address',false,true)
+ check(#program.ownership.reuse_frame_address.summary.counted==0,'source extent-only inference does not yet see the storage-occurrence escape')
+ local placement=Own.reuseRequirements(bound)
+ local root=O.Fresh(B.Local('reuse_frame_address',object.id));local state=placement.contexts[bound.entries.reuse_frame_address]
+ check(state.roots[root] and next(state.roots[root].loans),'an old carrier survives its allocation site reexecution')
+ local promoted=false
+ for _,requirement in ipairs(placement.entries.reuse_frame_address.summary.counted) do
+  if requirement.root==root and requirement.reason=='reuse' then promoted=true end
+ end
+ check(promoted,'the root must be counted from creation; retaining an overwritten frame address is not a repair')
+ check(#program.ownership.reuse_frame_address.summary.counted==0,'placement requirements do not mutate the checked ownership summary')
+ local admitted,admission=pcall(require('let.layout').program,program)
+ check(not admitted and D.is(admission) and admission.code=='ownership-materialization','newly required counted placement cannot fall through to borrowed emission')
+ program,bound=fixture('reuse_current_only',false,false)
+ placement=Own.reuseRequirements(bound)
+ check(not next(placement.contexts[bound.entries.reuse_current_only].roots) and #placement.entries.reuse_current_only.summary.counted==0,'current-iteration scalar accesses do not force counted placement')
+ check(require('let.layout').program(program),'ordinary current-iteration frame use remains admitted')
+ program,bound=fixture('reuse_self_cycle',true,true)
+ check(not program.ownership.reuse_self_cycle.cycle,'the original frame-only self-link has its frame borrow proof')
+ local ok,err=pcall(Own.reuseRequirements,bound)
+ check(not ok and D.is(err) and err.code=='Ref-cycle' and err.witness,'counted placement invalidates the frame proof and reuses the authoritative cycle checker')
+ ok,err=pcall(require('let.layout').program,program)
+ check(not ok and D.is(err) and err.code=='Ref-cycle','executable admission cannot conceal the newly exposed cycle')
+ local leaf=I.Fn('reuse_leaf',I.Body,0,L{S.inValue(S.U32)},L{ref},L{I.ValueParam(0,number,S.U32)},L{
+  I.Var(object,S.U32,I.Ref(number,S.U32)),I.Return(L{I.Addr(I.Local(object),ref,B.WriteAccess)})})
+ local caller=I.Fn('reuse_result',I.Entry,0,L{S.inValue(ref),S.inValue(S.Bool),S.inValue(S.U32)},L{S.U32},L{
+  I.ValueParam(0,input,ref),I.ValueParam(1,flag,S.Bool),I.ValueParam(2,number,S.U32)},L{
+  I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{
+   I.Call(L{I.Value(8)},leaf.id,L{I.ValueArg(I.Ref(number,S.U32))}),I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
+   I.Store(I.Local(carried),I.Ref(I.Value(8),ref)),I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
+ bound=Own.bindLoans(Program.analyze{leaf,caller},{caller.id});placement=Own.reuseRequirements(bound)
+ check(placement.contexts[bound.entries[caller.id]].results[B.Point(caller.id,3)],'an old result survives the next execution of its call site; output slots cannot be assumed empty')
+ local identity=I.Fn('reuse_identity',I.Body,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,input,ref)},L{I.Return(L{I.Ref(input,ref)})})
+ local borrowed=I.Fn('reuse_borrowed_result',I.Entry,0,caller.inputs,caller.results,caller.params,L{
+  I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{
+   I.Call(L{I.Value(8)},identity.id,L{I.ValueArg(I.Ref(input,ref))}),I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
+   I.Store(I.Local(carried),I.Ref(I.Value(8),ref)),I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
+ bound=Own.bindLoans(Program.analyze{identity,borrowed},{borrowed.id});placement=Own.reuseRequirements(bound)
+ check(not next(placement.contexts[bound.entries[borrowed.id]].results),'a borrowed identity result does not invent an output holding on loop reuse')
+ local other=I.Storage(3);local ty=S.Record{link=ref,x=S.U32}
+ local dependent=I.Fn('reuse_retained_target',I.Entry,0,caller.inputs,caller.results,caller.params,L{
+  I.Var(other,S.U32,I.Ref(number,S.U32)),I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{
+   I.Var(object,ty,I.Make(ty,L{I.Addr(I.Local(other),ref,B.WriteAccess),I.Ref(number,S.U32)})),
+   I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
+   I.Store(I.Local(carried),I.Addr(I.Project(I.Local(object),I.Field('x')),ref,B.WriteAccess)),
+   I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
+ program=Program.analyze{dependent};bound=Own.bindLoans(program,{dependent.id});placement=Own.reuseRequirements(bound)
+ local counted={};for _,r in ipairs(placement.entries[dependent.id].summary.counted) do counted[r.root.source.storage]=true end
+ check(#program.ownership[dependent.id].summary.counted==0 and counted[object.id] and counted[other.id],'counting the reused aggregate also revisits its previously frame-borrowed retained target')
+ local inner=I.Fn('reuse_inner',I.Body,0,caller.inputs,caller.results,caller.params,L{
+  I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{
+   I.Var(object,ty,I.Make(ty,L{I.Ref(input,ref),I.Ref(number,S.U32)})),I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
+   I.Store(I.Local(carried),I.Addr(I.Project(I.Local(object),I.Field('x')),ref,B.WriteAccess)),
+   I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
+ local parent=I.Fn('reuse_caller_cycle',I.Entry,0,caller.inputs,caller.results,caller.params,L{
+  I.Var(other,ty,I.Make(ty,L{I.Ref(input,ref),I.Ref(number,S.U32)})),
+  I.Store(I.Project(I.Local(other),I.Field('link')),I.Addr(I.Project(I.Local(other),I.Field('x')),ref,B.WriteAccess)),
+  I.Call(L{old},inner.id,L{I.ValueArg(I.Addr(I.Project(I.Local(other),I.Field('x')),ref,B.WriteAccess)),I.ValueArg(I.Ref(flag,S.Bool)),I.ValueArg(I.Ref(number,S.U32))}),
+  I.Return(L{I.Ref(old,S.U32)})})
+ program=Program.analyze{parent,inner}
+ check(#program.ownership[parent.id].summary.counted==0 and not program.ownership[parent.id].cycle,'caller initially has only frame-borrowed links')
+ ok,err=pcall(require('let.layout').program,program)
+ check(not ok and D.is(err) and err.code=='Ref-cycle','admission binds affected callers so callee promotion cannot conceal a caller self-cycle')
+ local callback=I.Value(9);local view=S.View(S.Sig({S.inValue(ref)},{ref}))
+ local unknown=I.Fn('reuse_unknown_origin',I.Entry,0,L{S.inValue(ref),S.inValue(S.Bool),S.inValue(S.U32),S.inValue(view)},L{S.U32},L{
+  I.ValueParam(0,input,ref),I.ValueParam(1,flag,S.Bool),I.ValueParam(2,number,S.U32),I.ValueParam(3,callback,view)},L{
+  I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{I.Var(object,S.U32,I.Ref(number,S.U32)),
+   I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
+   I.Indirect(L{I.Value(8)},I.Ref(callback,view),L{I.ValueArg(I.Addr(I.Local(object),ref,B.WriteAccess))}),
+   I.Store(I.Local(carried),I.Ref(I.Value(8),ref)),I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
+ program=Program.analyze{unknown};bound=Own.bindLoans(program,{unknown.id});placement=Own.reuseRequirements(bound)
+ check(#placement.entries[unknown.id].summary.counted==0 and next(placement.entries[unknown.id].unresolved),'unknown call origins remain obligations, not invented counted roots')
+ ok,err=pcall(require('let.layout').program,program)
+ check(not ok and D.is(err) and err.code=='ownership-materialization','missing result/retention contracts cannot certify safe frame reuse')
+ view=S.View(S.Sig({}, {S.U32}))
+ local scalar=I.Fn('reuse_scalar_callback',I.Entry,0,L{S.inValue(S.Bool),S.inValue(S.U32),S.inValue(view)},L{S.U32},L{
+  I.ValueParam(0,flag,S.Bool),I.ValueParam(1,number,S.U32),I.ValueParam(2,callback,view)},L{I.Loop(L{
+   I.Var(object,S.U32,I.Ref(number,S.U32)),I.Let(I.Value(8),ref,I.Addr(I.Local(object),ref,B.WriteAccess)),
+   I.Indirect(L{old},I.Ref(callback,view),L{}),I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
+ check(require('let.layout').program(Program.analyze{scalar}),'a scalar-only callback does not invent a reference-retention contract or a counted root')
 end
 print(('access proofs: %d checks, %d VM executions'):format(checks,executions))

@@ -81,14 +81,24 @@ construction effects and invocation-site reads of actual callable environment fi
 code-global materialized capture values are no longer a second state owner. Regressions
 in `tests/access_proofs.lua` include shared-query call bindings, recursive forwarding,
 known-input ABI preservation, wildcard returned contents, unknown callable obligations,
-and distinct query captures sharing code. Actual guard/preservation solving, normalized
-concrete contracts/instances and replacement physical emission remain pending; counted
-source admission remains closed. These helpers return source obligations, not executable
-lifetime decisions or protection certificates. Runtime C bindings and the native/threaded allocator are not
+and distinct query captures sharing code. The next continuation in `ownership.lua`
+adds normal-CFG SCCs, `locators` / `sameLocator`, per-alternative snapshot survival and
+`snapshotDemands`. Original operand definitions and memory loads constrain equality;
+loop reuse never becomes equality merely through static IDs. `reuseRequirements`
+strengthens counted-from-creation requirements when old carriers survive allocation-site
+reuse, revisits retained targets/cycles through the existing solver, and records result
+reuse without inventing output slots. `layout.lua` now delegates borrowed admission to
+`Ownership.requireBorrowed`; the former count-only gate cannot admit these newly
+identified or unresolved cases. Tests cover joins, indices, calls/wrappers, old loop
+snapshots, placement propagation, caller/self cycles and ordinary frame admission.
+Actual guard/holding selection, preservation actions, normalized concrete contracts /
+instances and replacement physical emission remain pending; counted source admission
+stays closed. Locator/demand records are not holding or container-lifetime certificates. Runtime C bindings and the native/threaded allocator are not
 replacement targets for this slice. Current evidence is under
 `research/experiments/runtime-owners/source-lifetime-analysis/`,
 `research/experiments/runtime-owners/source-lifetime-dependencies/` and
-`research/experiments/runtime-owners/source-lifetime-contracts/`.
+`research/experiments/runtime-owners/source-lifetime-contracts/` and
+`research/experiments/runtime-owners/source-lifetime-locators/`.
 
 Historical v1/v2/v3 evidence remains under `research/experiments/runtime-owners/`.
 It describes removed bindings, not current execution. The subsequent minimal C-entry

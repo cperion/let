@@ -360,6 +360,41 @@ function M.analyze(functions,queries,flow)
  end
  return inferred
 end
+-- Original normal CFG, including its cyclic points. Reexecution is a control
+-- property, not evidence that a root/contents version denotes the same object.
+local function control(c)
+ local state={points={},predecessors={},cyclic={}}
+ for point in pairs(c.facts.sites) do state.points[#state.points+1]=point;state.predecessors[point]={} end
+ table.sort(state.points,function(a,b) return a.ordinal<b.ordinal end)
+ for _,point in ipairs(state.points) do
+  for _,successor in ipairs(c.graph.nodes[point].next) do
+   if state.predecessors[successor] then state.predecessors[successor][point]=true end
+  end
+ end
+ local seen,order={},{}
+ for _,start in ipairs(state.points) do if not seen[start] then
+  local stack={{point=start,index=1}};seen[start]=true
+  while #stack>0 do
+   local top=stack[#stack];local successor=c.graph.nodes[top.point].next[top.index]
+   if not successor then order[#order+1]=top.point;stack[#stack]=nil
+   else
+    top.index=top.index+1
+    if state.predecessors[successor] and not seen[successor] then seen[successor]=true;stack[#stack+1]={point=successor,index=1} end
+   end
+  end
+ end end
+ seen={}
+ for i=#order,1,-1 do local start=order[i];if not seen[start] then
+  local members,stack={}, {start};seen[start]=true
+  while #stack>0 do
+   local p=stack[#stack];stack[#stack]=nil;members[#members+1]=p
+   for previous in pairs(state.predecessors[p]) do if not seen[previous] then seen[previous]=true;stack[#stack+1]=previous end end
+  end
+  if #members>1 or state.predecessors[start][start] then for _,p in ipairs(members) do state.cyclic[p]=true end end
+ end end
+ return state
+end
+
 -- Bind the finite loan graph, not machine instances or runtime layouts. Call
 -- edges retain their substitution environment: two calls of an identical query
 -- must not merge their input guards merely because their roots compare equal.
@@ -375,6 +410,7 @@ function M.bindLoans(program,entries)
   if result.contexts[id] then return result.contexts[id] end
   local facts=assert(program.flow.contexts[id],'unknown checked call context')
   local c={id=id,facts=facts,graph=program.flow.functions[facts.fn_id],loans={},dependencies={},returns={},root_uses={},calls={},incoming={}}
+  c.control=control(c)
   result.contexts[id]=c;pending[#pending+1]=c;return c
  end
  for _,name in ipairs(entries) do
@@ -553,6 +589,323 @@ function M.bindLoans(program,entries)
  return result
 end
 
+-- Temporal locator proofs over the original CFG. A source location/version is
+-- not an address equality proof: it can stand for different loop executions or
+-- different dynamic indices. Keep the evaluated operand and its dependencies.
+function M.locators(contracts)
+ assert(contracts.phase=='loan-contracts','locator proofs need bound source identities')
+ local result={phase='source-locators',source=contracts,contexts={},reads={}}
+ local function localAllocation(c,source)
+  return source and (source.kind=='Local' or source.kind=='Instantiated' or source.kind=='Recurring')
+   and source.frame==c.facts.fn_id and source==M.localSource(source.frame,source.storage,c.facts.context,c.facts.folded)
+ end
+ -- An unbound invocation is an effect obligation even when Access has no
+ -- concrete writes to publish. Carry it through known wrapper calls and SCCs.
+ local unbound,work={},{}
+ for _,c in pairs(contracts.contexts) do
+  for point,site in pairs(c.facts.sites) do
+   local node=c.graph.nodes[point]
+   if next(site.invocations) or site.unknown and (node.invoke or node.opaque) then
+    unbound[c]=true;work[#work+1]=c;break
+   end
+  end
+ end
+ local cursor=1
+ while cursor<=#work do
+  local c=work[cursor];cursor=cursor+1
+  for _,call in ipairs(c.incoming) do if not unbound[call.caller] then unbound[call.caller]=true;work[#work+1]=call.caller end end
+ end
+ local function descriptor(c,point,original,path)
+  local d={point=point,operand=original,path=path,loads={},definitions={},allocations={},complete=true}
+  local function component(p)
+   if p==B.Root then return '' end
+   local prefix=component(p.base)
+   if p.kind=='Field' or p.kind=='Case' then return prefix..'/'..p.kind..':'..#p.name..':'..p.name end
+   if p.kind=='Index' then return prefix..'/Index:'..p.index end
+   d.complete=false;return prefix..'/Element'
+  end
+  local function allocation(root)
+   if root.kind=='StorageRoot' then
+    local source=root.storage
+    if localAllocation(c,source) then
+     local p=c.graph.storage_origins[source.storage];if p then d.allocations[p]=true end
+    end
+   end
+  end
+  local expression,place
+  expression=function(e)
+   if e.kind=='Ref' then
+    local origin=assert(c.graph.value_origins[e.value.id],'locator has no original value definition')
+    if origin.point then d.definitions[origin.point]=true end
+   elseif e.kind=='Addr' then return 'Address('..place(e.place)..')'
+   elseif e.kind=='Get' then expression(e.aggregate)
+   elseif e.kind=='Un' or e.kind=='Is' or e.kind=='Convert' then expression(e.operand)
+   elseif e.kind=='Bin' then expression(e.left);expression(e.right)
+   elseif e.kind=='SliceLength' then expression(e.view)
+   elseif e.kind=='Make' then for _,field in ipairs(e.fields) do expression(field) end
+   elseif e.kind~='Const' then d.complete=false end
+   -- Identity of pure syntax and its original SSA operands, not evaluation of
+   -- the expression. Memoization IDs and source spans are not schema fields.
+   return S.encode(e)
+  end
+  local function loads(p)
+   local found=false
+   for use,read in pairs(c.facts.sites[point].contents) do
+    if c.graph.operands[point][use.operand]==p then
+     found=true
+     for loc in pairs(read.locations) do d.loads[loc]=true;allocation(loc.root) end
+    end
+   end
+   if not found then d.complete=false end
+  end
+  local function index(e)
+   if e.kind=='Const' and e.literal.kind=='UInt' then return '/Index:'..e.literal.value end
+   return '/IndexExpr('..expression(e)..')'
+  end
+  place=function(p)
+   if p.kind=='Local' then
+    if not c.graph.placeParams[p.storage.id] then
+     local origin=c.graph.storage_origins[p.storage.id];if origin then d.allocations[origin]=true end
+    end
+    return 'Local:'..p.storage.id
+   elseif p.kind=='Global' then return 'Global:'..S.encode(p.root)
+   elseif p.kind=='Project' then return place(p.base)..component(B.Field(B.Root,p.field.name))
+   elseif p.kind=='Index' then return place(p.base)..index(p.index)
+   elseif p.kind=='Deref' then
+    loads(p.base);return 'Deref('..place(p.base)..')'
+   elseif p.kind=='SliceIndex' then return 'Slice('..expression(p.view)..')'..index(p.index)
+   else d.complete=false;return 'UnboundPlace' end
+  end
+  local k=original.kind
+  if k=='Local' or k=='Global' or k=='Project' or k=='Index' or k=='Deref' or k=='SliceIndex' then
+   d.shape=place(original)..component(path)
+  else
+   -- Invocation-site environment fields use the callable operand, not an
+   -- addressable source place. Capturing their locator needs its bound layout.
+   d.complete=false;d.shape='Environment('..expression(original)..')'..component(path)
+  end
+  return d
+ end
+ for _,c in pairs(contracts.contexts) do
+  local state={context=c,points=c.control.points,predecessors=c.control.predecessors,cyclic=c.control.cyclic,stores={},reads={},unbound_effects={}};result.contexts[c]=state
+  for _,point in ipairs(state.points) do
+   local site,node=c.facts.sites[point],c.graph.nodes[point]
+   if next(site.invocations) or site.unknown and (node.invoke or node.opaque) then state.unbound_effects[point]=true end
+   for _,call in pairs(c.calls[point]) do if unbound[call.callee] then state.unbound_effects[point]=true end end
+   local statement=c.graph.statement_at[point]
+   if statement.kind=='Store' then
+    local parts={};state.stores[point]=parts
+    for path in pairs(M.components(statement.value.type)) do parts[path]=descriptor(c,point,statement.place,path) end
+   end
+  end
+  -- Must availability starts at top and meets predecessors. May availability
+  -- starts at bottom. Both have a false synthetic function-entry predecessor.
+  local function availability(origin,kills)
+   local a={before={},after={},may_before={},may_after={}}
+   for _,point in ipairs(state.points) do a.before[point]=true;a.after[point]=true end
+   local work,queued={},{}
+   local function enqueue(p) if not queued[p] then queued[p]=true;work[#work+1]=p end end
+   for _,point in ipairs(state.points) do enqueue(point) end
+   local cursor=1
+   while cursor<=#work do
+    local point=work[cursor];cursor=cursor+1;queued[point]=nil
+    local must,may=point~=c.graph.entry,false
+    for previous in pairs(state.predecessors[point]) do
+     must=must and a.after[previous];may=may or a.may_after[previous] or false
+    end
+    a.before[point],a.may_before[point]=must,may
+    local after=(point==origin or must) and not kills[point]
+    local mayAfter=(point==origin or may) and not kills[point]
+    if a.after[point]~=after or a.may_after[point]~=mayAfter then
+     a.after[point],a.may_after[point]=after,mayAfter
+     for _,nextPoint in ipairs(c.graph.nodes[point].next) do if state.predecessors[nextPoint] then enqueue(nextPoint) end end
+    end
+   end
+   return a
+  end
+  for dep,n in pairs(c.dependencies) do if dep.kind=='Read' then
+   local origin=dep.use.point
+   local d=descriptor(c,origin,n.locator,dep.use.path)
+   local r={node=n,descriptor=d,locations=n.read.locations,versions=n.read.versions,
+    active_cases=n.active_cases,locator_kills={},contents_kills={},losses={},alternatives={}}
+   for loc in pairs(r.locations) do
+    r.alternatives[loc]={version=c.facts.contents_versions.before[origin][loc],provenance=n.read.alternatives[loc],kills={}}
+   end
+   -- A captured field address remains usable after the index/base variables
+   -- change, provided its containing root survives. Re-evaluating the store's
+   -- place is a different operation: equality needs these dependencies intact.
+   local roots={}
+   for loc in pairs(r.locations) do
+    local source=loc.root.kind=='StorageRoot' and loc.root.storage
+    if localAllocation(c,source) then
+     local p=c.graph.storage_origins[source.storage];if p then roots[p]=true end
+    end
+   end
+   for _,point in ipairs(state.points) do
+    local site=c.facts.sites[point];local node=c.graph.nodes[point]
+    if d.definitions[point] or d.allocations[point] then r.locator_kills[point]='operand-redefinition' end
+    if roots[point] then
+     r.contents_kills[point]='allocation-reuse'
+     for loc,alternative in pairs(r.alternatives) do
+      local source=loc.root.kind=='StorageRoot' and loc.root.storage
+      if localAllocation(c,source) and c.graph.storage_origins[source.storage]==point then alternative.kills[point]='allocation-reuse' end
+     end
+    end
+    if state.unbound_effects[point] then
+     r.locator_kills[point]='unbound-effect';r.contents_kills[point]='unbound-effect'
+     for _,alternative in pairs(r.alternatives) do alternative.kills[point]='unbound-effect' end
+    end
+    -- Access already expanded the write footprint to tracked alias classes.
+    -- Expanding that result again would make an exact index-0 write kill index
+    -- 1 merely because it also invalidated a tracked wildcard projection.
+    for loc in pairs(d.loads) do if site.invalidates[loc] then r.locator_kills[point]='base-replacement' end end
+    for loc,alternative in pairs(r.alternatives) do if site.invalidates[loc] then
+     local reason=state.unbound_effects[point] and 'unbound-effect' or node.invoke and 'call-write' or 'write'
+     alternative.kills[point]=reason;r.contents_kills[point]=reason
+    end end
+   end
+   r.locator=availability(origin,r.locator_kills)
+   r.contents=availability(origin,r.contents_kills)
+   for point,reason in pairs(r.contents_kills) do
+    if point==origin or r.contents.may_before[point] then
+     r.losses[point]={reason=reason,available_on_all_paths=r.contents.before[point] or point==origin,alternatives={}}
+    end
+   end
+   for loc,alternative in pairs(r.alternatives) do
+    alternative.contents=availability(origin,alternative.kills)
+    for point in pairs(alternative.kills) do
+     if point==origin or alternative.contents.may_before[point] then
+      r.losses[point]=r.losses[point] or {reason=alternative.kills[point],available_on_all_paths=false,alternatives={}}
+      r.losses[point].alternatives[loc]=alternative
+     end
+    end
+   end
+   r.repeated=state.cyclic[origin] or false
+   state.reads[n]=r;result.reads[n]=r
+  end end
+ end
+ return result
+end
+
+-- Proof of equality with the destination *after* its operands/checks have been
+-- evaluated. It is not proof of a holding, container lifetime, or permission to
+-- clear a field. It applies to the current read occurrence, not an older loan
+-- carried across that source site's reexecution.
+function M.sameLocator(locators,read,point,path)
+ assert(locators.phase=='source-locators','expected source locator proofs')
+ local r=assert(locators.reads[read],'not an original bound contents read')
+ local c=locators.contexts[read.context]
+ local destination=c.stores[point] and c.stores[point][path or B.Root]
+ if not destination then return nil,'not-a-source-store' end
+ if not r.descriptor.complete or not destination.complete then return nil,'unbound-locator' end
+ if r.descriptor.shape~=destination.shape then return nil,'different-operands' end
+ local origin=read.symbol.use.point
+ if point~=origin and not r.locator.before[point] then return nil,'changed-operands' end
+ if point~=origin and not r.contents.before[point] then return nil,'changed-contents' end
+ return {read=read,point=point,destination=destination,active_cases=r.active_cases,
+  current_occurrence=true,evaluate_destination_first=true}
+end
+
+-- One owner of private call-relative substitution, shared by demand analyses.
+-- The alternatives remain distinct nodes; this is never an all-path guard proof.
+local function relativeInputs(origin,call)
+ if origin.context~=call.callee then return end
+ if origin.frontier=='input' then
+  local actuals,reason={},nil
+  for _,args in ipairs(call.arguments) do
+   local actual=args[origin.symbol.parameter+1] and args[origin.symbol.parameter+1][origin.symbol.path]
+   if actual then actuals[#actuals+1]=actual else reason='missing-input-binding' end
+  end
+  return actuals,reason or (#actuals==0 and 'missing-input-binding' or nil)
+ elseif origin.frontier=='entry-contents' then
+  local actual=origin.bindings[call]
+  return actual and {actual} or {},not actual and 'missing-contents-binding' or nil
+ end
+end
+
+-- Discover snapshot obligations at actual invalidations, not acquisitions.
+-- These are possible dependencies. A retained destination or another live guard
+-- may discharge them; neither a may-set nor a source storage cell proves that an
+-- actual holding exists there. Concrete binding must select/validate witnesses.
+function M.snapshotDemands(contracts,locators)
+ assert(locators.phase=='source-locators' and locators.source==contracts,'mismatched locator binding')
+ local origins,users,boundaries={},{},{}
+ local work,queued={},{}
+ local function enqueue(n) if not queued[n] then queued[n]=true;work[#work+1]=n end end
+ for _,n in ipairs(contracts.nodes) do origins[n]={};users[n]={};boundaries[n]={} end
+ for _,n in ipairs(contracts.nodes) do
+  for _,edge in ipairs(n.edges) do
+   users[edge.target][n]=true
+   if edge.call then
+    for _,args in ipairs(edge.call.arguments) do for _,parts in pairs(args) do for _,actual in pairs(parts) do users[actual][n]=true end end end
+    for _,actual in pairs(edge.call.contents) do users[actual][n]=true end
+   end
+  end
+  enqueue(n)
+ end
+ local cursor=1
+ while cursor<=#work do
+  local n=work[cursor];cursor=cursor+1;queued[n]=nil
+  local changed=false
+  local function include(origin) if not origins[n][origin] then origins[n][origin]=true;changed=true end end
+  local function copy(other) for origin in pairs(origins[other]) do include(origin) end end
+  if n.kind=='Read' or n.frontier then include(n) end
+  for _,edge in ipairs(n.edges) do
+   if not edge.call then copy(edge.target)
+   else
+    for origin in pairs(origins[edge.target]) do
+     local actuals,reason=relativeInputs(origin,edge.call)
+     if actuals then
+      for _,actual in ipairs(actuals) do copy(actual) end
+      if reason then boundaries[n][origin]=reason;include(n) end
+     elseif origin.kind=='Read' or origin.frontier or next(boundaries[origin]) then
+      boundaries[n][origin]=origin.frontier or 'return-guard-binding';include(n)
+     end
+    end
+   end
+  end
+  if changed then for user in pairs(users[n]) do enqueue(user) end end
+ end
+ local result={phase='snapshot-demands',source=contracts,locators=locators,origins=origins,contexts={}}
+ for _,c in pairs(contracts.contexts) do
+  local template=contracts.source.ownership[c.facts.fn_id].lifetime_template.contexts[c.id]
+  local state={sites={},reuses={},boundaries={},unbound_effects=locators.contexts[c].unbound_effects};result.contexts[c]=state
+  for point,live in pairs(template.live_out) do
+   local site={};state.sites[point]=site
+   for loan in pairs(live) do if not template.sites[point].defines[loan] then
+    local n=assert(c.loans[loan],'live loan missing from contract graph')
+    for origin in pairs(origins[n]) do
+     local read=locators.reads[origin]
+     if read and origin.context==c then
+      local loss=read.losses[point]
+      if loss then
+       local demand=site[origin] or {read=origin,loans={},loss=loss,exact={},unresolved=state.unbound_effects[point] or false};site[origin]=demand
+       demand.loans[loan]=true
+       -- A call may inspect the old field before replacing it. Never turn its
+       -- substituted write into permission for a caller to clear it at entry.
+       if not c.graph.nodes[point].invoke then
+        for path in pairs(locators.contexts[c].stores[point] or {}) do
+         local proof=M.sameLocator(locators,origin,point,path)
+         if proof then demand.exact[path]=proof end
+        end
+       end
+      end
+      if origin.symbol.use.point==point and read.repeated then
+       state.reuses[point]=state.reuses[point] or {};local reuse=state.reuses[point]
+       reuse[loan]=reuse[loan] or {};reuse[loan][origin]=true
+      end
+     elseif next(boundaries[origin]) or origin.frontier and origin.frontier~='input' and origin.frontier~='entry-contents' then
+      state.boundaries[point]=state.boundaries[point] or {}
+      state.boundaries[point][loan]=state.boundaries[point][loan] or {}
+      state.boundaries[point][loan][origin]=boundaries[origin]
+     end
+    end
+   end end
+  end
+ end
+ return result
+end
+
 -- Demand propagation is separate from protection: a requested capability must
 -- still have a live guard at its original use. A resolved concrete holding can
 -- supply a capability directly; otherwise follow the original producer edges.
@@ -597,16 +950,12 @@ function M.capabilities(contracts,requests,supplied)
     else
      local call=e.call
      for origin in pairs(origins[e.target]) do
-      if origin.context==call.callee and origin.frontier=='input' then
-       -- A result borrowed from an input recovers its capability from the
-       -- captured caller argument. It does not widen the identity callee's ABI.
-       for _,args in ipairs(call.arguments) do
-        local actual=args[origin.symbol.parameter+1] and args[origin.symbol.parameter+1][origin.symbol.path]
-        if actual then copy(actual) else returned[n][origin]='missing-input-binding';include(n) end
-       end
-      elseif origin.context==call.callee and origin.frontier=='entry-contents' then
-       local actual=origin.bindings[call]
-       if actual then copy(actual) else returned[n][origin]='missing-contents-binding';include(n) end
+      local actuals,reason=relativeInputs(origin,call)
+      if actuals then
+       -- Recover an input-origin capability from its captured caller binding;
+       -- do not widen an identity callee's ABI.
+       for _,actual in ipairs(actuals) do copy(actual) end
+       if reason then returned[n][origin]=reason;include(n) end
       elseif moduleAddress(origin) then include(origin)
       else
        -- A local capability cannot be read from an expired callee activation.
@@ -667,6 +1016,153 @@ function M.capabilities(contracts,requests,supplied)
  -- Empty demand/origin sets are not lifetime evidence. The protection solver
  -- must still discharge inactive payloads, non-owning constants and guard uses.
  return demands
+end
+
+-- A frame address cannot survive reuse of its allocation site. Determine this
+-- from surviving original carriers and positive-length CFG reachability, not
+-- from equality of Recurring families or from scalar root liveness alone.
+-- The resulting placement requirements still precede physical binding/emission.
+function M.reuseRequirements(contracts)
+ assert(contracts.phase=='loan-contracts','reuse requirements need bound source identities')
+ local origins=M.capabilities(contracts,{}).origins
+ local result={phase='reuse-requirements',source=contracts,contexts={},entries={}}
+ -- Unknown reference-bearing call contracts can hide a loop loan's origin or
+ -- retention effects. Absence of an Address edge cannot certify frame reuse.
+ -- Scalar-only callback signatures do not create this ownership obligation.
+ local unresolved,work={},{}
+ for _,c in pairs(contracts.contexts) do
+  for point,site in pairs(c.facts.sites) do if next(site.invocations) then
+   local signature=c.graph.nodes[point].signature
+   local open=not signature
+   if signature then
+    for _,input in ipairs(signature.inputs) do if input.kind=='InPlace' or input.type==S.Any or M.checkedAccess(input.type) then open=true end end
+    for _,ty in ipairs(signature.results) do if ty==S.Any or M.checkedAccess(ty) then open=true end end
+   end
+   if open then unresolved[c]=true;work[#work+1]=c;break end
+  end end
+ end
+ local cursor=1
+ while cursor<=#work do
+  local c=work[cursor];cursor=cursor+1
+  for _,call in ipairs(c.incoming) do if not unresolved[call.caller] then unresolved[call.caller]=true;work[#work+1]=call.caller end end
+ end
+ for _,c in pairs(contracts.contexts) do
+  local state={roots={},results={},requirements={},unresolved=false};result.contexts[c]=state
+  if unresolved[c] then for storage in pairs(c.graph.addressed) do
+   if c.control.cyclic[c.graph.storage_origins[storage]] then state.unresolved=true;break end
+  end end
+  local template=contracts.source.ownership[c.facts.fn_id].lifetime_template.contexts[c.id]
+  local reachable={}
+  local function canRepeat(from,to)
+   local seen=reachable[from]
+   if not seen then
+    seen={};reachable[from]=seen;local work={}
+    for _,p in ipairs(c.graph.nodes[from].next) do work[#work+1]=p end
+    local cursor=1
+    while cursor<=#work do
+     local p=work[cursor];cursor=cursor+1
+     if c.facts.sites[p] and not seen[p] then
+      seen[p]=true;for _,nextPoint in ipairs(c.graph.nodes[p].next) do work[#work+1]=nextPoint end
+     end
+    end
+   end
+   return seen[to]
+  end
+  for point,live in pairs(template.live_out) do
+   for loan in pairs(live) do if not template.sites[point].defines[loan] then
+    local n=assert(c.loans[loan],'live reuse loan missing from binding')
+    for origin in pairs(origins[n]) do if origin.context==c then
+     if origin.kind=='Address' and #origin.edges==0 and c.control.cyclic[point] then
+      for _,target in pairs(origin.provenance) do
+       local source=target.source
+       if (source.kind=='Local' or source.kind=='Instantiated' or source.kind=='Recurring') and source.frame==c.facts.fn_id
+        and source==M.localSource(source.frame,source.storage,c.facts.context,c.facts.folded)
+        and c.graph.storage_origins[source.storage]==point and canRepeat(origin.symbol.use.point,point) then
+        local root=M.root(source)
+        local demand=state.roots[root] or {point=point,loans={},origins={}};state.roots[root]=demand
+        demand.loans[loan]=true;demand.origins[origin]=true
+        local site=O.Site(point,O.Activation(c.facts.fn_id,c.facts.context,c.facts.folded))
+        state.requirements[O.Requirement(root,site,'reuse')]=true
+       end
+      end
+     elseif origin.kind=='Result' and origin.symbol.call==point and c.control.cyclic[point] then
+      -- Whether this boundary has actual output slots is decided by its bound
+      -- result contract. A repeated static result name cannot certify them empty.
+      state.results[point]=state.results[point] or {}
+      state.results[point][loan]=state.results[point][loan] or {};state.results[point][loan][origin]=true
+     end
+    end end
+   end end
+  end
+ end
+ -- Counting an aggregate can invalidate its old frame-only borrow proofs and
+ -- force its retained targets to be counted too. Use the existing solver and
+ -- cycle witness, rather than introducing a separate placement/cycle policy.
+ for name,entry in pairs(contracts.entries) do
+  local events=M.events();M.merge(events,entry.facts.ownership_events)
+  local pending,seen,open={entry},{},{};local cursor=1
+  while cursor<=#pending do
+   local c=pending[cursor];cursor=cursor+1
+   if not seen[c] then
+    seen[c]=true
+    if result.contexts[c].unresolved then open[c]=true end
+    for requirement in pairs(result.contexts[c].requirements) do
+     events.escapes[requirement]=requirement
+     events.spans[requirement.site]=c.graph.nodes[requirement.site.point].span
+    end
+    for _,calls in pairs(c.calls) do for _,call in pairs(calls) do pending[#pending+1]=call.callee end end
+   end
+  end
+  local summary,cycle=M.solve(events,contracts.source.ownership[name].summary.results,entry.facts.unknown)
+  if cycle then diagnostic('Ref-cycle','Owning references require a cyclic strict owner order after allocation-site reuse',cycle[1].site,events.spans,summary,cycle) end
+  result.entries[name]={summary=summary,spans=events.spans,unresolved=open}
+ end
+ return result
+end
+
+-- Temporary executable admission while physical lifetime lowering is absent.
+-- Source templates remain checked/immutable. In particular, an extent-only
+-- summary with no counted roots is not permission to reuse a live frame object.
+function M.requireBorrowed(program)
+ assert(program.phase=='checked-program','borrowed admission needs a checked program')
+ local function reject(name)
+  D.reject('ownership-materialization','Proof-directed lifetime lowering is not yet integrated: '..name)
+ end
+ for _,fn in ipairs(program.functions) do if #program.ownership[fn.id].summary.counted>0 then reject(fn.id) end end
+ local loops={}
+ for _,fn in ipairs(program.functions) do
+  local graph=program.flow.functions[fn.id]
+  if next(graph.addressed) then
+   local cfg=control{graph=graph,facts=program.flow.contexts[program.flow.roots[fn.id]]}
+   for storage in pairs(graph.addressed) do
+    if cfg.cyclic[graph.storage_origins[storage]] then loops[fn.id]=true;break end
+   end
+  end
+ end
+ if not next(loops) then return end
+ -- Include callers: a newly counted callee object can retain a caller root,
+ -- invalidate its frame-only proof and expose a concrete caller cycle.
+ local affected,users,work={},{},{}
+ for id,facts in pairs(program.flow.contexts) do
+  if loops[facts.fn_id] then affected[id]=true;work[#work+1]=id end
+  for _,site in pairs(facts.sites) do for child in pairs(site.calls) do
+   users[child]=users[child] or {};users[child][id]=true
+  end end
+ end
+ local cursor=1
+ while cursor<=#work do
+  local id=work[cursor];cursor=cursor+1
+  for parent in pairs(users[id] or {}) do if not affected[parent] then affected[parent]=true;work[#work+1]=parent end end
+ end
+ local entries={}
+ for _,fn in ipairs(program.functions) do if affected[program.flow.roots[fn.id]] then entries[#entries+1]=fn.id end end
+ if #entries>0 then
+  local requirements=M.reuseRequirements(M.bindLoans(program,entries))
+  for _,name in ipairs(entries) do
+   local entry=requirements.entries[name]
+   if #entry.summary.counted>0 or next(entry.unresolved) then reject(name) end
+  end
+ end
 end
 
 function M.validate(functions,inferred)
