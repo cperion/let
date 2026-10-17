@@ -1,9 +1,10 @@
 # Source lifetime lowering: concrete compiler contract
 
-**Status: proposed detailed binding, not implemented or validated.** The direction
-and removal-first order were approved at `fd81f206`; the removal checkpoint is
-`2b46dd89`. This document supplies the data structures and algorithms missing from
-the earlier outline. WORKLIST O03–O08/E01/E02 is the only delivery ledger.
+**Status: approved detailed binding; implementation in progress, not qualified.**
+The direction and removal-first order were approved at `fd81f206`; the removal
+checkpoint is `2b46dd89`. The user subsequently approved implementing this concrete
+binding and its cross-file scope. This document defines the target, not evidence of
+completion. WORKLIST O03–O08/E01/E02 is the only delivery ledger.
 
 This proposal preserves ownership §2.1: a root escaping its defining activation is
 counted from creation. It does not introduce an uncounted heap, change source cycle
@@ -35,7 +36,8 @@ call contexts and the original IR value/storage IDs.
 
 ```text
 UseId = (Point, operand_ordinal, component_path)
-LoanId = (definition_point_or_parameter, component_path)
+LoanId = (definition_point, original_value_binding, component_path)
+       | (parameter, component_path)
 
 Guard =
     Module(root)
@@ -71,6 +73,9 @@ SiteFacts = {
     successors: original CFG edges
 }
 ```
+
+The original value binding distinguishes multiple results defined at one call point;
+equal result types and component paths must not merge their loan identities.
 
 `locator` identifies the actual protecting owner field, not the referent address.
 For `saved = box.child`, it may identify `box.child`'s owner field. For
