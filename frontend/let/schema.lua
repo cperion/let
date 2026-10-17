@@ -13,6 +13,7 @@ M.Ir = M.ctx.Ir
 M.Surface = M.ctx.Surface
 M.Borrow = M.ctx.Borrow
 M.Ownership = M.ctx.Ownership
+M.Lifetime = M.ctx.Lifetime
 
 local Ty = M.Ty
 M.U32, M.U8, M.U16, M.I32 = Ty.U32, Ty.U8, Ty.U16, Ty.I32

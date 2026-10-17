@@ -22,6 +22,19 @@ local function selected(ty,path)
  if path.kind=='Element' then return parent.element end
 end
 function M.checkedPath(ty,path) return M.checkedAccess(assert(selected(ty,path))) end
+-- Component identities stop at a carrier; pointee layouts are not expanded.
+-- Array indices deliberately retain the existing conservative Element class.
+function M.components(ty,path,out)
+ path=path or B.Root;out=out or {}
+ if ty:isRef() or ty:isSlice() or ty:isView() or ty:isOwned() then out[path]=true
+ elseif ty:isRecord() then
+  for _,f in ipairs(ty.fields) do M.components(f.type,B.Field(path,f.name),out) end
+ elseif ty:isArray() then M.components(ty.element,B.Element(path),out)
+ elseif ty:isTaggedType() then
+  for _,f in ipairs(S.alternatives(ty)) do M.components(f.type,B.Case(path,f.name),out) end
+ end
+ return out
+end
 local function list(set)
  local out={};for v in pairs(set) do out[#out+1]=v end
  table.sort(out,function(a,b) return key(a)<key(b) end)
@@ -60,8 +73,8 @@ local function within(inner,outer)
  return inner.context[#outer.context+1].frame==outer.frame
 end
 function M.events() return {holdings={},escapes={},spans={}} end
-function M.hold(events,holder,target,site,span,activation)
- local h=O.Holding(M.root(holder),M.root(target),site,activation)
+function M.hold(events,holder,target,site,span,activation,destination)
+ local h=O.Holding(M.root(holder),M.root(target),site,activation,destination)
  events.holdings[h]=h;events.spans[site]=span
 end
 function M.returned(events,source,site,span)
@@ -199,8 +212,103 @@ local function diagnostic(code,message,site,spans,summary,cycle)
  -- Preserve the actual-root witness with the rejected proof.
  err.ownership=summary;err.witness=cycle;error(err,0)
 end
-function M.analyze(functions,queries)
+-- Backward demand over the original CFG. Join contents are edge-bound: a
+-- predecessor owes its own incoming version, never the union of other paths'
+-- witnesses. This computes demand only; it does not certify a guard or invent
+-- an acquisition from a may-alias set.
+local function lifetimeTemplate(graph,facts)
+ local L=S.Lifetime
+ local template={phase='loan-demand',sites={},live_in={},live_out={},root_live_in={},root_live_out={},empty=true}
+ local predecessors={}
+ for point,site in pairs(facts.sites) do
+  local decision={uses={},defines={},root_uses=site.root_uses,root_demands={},root_defines={},contents=site.contents,invalidates=site.invalidates}
+  template.sites[point]=decision;template.live_in[point]={};template.live_out[point]={};predecessors[point]={}
+  template.root_live_in[point]={};template.root_live_out[point]={}
+  for _,targets in pairs(site.root_uses) do for _,a in pairs(targets) do
+   local source=a.source
+   local own=source.frame==graph.fn.id and (source.kind=='Local' or source.kind=='Instantiated' or source.kind=='Recurring')
+    and source==M.localSource(graph.fn.id,source.storage,facts.context,facts.folded)
+   if not own or graph.addressed[source.storage] then
+    decision.root_demands[M.root(source)]=true;template.empty=false
+   end
+  end end
+  for _,use in pairs(site.uses) do decision.uses[use.loan]=true;template.empty=false end
+  for _,use in pairs(site.contents) do
+   for version in pairs(use.versions) do decision.uses[L.Contents(version)]=true;template.empty=false end
+  end
+  for location in pairs(site.invalidates) do decision.defines[L.Contents(L.Written(point,location))]=true;template.empty=false end
+ end
+ for storage in pairs(graph.addressed) do
+  local point=graph.storage_origins[storage]
+  if point and template.sites[point] then
+   local root=M.root(M.localSource(graph.fn.id,storage,facts.context,facts.folded))
+   template.sites[point].root_defines[root]=true
+  end
+ end
+ -- A definition is killed on every execution of its source point, including
+ -- the next loop iteration. Equal source IDs do not identify an allocation.
+ for _,site in pairs(template.sites) do
+  for loan in pairs(site.uses) do
+   if loan.kind=='Defined' then
+    local definition=assert(template.sites[loan.point],'use has no reachable definition')
+    definition.defines[loan]=true
+   end
+  end
+ end
+ for point in pairs(template.sites) do
+  for _,successor in ipairs(graph.nodes[point].next) do
+   if predecessors[successor] then predecessors[successor][point]=true end
+  end
+ end
+ local work,queued={},{}
+ local function enqueue(point)
+  if not queued[point] then queued[point]=true;work[#work+1]=point end
+ end
+ local points={};for point in pairs(template.sites) do points[#points+1]=point end
+ table.sort(points,function(a,b) return a.ordinal>b.ordinal end)
+ for _,point in ipairs(points) do enqueue(point) end
+ local cursor=1
+ while cursor<=#work do
+  local point=work[cursor];cursor=cursor+1;queued[point]=nil
+  local site=template.sites[point];local output=template.live_out[point]
+  for _,successor in ipairs(graph.nodes[point].next) do
+   for loan in pairs(template.live_in[successor] or {}) do
+    local version=loan.kind=='Contents' and loan.version
+    if version and version.kind=='Join' and version.point==successor then
+     local incoming=assert(facts.contents_versions.after[point][version.location])
+     output[L.Contents(incoming)]=true
+    else output[loan]=true end
+   end
+  end
+  local changed=false;local input=template.live_in[point]
+  local roots=template.root_live_out[point]
+  for _,successor in ipairs(graph.nodes[point].next) do
+   for root in pairs(template.root_live_in[successor] or {}) do roots[root]=true end
+  end
+  local rootInput=template.root_live_in[point]
+  for root in pairs(site.root_demands) do
+   if not rootInput[root] then rootInput[root]=true;changed=true end
+  end
+  for root in pairs(roots) do
+   if not site.root_defines[root] and not rootInput[root] then rootInput[root]=true;changed=true end
+  end
+  for loan in pairs(site.uses) do if not input[loan] then input[loan]=true;changed=true end end
+  for loan in pairs(output) do
+   if not site.defines[loan] and not input[loan] then input[loan]=true;changed=true end
+  end
+  if changed then for previous in pairs(predecessors[point]) do enqueue(previous) end end
+ end
+ return template
+end
+
+function M.analyze(functions,queries,flow)
  local inferred={}
+ local templates={}
+ assert(flow,'ownership analysis requires the completed source flow')
+ for id,facts in pairs(flow.contexts) do
+  local fn=facts.fn_id;templates[fn]=templates[fn] or {phase='loan-demand',contexts={},entry=flow.roots[fn]}
+  templates[fn].contexts[id]=lifetimeTemplate(flow.functions[fn],facts)
+ end
  for _,fn in ipairs(functions) do
   local query=queries[fn.id];local results={}
   for i,value in ipairs(query.results) do
@@ -211,7 +319,7 @@ function M.analyze(functions,queries)
   end
   table.sort(results,function(a,b) return key(a)<key(b) end)
   local summary,cycle=M.solve(query.ownership,S.List(results),query.unknown)
-  inferred[fn.id]={summary=summary,cycle=cycle,spans=query.ownership.spans}
+  inferred[fn.id]={summary=summary,cycle=cycle,spans=query.ownership.spans,lifetime_template=templates[fn.id]}
  end
  return inferred
 end

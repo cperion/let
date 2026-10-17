@@ -65,11 +65,17 @@ generalized owning public/foreign/container/task and erased contracts remain inc
 | E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | `tools/validate_owner_core.c` covers the standalone C core; `tools/validate_c_entries.lua`/`.c` cover format/ABC exclusion. `frontend/tests/source_owners.lua` and `tools/validate_source_owners.c` remain wired into `validate` as end-to-end acceptance tests, currently failing at the explicit lifetime-lowering cutover gate. Do not skip them or replace their successful-execution expectations with rejections. Their preceding qualification covers four modes, raw/optimized/both lifecycle banks, tagged partial acquisition and active-case-only cleanup. `tools/opcodes.lua`, `gen/semantics.lua`, residualizer/optimizer and `schema/residual.asdl` bind the two raw address casts; ISA/oracle/residual/cache tests cover both banks and exact bits. Old v3 fixtures remain removed; task integration still pending |
 | O01–O03 | `frontend/let/semantic.lua`, `source_state.lua`, `analysis.lua`, `access.lua`, `check.lua`, `frontend/ir.asdl`, generated `schema/ir.lua`; S metadata above | `frontend/let/program.lua` owns the completed graph and access/ownership results; `ownership.lua` retains the root/borrow/count/edge solver and iterative SCC diagnostics. `check.lua` is structural/type-only. Removed function proof annotations and checker-driven inference; semantic/compiler/demand/specialization producers now pass a checked program to ABC. `tests/program.lua` and `tests/ownership.lua` cover the boundary and proofs. Counted source execution is closed during the materializer replacement; extend existing ordered facts and summaries with protection/transfer obligations rather than re-inferring them in lowering. Broad precision/ABI/representation debt remains under WORKLIST O03–O08 |
 
-**Proposed lifetime replacement binding:** [source-lifetime-lowering.md](source-lifetime-lowering.md)
+**Approved lifetime replacement binding:** [source-lifetime-lowering.md](source-lifetime-lowering.md)
 §9 defines the concrete frontend APIs and file responsibilities, including `compiler.lua`
 entry requests, new schema metadata and the consuming/mixed-result private contracts.
-It is under design review; the removal checkpoint does not implement it. Runtime C
-bindings and the native/threaded allocator are not replacement targets for this slice.
+The first partial checkpoint adds original-site flow/contents versions in `access.lua`,
+program-owned flow in `program.lua`, and `loan-demand` templates in `ownership.lua`,
+with schema identities and regressions in `tests/access_proofs.lua`. Guard/capability
+solving, concrete contract binding and replacement physical emission are still pending;
+counted-source admission remains closed. These demand templates are not executable
+lifetime decisions. Runtime C bindings and the native/threaded allocator are not
+replacement targets for this slice. Current evidence is under
+`research/experiments/runtime-owners/source-lifetime-analysis/`.
 
 Historical v1/v2/v3 evidence remains under `research/experiments/runtime-owners/`.
 It describes removed bindings, not current execution. The subsequent minimal C-entry

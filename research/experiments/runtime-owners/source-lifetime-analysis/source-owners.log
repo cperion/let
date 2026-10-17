@@ -1,0 +1,9 @@
+luajit: REJECT [ownership-materialization] Proof-directed lifetime lowering is not yet integrated: self_replace
+stack traceback:
+	[C]: in function 'error'
+	./let/diag.lua:20: in function 'reject'
+	./let/layout.lua:116: in function 'program'
+	./let/abc.lua:901: in function 'lower'
+	./let/compiler.lua:150: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: at 0x5de5d656c120

@@ -12,9 +12,9 @@ function M.analyze(functions,modules,foreigns)
  local program={phase='checked-program',functions=vector(functions),
   modules=vector(modules or functions.moduleData),foreigns=vector(foreigns)}
  Check.program(program.functions,program.modules,program.foreigns)
- local queries,access,stats=Access.analyze(program.functions)
- program.access=access;program.accessStats=stats
- program.ownership=Ownership.analyze(program.functions,queries)
+ local queries,access,stats,flow=Access.analyze(program.functions)
+ program.access=access;program.accessStats=stats;program.flow=flow
+ program.ownership=Ownership.analyze(program.functions,queries,flow)
  Ownership.validate(program.functions,program.ownership)
  Access.validate(program.functions,queries)
  return program

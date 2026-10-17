@@ -7,6 +7,7 @@ local D=require('let.diag')
 local B=S.Borrow
 local Ownership=require('let.ownership')
 local O=S.Ownership
+local L=S.Lifetime
 local M={}
 local ROOT=B.Root
 local function key(value) return S.encode(value) end
@@ -140,9 +141,10 @@ end
 -- operators/literals to interpret, no placement, and no executable call bodies.
 -- Successor edges refer to the original checked control/effect points.
 local function build(fn)
- local summary={fn=fn,nodes={},storageTypes={},placeParams={}}
+ local summary={fn=fn,nodes={},storageTypes={},placeParams={},statement_at={},value_origins={},storage_origins={},addressed={},operands={}}
  for _,p in ipairs(fn.params) do
-  if p.kind=='PlaceParam' then summary.storageTypes[p.binding.id]=p.type;summary.placeParams[p.binding.id]=p.input end
+  if p.kind=='PlaceParam' then summary.storageTypes[p.binding.id]=p.type;summary.placeParams[p.binding.id]=p.input
+  else summary.value_origins[p.binding.id]={parameter=p.input,type=p.type} end
  end
  local function types(body)
   for _,s in ipairs(body) do
@@ -153,24 +155,35 @@ local function build(fn)
   end
  end
  types(fn.body)
- local value,place
+ local value,place,resolveValue
+ local operands
+ local function operand(original)
+  operands[#operands+1]=original;return #operands
+ end
+ local function withOperand(term,original)
+  term.operand=operand(original);return term
+ end
  place=function(p)
+  local result
   local k=p.kind
-  if k=='Local' then return {root=target(B.Local(fn.id,p.storage.id)),param=summary.placeParams[p.storage.id],type=summary.storageTypes[p.storage.id],readonly=false} end
-  if k=='Global' then return {root=target(B.Global(p.root.identity)),type=p.root.type,readonly=not p.root.writable} end
-  if k=='Project' or k=='Index' then
+  if k=='Local' then result={root=target(B.Local(fn.id,p.storage.id)),param=summary.placeParams[p.storage.id],type=summary.storageTypes[p.storage.id],readonly=false}
+  elseif k=='Global' then result={root=target(B.Global(p.root.identity)),type=p.root.type,readonly=not p.root.writable}
+  elseif k=='Project' or k=='Index' then
    local base=place(p.base)
-   return {base=base,path=k=='Project' and B.Field(ROOT,p.field.name) or B.Element(ROOT),type=k=='Project' and S.field(base.type,p.field.name) or p.type,readonly=base.readonly}
-  end
-  if k=='Deref' then return {deref=place(p.base),type=p.type,readonly=false} end
-  if k=='SliceIndex' or k=='PtrIndex' then return {view=value(p.view),type=p.type,readonly=k=='SliceIndex',pointer=k=='PtrIndex'} end
-  D.bug('access-place','Unknown place in access summary')
+   result={base=base,path=k=='Project' and B.Field(ROOT,p.field.name) or B.Element(ROOT),type=k=='Project' and S.field(base.type,p.field.name) or p.type,readonly=base.readonly,index=p.index and value(p.index),unchecked=base.unchecked}
+  elseif k=='Deref' then
+   local base=place(p.base);result={deref=base,type=p.type,readonly=false,unchecked=base.type:isPtr() or base.unchecked}
+  elseif k=='SliceIndex' or k=='PtrIndex' then result={view=value(p.view),type=p.type,readonly=k=='SliceIndex',pointer=k=='PtrIndex',unchecked=k=='PtrIndex',index=value(p.index)}
+  else D.bug('access-place','Unknown place in access summary') end
+  return withOperand(result,p)
  end
  local function expose(p)
   while p.base do p=p.base end
-  if p.root and p.root.kind=='StorageRoot' and p.root.storage.kind=='Local' and not p.param then summary.fresh=true end
+  if p.root and p.root.kind=='StorageRoot' and p.root.storage.kind=='Local' and not p.param then
+   summary.fresh=true;summary.addressed[p.root.storage.storage]=true
+  end
  end
- value=function(e)
+ resolveValue=function(e)
   local k=e.kind
   if k=='Ref' then return {id=e.value.id,type=e.type} end
   if k=='Addr' then
@@ -190,6 +203,7 @@ local function build(fn)
   elseif k=='SliceLength' then children[1]=value(e.view) end
   return {type=e.type,children=children}
  end
+ value=function(e) return withOperand(resolveValue(e),e) end
  local function argument(a)
   if a.kind=='BorrowArg' then local p=place(a.place);expose(p);return {place=p} end
   return {value=value(a.value)}
@@ -199,6 +213,13 @@ local function build(fn)
  local function enumerate(body)
   for _,s in ipairs(body) do
    ordinal=ordinal+1;points[s]=B.Point(fn.id,ordinal)
+   summary.statement_at[points[s]]=s
+   if s.kind=='Var' then summary.storage_origins[s.storage.id]=points[s]
+   elseif s.kind=='View' and s.adapter then
+    summary.storage_origins[s.adapter.id]=points[s];summary.addressed[s.adapter.id]=true
+   end
+   if s.value and type(s.value.id)=='number' then summary.value_origins[s.value.id]={point=points[s],type=s.type} end
+   for _,v in ipairs(s.results or {}) do summary.value_origins[v.id]={point=points[s]} end
    if s.kind=='If' then enumerate(s.yes);enumerate(s.no)
    elseif s.kind=='Switch' then for _,c in ipairs(s.cases) do enumerate(c.body) end
    elseif s.kind=='Loop' then enumerate(s.body) end
@@ -210,6 +231,7 @@ local function build(fn)
   local next=nextPoint
   for i=#body,1,-1 do
    local s=body[i];local point=points[s];local node={point=point,span=s.span,next=next and {next} or {}}
+   operands={};summary.operands[point]=operands
    local k=s.kind
    if k=='Let' then node.define=s.value.id;node.value=value(s.expr)
    elseif k=='Var' then node.initialize=target(B.Local(fn.id,s.storage.id));node.value=s.initial and value(s.initial);node.type=s.type
@@ -222,7 +244,8 @@ local function build(fn)
     for j,v in ipairs(s.results) do node.results[j]=v.id end
     if k=='Indirect' then node.signature=s.callable.type==S.Any and nil or s.callable.type.visible end
    elseif k=='ConstructVariant' then node.define=s.value.id;node.variant=s.payload and value(s.payload);node.path=B.Case(ROOT,s.tag)
-   elseif k=='VariantPayload' then node.define=s.value.id;node.value={base={id=s.variant.id},path=B.Case(ROOT,s.tag)}
+   elseif k=='VariantPayload' then node.define=s.value.id;node.value={base=withOperand({id=s.variant.id,type=s.sum},s),path=B.Case(ROOT,s.tag)}
+   elseif k=='VariantMatches' then node.define=s.value.id;node.tag_test=s.variant.id
    elseif k=='Return' then
     node.returns={};for j,e in ipairs(s.values) do node.returns[j]=value(e) end;node.next={}
    elseif k=='If' then
@@ -232,11 +255,19 @@ local function build(fn)
     if not test or test.value then local edge=graph(s.yes,next,backedge);if edge then node.next[#node.next+1]=edge end end
     if not test or not test.value then local edge=graph(s.no,next,backedge);if edge then node.next[#node.next+1]=edge end end
    elseif k=='Switch' then
-    node.next={};for _,c in ipairs(s.cases) do local edge=graph(c.body,next,backedge);if edge then node.next[#node.next+1]=edge end end
+    node.tag_test=s.variant.id;node.next={};node.cases={}
+    for _,c in ipairs(s.cases) do
+     local edge=graph(c.body,next,backedge)
+     if edge then node.next[#node.next+1]=edge;node.cases[c.tag]=edge end
+    end
    elseif k=='Loop' then node.next={graph(s.body,nil,point)}
    elseif k=='Next' then node.next=backedge and {backedge} or {}
    elseif k=='Dynamic' then node.opaque=true
-   elseif k=='Trap' then node.observes={value(s.failure)};node.next={}
+   elseif k=='Trap' then
+    node.observes={value(s.failure)}
+    local constant=s.failure.kind=='Const' and s.failure.literal.kind=='Boolean' and s.failure.literal
+    node.failure_exit=not constant or constant.value
+    if constant and constant.value then node.next={} end
    end
    if node.adapter or (node.initialize and checkedAccess(node.type)) or (node.invoke and not node.invoke.target) then summary.fresh=true end
    summary.nodes[point]=node;next=point
@@ -271,7 +302,8 @@ local function engine(program)
  local function run(ctx)
   local summary=ctx.summary;local fn=summary.fn
   local values,entry,aliases={},copyState(ctx.input),{}
-  local out={results={},state={},reads={},writes={},requirements={},transfers={},invocations={},failures={},ownership=Ownership.events(),unknown=false}
+  local out={results={},state={},reads={},writes={},requirements={},transfers={},invocations={},failures={},ownership=Ownership.events(),unknown=false,sites={}}
+  local function observed(node) return assert(out.sites[node.point]) end
   local extent=O.Activation(fn.id,ctx.context,ctx.folded)
   local function site(node) return O.Site(node.point,extent) end
   local function qualify(route)
@@ -289,6 +321,8 @@ local function engine(program)
    out.failures[id]={code=code,message=message,span=node.span}
   end
   local function record(set,targets,node,write)
+   local field=set==out.writes and 'writes' or set==out.reads and 'reads' or 'requirements'
+   mergeSet(observed(node)[field],targets)
    for _,a in pairs(targets) do
     if write and not a.writable then failure('readonly-write','Write or mutable borrowing reaches readonly storage',node) end
     add(set,a)
@@ -297,13 +331,28 @@ local function engine(program)
   local function invalidate(state,targets)
    for _,a in pairs(targets) do local id=a.location.root;if state[id] then state[id].unknown=true end end
   end
-  local function read(state,targets,ty,uncertain)
+  local function read(state,targets,ty,uncertain,node,operand)
    local value=empty();value.unknown=uncertain and checkedAccess(ty) or false
    for _,a in pairs(targets) do
     local stored=state[a.location.root]
     if stored then merge(value,project(stored,a.location.path))
-    elseif checkedAccess(ty) then value.unknown=true;out.unknown=true end
+    elseif checkedAccess(ty) then value.unknown=true;out.unknown=true;observed(node).unknown=true end
+    -- The locator names the protecting contents, not the pointed-to object.
+    -- Keep the original place operand so lowering can capture its evaluated
+    -- index/base once; this metadata is not itself an evaluated address.
+    for p in pairs(Ownership.components(ty)) do
+     local id=L.Use(node.point,assert(operand),p)
+     local reads=observed(node).contents
+     local use=reads[id] or {locations={},provenance={},alternatives={}};reads[id]=use
+     local loc=B.Location(a.location.root,prepend(p,a.location.path))
+     use.locations[loc]=true;use.alternatives[loc]=use.alternatives[loc] or {}
+     if stored then
+      mergeSet(use.provenance,at(stored,loc.path))
+      mergeSet(use.alternatives[loc],at(stored,loc.path))
+     end
+    end
    end
+   observed(node).unknown=observed(node).unknown or value.unknown
    return value
   end
   for _,p in ipairs(fn.params) do
@@ -312,8 +361,8 @@ local function engine(program)
     local root=qualify(target(B.Local(fn.id,p.binding.id)));aliases[root]=a
    else values[p.binding.id]=clone(a.value) end
   end
-  local place,fact,argument,store
-  place=function(p,state,node)
+  local place,fact,argument,store,resolvePlace
+  resolvePlace=function(p,state,node)
    if p.root then
     local root=qualify(p.root);local alias=aliases[root]
     if alias then return alias.targets,alias.unknown end
@@ -326,21 +375,44 @@ local function engine(program)
    end
    if p.deref then
     local base,uncertain=place(p.deref,state,node)
-    local carried=read(state,base,p.deref.type,uncertain);local targets=at(carried,ROOT)
+    local carried=read(state,base,p.deref.type,uncertain,node,p.deref.operand);local targets=at(carried,ROOT)
     if not next(targets) then out.unknown=true end
     return targets,carried.unknown
    end
    local value=fact(p.view,state,node);local targets={}
-   if p.pointer then out.unknown=true end
+   if p.pointer then out.unknown=true;observed(node).unknown=true end
    for _,a in pairs(at(value,ROOT)) do
     add(targets,location(a.location.root,p.pointer and a.location.path or B.Element(a.location.path),p.pointer and a.writable or false,a.source,a.current))
    end
    return targets,value.unknown
   end
-  fact=function(term,state,node)
+  place=function(p,state,node)
+   if p.index then fact(p.index,state,node) end
+   local targets,unknown=resolvePlace(p,state,node)
+   if not p.unchecked then
+    local id=L.Use(node.point,p.operand,ROOT);local uses=observed(node).root_uses
+    uses[id]=uses[id] or {};mergeSet(uses[id],targets)
+   end
+   return targets,unknown
+  end
+  fact=function(term,state,node,demand)
    if not term then return empty() end
-   if term.id then return values[term.id] or empty() end
-   if term.base then return project(fact(term.base,state,node),term.path) end
+   demand=demand or ROOT
+   if term.id then
+    local result=values[term.id] or empty()
+    if result.unknown then observed(node).unknown=true end
+    for path in pairs(Ownership.components(assert(term.type))) do
+     if under(path,demand) then
+      local origin=assert(summary.value_origins[term.id],'missing original value definition')
+      local loan=origin.point and L.Defined(origin.point,term.id,path) or L.Parameter(fn.id,origin.parameter,path)
+      local id=L.Use(node.point,term.operand,path)
+      local use=observed(node).uses[id] or {loan=loan,provenance={}}
+      observed(node).uses[id]=use;mergeSet(use.provenance,at(result,path))
+     end
+    end
+    return result
+   end
+   if term.base then return project(fact(term.base,state,node,prepend(demand,term.path)),term.path) end
    if term.address then
     local targets,uncertain=place(term.address,state,node)
     if term.write then
@@ -377,9 +449,9 @@ local function engine(program)
   argument=function(a,state,node)
    if a.place then
     local targets,uncertain=place(a.place,state,node)
-    return {targets=targets,unknown=uncertain,readonly=a.place.readonly,type=a.place.type}
+    return {targets=targets,unknown=uncertain,readonly=a.place.readonly,type=a.place.type,operand=a.place.operand}
    end
-   return {value=clone(fact(a.value,state,node)),type=a.value.type}
+   return {value=clone(fact(a.value,state,node)),type=a.value.type,operand=a.value.operand}
   end
   store=function(state,targets,value,ty,node)
    if value.unknown and checkedAccess(ty) then failure('borrow-proof','Stored access has no established owner provenance',node) end
@@ -388,10 +460,12 @@ local function engine(program)
     local destination=owner(a.location.root)
     for p,set in pairs(value.refs) do for _,retained in pairs(set) do
      local source=retained.source;local checked=checkedPath(ty,p)
-     if checked then Ownership.hold(out.ownership,destination,source,site(node),node.span,a.current and retained.current and extent or nil) end
+     if checked then Ownership.hold(out.ownership,destination,source,site(node),node.span,a.current and retained.current and extent or nil,B.Location(a.location.root,prepend(p,a.location.path))) end
      local id=accessKey(a)..':'..key(p)..':'..accessKey(retained)
-     out.transfers[id]={target=a,path=p,retained=retained,checked=checked}
+     out.transfers[id]={target=a,path=p,retained=retained,checked=checked,operand=node.value and node.value.operand}
+     observed(node).retentions[id]=out.transfers[id]
     end end
+    for p in pairs(Ownership.components(ty)) do observed(node).written_contents[B.Location(a.location.root,prepend(p,a.location.path))]=true end
     local route=a.location.path;local unique=a.location.root.kind=='StorageRoot' and (destination.kind=='Local' or destination.kind=='Instantiated' or destination.kind=='Recurring')
     while route.kind~='Root' do if route.kind=='Element' then unique=false end;route=route.base end
     local current=state[a.location.root] or empty();state[a.location.root]=current
@@ -404,7 +478,7 @@ local function engine(program)
    end
   end
   local function opaque(args,state,node)
-   out.unknown=true
+   out.unknown=true;observed(node).unknown=true;observed(node).opaque=true
    for _,a in ipairs(args) do
     if a.targets or (a.type and checkedAccess(a.type)) then
      failure('borrow-proof','Opaque call has no checked retention contract for supplied access',node)
@@ -420,7 +494,7 @@ local function engine(program)
    local bound={}
    for i,a in ipairs(args) do
     local input=program[frame].fn.inputs[i]
-    if input.kind=='InValue' then bound[i]={value=external(a.targets and read(state,a.targets,input.type,a.unknown) or a.value)}
+    if input.kind=='InValue' then bound[i]={value=external(a.targets and read(state,a.targets,input.type,a.unknown,node,node.invoke.value and node.invoke.value.operand or a.operand) or a.value)}
     else bound[i]={targets=externalTargets(a.targets),unknown=a.unknown,readonly=a.readonly,type=a.type} end
    end
    local transported={};for root,v in pairs(state) do transported[root]=external(v) end
@@ -429,6 +503,10 @@ local function engine(program)
     local repeated;context,repeated=Ownership.context(context,node.point);folded=folded or repeated
    end
    local child=request(frame,bound,transported,context,folded);child.users[ctx.id]=ctx
+   observed(node).calls[child.id]=child
+   observed(node).unknown=observed(node).unknown or child.unknown
+   mergeSet(observed(node).reads,child.reads);mergeSet(observed(node).writes,child.writes)
+   mergeSet(observed(node).requirements,child.requirements)
    Ownership.merge(out.ownership,child.ownership)
    mergeSet(out.requirements,child.requirements);mergeSet(out.reads,child.reads);mergeSet(out.writes,child.writes)
    for id,invocation in pairs(child.invocations) do out.invocations[id]=invocation end
@@ -491,12 +569,15 @@ local function engine(program)
   while cursor<=#work do
    local point=work[cursor];cursor=cursor+1;queued[point]=nil
    local node=summary.nodes[point];local state=copyState(before[point]);local value
+   -- Replace the last local iteration, rather than publish transient bottom
+   -- observations. Caller dependencies still converge in the existing queue.
+   out.sites[point]={uses={},root_uses={},contents={},written_contents={},reads={},writes={},requirements={},calls={},invocations={},retentions={},unknown=false}
    for _,observation in ipairs(node.observes or {}) do fact(observation,state,node) end
    if node.initialize then
     local root=qualify(node.initialize);local initial=fact(node.value,state,node)
     store(state,single(location(root,ROOT,true,nil,true)),initial,node.type,node)
    elseif node.read then
-    local targets,uncertain=place(node.read,state,node);record(out.reads,targets,node,false);value=read(state,targets,node.type,uncertain)
+    local targets,uncertain=place(node.read,state,node);record(out.reads,targets,node,false);value=read(state,targets,node.type,uncertain,node,node.read.operand)
    elseif node.store then
     if node.store.readonly then failure('readonly-write','Writes require a writable place',node) end
     local targets=place(node.store,state,node);record(out.writes,targets,node,true)
@@ -518,14 +599,21 @@ local function engine(program)
     value=empty();value.calls[ROOT]={[code]=binding}
     local adapter=node.adapter and qualify(node.adapter)
     if adapter then value.refs[ROOT]=single(location(adapter,ROOT,true,nil,true)) end
-    for _,a in ipairs(binding.slots) do
-     local sets=a.targets and {a.targets} or a.value.refs
+    for index,a in ipairs(binding.slots) do
+     local sets=a.targets and {[ROOT]=a.targets} or a.value.refs
      for p,set in pairs(sets) do
       -- A materialized callable retains its environment root. Its captures are
       -- outgoing environment holdings, not additional direct roots of the value.
       if not adapter then value.refs[ROOT]=value.refs[ROOT] or {};mergeSet(value.refs[ROOT],set) end
       if adapter and (a.targets or checkedPath(a.type,p)) then
-       for _,retained in pairs(set) do Ownership.hold(out.ownership,owner(adapter),retained.source,site(node),node.span,retained.current and extent or nil) end
+       for _,retained in pairs(set) do
+        local destination=B.Location(adapter,prepend(p,B.Field(ROOT,string.format('_%04d',index))))
+        Ownership.hold(out.ownership,owner(adapter),retained.source,site(node),node.span,retained.current and extent or nil,destination)
+        observed(node).written_contents[destination]=true
+        local operand=node.slots[index].place or node.slots[index].value
+        observed(node).retentions[key(destination)..':'..accessKey(retained)]={
+         target=location(adapter,destination.path,true),path=ROOT,retained=retained,checked=true,operand=operand.operand}
+       end
       end
      end
      if a.value then value.unknown=value.unknown or a.value.unknown end
@@ -567,6 +655,7 @@ local function engine(program)
        else part=compose(binding.target,actual,alternative,node) end
       else
        local obligation=B.Invocation(point,binding.origin);out.invocations[obligation]=obligation
+       observed(node).invocations[obligation]=true
        part={}
        for i,id in ipairs(node.results) do
         local ty=node.signature and node.signature.results[i] or S.Any
@@ -617,12 +706,14 @@ local function engine(program)
    end
    for _,successor in ipairs(node.next) do enqueuePoint(successor,state) end
   end
+  out.values=values;out.before=before
   return out
  end
  local function drain()
   while head<=#queue do
    local ctx=queue[head];head=head+1;ctx.queued=false;stats.iterations=stats.iterations+1
    local next=run(ctx);local changed=false
+   ctx.flow={sites=next.sites,values=next.values,before=next.before}
    for _,field in ipairs{'reads','writes','requirements'} do if mergeSet(ctx[field],next[field]) then changed=true end end
    for _,field in ipairs{'transfers','invocations','failures'} do
     for id,v in pairs(next[field]) do if not ctx[field][id] then ctx[field][id]=v;changed=true end end
@@ -634,7 +725,82 @@ local function engine(program)
    if changed then for _,user in pairs(ctx.users) do enqueue(user) end end
   end
  end
- return {request=request,drain=drain,stats=stats}
+ return {request=request,drain=drain,stats=stats,contexts=contexts}
+end
+
+-- Memory-provenance versions use the converged effects on the original CFG.
+-- This is a finite graph problem, not another execution of source expressions.
+-- A version identifies contents, not an allocation or proof of protection.
+local function contentsVersions(summary,flow)
+ local locations={}
+ for _,site in pairs(flow.sites) do
+  for _,use in pairs(site.contents) do for loc in pairs(use.locations) do locations[loc]=true end end
+  for loc in pairs(site.written_contents) do locations[loc]=true end
+ end
+ local points,pred={},{}
+ for point in pairs(flow.sites) do points[#points+1]=point;pred[point]={} end
+ table.sort(points,function(a,b) return a.ordinal<b.ordinal end)
+ for _,point in ipairs(points) do
+  for _,successor in ipairs(summary.nodes[point].next) do
+   if pred[successor] then pred[successor][point]=true end
+  end
+ end
+ local before,after,joins,incoming,kills={},{},{},{},{}
+ local function overlaps(a,b)
+  return a.root==b.root and (under(a.path,b.path)~=nil or under(b.path,a.path)~=nil)
+ end
+ for _,point in ipairs(points) do
+  before[point]={};after[point]={};joins[point]={};kills[point]={}
+  local site=flow.sites[point]
+  for loc in pairs(locations) do
+   for written in pairs(site.written_contents) do if overlaps(loc,written) then kills[point][loc]=true;break end end
+   -- Bound calls publish their substituted effects, including scalar writes
+   -- to a whole parent place. Those invalidate any tracked contents below it.
+   for _,write in pairs(site.writes) do if overlaps(loc,write.location) then kills[point][loc]=true;break end end
+  end
+ end
+ local work,queued={},{}
+ local function enqueue(point)
+  if point and before[point] and not queued[point] then work[#work+1]=point;queued[point]=true end
+ end
+ enqueue(summary.entry)
+ local cursor=1
+ while cursor<=#work do
+  local point=work[cursor];cursor=cursor+1;queued[point]=nil
+  local changed=false
+  for loc in pairs(locations) do
+   local versions={}
+   if point==summary.entry then versions[L.Entry(loc)]=true end
+   for previous in pairs(pred[point]) do
+    local v=after[previous][loc];if v then versions[v]=true end
+   end
+   local first=next(versions)
+   if first then
+    -- Once needed, keep the finite join identity while its incoming edges
+    -- converge. In particular a backedge never embeds a version recursively.
+    if next(versions,first) then joins[point][loc]=true end
+    local v=joins[point][loc] and L.Join(point,loc) or first
+    if joins[point][loc] then incoming[v]=versions end
+    before[point][loc]=v
+    local result=kills[point][loc] and L.Written(point,loc) or v
+    if after[point][loc]~=result then after[point][loc]=result;changed=true end
+   end
+  end
+  if changed then for _,successor in ipairs(summary.nodes[point].next) do enqueue(successor) end end
+ end
+ for _,point in ipairs(points) do
+  local site=flow.sites[point];site.invalidates={}
+  for loc in pairs(kills[point]) do
+   -- Even if the static Written ID is identical on successive iterations,
+   -- this is an invalidation. Equality of source families cannot elide it.
+   site.invalidates[loc]=before[point][loc]
+  end
+  for _,use in pairs(site.contents) do
+   use.versions={}
+   for loc in pairs(use.locations) do use.versions[assert(before[point][loc])]=true end
+  end
+ end
+ flow.contents_versions={before=before,after=after,incoming=incoming,locations=locations}
 end
 
 function M.analyze(functions)
@@ -695,8 +861,25 @@ function M.analyze(functions)
   table.sort(invocations,function(a,b) return key(a)<key(b) end)
   summaries[fn.id]={reads=footprint(summary.reads),writes=footprint(summary.writes),writable=footprint(summary.requirements),results=results,bounds=S.List(bounds),invocations=S.List(invocations)}
  end
+ local flow={phase='source-flow',functions=program,contexts={},roots={}}
+ for id,ctx in pairs(queries.contexts) do
+  local facts=assert(ctx.flow)
+  contentsVersions(ctx.summary,facts)
+  facts.fn_id=ctx.summary.fn.id;facts.formal_bindings=ctx.args
+  facts.result_provenance=ctx.results;facts.ownership_events=ctx.ownership
+  facts.context=ctx.context;facts.folded=ctx.folded;facts.unknown=ctx.unknown
+  facts.call_edges={}
+  for point,site in pairs(facts.sites) do
+   local edges={};facts.call_edges[point]=edges
+   for childId in pairs(site.calls) do edges[childId]=true end
+   -- Do not expose mutable analysis contexts through the published graph.
+   site.calls=edges
+  end
+  flow.contexts[id]=facts
+ end
+ for fn,ctx in pairs(roots) do flow.roots[fn]=ctx.id end
  queries.stats.seconds=os.clock()-start
- return roots,summaries,queries.stats
+ return roots,summaries,queries.stats,flow
 end
 function M.validate(functions,roots)
  for _,fn in ipairs(functions) do

@@ -782,7 +782,53 @@ passed for this checkpoint. Historical generated images are not fresh source evi
 Evidence: `runtime-owners/lifetime-lowering-removal/README.md` and its logs.
 Removal checkpoint: `2b46dd89`. The user subsequently required an actual data-structure
 and algorithm specification, not the earlier responsibilities outline.
-**Detailed binding — Owner: coordinator; State: design/review, not implementation.**
+**Detailed binding — Owner: coordinator; State: partial implementation (O03–O08/E01/E02).**
+The user explicitly approved the concrete cross-file implementation scope before coding.
+Implementation is separate from the specification checkpoint `ecb4271d`.
+Current scope: publish converged source-site CFG/use/version/call facts, solve
+liveness/protection and capability demands, bind concrete private contracts, then
+replace physical lowering and migrate its consumers/tests. Approved file set:
+`frontend/ir.asdl`, generated `frontend/let/schema/ir.lua`,
+`frontend/let/{schema,access,ownership,program,compiler,layout,placement,check,abc}.lua`,
+`frontend/tests/{ownership,access_proofs,program,source_owners}.lua` and
+`tools/validate_source_owners.c`. The obsolete materializer remains removed; the
+remaining temporary admission gates are removed only with the integrated replacement.
+Preserve the runtime C bindings, cycle checker, packed tags and ABC allocator.
+The first checkpoint below integrates original-site facts into the existing analysis
+worklist; acceptance remains the complete source-to-physical boundary and §10 cases,
+not a metadata-only checkpoint.
+
+**Source-flow/loan-demand checkpoint (O03 deliverable partial, no item closed):**
+The existing access worklist now publishes final per-site observations and original
+statement/operand identities, bound call edges/effects, reference-contents versions,
+read-location/provenance alternatives, and retention destinations. The checked program
+owns these facts. Ownership computes backward carrier/contents and containing-root
+demand, with predecessor-specific join versions. Loop writes remain invalidations
+regardless of equal static IDs. Conditional traps retain normal-success edges; a
+post-false-trap source-cycle regression rejects correctly. Loan IDs include the original
+value binding so two results of one call cannot collapse. Approval/identity clarification
+is separate in `37e72bf0`.
+Actual checkpoint files: `frontend/ir.asdl`, generated `frontend/let/schema/ir.lua`,
+`frontend/let/{schema,access,ownership,program}.lua`, `frontend/tests/access_proofs.lua`.
+These are explicitly `loan-demand` templates, **not** validated guard witnesses,
+capability/transfer decisions or concrete private contracts. The materializer and
+counted admission gate are unchanged; no obsolete owning path was restored.
+Checks: schema freshness/construction pass; ownership168/56 VM executions,
+access213/112, packed tags1894/496. `tests/program.lua` and `tests/source_owners.lua`
+still fail at `ownership-materialization` (`make` and `self_replace`, respectively);
+the positive acceptance tests remain intact. Evidence:
+`research/experiments/runtime-owners/source-lifetime-analysis/`.
+No full suite, sanitizer, new source-owner runtime qualification or performance result.
+Next action within the already approved scope: finish guarded/source-component and
+relative external-field facts (including active tags and normalized aliases), then
+preservation/capability solving, recursive contract binding and physical lowering.
+The open-formal getter `child(p: Ref(Box)): Ref(Point) = p.child` still lacks its
+relative field-content contract and rejects with `borrow-proof`; conservative Element
+locations are not yet concrete independent array holdings. These facts must not be
+promoted into completed transfer/protection proofs. Integration boundary remains §10
+execution, exact traffic, cleanup/failure tests and measured storage/code costs.
+
+Specification checkpoint description (before implementation approval):
 `docs/source-lifetime-lowering.md` now proposes concrete loan/guard/version records,
 CFG liveness and invalidation rules, conditional/join/loop decisions, private consuming
 inputs and mixed borrowed/fresh outputs, instance binding, move/failure sequencing,
@@ -790,9 +836,8 @@ compiler APIs and exact acceptance cases. In particular, result data stays in AB
 cells; only actual result holdings use appended `InPlace` slot arguments. This is a
 proposed private ABI refinement, not a newly approved runtime/public ABI or a tested
 implementation. The specification is kept in a separate jj change from removal.
-Next action: review this concrete binding with the user before replacement coding.
-The earlier approval established direction/removal order, not completeness of the
-previously missing interfaces. All executable admission failures above remain.
+The subsequent explicit implementation approval is recorded above. All executable
+admission failures above remain until the replacement is integrated and validated.
 
 - [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
   allocate escaping roots separately from activations before publishing any address.

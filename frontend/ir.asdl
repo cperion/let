@@ -105,13 +105,28 @@ module Ownership {
   # `activation` is independent evidence that both allocations belong to this
   # actual activation, even when recursive families share a finite name. It is
   # invalidated by counting the holder, never used to justify its own retain.
-  Holding = (Root holder, Root target, Site site, Extent? activation) unique
+  Holding = (Root holder, Root target, Site site, Extent? activation,
+             Borrow.Location? destination) unique
   Requirement = (Root root, Site site, string reason) unique
   BorrowProof = (Root target, Extent extent, Site site) unique
   Edge = (Root holder, Root target, Site site) unique
   Result = (number index, Borrow.Path path, Root* roots) unique
   Summary = (Root* roots, Result* results, Holding* holdings, BorrowProof* borrows,
              Edge* edges, Requirement* counted, boolean unknown) unique
+}
+
+# Lifetime identities refer to original checked source sites, never instructions.
+# Version edges live in program-owned maps, not recursively interned values.
+module Lifetime {
+  Use = (Borrow.Point point, number operand, Borrow.Path path) unique
+  Version = Entry(Borrow.Location location) unique
+          | Written(Borrow.Point point, Borrow.Location location) unique
+          | Join(Borrow.Point point, Borrow.Location location) unique
+  # A Call can define several values at one Point; retain its original binding
+  # ID rather than collapse equal-typed result components into one loan.
+  Loan = Defined(Borrow.Point point, number value, Borrow.Path path) unique
+       | Parameter(string frame, number parameter, Borrow.Path path) unique
+       | Contents(Version version) unique
 }
 
 module Ir {

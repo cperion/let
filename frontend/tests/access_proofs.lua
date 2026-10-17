@@ -444,4 +444,170 @@ end
 let main(): U32 = 0
 ]]}
 check(recursive.program.access[recursive.functions[1].id].writes.unknown,'unchecked pointer walk retains unknown effects')
+-- Original-site lifetime publication: versions describe contents, not root
+-- identity. The saved SSA read survives a replacement of its source slot.
+do
+ local B,T=S.Borrow,S.Lifetime
+ local p,q,flag,saved,current=I.Value(1),I.Value(2),I.Value(3),I.Value(4),I.Value(5)
+ local slot=I.Storage(1);local ref=S.Ref(S.U32)
+ local initialize=I.Var(slot,ref,I.Ref(p,ref))
+ local snapshot=I.Read(saved,ref,I.Local(slot))
+ local trap=I.Trap(I.Const(S.Bool,I.Boolean(false)),'unreachable failure')
+ local replacement=I.Store(I.Local(slot),I.Ref(q,ref))
+ local branch=I.If(I.Ref(flag,S.Bool),L{replacement},L{})
+ local reread=I.Read(current,ref,I.Local(slot))
+ local ret=I.Return(L{I.Ref(saved,ref),I.Ref(current,ref)})
+ local fn=I.Fn('versions',I.Entry,0,L{S.inValue(ref),S.inValue(ref),S.inValue(S.Bool)},L{ref,ref},
+  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref),I.ValueParam(2,flag,S.Bool)},
+  L{initialize,snapshot,trap,branch,reread,ret})
+ local program=Program.analyze{fn};local flow=program.flow
+ local graph=flow.functions.versions;local facts=flow.contexts[flow.roots.versions]
+ local template=program.ownership.versions.lifetime_template.contexts[flow.roots.versions]
+ local function point(n) return B.Point('versions',n) end
+ local loc=B.Location(B.StorageRoot(B.Local('versions',1)),B.Root)
+ check(graph.statement_at[point(2)]==snapshot and graph.statement_at[point(5)]==replacement,'flow refers to original source nodes')
+ check(graph.nodes[point(3)].next[1]==point(4),'false trap preserves the normal successor')
+ check(facts.sites[point(7)]~=nil,'post-trap uses are published after convergence')
+ check(facts.contents_versions.before[point(2)][loc]==T.Written(point(1),loc),'snapshot reads the original contents version')
+ check(facts.sites[point(5)].invalidates[loc]==T.Written(point(1),loc),'replacement kills the preceding contents')
+ local joined=facts.contents_versions.before[point(6)][loc]
+ check(joined==T.Join(point(6),loc),'branch joins have finite source-site version identities')
+ local incoming=facts.contents_versions.incoming[joined]
+ check(incoming[T.Written(point(1),loc)] and incoming[T.Written(point(5),loc)],'join retains both incoming versions')
+ check(template.live_out[point(5)][T.Defined(point(2),saved.id,B.Root)],'saved read remains live across replacement')
+ check(not template.live_in[point(2)][T.Defined(point(2),saved.id,B.Root)],'definition kills its own outgoing loan demand')
+ check(template.live_out[point(5)][T.Contents(T.Written(point(5),loc))],'owning edge carries its own version demand')
+ check(not template.live_out[point(5)][T.Contents(T.Written(point(1),loc))],'join does not assign the other edge witness to a writing edge')
+ for _,site in pairs(facts.sites) do for id in pairs(site.uses) do
+  check(graph.operands[id.point][id.operand]~=nil,'every carrier use retains its original operand')
+ end end
+ for _,holding in ipairs(program.ownership.versions.summary.holdings) do
+  check(holding.destination==loc,'source retention includes the actual destination component')
+ end
+ local dynamicTrap=I.Fn('dynamic_trap',I.Entry,0,L{S.inValue(S.Bool),S.inValue(ref)},L{ref},
+  L{I.ValueParam(0,flag,S.Bool),I.ValueParam(1,p,ref)},
+  L{I.Trap(I.Ref(flag,S.Bool),'conditional'),I.Return(L{I.Ref(p,ref)})})
+ local dynamicProgram=Program.analyze{dynamicTrap}
+ check(#dynamicProgram.flow.functions.dynamic_trap.nodes[B.Point('dynamic_trap',1)].next==1,'unknown conditional trap has a success edge')
+ local fatal=I.Fn('fatal',I.Entry,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},
+  L{I.Trap(I.Const(S.Bool,I.Boolean(true)),'always'),I.Return(L{I.Ref(p,ref)})})
+ local dead=Program.analyze{fatal};local deadFacts=dead.flow.contexts[dead.flow.roots.fatal]
+ check(deadFacts.sites[B.Point('fatal',2)]==nil,'always-true trap has no normal continuation')
+ -- A write on a loop backedge remains a kill on every occurrence. The Join
+ -- edges may be cyclic; the interned Version itself is never recursive.
+ local loopStore=I.Store(I.Local(slot),I.Ref(q,ref))
+ local loopRead=I.Read(saved,ref,I.Local(slot))
+ local loop=I.Fn('versions_loop',I.Entry,0,L{S.inValue(ref),S.inValue(ref)},L{},
+  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref)},
+  L{initialize,I.Loop(L{loopRead,loopStore,I.Next})})
+ local loopProgram=Program.analyze{loop};local loopFacts=loopProgram.flow.contexts[loopProgram.flow.roots.versions_loop]
+ local loopLoc=B.Location(B.StorageRoot(B.Local('versions_loop',1)),B.Root)
+ local loopPoint=B.Point('versions_loop',2);local writePoint=B.Point('versions_loop',4)
+ local loopVersion=loopFacts.contents_versions.before[loopPoint][loopLoc]
+ check(loopVersion==T.Join(loopPoint,loopLoc),'loop-carried contents use one finite join')
+ check(loopFacts.sites[writePoint].invalidates[loopLoc]==loopVersion,'loop write invalidates the preceding iteration')
+ check(loopFacts.contents_versions.incoming[loopVersion][T.Written(writePoint,loopLoc)],'backedge carries the write version')
+ -- Scalar loads through a reference still demand protection of its root.
+ local derefCell=I.Storage(2);local scalar=I.Value(6)
+ local deref=I.Fn('scalar_access',I.Entry,0,L{S.inValue(ref)},L{S.U32},L{I.ValueParam(0,p,ref)},L{
+  I.Var(derefCell,ref,I.Ref(p,ref)),I.Read(scalar,S.U32,I.Deref(I.Local(derefCell),S.U32)),I.Return(L{I.Ref(scalar,S.U32)})})
+ local scalarProgram=Program.analyze{deref};local scalarFacts=scalarProgram.flow.contexts[scalarProgram.flow.roots.scalar_access]
+ local scalarSite=scalarFacts.sites[B.Point('scalar_access',2)]
+ check(next(scalarSite.contents)~=nil and next(scalarSite.root_uses)~=nil,'scalar dereference keeps contents and containing-root demands')
+ local scalarOnly=I.Fn('scalar_only',I.Entry,0,L{},L{S.U32},L{},L{I.Return(L{I.Const(S.U32,I.UInt(42))})})
+ local scalarOnlyProgram=Program.analyze{scalarOnly}
+ local scalarTemplates=scalarOnlyProgram.ownership.scalar_only.lifetime_template
+ check(scalarTemplates.contexts[scalarTemplates.entry].empty,'scalar-only function has an empty lifetime template')
+ check(fn.access==nil and fn.ownership==nil and fn.flow==nil,'flow and liveness are owned by the checked program')
+ local direct=I.Fn('direct_address',I.Entry,0,L{},L{ref},L{},L{
+  I.Var(slot,S.U32,I.Const(S.U32,I.UInt(42))),I.Return(L{I.Addr(I.Local(slot),ref,B.WriteAccess)})})
+ local directProgram=Program.analyze{direct};local directTemplate=directProgram.ownership.direct_address.lifetime_template
+ local directFacts=directTemplate.contexts[directTemplate.entry]
+ local directRoot=S.Ownership.Fresh(B.Local('direct_address',slot.id))
+ check(not directFacts.empty and directFacts.root_live_out[B.Point('direct_address',1)][directRoot],'direct address result demands the allocation root without an intermediate SSA carrier')
+ check(not directFacts.root_live_in[B.Point('direct_address',1)][directRoot],'allocation defines its root demand')
+ -- Distinct results at one Call are distinct loans even when their types and
+ -- component paths coincide. Root equality is not a source-binding identity.
+ local pair=I.Fn('pair_loans',I.Body,0,L{S.inValue(ref),S.inValue(ref)},L{ref,ref},
+  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref)},L{I.Return(L{I.Ref(p,ref),I.Ref(q,ref)})})
+ local pairCall=I.Fn('pair_caller',I.Entry,0,L{S.inValue(ref),S.inValue(ref)},L{ref,ref},
+  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref)},L{
+   I.Call(L{saved,current},'pair_loans',L{I.ValueArg(I.Ref(p,ref)),I.ValueArg(I.Ref(q,ref))}),
+   I.Return(L{I.Ref(saved,ref),I.Ref(current,ref)})})
+ local pairsProgram=Program.analyze{pair,pairCall};local pairsTemplate=pairsProgram.ownership.pair_caller.lifetime_template
+ local outgoing=pairsTemplate.contexts[pairsTemplate.entry].live_out[B.Point('pair_caller',1)]
+ check(outgoing[T.Defined(B.Point('pair_caller',1),saved.id,B.Root)] and outgoing[T.Defined(B.Point('pair_caller',1),current.id,B.Root)],'same-site call results retain separate loan IDs')
+ -- Effects of a bound call invalidate the caller's actual field, not a
+ -- callee-formal placeholder. Publication contains IDs, not query objects.
+ local formalSlot=I.Storage(9);local ignored=I.Value(9)
+ local replace=I.Fn('replace_loan',I.Body,0,L{S.inPlace(ref),S.inValue(ref)},L{S.Unit},
+  L{I.PlaceParam(0,formalSlot,ref),I.ValueParam(1,q,ref)},L{
+   I.Store(I.Local(formalSlot),I.Ref(q,ref)),I.Return(L{I.Const(S.Unit,I.UInt(0))})})
+ local mutation=I.Fn('mutation',I.Entry,0,L{S.inValue(ref),S.inValue(ref)},L{ref,ref},
+  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref)},L{initialize,snapshot,
+   I.Call(L{ignored},'replace_loan',L{I.BorrowArg(I.Local(slot)),I.ValueArg(I.Ref(q,ref))}),reread,ret})
+ local mutationProgram=Program.analyze{replace,mutation}
+ local mutationFacts=mutationProgram.flow.contexts[mutationProgram.flow.roots.mutation]
+ local callPoint=B.Point('mutation',3)
+ local mutationLoc=B.Location(B.StorageRoot(B.Local('mutation',slot.id)),B.Root)
+ check(mutationFacts.sites[callPoint].invalidates[mutationLoc]==T.Written(B.Point('mutation',1),mutationLoc),'bound call kills actual caller contents')
+ local calleeId=next(mutationFacts.call_edges[callPoint])
+ check(calleeId and mutationFacts.call_edges[callPoint][calleeId]==true and mutationProgram.flow.contexts[calleeId].fn_id=='replace_loan','call edge identifies the converged child context')
+ -- A runtime index can itself use a slice carrier. Preserve both that demand
+ -- and the exact original place/index for later address capture, not a reread.
+ local xs=I.Storage(3);local view=I.Value(7);local item=I.Value(8)
+ local index=I.SliceLength(I.Ref(view,S.Slice(S.U32)),S.U32)
+ local indexed=I.Index(I.Local(xs),index,S.U32)
+ local array=S.Array(S.U32,2)
+ local indexing=I.Fn('indexing',I.Entry,0,L{S.inValue(S.Slice(S.U32))},L{S.U32},
+  L{I.ValueParam(0,view,S.Slice(S.U32))},L{
+   I.Var(xs,array,I.Make(array,L{I.Const(S.U32,I.UInt(1)),I.Const(S.U32,I.UInt(2))})),
+   I.Read(item,S.U32,indexed),I.Return(L{I.Ref(item,S.U32)})})
+ local indexingProgram=Program.analyze{indexing}
+ local indexPoint=B.Point('indexing',2);local indexFacts=indexingProgram.flow.contexts[indexingProgram.flow.roots.indexing]
+ local indexTemplate=indexingProgram.ownership.indexing.lifetime_template
+ check(indexTemplate.contexts[indexTemplate.entry].live_in[indexPoint][T.Parameter('indexing',0,B.Root)],'dynamic index carrier demand remains live')
+ local original=indexingProgram.flow.functions.indexing.operands[indexPoint]
+ local found=false;for _,operand in ipairs(original) do if operand==indexed and operand.index==index then found=true end end
+ check(found,'indexed locator retains the exact original place and index')
+ -- Keep each read alternative tied to its own field; a union of guards cannot
+ -- certify every alternative on every path.
+ local holder=S.Record{value=ref};local left,right,choice=I.Storage(11),I.Storage(12),I.Storage(13)
+ local holderRef=S.Ref(holder)
+ local function addr(storage) return I.Addr(I.Local(storage),holderRef,B.WriteAccess) end
+ local alternatives=I.Fn('read_alternatives',I.Entry,0,L{S.inValue(ref),S.inValue(ref),S.inValue(S.Bool)},L{ref},
+  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref),I.ValueParam(2,flag,S.Bool)},L{
+   I.Var(left,holder,I.Make(holder,L{I.Ref(p,ref)})),I.Var(right,holder,I.Make(holder,L{I.Ref(q,ref)})),
+   I.Var(choice,holderRef,addr(left)),I.If(I.Ref(flag,S.Bool),L{I.Store(I.Local(choice),addr(right))},L{}),
+   I.Read(saved,ref,I.Project(I.Deref(I.Local(choice),holder),I.Field('value'))),I.Return(L{I.Ref(saved,ref)})})
+ local alternativesProgram=Program.analyze{alternatives}
+ local alternativesFacts=alternativesProgram.flow.contexts[alternativesProgram.flow.roots.read_alternatives]
+ local leftLoc=B.Location(B.StorageRoot(B.Local('read_alternatives',left.id)),B.Field(B.Root,'value'))
+ local rightLoc=B.Location(B.StorageRoot(B.Local('read_alternatives',right.id)),B.Field(B.Root,'value'))
+ local located
+ for _,use in pairs(alternativesFacts.sites[B.Point('read_alternatives',6)].contents) do
+  if use.locations[leftLoc] then located=use end
+ end
+ check(located and located.locations[rightLoc],'selected read keeps both possible protecting field locations')
+ for _,alternative in pairs(located.alternatives[leftLoc]) do
+  check(alternative.source==B.ValueInput('read_alternatives',0,B.Root),'left field keeps only its own referent provenance')
+ end
+ for _,alternative in pairs(located.alternatives[rightLoc]) do
+  check(alternative.source==B.ValueInput('read_alternatives',1,B.Root),'right field keeps only its own referent provenance')
+ end
+ -- A false trap cannot hide the later escaping source self-cycle.
+ local box=S.Record{child=S.U32,saved=ref};local boxSlot=I.Storage(20)
+ local childPlace=I.Project(I.Local(boxSlot),I.Field('child'))
+ local cyclic=I.Fn('cycle_after_trap',I.Entry,0,L{S.inValue(ref)},L{S.Ref(box)},L{I.ValueParam(0,p,ref)},L{
+  I.Var(boxSlot,box,I.Make(box,L{I.Const(S.U32,I.UInt(1)),I.Ref(p,ref)})),trap,
+  I.Store(I.Project(I.Local(boxSlot),I.Field('saved')),I.Addr(childPlace,ref,B.WriteAccess)),
+  I.Return(L{I.Addr(I.Local(boxSlot),S.Ref(box),B.WriteAccess)})})
+ local cycleOK,cycleError=pcall(Program.analyze,{cyclic})
+ check(not cycleOK and D.is(cycleError) and cycleError.code=='Ref-cycle','post-trap owning cycle is still rejected')
+ local ptr=S.Ptr(S.U32)
+ local raw=I.Fn('raw_transport',I.Entry,0,L{S.inValue(ptr)},L{ptr},L{I.ValueParam(0,p,ptr)},L{
+  I.Var(slot,ptr,I.Ref(p,ptr)),I.Read(saved,ptr,I.Local(slot)),I.Return(L{I.Ref(saved,ptr)})})
+ local rawProgram=Program.analyze{raw};local rawTemplate=rawProgram.ownership.raw_transport.lifetime_template
+ check(rawTemplate.contexts[rawTemplate.entry].empty,'raw pointer contents do not become checked lifetime loans')
+end
 print(('access proofs: %d checks, %d VM executions'):format(checks,executions))
