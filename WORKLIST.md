@@ -819,14 +819,38 @@ still fail at `ownership-materialization` (`make` and `self_replace`, respective
 the positive acceptance tests remain intact. Evidence:
 `research/experiments/runtime-owners/source-lifetime-analysis/`.
 No full suite, sanitizer, new source-owner runtime qualification or performance result.
-Next action within the already approved scope: finish guarded/source-component and
-relative external-field facts (including active tags and normalized aliases), then
-preservation/capability solving, recursive contract binding and physical lowering.
-The open-formal getter `child(p: Ref(Box)): Ref(Point) = p.child` still lacks its
-relative field-content contract and rejects with `borrow-proof`; conservative Element
-locations are not yet concrete independent array holdings. These facts must not be
-promoted into completed transfer/protection proofs. Integration boundary remains §10
-execution, exact traffic, cleanup/failure tests and measured storage/code costs.
+That checkpoint still rejected the open-formal getter and merged static array fields;
+those producer gaps are addressed by the continuation below. Neither checkpoint is a
+completed transfer/protection proof. Integration boundary remains §10 execution, exact
+traffic, cleanup/failure tests and measured storage/code costs.
+
+**Dependency/relative-contents continuation (same owner, O03 partial; no item closed):**
+Implemented original carrier/read/address/store/call-result/return dependencies in the
+existing access worklist and finite definition/Written/Join relations in ownership
+liveness templates. Arguments retain their call alternatives and tagged uses retain
+case conditions. External field reads now carry finite read/operand/component obligations;
+closed queries substitute actual caller contents. The formerly rejected open getter is
+checked, and a frame-borrowed saved-child fixture executes raw/optimized in all four
+modes. Recursive and nested external reads remain finite and distinct. `ContentsInput`
+identifies an obligation, never dynamic allocation equality or an invented owning ABI.
+Static array fields now have distinct `Borrow.Index` paths, including two fields holding
+one identical root; dynamic Element aliases conservatively overlap them. Snapshot
+relations include wildcard writes and possibly untouched preceding cells. Corrected a
+source-definition bug where `Store.value` expression memo IDs overwrote real SSA Read
+origins. Actual code files: `frontend/ir.asdl`, generated `frontend/let/schema/ir.lua`,
+`frontend/let/{access,ownership}.lua`, `frontend/tests/access_proofs.lua`.
+Checks: schema freshness/construction pass; ownership168/56 VM executions,
+access249/120, packed tags1894/496. Program/source-owner integration probes still fail
+at the unchanged `ownership-materialization` gate (`make`/`self_replace`). Evidence:
+`research/experiments/runtime-owners/source-lifetime-dependencies/` (including the
+intermediate failure and final passing focused run). No runtime count, cleanup-size,
+code-size, sanitizer or performance qualification; no acceptance test weakened.
+Next action within the already approved full scope: use these dependencies to solve
+bound field/input/result guards, normalized aliases, preservation through joins/loop
+reuse and capability demands; bind recursive concrete consume/offer/result-slot
+contracts, then emit and validate the physical replacement. Result/CallContents edges
+still require binding; they are not completed guard witnesses. The gate must remain
+until that integration. No runtime ABI change or obsolete materializer restoration.
 
 Specification checkpoint description (before implementation approval):
 `docs/source-lifetime-lowering.md` now proposes concrete loan/guard/version records,

@@ -12,7 +12,11 @@ local M={}
 local ROOT=B.Root
 local function key(value) return S.encode(value) end
 local checkedAccess,checkedPath=Ownership.checkedAccess,Ownership.checkedPath
-local function empty() return {refs={},calls={},unknown=false} end
+local function wildcard(path)
+ while path.kind~='Root' do if path.kind=='Element' then return true end;path=path.base end
+ return false
+end
+local function empty() return {refs={},calls={},unknown=false,wild=false} end
 local function target(source)
  assert(source.kind=='Global' or source.kind=='Local' or source.kind=='Instantiated' or source.kind=='Recurring' or source.kind=='PlaceInput','loan source is not a physical target')
  return B.StorageRoot(source)
@@ -20,6 +24,7 @@ end
 local function owner(route)
  if route.kind=='StorageRoot' then return route.storage end
  if route.kind=='InputTarget' then return B.ValueInput(route.frame,route.parameter,route.path) end
+ if route.kind=='ContentsTarget' then return B.ContentsInput(route.frame,route.read,route.operand,route.path) end
  return B.CallOutput(route.invocation,route.result,route.path)
 end
 local function location(route,path,writable,source,current)
@@ -35,7 +40,10 @@ end
 local function merge(dst,src)
  local changed=false
  if src.unknown and not dst.unknown then dst.unknown=true;changed=true end
- for p,set in pairs(src.refs) do dst.refs[p]=dst.refs[p] or {};if mergeSet(dst.refs[p],set) then changed=true end end
+ for p,set in pairs(src.refs) do
+  if wildcard(p) then dst.wild=true end
+  dst.refs[p]=dst.refs[p] or {};if mergeSet(dst.refs[p],set) then changed=true end
+ end
  for p,codes in pairs(src.calls) do
   dst.calls[p]=dst.calls[p] or {}
   for id,binding in pairs(codes) do if not dst.calls[p][id] then dst.calls[p][id]=binding;changed=true end end
@@ -47,7 +55,7 @@ local function clone(value) local out=empty();merge(out,value);return out end
 -- and state cross activation boundaries: equal folded families are not proof
 -- that their live allocations belong to this activation.
 local function external(value)
- local out=empty();out.unknown=value.unknown
+ local out=empty();out.unknown=value.unknown;out.wild=value.wild
  for p,set in pairs(value.refs) do
   out.refs[p]={};for _,a in pairs(set) do add(out.refs[p],location(a.location.root,a.location.path,a.writable,a.source)) end
  end
@@ -58,25 +66,44 @@ local function externalTargets(set)
  local out={};for _,a in pairs(set) do add(out,location(a.location.root,a.location.path,a.writable,a.source)) end;return out
 end
 local function single(a) local out={};add(out,a);return out end
-local function at(value,path) return value.refs[path] or {} end
 local function prepend(path,base)
  if path.kind=='Root' then return base end
  if path.kind=='Field' then return B.Field(prepend(path.base,base),path.name) end
  if path.kind=='Case' then return B.Case(prepend(path.base,base),path.name) end
+ if path.kind=='Index' then return B.Index(prepend(path.base,base),path.index) end
  return B.Element(prepend(path.base,base))
 end
-local function under(path,base)
- if path==base then return ROOT end
+local function aliases(a,b)
+ if a==b then return true end
+ if a.kind=='Root' or b.kind=='Root' then return false end
+ local elements=(a.kind=='Element' and (b.kind=='Element' or b.kind=='Index'))
+  or (b.kind=='Element' and a.kind=='Index')
+ return (elements or a.kind==b.kind and a.name==b.name and a.index==b.index) and aliases(a.base,b.base)
+end
+local function at(value,path)
+ if path==ROOT or not value.wild and not wildcard(path) then return value.refs[path] or {} end
+ local result={}
+ for candidate,set in pairs(value.refs) do if aliases(candidate,path) then mergeSet(result,set) end end
+ return result
+end
+local function under(path,base,exact)
+ if path==base or not exact and aliases(path,base) then return ROOT end
  if path.kind=='Root' then return nil end
- local tail=under(path.base,base);if not tail then return nil end
+ local tail=under(path.base,base,exact);if not tail then return nil end
  if path.kind=='Field' then return B.Field(tail,path.name) end
  if path.kind=='Case' then return B.Case(tail,path.name) end
+ if path.kind=='Index' then return B.Index(tail,path.index) end
  return B.Element(tail)
 end
 local function project(value,path)
  local out=empty();out.unknown=value.unknown
- for p,set in pairs(value.refs) do local suffix=under(p,path);if suffix then out.refs[suffix]=set end end
- for p,codes in pairs(value.calls) do local suffix=under(p,path);if suffix then out.calls[suffix]=codes end end
+ for p,set in pairs(value.refs) do local suffix=under(p,path);if suffix then
+  if wildcard(suffix) then out.wild=true end
+  out.refs[suffix]=out.refs[suffix] or {};mergeSet(out.refs[suffix],set)
+ end end
+ for p,codes in pairs(value.calls) do local suffix=under(p,path);if suffix then
+  out.calls[suffix]=out.calls[suffix] or {};for id,code in pairs(codes) do out.calls[suffix][id]=code end
+ end end
  return out
 end
 local function component(dst,value,path)
@@ -85,22 +112,52 @@ local function component(dst,value,path)
  for p,codes in pairs(value.calls) do out.calls[prepend(p,path)]=codes end
  return merge(dst,out)
 end
-local function seed(ty,frame,index,path,invocation)
+-- Dependency maps describe transport between original carrier components. They
+-- are deliberately separate from abstract values/query keys and never evaluated.
+local function dependency(out,path,edge)
+ out[path]=out[path] or {};out[path][edge]=true
+end
+local function transport(out,input,base)
+ for path,edges in pairs(input) do
+  for edge in pairs(edges) do dependency(out,prepend(path,base),edge) end
+ end
+end
+local function selection(input,base)
+ local out={}
+ for path,edges in pairs(input) do
+  local suffix=under(path,base);if suffix then for edge in pairs(edges) do dependency(out,suffix,edge) end end
+ end
+ return out
+end
+local function cases(path)
+ local out={}
+ while path.kind~='Root' do
+  if path.kind=='Case' then out[#out+1]={path=path.base,tag=path.name} end
+  path=path.base
+ end
+ return out
+end
+local function seed(ty,frame,index,path,invocation,contents,contentsOperand)
  path=path or ROOT;local out=empty()
  if ty:isRef() or ty:isPtr() or ty:isSlice() or ty:isView() or ty:isOwned() or ty==S.Any then
   if ty~=S.Any then
-   local route=invocation and B.OutputTarget(invocation,index,path) or B.InputTarget(frame,index,path)
+   local route=contents and B.ContentsTarget(frame,contents,contentsOperand,path) or invocation and B.OutputTarget(invocation,index,path) or B.InputTarget(frame,index,path)
    out.refs[ROOT]=single(location(route,ROOT,not ty:isSlice()))
   end
   if ty:isView() or ty:isOwned() or ty==S.Any then
-   local code=invocation and B.ResultCode(invocation,index,path) or B.ParameterCode(frame,index,path)
+   local code=contents and B.ContentsCode(contents,contentsOperand,path) or invocation and B.ResultCode(invocation,index,path) or B.ParameterCode(frame,index,path)
    out.calls[ROOT]={[code]={origin=code,slots={}}}
   end
  elseif ty:isRecord() then
-  for _,f in ipairs(ty.fields) do component(out,seed(f.type,frame,index,B.Field(path,f.name),invocation),B.Field(ROOT,f.name)) end
- elseif ty:isArray() then component(out,seed(ty.element,frame,index,B.Element(path),invocation),B.Element(ROOT))
+  for _,f in ipairs(ty.fields) do component(out,seed(f.type,frame,index,B.Field(path,f.name),invocation,contents,contentsOperand),B.Field(ROOT,f.name)) end
+ elseif ty:isArray() and ty.length>0 then
+  local first=seed(ty.element,frame,index,B.Index(path,0),invocation,contents,contentsOperand)
+  if next(first.refs) or next(first.calls) then
+   component(out,first,B.Index(ROOT,0))
+   for i=1,ty.length-1 do component(out,seed(ty.element,frame,index,B.Index(path,i),invocation,contents,contentsOperand),B.Index(ROOT,i)) end
+  end
  elseif ty:isTaggedType() then
-  for _,f in ipairs(S.alternatives(ty)) do component(out,seed(f.type,frame,index,B.Case(path,f.name),invocation),B.Case(ROOT,f.name)) end
+  for _,f in ipairs(S.alternatives(ty)) do component(out,seed(f.type,frame,index,B.Case(path,f.name),invocation,contents,contentsOperand),B.Case(ROOT,f.name)) end
  end
  return out
 end
@@ -170,7 +227,8 @@ local function build(fn)
   elseif k=='Global' then result={root=target(B.Global(p.root.identity)),type=p.root.type,readonly=not p.root.writable}
   elseif k=='Project' or k=='Index' then
    local base=place(p.base)
-   result={base=base,path=k=='Project' and B.Field(ROOT,p.field.name) or B.Element(ROOT),type=k=='Project' and S.field(base.type,p.field.name) or p.type,readonly=base.readonly,index=p.index and value(p.index),unchecked=base.unchecked}
+   local index=p.index and p.index.kind=='Const' and p.index.literal.kind=='UInt' and p.index.literal.value
+   result={base=base,path=k=='Project' and B.Field(ROOT,p.field.name) or index and B.Index(ROOT,index) or B.Element(ROOT),type=k=='Project' and S.field(base.type,p.field.name) or p.type,readonly=base.readonly,index=p.index and value(p.index),unchecked=base.unchecked}
   elseif k=='Deref' then
    local base=place(p.base);result={deref=base,type=p.type,readonly=false,unchecked=base.type:isPtr() or base.unchecked}
   elseif k=='SliceIndex' or k=='PtrIndex' then result={view=value(p.view),type=p.type,readonly=k=='SliceIndex',pointer=k=='PtrIndex',unchecked=k=='PtrIndex',index=value(p.index)}
@@ -190,7 +248,7 @@ local function build(fn)
    local p=place(e.place);expose(p)
    return {address=p,type=e.type,write=not e.access or e.access.kind=='WriteAccess'}
   end
-  if k=='Get' then return {base=value(e.aggregate),path=e.field.kind=='Element' and B.Element(ROOT) or B.Field(ROOT,e.field.name),type=e.type} end
+  if k=='Get' then return {base=value(e.aggregate),path=e.field.kind=='Element' and B.Index(ROOT,e.field.index) or B.Field(ROOT,e.field.name),type=e.type} end
   if k=='Make' then
    local fields={};for i,f in ipairs(e.fields) do fields[i]=value(f) end
    return {fields=fields,type=e.type}
@@ -218,7 +276,12 @@ local function build(fn)
    elseif s.kind=='View' and s.adapter then
     summary.storage_origins[s.adapter.id]=points[s];summary.addressed[s.adapter.id]=true
    end
-   if s.value and type(s.value.id)=='number' then summary.value_origins[s.value.id]={point=points[s],type=s.type} end
+   -- Expr.id is also used by the source builder's expression memoization.
+   -- In particular Store.value is an Expr, not an SSA definition.
+   if s.kind=='Let' or s.kind=='Read' or s.kind=='View' or s.kind=='ConstructVariant' or s.kind=='VariantPayload' or s.kind=='VariantMatches' then
+    local ty=s.kind=='VariantPayload' and S.caseOf(s.sum,s.tag) or s.kind=='VariantMatches' and S.Bool or s.type
+    summary.value_origins[s.value.id]={point=points[s],type=ty}
+   end
    for _,v in ipairs(s.results or {}) do summary.value_origins[v.id]={point=points[s]} end
    if s.kind=='If' then enumerate(s.yes);enumerate(s.no)
    elseif s.kind=='Switch' then for _,c in ipairs(s.cases) do enumerate(c.body) end
@@ -237,7 +300,7 @@ local function build(fn)
    elseif k=='Var' then node.initialize=target(B.Local(fn.id,s.storage.id));node.value=s.initial and value(s.initial);node.type=s.type
    elseif k=='Read' then node.define=s.value.id;node.read=place(s.place);node.type=s.type
    elseif k=='Store' then node.store=place(s.place);node.value=value(s.value);node.type=s.value.type
-   elseif k=='View' then node.define=s.value.id;node.code=B.KnownCode(point);node.entry=s.entry;node.slots=arguments(s.slots);node.type=s.type;node.adapter=s.adapter and target(B.Local(fn.id,s.adapter.id))
+   elseif k=='View' then node.define=s.value.id;node.code=B.KnownCode(point);node.entry=s.entry;node.slots=arguments(s.slots);node.type=s.type;node.adapter=s.adapter and target(B.Local(fn.id,s.adapter.id));node.result_operand=operand(s)
    elseif k=='Call' or k=='Indirect' then
     node.invoke=k=='Call' and {target=s.target} or {value=value(s.callable)}
     node.arguments=arguments(s.arguments);node.results={}
@@ -332,10 +395,27 @@ local function engine(program)
    for _,a in pairs(targets) do local id=a.location.root;if state[id] then state[id].unknown=true end end
   end
   local function read(state,targets,ty,uncertain,node,operand)
-   local value=empty();value.unknown=uncertain and checkedAccess(ty) or false
+   local value=empty();local dependencies={}
+   value.unknown=uncertain and checkedAccess(ty) or false
    for _,a in pairs(targets) do
     local stored=state[a.location.root]
-    if stored then merge(value,project(stored,a.location.path))
+    local contents=stored and project(stored,a.location.path)
+    local root=a.location.root
+    local external=root.kind=='InputTarget' or root.kind=='OutputTarget' or root.kind=='ContentsTarget'
+    if external and not uncertain then
+     -- Open templates carry relative contents obligations, not invented roots
+     -- or recursively expanded pointees. A prior write can populate only part
+     -- of an external object: untouched fields must not become lattice bottom.
+     local initial=seed(ty,root.frame or root.invocation.frame,0,ROOT,nil,node.point,operand)
+     if not contents then contents=initial
+     else
+      for path,set in pairs(initial.refs) do
+       if not contents.refs[path] and not contents.calls[path] then contents.refs[path]=set end
+      end
+      for path,codes in pairs(initial.calls) do if not contents.calls[path] then contents.calls[path]=codes end end
+     end
+    end
+    if contents then merge(value,contents)
     elseif checkedAccess(ty) then value.unknown=true;out.unknown=true;observed(node).unknown=true end
     -- The locator names the protecting contents, not the pointed-to object.
     -- Keep the original place operand so lowering can capture its evaluated
@@ -343,17 +423,18 @@ local function engine(program)
     for p in pairs(Ownership.components(ty)) do
      local id=L.Use(node.point,assert(operand),p)
      local reads=observed(node).contents
-     local use=reads[id] or {locations={},provenance={},alternatives={}};reads[id]=use
+     local use=reads[id] or {locations={},provenance={},alternatives={},active_cases=cases(p)};reads[id]=use
+     dependency(dependencies,p,L.Read(id))
      local loc=B.Location(a.location.root,prepend(p,a.location.path))
      use.locations[loc]=true;use.alternatives[loc]=use.alternatives[loc] or {}
-     if stored then
-      mergeSet(use.provenance,at(stored,loc.path))
-      mergeSet(use.alternatives[loc],at(stored,loc.path))
+     if contents then
+      mergeSet(use.provenance,at(contents,p))
+      mergeSet(use.alternatives[loc],at(contents,p))
      end
     end
    end
    observed(node).unknown=observed(node).unknown or value.unknown
-   return value
+   return value,dependencies
   end
   for _,p in ipairs(fn.params) do
    local a=assert(ctx.args[p.input+1],'missing access summary argument')
@@ -369,34 +450,37 @@ local function engine(program)
     return single(location(root,ROOT,not p.readonly,nil,root.kind=='StorageRoot' and root.storage.kind~='Global')),false
    end
    if p.base then
-    local base,uncertain=place(p.base,state,node);local targets={}
+    local base,uncertain,dependencies=place(p.base,state,node);local targets={}
     for _,a in pairs(base) do add(targets,location(a.location.root,prepend(p.path,a.location.path),a.writable,a.source,a.current)) end
-    return targets,uncertain
+    return targets,uncertain,dependencies
    end
    if p.deref then
     local base,uncertain=place(p.deref,state,node)
-    local carried=read(state,base,p.deref.type,uncertain,node,p.deref.operand);local targets=at(carried,ROOT)
+    local carried,dependencies=read(state,base,p.deref.type,uncertain,node,p.deref.operand);local targets=at(carried,ROOT)
     if not next(targets) then out.unknown=true end
-    return targets,carried.unknown
+    return targets,carried.unknown,dependencies
    end
-   local value=fact(p.view,state,node);local targets={}
+   local value,dependencies=fact(p.view,state,node);local targets={}
    if p.pointer then out.unknown=true;observed(node).unknown=true end
    for _,a in pairs(at(value,ROOT)) do
     add(targets,location(a.location.root,p.pointer and a.location.path or B.Element(a.location.path),p.pointer and a.writable or false,a.source,a.current))
    end
-   return targets,value.unknown
+   return targets,value.unknown,dependencies
   end
   place=function(p,state,node)
    if p.index then fact(p.index,state,node) end
-   local targets,unknown=resolvePlace(p,state,node)
+   local targets,unknown,dependencies=resolvePlace(p,state,node)
+   dependencies=dependencies or {}
    if not p.unchecked then
     local id=L.Use(node.point,p.operand,ROOT);local uses=observed(node).root_uses
     uses[id]=uses[id] or {};mergeSet(uses[id],targets)
+    observed(node).root_dependencies[id]=dependencies
    end
-   return targets,unknown
+   return targets,unknown,dependencies
   end
   fact=function(term,state,node,demand)
-   if not term then return empty() end
+   if not term then return empty(),{} end
+   local dependencies={}
    demand=demand or ROOT
    if term.id then
     local result=values[term.id] or empty()
@@ -406,54 +490,73 @@ local function engine(program)
       local origin=assert(summary.value_origins[term.id],'missing original value definition')
       local loan=origin.point and L.Defined(origin.point,term.id,path) or L.Parameter(fn.id,origin.parameter,path)
       local id=L.Use(node.point,term.operand,path)
-      local use=observed(node).uses[id] or {loan=loan,provenance={}}
+      local use=observed(node).uses[id] or {loan=loan,provenance={},active_cases=cases(path)}
       observed(node).uses[id]=use;mergeSet(use.provenance,at(result,path))
+      dependency(dependencies,path,L.Carrier(loan))
      end
     end
-    return result
+    return result,dependencies
    end
-   if term.base then return project(fact(term.base,state,node,prepend(demand,term.path)),term.path) end
+   if term.base then
+    local value,edges=fact(term.base,state,node,prepend(demand,term.path))
+    return project(value,term.path),selection(edges,term.path)
+   end
    if term.address then
-    local targets,uncertain=place(term.address,state,node)
+    local targets,uncertain,parents=place(term.address,state,node)
     if term.write then
      if term.address.readonly then failure('readonly-write','Mutable borrowing requires writable access',node) end
      record(out.requirements,targets,node,true)
     end
     local value=empty();value.refs[ROOT]=targets
     value.unknown=uncertain or term.address.pointer==true
-    return value
+    local id=L.Use(node.point,term.operand,ROOT)
+    observed(node).addresses[id]=targets;observed(node).address_dependencies[id]=parents
+    dependency(dependencies,ROOT,L.Address(id))
+    return value,dependencies
    end
    if term.fields then
     local value=empty();local ty=term.type
     if ty:isSlice() then
-     local targets={};for _,a in pairs(at(fact(term.fields[1],state,node),ROOT)) do add(targets,location(a.location.root,a.location.path,false,a.source,a.current)) end
-     value.refs[ROOT]=targets
-    elseif ty:isRecord() then for i,f in ipairs(ty.fields) do component(value,fact(term.fields[i],state,node),B.Field(ROOT,f.name)) end
-    elseif ty:isArray() then for _,f in ipairs(term.fields) do component(value,fact(f,state,node),B.Element(ROOT)) end end
-    return value
+     local first,edges=fact(term.fields[1],state,node)
+     local targets={};for _,a in pairs(at(first,ROOT)) do add(targets,location(a.location.root,a.location.path,false,a.source,a.current)) end
+     value.refs[ROOT]=targets;dependencies=edges
+     for i=2,#term.fields do fact(term.fields[i],state,node) end
+    elseif ty:isRecord() or ty:isArray() then
+     for i,f in ipairs(term.fields) do
+      local part,edges=fact(f,state,node)
+      local path=ty:isRecord() and B.Field(ROOT,ty.fields[i].name) or B.Index(ROOT,i-1)
+      component(value,part,path);transport(dependencies,edges,path)
+     end
+    end
+    return value,dependencies
    end
    if term.conversion then
-    local value=clone(fact(term.conversion,state,node))
+    local original,edges=fact(term.conversion,state,node);local value=clone(original)
     if term.conversion.type==S.Any and checkedAccess(term.type) then
      local hasContract=(term.type:isView() or term.type:isOwned()) and next(value.calls) or next(value.refs)
      if not hasContract then value.unknown=true end
     end
-    return value
+    return value,edges
    end
    if term.literal then
-    local value=empty();value.refs[ROOT]=single(location(target(B.Global('literal:'..term.literal)),ROOT,false));return value
+    local value=empty();value.refs[ROOT]=single(location(target(B.Global('literal:'..term.literal)),ROOT,false))
+    local id=L.Use(node.point,term.operand,ROOT);observed(node).addresses[id]=value.refs[ROOT]
+    dependency(dependencies,ROOT,L.Address(id));return value,dependencies
    end
    for _,child in ipairs(term.children or {}) do fact(child,state,node) end
-   return empty()
+   return empty(),{}
   end
   argument=function(a,state,node)
    if a.place then
-    local targets,uncertain=place(a.place,state,node)
-    return {targets=targets,unknown=uncertain,readonly=a.place.readonly,type=a.place.type,operand=a.place.operand}
+    local targets,uncertain,parents=place(a.place,state,node)
+    local id=L.Use(node.point,a.place.operand,ROOT);observed(node).addresses[id]=targets
+    observed(node).address_dependencies[id]=parents
+    return {targets=targets,unknown=uncertain,readonly=a.place.readonly,type=a.place.type,operand=a.place.operand,dependencies={[ROOT]={[L.Address(id)]=true}}}
    end
-   return {value=clone(fact(a.value,state,node)),type=a.value.type,operand=a.value.operand}
+   local value,dependencies=fact(a.value,state,node)
+   return {value=clone(value),type=a.value.type,operand=a.value.operand,dependencies=dependencies}
   end
-  store=function(state,targets,value,ty,node)
+  store=function(state,targets,value,ty,node,dependencies)
    if value.unknown and checkedAccess(ty) then failure('borrow-proof','Stored access has no established owner provenance',node) end
    local count=0;for _ in pairs(targets) do count=count+1 end
    for _,a in pairs(targets) do
@@ -465,13 +568,18 @@ local function engine(program)
      out.transfers[id]={target=a,path=p,retained=retained,checked=checked,operand=node.value and node.value.operand}
      observed(node).retentions[id]=out.transfers[id]
     end end
-    for p in pairs(Ownership.components(ty)) do observed(node).written_contents[B.Location(a.location.root,prepend(p,a.location.path))]=true end
+    for p in pairs(Ownership.components(ty)) do
+     local loc=B.Location(a.location.root,prepend(p,a.location.path))
+     observed(node).written_contents[loc]=true
+     local stored=observed(node).stored[loc] or {};observed(node).stored[loc]=stored
+     for edge in pairs((dependencies or {})[p] or {}) do stored[edge]=true end
+    end
     local route=a.location.path;local unique=a.location.root.kind=='StorageRoot' and (destination.kind=='Local' or destination.kind=='Instantiated' or destination.kind=='Recurring')
     while route.kind~='Root' do if route.kind=='Element' then unique=false end;route=route.base end
     local current=state[a.location.root] or empty();state[a.location.root]=current
     if unique and count==1 then
-     for p in pairs(current.refs) do if under(p,a.location.path) then current.refs[p]=nil end end
-     for p in pairs(current.calls) do if under(p,a.location.path) then current.calls[p]=nil end end
+     for p in pairs(current.refs) do if under(p,a.location.path,true) then current.refs[p]=nil end end
+     for p in pairs(current.calls) do if under(p,a.location.path,true) then current.calls[p]=nil end end
      if a.location.path==ROOT then current.unknown=false end
     end
     component(current,value,a.location.path)
@@ -491,11 +599,15 @@ local function engine(program)
   end
   local function compose(frame,args,state,node)
    if not program[frame] then opaque(args,state,node);return nil end
-   local bound={}
+   local bound,arguments={},{}
    for i,a in ipairs(args) do
-    local input=program[frame].fn.inputs[i]
-    if input.kind=='InValue' then bound[i]={value=external(a.targets and read(state,a.targets,input.type,a.unknown,node,node.invoke.value and node.invoke.value.operand or a.operand) or a.value)}
+    local input=program[frame].fn.inputs[i];local edges=a.dependencies or {}
+    if input.kind=='InValue' then
+     local value=a.value
+     if a.targets then value,edges=read(state,a.targets,input.type,a.unknown,node,node.invoke.value and node.invoke.value.operand or a.operand) end
+     bound[i]={value=external(value)}
     else bound[i]={targets=externalTargets(a.targets),unknown=a.unknown,readonly=a.readonly,type=a.type} end
+    arguments[i]={binding=bound[i],dependencies=edges}
    end
    local transported={};for root,v in pairs(state) do transported[root]=external(v) end
    local context,folded=ctx.context,ctx.folded
@@ -504,6 +616,8 @@ local function engine(program)
    end
    local child=request(frame,bound,transported,context,folded);child.users[ctx.id]=ctx
    observed(node).calls[child.id]=child
+   local alternatives=observed(node).call_arguments[child.id] or {}
+   observed(node).call_arguments[child.id]=alternatives;alternatives[#alternatives+1]=arguments
    observed(node).unknown=observed(node).unknown or child.unknown
    mergeSet(observed(node).reads,child.reads);mergeSet(observed(node).writes,child.writes)
    mergeSet(observed(node).requirements,child.requirements)
@@ -568,20 +682,21 @@ local function engine(program)
   local cursor=1
   while cursor<=#work do
    local point=work[cursor];cursor=cursor+1;queued[point]=nil
-   local node=summary.nodes[point];local state=copyState(before[point]);local value
+   local node=summary.nodes[point];local state=copyState(before[point]);local value,dependencies
    -- Replace the last local iteration, rather than publish transient bottom
    -- observations. Caller dependencies still converge in the existing queue.
-   out.sites[point]={uses={},root_uses={},contents={},written_contents={},reads={},writes={},requirements={},calls={},invocations={},retentions={},unknown=false}
+   out.sites[point]={uses={},root_uses={},root_dependencies={},addresses={},address_dependencies={},contents={},written_contents={},stored={},definitions={},returns={},reads={},writes={},requirements={},calls={},call_arguments={},invocations={},retentions={},unknown=false}
    for _,observation in ipairs(node.observes or {}) do fact(observation,state,node) end
    if node.initialize then
-    local root=qualify(node.initialize);local initial=fact(node.value,state,node)
-    store(state,single(location(root,ROOT,true,nil,true)),initial,node.type,node)
+    local root=qualify(node.initialize);local initial,edges=fact(node.value,state,node)
+    store(state,single(location(root,ROOT,true,nil,true)),initial,node.type,node,edges)
    elseif node.read then
-    local targets,uncertain=place(node.read,state,node);record(out.reads,targets,node,false);value=read(state,targets,node.type,uncertain,node,node.read.operand)
+    local targets,uncertain=place(node.read,state,node);record(out.reads,targets,node,false);value,dependencies=read(state,targets,node.type,uncertain,node,node.read.operand)
    elseif node.store then
     if node.store.readonly then failure('readonly-write','Writes require a writable place',node) end
     local targets=place(node.store,state,node);record(out.writes,targets,node,true)
-    store(state,targets,fact(node.value,state,node),node.type,node)
+    local incoming,edges=fact(node.value,state,node)
+    store(state,targets,incoming,node.type,node,edges)
    elseif node.code then
     local code=codeAt(node.point);local binding=bindings[code]
     if not binding then binding={origin=code,target=node.entry,slots={}};bindings[code]=binding end
@@ -598,18 +713,28 @@ local function engine(program)
     if changed then bindingChanged() end
     value=empty();value.calls[ROOT]={[code]=binding}
     local adapter=node.adapter and qualify(node.adapter)
-    if adapter then value.refs[ROOT]=single(location(adapter,ROOT,true,nil,true)) end
+    dependencies={}
+    if adapter then
+     value.refs[ROOT]=single(location(adapter,ROOT,true,nil,true))
+     local id=L.Use(node.point,node.result_operand,ROOT);observed(node).addresses[id]=value.refs[ROOT]
+     dependency(dependencies,ROOT,L.Address(id))
+    end
     for index,a in ipairs(binding.slots) do
      local sets=a.targets and {[ROOT]=a.targets} or a.value.refs
      for p,set in pairs(sets) do
       -- A materialized callable retains its environment root. Its captures are
       -- outgoing environment holdings, not additional direct roots of the value.
-      if not adapter then value.refs[ROOT]=value.refs[ROOT] or {};mergeSet(value.refs[ROOT],set) end
+      if not adapter then
+       value.refs[ROOT]=value.refs[ROOT] or {};mergeSet(value.refs[ROOT],set)
+       for edge in pairs((a.dependencies or {})[p] or {}) do dependency(dependencies,ROOT,edge) end
+      end
       if adapter and (a.targets or checkedPath(a.type,p)) then
        for _,retained in pairs(set) do
         local destination=B.Location(adapter,prepend(p,B.Field(ROOT,string.format('_%04d',index))))
         Ownership.hold(out.ownership,owner(adapter),retained.source,site(node),node.span,retained.current and extent or nil,destination)
         observed(node).written_contents[destination]=true
+        local stored=observed(node).stored[destination] or {};observed(node).stored[destination]=stored
+        for edge in pairs((a.dependencies or {})[p] or {}) do stored[edge]=true end
         local operand=node.slots[index].place or node.slots[index].value
         observed(node).retentions[key(destination)..':'..accessKey(retained)]={
          target=location(adapter,destination.path,true),path=ROOT,retained=retained,checked=true,operand=operand.operand}
@@ -680,10 +805,17 @@ local function engine(program)
     end
     for i,id in ipairs(node.results) do
      values[id]=values[id] or empty();merge(values[id],returned[i] or empty())
+     local results=node.invoke.target and program[node.invoke.target] and program[node.invoke.target].fn.results or node.signature and node.signature.results
+     local edges={}
+     for path in pairs(results and Ownership.components(results[i]) or {}) do
+      dependency(edges,path,L.Result(point,i-1,path))
+     end
+     observed(node).definitions[id]=edges
     end
    elseif node.returns then
     for i,t in ipairs(node.returns) do
-     local v=fact(t,state,node)
+     local v,edges=fact(t,state,node)
+     observed(node).returns[i]=edges
      if checkedAccess(fn.results[i]) then
       for p,set in pairs(v.refs) do for _,a in pairs(set) do
        if checkedPath(fn.results[i],p) then Ownership.returned(out.ownership,a.source,site(node),node.span) end
@@ -693,10 +825,18 @@ local function engine(program)
      merge(out.results[i],v)
     end
     joinState(out.state,state)
-   elseif node.variant then value=empty();component(value,fact(node.variant,state,node),node.path)
-   elseif node.value then value=fact(node.value,state,node)
+   elseif node.variant then
+    local part,edges=fact(node.variant,state,node);value=empty();component(value,part,node.path)
+    dependencies={};transport(dependencies,edges,node.path)
+   elseif node.value then value,dependencies=fact(node.value,state,node)
    elseif node.opaque then out.unknown=true end
    if node.define then
+    dependencies=dependencies or {}
+    local definedType=assert(summary.value_origins[node.define].type,fn.id..'#'..point.ordinal..': missing definition type')
+    for path in pairs(Ownership.components(definedType)) do
+     dependencies[path]=dependencies[path] or {}
+    end
+    observed(node).definitions[node.define]=dependencies
     values[node.define]=values[node.define] or empty()
     if merge(values[node.define],value or empty()) then
      -- Value identities are immutable; loop-carried formations join possibilities.
@@ -789,11 +929,29 @@ local function contentsVersions(summary,flow)
   if changed then for _,successor in ipairs(summary.nodes[point].next) do enqueue(successor) end end
  end
  for _,point in ipairs(points) do
-  local site=flow.sites[point];site.invalidates={}
+  local site=flow.sites[point];site.invalidates={};site.written_dependencies={}
   for loc in pairs(kills[point]) do
    -- Even if the static Written ID is identical on successive iterations,
    -- this is an invalidation. Equality of source families cannot elide it.
    site.invalidates[loc]=before[point][loc]
+   local edges={};site.written_dependencies[loc]=edges
+   for stored,inputs in pairs(site.stored) do
+    if overlaps(loc,stored) then for edge in pairs(inputs) do edges[edge]=true end end
+   end
+   if next(site.calls) then
+    edges[L.CallContents(point,loc)]=true
+   else
+    -- An unknown index changes one selected cell, not the whole alias class.
+    -- Retain the predecessor dependencies of all potentially untouched cells.
+    local exact=site.stored[loc]~=nil
+    local path=loc.path
+    while path.kind~='Root' do if path.kind=='Element' then exact=false end;path=path.base end
+    local writes=0;for _ in pairs(site.writes) do writes=writes+1 end
+    local initialize=summary.nodes[point].initialize
+    if not initialize and (not exact or writes~=1) then
+     edges[L.Carrier(L.Contents(assert(before[point][loc])))]=true
+    end
+   end
   end
   for _,use in pairs(site.contents) do
    use.versions={}

@@ -70,12 +70,16 @@ generalized owning public/foreign/container/task and erased contracts remain inc
 entry requests, new schema metadata and the consuming/mixed-result private contracts.
 The first partial checkpoint adds original-site flow/contents versions in `access.lua`,
 program-owned flow in `program.lua`, and `loan-demand` templates in `ownership.lua`,
-with schema identities and regressions in `tests/access_proofs.lua`. Guard/capability
+with schema identities and regressions in `tests/access_proofs.lua`. The continuation
+connects original component dependencies, finite external-field obligations, exact
+static array paths and conservative wildcard invalidation in those same files. It also
+corrects expression memo IDs being mistaken for SSA definitions. Guard/capability
 solving, concrete contract binding and replacement physical emission are still pending;
 counted-source admission remains closed. These demand templates are not executable
 lifetime decisions. Runtime C bindings and the native/threaded allocator are not
 replacement targets for this slice. Current evidence is under
-`research/experiments/runtime-owners/source-lifetime-analysis/`.
+`research/experiments/runtime-owners/source-lifetime-analysis/` and
+`research/experiments/runtime-owners/source-lifetime-dependencies/`.
 
 Historical v1/v2/v3 evidence remains under `research/experiments/runtime-owners/`.
 It describes removed bindings, not current execution. The subsequent minimal C-entry

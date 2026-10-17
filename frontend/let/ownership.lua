@@ -19,17 +19,19 @@ local function selected(ty,path)
  local parent=selected(ty,path.base)
  if path.kind=='Field' then return S.field(parent,path.name) end
  if path.kind=='Case' then for _,f in ipairs(S.alternatives(parent)) do if f.name==path.name then return f.type end end end
- if path.kind=='Element' then return parent.element end
+ if path.kind=='Element' or path.kind=='Index' then return parent.element end
 end
 function M.checkedPath(ty,path) return M.checkedAccess(assert(selected(ty,path))) end
 -- Component identities stop at a carrier; pointee layouts are not expanded.
--- Array indices deliberately retain the existing conservative Element class.
+-- Concrete array components stay independent; dynamic places use the existing
+-- conservative Element alias class, which may overlap any concrete index.
 function M.components(ty,path,out)
  path=path or B.Root;out=out or {}
  if ty:isRef() or ty:isSlice() or ty:isView() or ty:isOwned() then out[path]=true
  elseif ty:isRecord() then
   for _,f in ipairs(ty.fields) do M.components(f.type,B.Field(path,f.name),out) end
- elseif ty:isArray() then M.components(ty.element,B.Element(path),out)
+ elseif ty:isArray() and M.checkedAccess(ty.element) then
+  for i=0,ty.length-1 do M.components(ty.element,B.Index(path,i),out) end
  elseif ty:isTaggedType() then
   for _,f in ipairs(S.alternatives(ty)) do M.components(f.type,B.Case(path,f.name),out) end
  end
@@ -43,7 +45,7 @@ end
 function M.root(source)
  if source.kind=='Global' then return O.Module(source) end
  if source.kind=='Local' or source.kind=='Instantiated' or source.kind=='Recurring' then return O.Fresh(source) end
- if source.kind=='ValueInput' or source.kind=='PlaceInput' then return O.Formal(source) end
+ if source.kind=='ValueInput' or source.kind=='PlaceInput' or source.kind=='ContentsInput' then return O.Formal(source) end
  assert(source.kind=='CallOutput','unknown owner provenance')
  return O.Deferred(source)
 end
@@ -202,6 +204,7 @@ local function diagnostic(code,message,site,spans,summary,cycle)
    end
    if root.kind=='Module' then return source.storage end
    if root.kind=='Deferred' then return source.invocation.frame..'/result'..source.result end
+   if source.kind=='ContentsInput' then return source.read.frame..'/contents@'..source.read.ordinal end
    return source.frame..'/input'..source.parameter
   end
   local first=cycle[1]
@@ -218,10 +221,34 @@ end
 -- an acquisition from a may-alias set.
 local function lifetimeTemplate(graph,facts)
  local L=S.Lifetime
- local template={phase='loan-demand',sites={},live_in={},live_out={},root_live_in={},root_live_out={},empty=true}
+ local template={phase='loan-demand',sites={},relations={},live_in={},live_out={},root_live_in={},root_live_out={},empty=true}
+ -- These edges preserve the particular source binding/read/result, rather than
+ -- trying to reconstruct snapshot aliases from equal root provenance. Written
+ -- and Join nodes stay finite even when their edges form a loop.
+ local function relation(loan,edges,origin)
+  template.relations[loan]={dependencies=edges,origin=origin}
+ end
+ for point,site in pairs(facts.sites) do
+  for value,components in pairs(site.definitions) do
+   for path,edges in pairs(components) do
+    relation(L.Defined(point,value,path),edges,{point=point,value=value,path=path})
+   end
+  end
+  for loc,edges in pairs(site.written_dependencies) do
+   relation(L.Contents(L.Written(point,loc)),edges,{point=point,location=loc})
+  end
+ end
+ for version,inputs in pairs(facts.contents_versions.incoming) do
+  local edges={}
+  for incoming in pairs(inputs) do edges[L.Carrier(L.Contents(incoming))]=true end
+  relation(L.Contents(version),edges,{point=version.point,location=version.location})
+ end
  local predecessors={}
  for point,site in pairs(facts.sites) do
-  local decision={uses={},defines={},root_uses=site.root_uses,root_demands={},root_defines={},contents=site.contents,invalidates=site.invalidates}
+  local decision={uses={},defines={},root_uses=site.root_uses,root_dependencies=site.root_dependencies,root_demands={},root_defines={},contents=site.contents,invalidates=site.invalidates}
+  for value,components in pairs(site.definitions) do
+   for path in pairs(components) do decision.defines[L.Defined(point,value,path)]=true end
+  end
   template.sites[point]=decision;template.live_in[point]={};template.live_out[point]={};predecessors[point]={}
   template.root_live_in[point]={};template.root_live_out[point]={}
   for _,targets in pairs(site.root_uses) do for _,a in pairs(targets) do

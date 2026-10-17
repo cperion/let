@@ -37,10 +37,11 @@ module Surface {
 # metadata, not on an interned node.
 module Borrow {
   # A route from a storage root to one component: a record field, a sum payload, or an element.
-  # `Element` covers any runtime-selected element; a known constant index may be refined later.
+  # `Element` covers any runtime-selected element; `Index` keeps statically known
+  # cells independent. Element overlaps every Index at the same array boundary.
   Access = ReadAccess | WriteAccess
   Path = Root unique | Field(Path base, string name) unique | Element(Path base) unique
-       | Case(Path base, string name) unique
+       | Index(Path base, number index) unique | Case(Path base, string name) unique
 
   # One place whose continued existence keeps a value valid. `Global` is program-lived storage:
   # a module object or a literal's read-only bytes. `Local` is storage of the frame named here,
@@ -58,6 +59,10 @@ module Borrow {
          | Recurring(string frame, number storage, Point* context) unique
          | ValueInput(string frame, number parameter, Path path) unique
          | PlaceInput(string frame, number parameter, Path path) unique
+         # Finite open-template field-content obligation, qualified by the original
+         # read and component. Its relative locators live in source flow. This is
+         # not evidence that two dynamic reads denote the same allocation.
+         | ContentsInput(string frame, Point read, number operand, Path path) unique
          # A deferred result retains its invocation identity until the actual callable
          # contract is substituted. This is an obligation, not proof of a global owner.
          | CallOutput(Point invocation, number result, Path path) unique
@@ -70,6 +75,7 @@ module Borrow {
        | InstanceCode(Point formation, Point* context, boolean folded) unique
        | ParameterCode(string frame, number parameter, Path path) unique
        | ResultCode(Point invocation, number result, Path path) unique
+       | ContentsCode(Point read, number operand, Path path) unique
   Invocation = (Point point, Code callable) unique
 
   # A canonical set of sources. Canonicalise (sort, deduplicate) before constructing: ASDL
@@ -88,6 +94,7 @@ module Borrow {
   Target = StorageRoot(Source storage) unique
          | InputTarget(string frame, number parameter, Path path) unique
          | OutputTarget(Point invocation, number result, Path path) unique
+         | ContentsTarget(string frame, Point read, number operand, Path path) unique
   Location = (Target root, Path path) unique
   Footprint = (Location* writes, boolean unknown) unique
 
@@ -127,6 +134,12 @@ module Lifetime {
   Loan = Defined(Borrow.Point point, number value, Borrow.Path path) unique
        | Parameter(string frame, number parameter, Borrow.Path path) unique
        | Contents(Version version) unique
+
+  # Edges between original reference-producing operations, not another value IR.
+  # Reads resolve to versions only after the access worklist has converged.
+  Dependency = Carrier(Loan loan) unique | Read(Use use) unique | Address(Use use) unique
+             | Result(Borrow.Point call, number result, Borrow.Path path) unique
+             | CallContents(Borrow.Point call, Borrow.Location location) unique
 }
 
 module Ir {

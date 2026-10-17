@@ -1,0 +1,9 @@
+schemas up to date
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+luajit: ./let/ownership.lua:30: attempt to index local 'ty' (a nil value)
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	tests/ownership.lua:38: in function 'run'
+	tests/ownership.lua:167: in main chunk
+	[C]: at 0x60cd12efa120

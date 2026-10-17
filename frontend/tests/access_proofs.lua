@@ -454,6 +454,8 @@ do
  local snapshot=I.Read(saved,ref,I.Local(slot))
  local trap=I.Trap(I.Const(S.Bool,I.Boolean(false)),'unreachable failure')
  local replacement=I.Store(I.Local(slot),I.Ref(q,ref))
+ -- The source builder assigns Expr.id too; it is not an SSA result binding.
+ replacement.value.id=saved.id
  local branch=I.If(I.Ref(flag,S.Bool),L{replacement},L{})
  local reread=I.Read(current,ref,I.Local(slot))
  local ret=I.Return(L{I.Ref(saved,ref),I.Ref(current,ref)})
@@ -466,6 +468,7 @@ do
  local function point(n) return B.Point('versions',n) end
  local loc=B.Location(B.StorageRoot(B.Local('versions',1)),B.Root)
  check(graph.statement_at[point(2)]==snapshot and graph.statement_at[point(5)]==replacement,'flow refers to original source nodes')
+ check(graph.value_origins[saved.id].point==point(2),'Store operand memo ID cannot overwrite the original SSA definition')
  check(graph.nodes[point(3)].next[1]==point(4),'false trap preserves the normal successor')
  check(facts.sites[point(7)]~=nil,'post-trap uses are published after convergence')
  check(facts.contents_versions.before[point(2)][loc]==T.Written(point(1),loc),'snapshot reads the original contents version')
@@ -609,5 +612,136 @@ do
   I.Var(slot,ptr,I.Ref(p,ptr)),I.Read(saved,ptr,I.Local(slot)),I.Return(L{I.Ref(saved,ptr)})})
  local rawProgram=Program.analyze{raw};local rawTemplate=rawProgram.ownership.raw_transport.lifetime_template
  check(rawTemplate.contexts[rawTemplate.entry].empty,'raw pointer contents do not become checked lifetime loans')
+end
+-- Open field results carry finite relative obligations. In a closed call those
+-- obligations resolve against the caller's actual storage, not a synthetic owner.
+local getter=run([[
+let Point={x:U32}
+let Box={child:Ref(Point)}
+let child(p:Ref(Box)):Ref(Point)=p.child
+let main():U32=do
+ let a=Point{x=17} let b=Point{x=25} let box=Box{child=Ref(a)}
+ let saved=child(Ref(box)) box.child=Ref(b)
+ let current=child(Ref(box))
+ return saved.x+current.x
+end
+]],42)
+do
+ local B,T=S.Borrow,S.Lifetime
+ local entry=getter.program.ownership.child.summary
+ check(entry.results[1].roots[1].source.kind=='ContentsInput','open getter records an external contents obligation')
+ check(#entry.counted==0,'external contents do not invent a fresh allocation')
+ for id,facts in pairs(getter.program.flow.contexts) do
+  if facts.fn_id=='child' and id~=getter.program.flow.roots.child then
+   for _,value in ipairs(facts.result_provenance) do for _,targets in pairs(value.refs) do for _,target in pairs(targets) do
+    check(target.source.kind=='Local' and target.source.frame=='main','bound getter returns actual caller provenance')
+   end end end
+  end
+ end
+ local partial=C.typed{profile='slet',source=[[
+let Point={x:U32}
+let Box={a:Ref(Point),b:Ref(Point)}
+let untouched(p:Ref(Box),q:Ref(Point)):Ref(Point)=do p.a=q return p.b end
+let main():U32=0
+ ]]}
+ local untouched=partial.program.ownership.untouched.summary
+ check(#untouched.results==1 and #untouched.results[1].roots>0,'writing another field cannot erase untouched external contents')
+ local recursive=C.typed{profile='slet',source=[[
+let Node={next:Ref(Node),value:U32}
+let walk(p:Ref(Node),n:U32):Ref(Node)=if n==0 then p else walk(p.next,n-1)
+let main():U32=0
+ ]]}
+ check(recursive.program.access.walk~=nil,'recursive external field reads converge without recursive input-path expansion')
+ local nested=C.typed{profile='slet',source=[[
+let Point={x:U32} let Box={child:Ref(Point)} let Outer={inner:Ref(Box)}
+let nested(p:Ref(Outer)):Ref(Point)=p.inner.child
+let main():U32=0
+ ]]}
+ local nestedFacts=nested.program.flow.contexts[nested.program.flow.roots.nested]
+ local origins={}
+ for _,site in pairs(nestedFacts.sites) do for _,read in pairs(site.contents) do for _,target in pairs(read.provenance) do
+  if target.source.kind=='ContentsInput' then origins[target.source]=true end
+ end end end
+ local n=0;for _ in pairs(origins) do n=n+1 end
+ check(n>=2,'nested reads at one source point retain distinct original operand identities')
+ local fn=I.Fn('array_dependencies',I.Entry,0,L{S.inValue(S.Ref(S.U32)),S.inValue(S.Ref(S.U32)),S.inValue(S.U32)},
+  L{S.Ref(S.U32),S.Ref(S.U32)},L{
+   I.ValueParam(0,I.Value(1),S.Ref(S.U32)),I.ValueParam(1,I.Value(2),S.Ref(S.U32)),I.ValueParam(2,I.Value(3),S.U32)},L{
+   I.Var(I.Storage(1),S.Array(S.Ref(S.U32),2),I.Make(S.Array(S.Ref(S.U32),2),L{I.Ref(I.Value(1),S.Ref(S.U32)),I.Ref(I.Value(2),S.Ref(S.U32))})),
+   I.Read(I.Value(4),S.Ref(S.U32),I.Index(I.Local(I.Storage(1)),I.Const(S.U32,I.UInt(0)),S.Ref(S.U32))),
+   I.Read(I.Value(5),S.Ref(S.U32),I.Index(I.Local(I.Storage(1)),I.Const(S.U32,I.UInt(1)),S.Ref(S.U32))),
+   I.Store(I.Index(I.Local(I.Storage(1)),I.Ref(I.Value(3),S.U32),S.Ref(S.U32)),I.Ref(I.Value(2),S.Ref(S.U32))),
+   I.Read(I.Value(6),S.Ref(S.U32),I.Index(I.Local(I.Storage(1)),I.Ref(I.Value(3),S.U32),S.Ref(S.U32))),
+   I.Read(I.Value(7),S.Array(S.Ref(S.U32),2),I.Local(I.Storage(1))),
+   I.Store(I.Index(I.Local(I.Storage(1)),I.Const(S.U32,I.UInt(0)),S.Ref(S.U32)),I.Ref(I.Value(2),S.Ref(S.U32))),
+   I.Return(L{I.Ref(I.Value(4),S.Ref(S.U32)),I.Ref(I.Value(5),S.Ref(S.U32))})})
+ local program=Program.analyze{fn};local facts=program.flow.contexts[program.flow.roots.array_dependencies]
+ local template=program.ownership.array_dependencies.lifetime_template.contexts[program.flow.roots.array_dependencies]
+ local function point(n) return B.Point(fn.id,n) end
+ local root=B.StorageRoot(B.Local(fn.id,1))
+ local first,second,any=B.Location(root,B.Index(B.Root,0)),B.Location(root,B.Index(B.Root,1)),B.Location(root,B.Element(B.Root))
+ local function onlySource(value,wanted)
+  local n=0
+  for _,target in pairs(facts.values[value].refs[B.Root]) do n=n+1;check(target.source==wanted,'exact array read does not merge the other field') end
+  check(n==1,'exact array read has one actual input provenance')
+ end
+ onlySource(4,B.ValueInput(fn.id,0,B.Root));onlySource(5,B.ValueInput(fn.id,1,B.Root))
+ local destinations={}
+ for _,holding in ipairs(program.ownership[fn.id].summary.holdings) do
+  if holding.site.point==point(1) then destinations[holding.destination]=true end
+ end
+ check(destinations[first] and destinations[second],'array construction retains two independent destination components')
+ local shared=I.Fn('shared_array',I.Entry,0,L{S.inValue(S.Ref(S.U32))},L{S.Ref(S.Array(S.Ref(S.U32),2))},
+  L{I.ValueParam(0,I.Value(1),S.Ref(S.U32))},L{
+   I.Var(I.Storage(1),S.Array(S.Ref(S.U32),2),I.Make(S.Array(S.Ref(S.U32),2),L{I.Ref(I.Value(1),S.Ref(S.U32)),I.Ref(I.Value(1),S.Ref(S.U32))})),
+   I.Return(L{I.Addr(I.Local(I.Storage(1)),S.Ref(S.Array(S.Ref(S.U32),2)),B.WriteAccess)})})
+ local sharedProgram=Program.analyze{shared};local holdings=sharedProgram.ownership.shared_array.summary.holdings
+ check(#holdings==2 and holdings[1].target==holdings[2].target and holdings[1].destination~=holdings[2].destination,'equal roots do not merge independently replaceable array holdings')
+ check(facts.sites[point(4)].invalidates[first] and facts.sites[point(4)].invalidates[second],'dynamic index may invalidate either concrete cell')
+ check(facts.sites[point(7)].invalidates[first] and not facts.sites[point(7)].invalidates[second],'constant index replacement leaves the other cell version intact')
+ local whole=template.relations[T.Defined(point(6),7,B.Index(B.Root,0))].dependencies
+ local sources={}
+ for _,target in pairs(facts.sites[point(6)].contents[next(whole).use].provenance) do sources[target.source]=true end
+ check(sources[B.ValueInput(fn.id,0,B.Root)] and sources[B.ValueInput(fn.id,1,B.Root)],'aggregate snapshot components include prior wildcard writes')
+ local write=template.relations[T.Contents(T.Written(point(4),first))].dependencies
+ check(write[T.Carrier(T.Parameter(fn.id,1,B.Root))],'dynamic store carries the incoming component dependency')
+ check(write[T.Carrier(T.Contents(T.Written(point(1),first)))],'dynamic store also preserves possibly untouched contents')
+ local read=template.relations[T.Defined(point(2),4,B.Root)].dependencies
+ local edge=next(read)
+ check(edge and edge.kind=='Read' and facts.sites[point(2)].contents[edge.use].locations[first],'snapshot dependency identifies its actual read/locator')
+ local dynamicRead=template.relations[T.Defined(point(5),6,B.Root)].dependencies
+ check(facts.sites[point(5)].contents[next(dynamicRead).use].locations[any],'unknown index keeps a conservative locator, not a fabricated exact field')
+ local initialized=template.relations[T.Contents(T.Written(point(1),any))].dependencies
+ check(initialized[T.Carrier(T.Parameter(fn.id,0,B.Root))] and initialized[T.Carrier(T.Parameter(fn.id,1,B.Root))],'whole-array initialization supplies every member of the wildcard contents class')
+ -- Tagged dependencies carry the enclosing tag of the original produced value.
+ local sum=S.Sum{empty=S.Unit,one=S.Ref(S.U32)}
+ local tagged=I.Fn('tagged_dependencies',I.Entry,0,L{S.inValue(S.Ref(S.U32))},L{sum},L{I.ValueParam(0,I.Value(1),S.Ref(S.U32))},L{
+  I.ConstructVariant(I.Value(2),sum,'one',I.Ref(I.Value(1),S.Ref(S.U32))),I.Return(L{I.Ref(I.Value(2),sum)})})
+ local taggedProgram=Program.analyze{tagged};local tf=taggedProgram.flow.contexts[taggedProgram.flow.roots.tagged_dependencies]
+ local payload=B.Case(B.Root,'one')
+ check(tf.sites[B.Point(tagged.id,1)].definitions[2][payload][T.Carrier(T.Parameter(tagged.id,0,B.Root))],'constructor maps the loan into its actual payload component')
+ local guarded=false
+ for _,use in pairs(tf.sites[B.Point(tagged.id,2)].uses) do
+  if use.loan.path==payload then guarded=#use.active_cases==1 and use.active_cases[1].tag=='one' end
+ end
+ check(guarded,'payload use records the original enclosing tag condition')
+ local emptyView=S.View(S.Sig({}, {S.U32}))
+ local code=I.Fn('empty_environment_body',I.Body,0,L{},L{S.U32},L{},L{I.Return(L{I.Const(S.U32,I.UInt(42))})})
+ local closed=I.Fn('empty_environment',I.Entry,0,L{},L{emptyView},L{},L{
+  I.View(I.Value(1),emptyView,code.id,L{},nil),I.Return(L{I.Ref(I.Value(1),emptyView)})})
+ local closedProgram=Program.analyze{code,closed};local closedTemplate=closedProgram.ownership[closed.id].lifetime_template
+ local closedRelation=closedTemplate.contexts[closedTemplate.entry].relations[T.Defined(B.Point(closed.id,1),1,B.Root)]
+ check(closedRelation and not next(closedRelation.dependencies),'empty callable environment has an explicit empty relation, not an unresolved definition')
+ -- Calls preserve the original argument/result component relations.
+ local ref=S.Ref(S.U32);local p,r,slot=I.Value(1),I.Value(2),I.Storage(1)
+ local identity=I.Fn('gather_identity',I.Body,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{I.Return(L{I.Ref(p,ref)})})
+ local gather=I.Fn('gather',I.Entry,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{
+  I.Var(slot,ref,I.Ref(p,ref)),I.Call(L{r},identity.id,L{I.ValueArg(I.Ref(p,ref))}),I.Return(L{I.Ref(r,ref)})})
+ local gathered=Program.analyze{identity,gather};local gf=gathered.flow.contexts[gathered.flow.roots.gather]
+ local site=gf.sites[B.Point(gather.id,2)];local child=next(site.calls)
+ local dep=next(site.call_arguments[child][1][1].dependencies[B.Root])
+ check(dep==T.Carrier(T.Parameter(gather.id,0,B.Root)),'call input dependency names the actual incoming loan')
+ local result=next(site.definitions[r.id][B.Root])
+ check(result==T.Result(B.Point(gather.id,2),0,B.Root),'call result carries a bound-return dependency rather than guessing its owner')
 end
 print(('access proofs: %d checks, %d VM executions'):format(checks,executions))
