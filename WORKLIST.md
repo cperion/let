@@ -845,12 +845,44 @@ at the unchanged `ownership-materialization` gate (`make`/`self_replace`). Evide
 `research/experiments/runtime-owners/source-lifetime-dependencies/` (including the
 intermediate failure and final passing focused run). No runtime count, cleanup-size,
 code-size, sanitizer or performance qualification; no acceptance test weakened.
-Next action within the already approved full scope: use these dependencies to solve
-bound field/input/result guards, normalized aliases, preservation through joins/loop
-reuse and capability demands; bind recursive concrete consume/offer/result-slot
-contracts, then emit and validate the physical replacement. Result/CallContents edges
-still require binding; they are not completed guard witnesses. The gate must remain
-until that integration. No runtime ABI change or obsolete materializer restoration.
+At that checkpoint Result/CallContents edges still required binding. The continuation
+below supplies source-relative binding, not completed guard witnesses or a runtime ABI.
+
+**Call-relative binding/capability continuation (same owner; partial, no item closed):**
+Actual files: `frontend/let/{access,ownership}.lua`, `frontend/tests/access_proofs.lua`.
+`Ownership.bindLoans(checked_program, entries)` now builds an entry-rooted finite loan
+contract graph from existing queries, preserving separate invocation/argument bindings,
+predecessor-selected joins, relative entry contents and callee exit/return edges.
+`Ownership.capabilities` solves recursive source-origin/capability requirements. Known
+input-origin results recover capabilities from captured caller arguments rather than
+widening an identity ABI. Unknown callable obligations survive forwarding. These APIs
+return `loan-contracts` / `capability-demands`, **not** completed bound instances, guard
+certificates, concrete result resources or executable lifetime actions. They are tested
+solver components; `Ownership.bind`/physical emission are still unimplemented.
+Access now publishes construction of reachable returned contents as writes (including
+repeated static sites), and closes caller/callee memory-version domains for forwarding
+and downstream array projections. Materialized callable captures now live in actual
+per-query environment contents. Invocation reads those fields rather than expired
+creator SSA; code identities share capture shape only, not a global captured-value
+union. The legacy materialized-code capture union and its transport path were removed;
+nonmaterialized source partial-application analysis is unchanged. InPlace root loans
+are explicit, and nested active-case conditions are ordered outermost first.
+A source-owner integration probe exposed a serious intermediate analysis slowdown
+(120-second timeouts). Diagnosed and removed the code-global capture feedback, preserved
+monotone construction effects, and reused canonical access-set/immutable identity keys.
+The final source-owner probe again reaches the unchanged `self_replace` admission gate;
+one diagnostic run took 17.71s versus 37.74s with the parent access module. These are
+single-run analysis diagnostics, not runtime performance qualification.
+Final checks: schema freshness/construction pass; ownership168/56 VM executions,
+access302/120, packed tags1894/496. Program integration still rejects `make`; counted
+source-owner execution is still not admitted. Evidence (including intermediate probes):
+`research/experiments/runtime-owners/source-lifetime-contracts/`.
+Next action in the approved scope: solve actual bound field/input/result guards,
+normalized aliases and preservation/rebinding across joins and loop reuse; seed and
+resolve capability requirements from those decisions; bind concrete consume/offer and
+result-slot contracts/instances, then integrate `Placement.program` and its consumers.
+The counted gate stays until that boundary is implemented. No runtime ABI change,
+restored blanket materializer, full-suite/sanitizer result or count/storage qualification.
 
 Specification checkpoint description (before implementation approval):
 `docs/source-lifetime-lowering.md` now proposes concrete loan/guard/version records,

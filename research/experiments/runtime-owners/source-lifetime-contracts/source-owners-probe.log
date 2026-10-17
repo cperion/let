@@ -1,0 +1,162 @@
+CPU 5.061592
+stack traceback:
+	(command line):1: in function <(command line):1>
+	./let/schema.lua:340: in function 'encode'
+	./let/schema.lua:327: in function 'encode'
+	./let/schema.lua:338: in function 'key'
+	./let/access.lua:33: in function 'accessKey'
+	./let/access.lua:35: in function 'add'
+	./let/access.lua:38: in function 'mergeSet'
+	./let/access.lua:45: in function 'component'
+	./let/access.lua:878: in function 'run'
+	./let/access.lua:904: in function 'drain'
+	./let/access.lua:1042: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x56751493e120
+CPU 10.021111
+stack traceback:
+	(command line):1: in function 'insert'
+	./vendor/asdl.lua:347: in function '__tostring'
+	./let/schema.lua:331: in function 'encode'
+	./let/schema.lua:327: in function 'encode'
+	./let/schema.lua:338: in function 'encode'
+	./let/schema.lua:338: in function 'encode'
+	./let/schema.lua:338: in function 'key'
+	./let/access.lua:33: in function 'accessKey'
+	./let/access.lua:35: in function 'add'
+	./let/access.lua:38: in function 'mergeSet'
+	./let/access.lua:914: in function 'drain'
+	./let/access.lua:1042: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x56751493e120
+CPU 15.008198
+stack traceback:
+	(command line):1: in function '__index'
+	./let/schema.lua:336: in function 'encode'
+	./let/schema.lua:338: in function 'key'
+	./let/access.lua:33: in function 'accessKey'
+	./let/access.lua:35: in function 'add'
+	./let/access.lua:38: in function 'mergeSet'
+	./let/access.lua:45: in function 'merge'
+	./let/access.lua:172: in function 'joinState'
+	./let/access.lua:699: in function 'enqueuePoint'
+	./let/access.lua:896: in function 'run'
+	./let/access.lua:904: in function 'drain'
+	./let/access.lua:1042: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x56751493e120
+CPU 20.003285
+stack traceback:
+	(command line):1: in function <(command line):1>
+	./vendor/terralist.lua:46: in function 'List'
+	./vendor/asdl.lua:334: in function '__tostring'
+	./let/schema.lua:331: in function 'encode'
+	./let/schema.lua:327: in function 'encode'
+	./let/schema.lua:338: in function 'encode'
+	./let/schema.lua:338: in function 'encode'
+	./let/schema.lua:338: in function 'key'
+	./let/access.lua:33: in function 'accessKey'
+	./let/access.lua:35: in function 'add'
+	./let/access.lua:38: in function 'mergeSet'
+	...
+	./let/access.lua:1042: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x56751493e120
+CPU 25.004849
+stack traceback:
+	(command line):1: in function 'components'
+	./let/ownership.lua:36: in function 'components'
+	./let/access.lua:493: in function 'fact'
+	./let/access.lua:866: in function 'run'
+	./let/access.lua:904: in function 'drain'
+	./let/access.lua:1042: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x56751493e120
+CPU 30.031915
+stack traceback:
+	(command line):1: in function <(command line):1>
+	./let/schema.lua:330: in function 'encode'
+	./let/schema.lua:327: in function 'encode'
+	./let/schema.lua:338: in function 'encode'
+	./let/schema.lua:338: in function 'encode'
+	./let/schema.lua:338: in function 'key'
+	./let/access.lua:33: in function 'accessKey'
+	./let/access.lua:35: in function 'add'
+	./let/access.lua:38: in function 'mergeSet'
+	./let/access.lua:481: in function 'place'
+	./let/access.lua:463: in function 'resolvePlace'
+	...
+	./let/access.lua:1042: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x56751493e120
+CPU 35.009209
+stack traceback:
+	(command line):1: in function <(command line):1>
+	./let/access.lua:33: in function 'accessKey'
+	./let/access.lua:35: in function 'add'
+	./let/access.lua:38: in function 'mergeSet'
+	./let/access.lua:45: in function 'merge'
+	./let/access.lua:172: in function 'joinState'
+	./let/access.lua:876: in function 'run'
+	./let/access.lua:904: in function 'drain'
+	./let/access.lua:1042: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x56751493e120
+luajit: (command line):1: diagnostic CPU limit
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x56751493e120

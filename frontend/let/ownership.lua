@@ -37,6 +37,16 @@ function M.components(ty,path,out)
  end
  return out
 end
+function M.activeCases(path)
+ local out={}
+ while path and path.kind~='Root' do
+  if path.kind=='Case' then out[#out+1]={path=path.base,tag=path.name} end
+  path=path.base
+ end
+ -- Outer tags must be checked before reading an inner tag in a union payload.
+ for i=1,math.floor(#out/2) do out[i],out[#out-i+1]=out[#out-i+1],out[i] end
+ return out
+end
 local function list(set)
  local out={};for v in pairs(set) do out[#out+1]=v end
  table.sort(out,function(a,b) return key(a)<key(b) end)
@@ -350,6 +360,315 @@ function M.analyze(functions,queries,flow)
  end
  return inferred
 end
+-- Bind the finite loan graph, not machine instances or runtime layouts. Call
+-- edges retain their substitution environment: two calls of an identical query
+-- must not merge their input guards merely because their roots compare equal.
+-- Ownership.bind's protection/instance solver consumes this graph; a frontier
+-- here is an obligation, never proof of an available capability or holding.
+function M.bindLoans(program,entries)
+ assert(program.phase=='checked-program','loan binding needs the immutable checked graph')
+ assert(type(entries)=='table','loan binding requires explicit entry requests')
+ local L=S.Lifetime
+ local result={phase='loan-contracts',source=program,entries={},contexts={},nodes={},calls={},frontiers={}}
+ local pending={}
+ local function context(id)
+  if result.contexts[id] then return result.contexts[id] end
+  local facts=assert(program.flow.contexts[id],'unknown checked call context')
+  local c={id=id,facts=facts,graph=program.flow.functions[facts.fn_id],loans={},dependencies={},returns={},root_uses={},calls={},incoming={}}
+  result.contexts[id]=c;pending[#pending+1]=c;return c
+ end
+ for _,name in ipairs(entries) do
+  local id=program.flow.roots[name]
+  if not id then D.reject('lower-export','Unknown loan-binding entry '..tostring(name)) end
+  result.entries[name]=context(id)
+ end
+ local cursor=1
+ while cursor<=#pending do
+  local c=pending[cursor];cursor=cursor+1
+  for point,site in pairs(c.facts.sites) do
+   c.calls[point]={}
+   local children={};for childId in pairs(site.calls) do children[#children+1]=childId end;table.sort(children)
+   for _,childId in ipairs(children) do
+    local child=context(childId)
+    local call={point=point,caller=c,callee=child,arguments={},contents={},source=site.call_arguments[childId]}
+    c.calls[point][childId]=call;child.incoming[#child.incoming+1]=call;result.calls[#result.calls+1]=call
+   end
+  end
+ end
+ local function node(c,kind,symbol)
+  local path=symbol.path or symbol.use and symbol.use.path or symbol.version and symbol.version.location.path
+  local n={id=#result.nodes+1,context=c,kind=kind,symbol=symbol,edges={},active_cases=M.activeCases(path)}
+  result.nodes[#result.nodes+1]=n;return n
+ end
+ local function edge(from,to,call,alternative)
+  from.edges[#from.edges+1]={target=to,call=call,alternative=alternative}
+ end
+ local function frontier(n,reason)
+  n.frontier=reason;result.frontiers[n]=reason
+ end
+ local loan,dependency,returns
+ local work={}
+ loan=function(c,id)
+  local n=c.loans[id]
+  if not n then n=node(c,id.kind,id);c.loans[id]=n;work[#work+1]=n end
+  return n
+ end
+ dependency=function(c,id)
+  local n=c.dependencies[id]
+  if not n then n=node(c,id.kind,id);c.dependencies[id]=n;work[#work+1]=n end
+  return n
+ end
+ returns=function(c,point,index,path)
+  c.returns[point]=c.returns[point] or {};local site=c.returns[point]
+  site[index]=site[index] or {};local n=site[index][path]
+  if not n then
+   n=node(c,'Return',{point=point,result=index,path=path});site[index][path]=n;work[#work+1]=n
+  end
+  return n
+ end
+ local function dependencies(n,c,edges)
+  for _,id in ipairs(list(edges or {})) do edge(n,dependency(c,id)) end
+ end
+ -- Intern argument bindings separately, even when Access reused the same query.
+ for _,call in ipairs(result.calls) do
+  for alternative,args in ipairs(call.source or {}) do
+   local actual={};call.arguments[alternative]=actual
+   for index,arg in ipairs(args) do
+    actual[index]={}
+    for path,edges in pairs(arg.dependencies) do
+     local n=node(call.caller,'Argument',{point=call.point,index=index-1,path=path})
+     n.call=call;n.alternative=alternative;dependencies(n,call.caller,edges);actual[index][path]=n
+    end
+   end
+  end
+ end
+ for _,c in ipairs(pending) do
+  local template=program.ownership[c.facts.fn_id].lifetime_template.contexts[c.id]
+  for id in pairs(template.relations) do loan(c,id) end
+  for point,site in pairs(c.facts.sites) do
+   for _,use in pairs(site.uses) do loan(c,use.loan) end
+   for use in pairs(site.contents) do dependency(c,L.Read(use)) end
+   for use in pairs(site.addresses) do dependency(c,L.Address(use)) end
+   for use,parts in pairs(site.root_dependencies) do
+    local relevant=false
+    for _,target in pairs(site.root_uses[use]) do
+     if template.sites[point].root_demands[M.root(target.source)] then relevant=true;break end
+    end
+    if relevant then
+     local n=node(c,'RootUse',use);c.root_uses[use]=n;n.provenance=site.root_uses[use]
+     for _,edges in pairs(parts) do dependencies(n,c,edges) end
+    end
+   end
+   for index,parts in pairs(site.returns) do for path in pairs(parts) do returns(c,point,index-1,path) end end
+  end
+ end
+ cursor=1
+ while cursor<=#work do
+  local n=work[cursor];cursor=cursor+1
+  local c,id=n.context,n.symbol
+  local facts,graph=c.facts,c.graph
+  local template=program.ownership[facts.fn_id].lifetime_template.contexts[c.id]
+  if n.kind=='Defined' then
+   local relation=template.relations[id]
+   if relation then dependencies(n,c,relation.dependencies) else frontier(n,'missing-definition') end
+  elseif n.kind=='Contents' then
+   local version=id.version
+   if version.kind=='Entry' then
+    n.bindings={}
+    for _,call in ipairs(c.incoming) do
+     local before=call.caller.facts.contents_versions.before[call.point]
+     local v=before[version.location]
+     if v then
+      local actual=loan(call.caller,L.Contents(v));n.bindings[call]=actual;call.contents[version.location]=actual
+     end
+    end
+    frontier(n,'entry-contents')
+   elseif version.kind=='Join' then
+    -- Preserve predecessor selection. A bag of incoming guards is not a
+    -- witness that every member exists on every path through the join.
+    for previous,p in pairs(graph.nodes) do
+     for _,successor in ipairs(p.next) do if successor==version.point and facts.contents_versions.after[previous] then
+      local v=facts.contents_versions.after[previous][version.location]
+      if v then
+       local to=loan(c,L.Contents(v));edge(n,to);n.edges[#n.edges].predecessor=previous
+      end
+     end end
+    end
+    if graph.entry==version.point then edge(n,loan(c,L.Contents(L.Entry(version.location)))) end
+   else
+    local relation=template.relations[id]
+    if relation then dependencies(n,c,relation.dependencies) else frontier(n,'missing-write') end
+   end
+  elseif n.kind=='Parameter' then
+   assert(id.frame==facts.fn_id,'parameter dependency escaped its defining context')
+   n.bindings={}
+   for _,call in ipairs(c.incoming) do
+    local alternatives={};n.bindings[call]=alternatives
+    for index,args in ipairs(call.arguments) do alternatives[index]=args[id.parameter+1] and args[id.parameter+1][id.path] end
+   end
+   frontier(n,'input')
+  elseif n.kind=='Carrier' then
+   if id.loan.kind=='Defined' or id.loan.kind=='Parameter' then
+    local frame=id.loan.kind=='Defined' and id.loan.point.frame or id.loan.frame
+    assert(frame==facts.fn_id,'carrier dependency refers to a foreign source activation')
+   end
+   edge(n,loan(c,id.loan))
+  elseif n.kind=='Read' then
+   local read=assert(facts.sites[id.use.point].contents[id.use],'missing original contents read')
+   n.read=read;n.locator=graph.operands[id.use.point][id.use.operand]
+   for version in pairs(read.versions) do edge(n,loan(c,L.Contents(version))) end
+  elseif n.kind=='Address' then
+   local site=assert(facts.sites[id.use.point])
+   n.provenance=assert(site.addresses[id.use],'missing original address')
+   n.parents=site.address_dependencies[id.use] or {}
+   for _,edges in pairs(n.parents) do dependencies(n,c,edges) end
+   n.locator=graph.operands[id.use.point][id.use.operand]
+  elseif n.kind=='Result' then
+   for _,call in pairs(c.calls[id.call]) do
+    for point,site in pairs(call.callee.facts.sites) do
+     local parts=site.returns[id.result+1]
+     if parts and parts[id.path] then edge(n,returns(call.callee,point,id.result,id.path),call) end
+    end
+   end
+   if not next(c.calls[id.call]) then frontier(n,'unbound-call') end
+  elseif n.kind=='CallContents' then
+   for _,call in pairs(c.calls[id.call]) do
+    for point in pairs(call.callee.facts.sites) do
+     if call.callee.graph.nodes[point].returns then
+      local version=call.callee.facts.contents_versions.after[point][id.location]
+      if version then edge(n,loan(call.callee,L.Contents(version)),call)
+      else
+       -- A target with no access to this root leaves this caller version alone.
+       local previous=assert(facts.contents_versions.before[id.call][id.location])
+       edge(n,loan(c,L.Contents(previous)));n.edges[#n.edges].call_alternative=call
+      end
+     end
+    end
+   end
+   if not next(c.calls[id.call]) then frontier(n,'unbound-call-contents') end
+  elseif n.kind=='Return' then
+   dependencies(n,c,facts.sites[id.point].returns[id.result+1][id.path])
+  else error('unknown loan-contract node '..n.kind) end
+ end
+ return result
+end
+
+-- Demand propagation is separate from protection: a requested capability must
+-- still have a live guard at its original use. A resolved concrete holding can
+-- supply a capability directly; otherwise follow the original producer edges.
+-- Requests and supplied bindings belong to this solve, never to shared checked IR.
+function M.capabilities(contracts,requests,supplied)
+ assert(contracts.phase=='loan-contracts','capability solving needs bound loan edges')
+ supplied=supplied or {}
+ local origins,returned,users={},{},{}
+ local work,queued={},{}
+ local function enqueue(n)
+  if not queued[n] then queued[n]=true;work[#work+1]=n end
+ end
+ local function watches(n,input) users[input][n]=true end
+ for _,n in ipairs(contracts.nodes) do origins[n]={};returned[n]={};users[n]={} end
+ for _,n in ipairs(contracts.nodes) do
+  for _,e in ipairs(n.edges) do
+   watches(n,e.target)
+   if e.call then
+    for _,args in ipairs(e.call.arguments) do for _,parts in pairs(args) do for _,actual in pairs(parts) do watches(n,actual) end end end
+    for _,actual in pairs(e.call.contents) do watches(n,actual) end
+   end
+  end
+  enqueue(n)
+ end
+ local function moduleAddress(n)
+  if n.kind~='Address' or next(n.parents) then return false end
+  for _,target in pairs(n.provenance) do if target.source.kind~='Global' then return false end end
+  return next(n.provenance)~=nil
+ end
+ local cursor=1
+ while cursor<=#work do
+  local n=work[cursor];cursor=cursor+1;queued[n]=nil
+  local changed=false
+  local function include(source)
+   if not origins[n][source] then origins[n][source]=true;changed=true end
+  end
+  local function copy(source) for origin in pairs(origins[source]) do include(origin) end end
+  if supplied[n] or n.frontier or n.kind=='Address' and #n.edges==0 then include(n)
+  else
+   for _,e in ipairs(n.edges) do
+    if not e.call then copy(e.target)
+    else
+     local call=e.call
+     for origin in pairs(origins[e.target]) do
+      if origin.context==call.callee and origin.frontier=='input' then
+       -- A result borrowed from an input recovers its capability from the
+       -- captured caller argument. It does not widen the identity callee's ABI.
+       for _,args in ipairs(call.arguments) do
+        local actual=args[origin.symbol.parameter+1] and args[origin.symbol.parameter+1][origin.symbol.path]
+        if actual then copy(actual) else returned[n][origin]='missing-input-binding';include(n) end
+       end
+      elseif origin.context==call.callee and origin.frontier=='entry-contents' then
+       local actual=origin.bindings[call]
+       if actual then copy(actual) else returned[n][origin]='missing-contents-binding';include(n) end
+      elseif moduleAddress(origin) then include(origin)
+      else
+       -- A local capability cannot be read from an expired callee activation.
+       -- Its result/exit contract must supply it (often from a result holding).
+       -- This records a requirement; it does not invent that holding or ABI.
+       returned[n][origin]=origin.frontier or true;include(n)
+      end
+     end
+    end
+   end
+  end
+  if changed then for user in pairs(users[n]) do enqueue(user) end end
+ end
+ local demands={phase='capability-demands',nodes={},addresses={},inputs={},contents={},results={},unresolved={},supplied={},empty={},origins=origins}
+ work={}
+ local function requireNode(n)
+  assert(n and origins[n],'capability request belongs to another binding')
+  if not demands.nodes[n] then demands.nodes[n]=true;work[#work+1]=n end
+ end
+ for _,n in ipairs(requests) do requireNode(n) end
+ cursor=1
+ while cursor<=#work do
+  local n=work[cursor];cursor=cursor+1
+  if supplied[n] then demands.supplied[n]=supplied[n]
+  elseif n.frontier=='input' then
+   demands.inputs[n]=true
+   for _,alternatives in pairs(n.bindings) do for _,actual in pairs(alternatives) do requireNode(actual) end end
+  elseif n.frontier=='entry-contents' then
+   demands.contents[n]=true
+   for _,actual in pairs(n.bindings) do requireNode(actual) end
+  elseif n.frontier then demands.unresolved[n]=n.frontier
+  elseif n.kind=='Address' and #n.edges==0 then demands.addresses[n]=true
+  else
+   if not next(origins[n]) then demands.empty[n]=true end
+   for origin in pairs(origins[n]) do
+    if origin~=n then requireNode(origin)
+    else
+     demands.results[n]=returned[n]
+     for source,reason in pairs(returned[n]) do if reason~=true then demands.unresolved[source]=reason end end
+    end
+   end
+  end
+ end
+ -- Keep failures behind forwarded result boundaries visible without turning
+ -- them into extra callee input/result cells. Recursive forwarding may cycle.
+ local inspected={}
+ work={};for n in pairs(demands.results) do work[#work+1]=n end;cursor=1
+ while cursor<=#work do
+  local n=work[cursor];cursor=cursor+1
+  if not inspected[n] then
+   inspected[n]=true
+   for source,reason in pairs(returned[n]) do
+    if reason~=true then demands.unresolved[source]=reason end
+    work[#work+1]=source
+   end
+  end
+ end
+ -- Empty demand/origin sets are not lifetime evidence. The protection solver
+ -- must still discharge inactive payloads, non-owning constants and guard uses.
+ return demands
+end
+
 function M.validate(functions,inferred)
  -- Check the complete graph. Unsupported placement is an executable-admission
  -- decision, not a failed proof, and must never conceal a caller's concrete cycle.

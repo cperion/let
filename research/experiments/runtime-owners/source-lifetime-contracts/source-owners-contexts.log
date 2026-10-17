@@ -1,0 +1,31 @@
+CPU 5.062201
+query leaf context 2 key bytes 4474
+contexts 1861 iterations 4635
+CPU 10.171359
+query noise context 1 key bytes 6277
+contexts 2716 iterations 7773
+CPU 15.094301
+query noise__constructor_10 context 2 key bytes 7736
+contexts 3118 iterations 10957
+CPU 20.108206
+query choice_value context 2 key bytes 10050
+contexts 3392 iterations 14122
+CPU 25.125996
+contexts 3513 iterations 17259
+query variant_loop_word_31 context 2 key bytes 4873
+contexts 3513 iterations 17259
+CPU 30.065336
+query choice_value context 2 key bytes 11878
+contexts 3582 iterations 20421
+CPU 35.128712
+query choice_value context 1 key bytes 1321
+contexts 3615 iterations 23905
+luajit: (command line):1: diagnostic CPU limit
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x5e413f17c120

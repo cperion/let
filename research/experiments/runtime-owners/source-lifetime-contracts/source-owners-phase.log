@@ -1,0 +1,113 @@
+CPU 15.08411
+stack traceback:
+	(command line):1: in function 'getmetatable'
+	./vendor/asdl.lua:249: in function <./vendor/asdl.lua:249>
+	./vendor/asdl.lua:293: in function 'Field'
+	./let/ownership.lua:32: in function 'components'
+	./let/ownership.lua:36: in function 'components'
+	./let/access.lua:505: in function 'fact'
+	./let/access.lua:878: in function 'run'
+	./let/access.lua:916: in function 'drain'
+	./let/access.lua:1058: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x64f99c6bb120
+head 10226
+queue 10986
+contexts 2886 iterations 10225
+CPU 30.027962
+stack traceback:
+	(command line):1: in function 'observed'
+	./let/access.lua:586: in function 'store'
+	./let/access.lua:726: in function 'run'
+	./let/access.lua:916: in function 'drain'
+	./let/access.lua:1058: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x64f99c6bb120
+head 16608
+queue 17428
+contexts 3429 iterations 16607
+CPU 45.164144
+stack traceback:
+	(command line):1: in function '__index'
+	./vendor/asdl.lua:299: in function 'root'
+	./let/ownership.lua:89: in function 'hold'
+	./let/access.lua:583: in function 'store'
+	./let/access.lua:733: in function 'run'
+	./let/access.lua:916: in function 'drain'
+	./let/access.lua:1058: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x64f99c6bb120
+head 23621
+queue 24467
+contexts 3585 iterations 23620
+CPU 60.043462
+stack traceback:
+	(command line):1: in function <(command line):1>
+	./vendor/asdl.lua:166: in function <./vendor/asdl.lua:166>
+	./vendor/asdl.lua:293: in function 'Use'
+	./let/access.lua:492: in function 'place'
+	./let/access.lua:731: in function 'run'
+	./let/access.lua:916: in function 'drain'
+	./let/access.lua:1058: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x64f99c6bb120
+head 30247
+queue 31659
+contexts 3626 iterations 30246
+CPU 75.041239
+stack traceback:
+	(command line):1: in function <(command line):1>
+	./let/access.lua:384: in function 'observed'
+	./let/access.lua:640: in function 'compose'
+	./let/access.lua:799: in function 'run'
+	./let/access.lua:916: in function 'drain'
+	./let/access.lua:1058: in function 'analyze'
+	./let/program.lua:15: in function 'analyze'
+	./let/semantic.lua:2368: in function <./let/semantic.lua:2017>
+	[C]: in function 'pcall'
+	./let/compiler.lua:112: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x64f99c6bb120
+head 37631
+queue 38917
+contexts 3645 iterations 37630
+luajit: (command line):1: diagnostic CPU limit
+stack traceback:
+	[C]: in function 'error'
+	./let/compiler.lua:114: in function 'typed'
+	./let/compiler.lua:145: in function 'compile'
+	tests/source_owners.lua:209: in main chunk
+	[C]: in function 'dofile'
+	(command line):1: in main chunk
+	[C]: at 0x64f99c6bb120

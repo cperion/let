@@ -744,4 +744,173 @@ let main():U32=0
  local result=next(site.definitions[r.id][B.Root])
  check(result==T.Result(B.Point(gather.id,2),0,B.Root),'call result carries a bound-return dependency rather than guessing its owner')
 end
+-- Cross-call loan binding uses the completed access facts; it must not replay
+-- source analysis or merge the guards of separate invocations of one query.
+do
+ local Own=require('let.ownership');local Access=require('let.access')
+ local B,T=S.Borrow,S.Lifetime
+ local unit=C.typed{profile='slet',source=[[
+let Point={x:U32} let Box={child:Ref(Point)}
+let leaf(n:U32):Ref(Point)=do let p=Point{x=n} return Ref(p) end
+let parent(n:U32):Ref(Box)=do let b=Box{child=leaf(n)} return Ref(b) end
+let child(p:Ref(Box)):Ref(Point)=p.child
+let relay(p:Ref(Box)):Ref(Point)=child(p)
+let replace(p:Ref(Box),q:Ref(Point)):Ref(Point)=do p.child=q return child(p) end
+let unused():Ref(Point)=leaf(999)
+let main():U32=do
+ let p=parent(1) let saved=relay(p) let q=leaf(2) let current=replace(p,q)
+ return saved.x+current.x
+end
+ ]]}
+ local analyze=Access.analyze;Access.analyze=function() error('loan binding replayed source analysis') end
+ local contracts=Own.bindLoans(unit.program,{'main'})
+ Access.analyze=analyze
+ check(contracts.phase=='loan-contracts' and contracts.source==unit.program,'loan binding owns a separate graph, not a mutated checked program')
+ local main=contracts.entries.main;local parentCall,relayCall,replaceCall
+ for _,call in ipairs(contracts.calls) do
+  check(call.callee.facts.fn_id~='unused','unrequested private definitions remain templates')
+  if call.caller==main then
+   if call.callee.facts.fn_id=='parent' then parentCall=call
+   elseif call.callee.facts.fn_id=='relay' then relayCall=call
+   elseif call.callee.facts.fn_id=='replace' then replaceCall=call end
+  end
+ end
+ check(parentCall and relayCall and replaceCall,'binding follows the original checked call edges')
+ local published=main.facts.sites[parentCall.point].published_contents
+ check(next(published)~=nil,'returned aggregate construction publishes actual contents definitions')
+ local location=next(published)
+ check(main.facts.contents_versions.after[parentCall.point][location]==T.Written(parentCall.point,location),'new returned contents are not invented Entry versions')
+ local relay=relayCall.callee
+ check(relay.facts.contents_versions.locations[location],'a forwarding function imports its callee-only field location')
+ local entry=relay.loans[T.Contents(T.Entry(location))]
+ check(entry and entry.bindings[relayCall]==main.loans[T.Contents(main.facts.contents_versions.before[relayCall.point][location])],'relative entry contents bind to this invocation\'s caller version')
+ local result=main.dependencies[T.Result(relayCall.point,0,B.Root)]
+ check(result and #result.edges>0 and result.edges[1].call==relayCall,'result-to-return edge retains its invocation substitution')
+ local callWrite=main.dependencies[T.CallContents(replaceCall.point,location)]
+ check(callWrite and #callWrite.edges>0 and callWrite.edges[1].call==replaceCall,'call writes bind to actual callee exit contents')
+ local requests=Own.capabilities(contracts,{result})
+ check(next(requests.nodes) and not next(requests.unresolved),'capability requirements cross known calls without an opaque fallback')
+ local supplied=Own.capabilities(contracts,{result},{[result]={kind='result-resource'}})
+ check(supplied.supplied[result] and not next(supplied.inputs) and not next(supplied.addresses),'a concrete supplied resource stops producer-capability propagation')
+ check(not next(Own.capabilities(contracts,{}).nodes),'demand solving does not leak requests into shared templates')
+ local arrays=C.typed{profile='slet',source=[[
+let Point={x:U32} let Collection={points:Array(Ref(Point),2)}
+let leaf(n:U32):Ref(Point)=do let p=Point{x=n} return Ref(p) end
+let collection():Ref(Collection)=do let c=Collection{points=[leaf(1),leaf(2)]} return Ref(c) end
+let get(c:Ref(Collection),i:U32):Ref(Point)=c.points[i]
+let main(i:U32):U32=do let c=collection() let p=get(c,i) return p.x end
+ ]]}
+ local arrayContracts=Own.bindLoans(arrays.program,{'main'});local wildcard=false
+ for dep,n in pairs(arrayContracts.entries.main.dependencies) do
+  if dep.kind=='CallContents' and dep.location.path.kind=='Element' then
+   for _,edge in ipairs(n.edges) do
+    if edge.call and edge.call.callee.facts.fn_id=='collection' then
+     wildcard=true
+     check(edge.target.kind=='Contents' and edge.target.symbol.version.kind=='Written','caller wildcard projection resolves to callee construction, not an invented entry')
+    end
+   end
+  end
+ end
+ check(wildcard,'call-relative contents domains include downstream dynamic array projections')
+ local ref=S.Ref(S.U32);local p,a,b=I.Value(1),I.Value(2),I.Value(3)
+ local identity=I.Fn('identity_query',I.Body,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{I.Return(L{I.Ref(p,ref)})})
+ local twice=I.Fn('twice',I.Entry,0,L{S.inValue(ref)},L{ref,ref},L{I.ValueParam(0,p,ref)},L{
+  I.Call(L{a},identity.id,L{I.ValueArg(I.Ref(p,ref))}),I.Call(L{b},identity.id,L{I.ValueArg(I.Ref(p,ref))}),I.Return(L{I.Ref(a,ref),I.Ref(b,ref)})})
+ local shared=Own.bindLoans(Program.analyze{identity,twice},{'twice'})
+ check(#shared.calls==2 and shared.calls[1].callee==shared.calls[2].callee,'identical access queries really share a callee context')
+ local formal=shared.calls[1].callee.loans[T.Parameter(identity.id,0,B.Root)]
+ check(formal.bindings[shared.calls[1]][1]~=formal.bindings[shared.calls[2]][1] and #formal.edges==0,'same-query calls keep distinct argument binding environments')
+ local identityResult=shared.entries.twice.dependencies[T.Result(B.Point(twice.id,1),0,B.Root)]
+ local identityDemand=Own.capabilities(shared,{identityResult})
+ check(not identityDemand.inputs[formal] and not next(identityDemand.results),'known input-origin results recover caller capabilities without widening the identity ABI')
+ check(identityDemand.inputs[shared.entries.twice.loans[T.Parameter(twice.id,0,B.Root)]],'the recovered capability belongs to the original caller input')
+ local scalarSlot=I.Storage(1)
+ local address=I.Fn('place_identity',I.Body,0,L{S.inPlace(S.U32)},L{ref},L{I.PlaceParam(0,scalarSlot,S.U32)},L{
+  I.Return(L{I.Addr(I.Local(scalarSlot),ref,B.WriteAccess)})})
+ local caller=I.Fn('place_caller',I.Entry,0,L{},L{S.U32},L{},L{
+  I.Var(scalarSlot,S.U32,I.Const(S.U32,I.UInt(42))),I.Call(L{a},address.id,L{I.BorrowArg(I.Local(scalarSlot))}),I.Return(L{I.Const(S.U32,I.UInt(0))})})
+ local places=Own.bindLoans(Program.analyze{address,caller},{caller.id})
+ local placeResult=places.entries[caller.id].dependencies[T.Result(B.Point(caller.id,2),0,B.Root)]
+ local placeDemand=Own.capabilities(places,{placeResult})
+ check(not next(placeDemand.results) and not next(placeDemand.inputs) and next(placeDemand.addresses),'a place-root borrow is recovered from the caller, not mistaken for a callee allocation')
+ local recursive=C.typed{profile='slet',source=[[
+let Point={x:U32}
+let forward(p:Ref(Point),n:U32):Ref(Point)=if n==0 then p else forward(p,n-1)
+let main():U32=do let p=Point{x=42} let q=forward(Ref(p),3) return q.x end
+ ]]}
+ local cycle=Own.bindLoans(recursive.program,{'main'});local roots={}
+ for _,c in pairs(cycle.contexts) do for dep,n in pairs(c.dependencies) do if dep.kind=='Result' then roots[#roots+1]=n end end end
+ local demanded=Own.capabilities(cycle,roots)
+ local seen=0;for _ in pairs(demanded.nodes) do seen=seen+1 end
+ check(seen>0 and seen<=#cycle.nodes,'recursive capability worklist converges on the finite bound graph')
+ check(not next(demanded.results),'recursive identity returns do not invent outgoing resource requirements')
+ local closure=C.typed{profile='slet',source=[[
+let Point={x:U32}
+let make(n:U32):():Ref(Point)=do let p=Point{x=n} return do():Ref(Point)=Ref(p) end
+let main():U32=do let f=make(42) let p=f() return p.x end
+ ]]}
+ local closures=Own.bindLoans(closure.program,{'main'});local environmentRead=false
+ for _,call in ipairs(closures.calls) do
+  local statement=call.caller.graph.statement_at[call.point]
+  if statement.kind=='Indirect' then
+   for _,actual in ipairs(call.arguments) do for _,parts in pairs(actual) do for _,argument in pairs(parts) do
+    for _,e in ipairs(argument.edges) do
+     if e.target.kind=='Read' then
+      environmentRead=true
+      check(e.target.context==call.caller and e.target.locator==statement.callable,'captured argument reads the current callable environment, not expired producer SSA')
+     end
+    end
+   end end end
+  end
+ end
+ check(environmentRead,'captured reference has an explicit invocation-site environment read')
+ -- Repeated formation at one call site shares code identity, but different
+ -- queries must not feed a code-global union back into their actual captures.
+ local view=S.View(S.Sig({}, {ref}));local v=I.Value(4);local env=I.Storage(1)
+ local body=I.Fn('capture_body',I.Body,1,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{I.Return(L{I.Ref(p,ref)})})
+ local factory=I.Fn('capture_factory',I.Body,0,L{S.inValue(ref)},L{view},L{I.ValueParam(0,p,ref)},L{
+  I.View(v,view,body.id,L{I.ValueArg(I.Ref(p,ref))},env),I.Return(L{I.Ref(v,view)})})
+ local loop=I.Fn('capture_loop',I.Entry,0,L{S.inValue(ref),S.inValue(ref),S.inValue(S.Bool)},L{S.U32},L{
+  I.ValueParam(0,p,ref),I.ValueParam(1,a,ref),I.ValueParam(2,b,S.Bool)},L{
+  I.Var(I.Storage(1),ref,I.Ref(p,ref)),I.Loop(L{
+   I.Read(I.Value(5),ref,I.Local(I.Storage(1))),I.Call(L{I.Value(6)},factory.id,L{I.ValueArg(I.Ref(I.Value(5),ref))}),
+   I.Store(I.Local(I.Storage(1)),I.Ref(a,ref)),I.If(I.Ref(b,S.Bool),L{I.Return(L{I.Const(S.U32,I.UInt(0))})},L{I.Next})})})
+ local environments=Program.analyze{body,factory,loop};local identities={};local queries=0
+ for _,facts in pairs(environments.flow.contexts) do if facts.fn_id==factory.id and #facts.context>0 then
+  queries=queries+1
+  local code,binding=next(facts.values[v.id].calls[B.Root]);identities[code]=true
+  check(binding.captures and binding.slots==nil,'materialized code stores capture shape, not a duplicate global captured-value state')
+  local root=B.StorageRoot(Own.localSource(factory.id,env.id,facts.context,facts.folded))
+  local contents=facts.before[B.Point(factory.id,2)][root].refs[B.Field(B.Root,'_0001')]
+  local expected,actual={},{}
+  for _,target in pairs(facts.formal_bindings[1].value.refs[B.Root]) do expected[target.source]=true end
+  for _,target in pairs(contents) do actual[target.source]=true end
+  for source in pairs(actual) do check(expected[source],'environment contains only this formation query\'s captured sources') end
+  for source in pairs(expected) do check(actual[source],'environment preserves every actual capture') end
+ end end
+ local codes=0;for _ in pairs(identities) do codes=codes+1 end
+ check(queries>codes,'fixture exercises different queries sharing one code identity')
+ local conditions=Own.activeCases(B.Case(B.Case(B.Root,'outer'),'inner'))
+ check(#conditions==2 and conditions[1].tag=='outer' and conditions[2].tag=='inner','nested payload guards test the outer tag before inspecting the inner union')
+ local unknown=C.typed{profile='slet',source=[[
+let Point={x:U32}
+let invoke(f:(Ref(Point)):Ref(Point),p:Ref(Point)):Ref(Point)=f(p)
+let forward(f:(Ref(Point)):Ref(Point),p:Ref(Point)):Ref(Point)=invoke(f,p)
+let farther(f:(Ref(Point)):Ref(Point),p:Ref(Point)):Ref(Point)=forward(f,p)
+let main():U32=0
+ ]]}
+ local open=Own.bindLoans(unknown.program,{'invoke'});local request
+ for dep,n in pairs(open.entries.invoke.dependencies) do if dep.kind=='Result' then request=n end end
+ check(request and request.frontier=='unbound-call','unknown callable results retain a contract obligation')
+ local unresolved=Own.capabilities(open,{request})
+ check(unresolved.unresolved[request]=='unbound-call' and not next(unresolved.addresses),'an absent callable contract is not an owner-capability proof')
+ local forwarded=Own.bindLoans(unknown.program,{'farther'});local forwardedRequest
+ for dep,n in pairs(forwarded.entries.farther.dependencies) do if dep.kind=='Result' then forwardedRequest=n end end
+ local forwardedDemand=Own.capabilities(forwarded,{forwardedRequest});local missing=false
+ for _,reason in pairs(forwardedDemand.unresolved) do if reason=='unbound-call' then missing=true end end
+ check(missing,'forwarding through multiple result boundaries cannot conceal an unresolved callable contract')
+ local scalar=I.Fn('scalar_contract',I.Entry,0,L{},L{S.U32},L{},L{
+  I.Var(I.Storage(1),S.U32,I.Const(S.U32,I.UInt(42))),I.Read(I.Value(1),S.U32,I.Local(I.Storage(1))),I.Return(L{I.Ref(I.Value(1),S.U32)})})
+ check(#Own.bindLoans(Program.analyze{scalar},{scalar.id}).nodes==0,'scalar-only binding has no synthetic lifetime nodes')
+end
 print(('access proofs: %d checks, %d VM executions'):format(checks,executions))

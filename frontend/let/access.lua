@@ -10,7 +10,15 @@ local O=S.Ownership
 local L=S.Lifetime
 local M={}
 local ROOT=B.Root
-local function key(value) return S.encode(value) end
+-- These keys contain only immutable interned source identities. Publishing
+-- environment contents increases their reuse; do not serialize them at every
+-- lattice union. Weak keys keep separate compiler sessions collectible.
+local encoded=setmetatable({}, {__mode='k'})
+local function key(value)
+ local result=encoded[value]
+ if not result then result=S.encode(value);encoded[value]=result end
+ return result
+end
 local checkedAccess,checkedPath=Ownership.checkedAccess,Ownership.checkedPath
 local function wildcard(path)
  while path.kind~='Root' do if path.kind=='Element' then return true end;path=path.base end
@@ -35,7 +43,11 @@ local function add(set,a)
  local id=accessKey(a);if set[id] then return false end;set[id]=a;return true
 end
 local function mergeSet(dst,src)
- local changed=false;for _,a in pairs(src or {}) do if add(dst,a) then changed=true end end;return changed
+ local changed=false
+ -- Every source set is already indexed by accessKey, including its permission
+ -- and activation-relative current bit. Copy those canonical keys unchanged.
+ for id,a in pairs(src or {}) do if not dst[id] then dst[id]=a;changed=true end end
+ return changed
 end
 local function merge(dst,src)
  local changed=false
@@ -129,14 +141,7 @@ local function selection(input,base)
  end
  return out
 end
-local function cases(path)
- local out={}
- while path.kind~='Root' do
-  if path.kind=='Case' then out[#out+1]={path=path.base,tag=path.name} end
-  path=path.base
- end
- return out
-end
+local cases=Ownership.activeCases
 local function seed(ty,frame,index,path,invocation,contents,contentsOperand)
  path=path or ROOT;local out=empty()
  if ty:isRef() or ty:isPtr() or ty:isSlice() or ty:isView() or ty:isOwned() or ty==S.Any then
@@ -341,6 +346,16 @@ local function build(fn)
  return summary
 end
 
+-- Static allocation-site containment, used only to publish possible construction
+-- effects. In a recursive family this is NOT an allocation-identity/liveness proof.
+local function allocatedWithin(source,frame,context)
+ if source.kind~='Local' and source.kind~='Instantiated' and source.kind~='Recurring' then return false end
+ local path=source.context or S.List{}
+ if #path<#context then return false end
+ for i,p in ipairs(context) do if path[i]~=p then return false end end
+ if #path==#context then return source.frame==frame end
+ return path[#context+1].frame==frame
+end
 local function engine(program)
  local contexts,queue,bindings={}, {}, {}
  local head=1
@@ -357,7 +372,7 @@ local function engine(program)
   local parts={frame,key(O.Activation(frame,context,folded)),stateKey(state)};for i,a in ipairs(args) do parts[#parts+1]=i..':'..argKey(a) end
   local id=table.concat(parts,'\n');local ctx=contexts[id]
   if not ctx then
-   ctx={id=id,summary=assert(program[frame]),context=context,folded=folded,args=args,input=copyState(state),users={},results={},state={},reads={},writes={},requirements={},transfers={},invocations={},failures={},ownership=Ownership.events(),unknown=false}
+   ctx={id=id,summary=assert(program[frame]),context=context,folded=folded,args=args,input=copyState(state),users={},results={},state={},reads={},writes={},requirements={},transfers={},invocations={},failures={},ownership=Ownership.events(),published_contents={},unknown=false}
    contexts[id]=ctx;stats.contexts=stats.contexts+1;enqueue(ctx)
   end
   return ctx
@@ -394,7 +409,7 @@ local function engine(program)
   local function invalidate(state,targets)
    for _,a in pairs(targets) do local id=a.location.root;if state[id] then state[id].unknown=true end end
   end
-  local function read(state,targets,ty,uncertain,node,operand)
+  local function read(state,targets,ty,uncertain,node,operand,prefix)
    local value=empty();local dependencies={}
    value.unknown=uncertain and checkedAccess(ty) or false
    for _,a in pairs(targets) do
@@ -421,7 +436,7 @@ local function engine(program)
     -- Keep the original place operand so lowering can capture its evaluated
     -- index/base once; this metadata is not itself an evaluated address.
     for p in pairs(Ownership.components(ty)) do
-     local id=L.Use(node.point,assert(operand),p)
+     local id=L.Use(node.point,assert(operand),prefix and prepend(p,prefix) or p)
      local reads=observed(node).contents
      local use=reads[id] or {locations={},provenance={},alternatives={},active_cases=cases(p)};reads[id]=use
      dependency(dependencies,p,L.Read(id))
@@ -446,7 +461,9 @@ local function engine(program)
   resolvePlace=function(p,state,node)
    if p.root then
     local root=qualify(p.root);local alias=aliases[root]
-    if alias then return alias.targets,alias.unknown end
+    if alias then
+     return alias.targets,alias.unknown,{[ROOT]={[L.Carrier(L.Parameter(fn.id,assert(p.param),ROOT))]=true}}
+    end
     return single(location(root,ROOT,not p.readonly,nil,root.kind=='StorageRoot' and root.storage.kind~='Global')),false
    end
    if p.base then
@@ -632,6 +649,14 @@ local function engine(program)
    -- Fresh result roots carry their established contents back to the caller.
    -- Transport only reachable storage, not every local of the child activation.
    local pending,seen,carried,seenCodes={},{},{},{}
+   local constructed={}
+   for _,effect in pairs(child.flow and child.flow.sites or {}) do
+    for loc in pairs(effect.written_contents) do
+     if loc.root.kind=='StorageRoot' and allocatedWithin(loc.root.storage,frame,child.context) then
+      constructed[loc.root]=constructed[loc.root] or {};constructed[loc.root][loc]=true
+     end
+    end
+   end
    local function targets(set)
     for _,a in pairs(set) do
      local root=a.location.root
@@ -647,16 +672,27 @@ local function engine(program)
      for _,codes in pairs(v.calls) do for code,binding in pairs(codes) do
       if not seenCodes[code] then
        seenCodes[code]=true
-       for _,a in ipairs(binding.slots) do
+       -- A materialized environment's actual fields are already reached
+       -- through its root. Do not also transport a code-global capture union.
+       if not binding.environment then for _,a in ipairs(binding.slots) do
         if a.targets then targets(a.targets) else carried[#carried+1]=a.value end
-       end
+       end end
       end
      end end
     end
     local root=pending[cursor]
     if root then
      cursor=cursor+1
-     if child.state[root] then state[root]=external(child.state[root]);carried[#carried+1]=child.state[root] end
+     if child.state[root] then
+      state[root]=external(child.state[root]);carried[#carried+1]=child.state[root]
+      -- Construction is a write even on a later loop iteration with the same
+      -- finite source name. Do not invent an Entry version for a returned object.
+      for loc in pairs(constructed[root] or {}) do
+       observed(node).written_contents[loc]=true
+       observed(node).published_contents[loc]=observed(node).published_contents[loc] or {}
+       observed(node).published_contents[loc][child.id]=true
+      end
+     end
     end
    end
    for id,t in pairs(child.transfers) do
@@ -685,7 +721,7 @@ local function engine(program)
    local node=summary.nodes[point];local state=copyState(before[point]);local value,dependencies
    -- Replace the last local iteration, rather than publish transient bottom
    -- observations. Caller dependencies still converge in the existing queue.
-   out.sites[point]={uses={},root_uses={},root_dependencies={},addresses={},address_dependencies={},contents={},written_contents={},stored={},definitions={},returns={},reads={},writes={},requirements={},calls={},call_arguments={},invocations={},retentions={},unknown=false}
+   out.sites[point]={uses={},root_uses={},root_dependencies={},addresses={},address_dependencies={},contents={},written_contents={},published_contents={},stored={},definitions={},returns={},reads={},writes={},requirements={},calls={},call_arguments={},invocations={},retentions={},unknown=false}
    for _,observation in ipairs(node.observes or {}) do fact(observation,state,node) end
    if node.initialize then
     local root=qualify(node.initialize);local initial,edges=fact(node.value,state,node)
@@ -699,27 +735,52 @@ local function engine(program)
     store(state,targets,incoming,node.type,node,edges)
    elseif node.code then
     local code=codeAt(node.point);local binding=bindings[code]
-    if not binding then binding={origin=code,target=node.entry,slots={}};bindings[code]=binding end
-    local changed=false
+    local adapter=node.adapter and qualify(node.adapter)
+    if not binding then
+     binding={origin=code,target=node.entry,environment=adapter}
+     if adapter then binding.captures={} else binding.slots={} end
+     bindings[code]=binding
+    end
+    local changed=false;local captures={}
     for i,a in ipairs(node.slots) do
-     local held=argument(a,state,node);local old=binding.slots[i]
-     if not old then binding.slots[i]=held;changed=true
-     elseif held.targets then
-      if mergeSet(old.targets,held.targets) then changed=true end
-      if held.readonly and not old.readonly then old.readonly=true;changed=true end
-      if held.unknown and not old.unknown then old.unknown=true;changed=true end
-     elseif merge(old.value,held.value) then changed=true end
+     local held=argument(a,state,node);captures[i]=held
+     if adapter then
+      -- Code shares the capture layout, not the contents of different actual
+      -- environments. The latter belong solely to this query's storage state.
+      binding.captures[i]={borrowed=held.targets~=nil,type=held.type,readonly=held.readonly}
+     else
+      local old=binding.slots[i]
+      if not old then binding.slots[i]=held;changed=true
+      elseif held.targets then
+       if mergeSet(old.targets,held.targets) then changed=true end
+       if held.readonly and not old.readonly then old.readonly=true;changed=true end
+       if held.unknown and not old.unknown then old.unknown=true;changed=true end
+      elseif merge(old.value,held.value) then changed=true end
+     end
     end
     if changed then bindingChanged() end
     value=empty();value.calls[ROOT]={[code]=binding}
-    local adapter=node.adapter and qualify(node.adapter)
+    if adapter then state[adapter]=empty() end
     dependencies={}
     if adapter then
      value.refs[ROOT]=single(location(adapter,ROOT,true,nil,true))
      local id=L.Use(node.point,node.result_operand,ROOT);observed(node).addresses[id]=value.refs[ROOT]
      dependency(dependencies,ROOT,L.Address(id))
     end
-    for index,a in ipairs(binding.slots) do
+    for index,a in ipairs(captures) do
+     if adapter then
+      local field=B.Field(ROOT,string.format('_%04d',index))
+      local stored=a.value
+      if a.targets then stored=empty();stored.refs[ROOT]=a.targets end
+      component(state[adapter],stored,field)
+      local ty=a.targets and S.Ref(a.type) or a.type
+      for p in pairs(Ownership.components(ty)) do
+       local destination=B.Location(adapter,prepend(p,field))
+       observed(node).written_contents[destination]=true
+       local edges=observed(node).stored[destination] or {};observed(node).stored[destination]=edges
+       for edge in pairs((a.dependencies or {})[p] or {}) do edges[edge]=true end
+      end
+     end
      local sets=a.targets and {[ROOT]=a.targets} or a.value.refs
      for p,set in pairs(sets) do
       -- A materialized callable retains its environment root. Its captures are
@@ -756,8 +817,20 @@ local function engine(program)
      for _,binding in pairs(codes) do
       known=true;local alternative=copyState(state);local part
       if binding.target then
-       local actual={};for _,a in ipairs(binding.slots) do actual[#actual+1]=a end;for _,a in ipairs(args) do actual[#actual+1]=a end
+       local actual={}
        local targetSummary=program[binding.target]
+       for index,a in ipairs(binding.captures or binding.slots) do
+        if binding.environment then
+         -- Captures are read from this callable's environment at invocation,
+         -- not from the producer's possibly expired SSA bindings/frame.
+         local field=B.Field(ROOT,string.format('_%04d',index))
+         local ty=targetSummary.fn.inputs[index].type
+         local value,edges=read(alternative,single(location(binding.environment,field,false)),a.borrowed and S.Ref(ty) or ty,false,node,node.invoke.value.operand,field)
+         actual[#actual+1]=a.borrowed and {targets=at(value,ROOT),type=ty,unknown=value.unknown,readonly=a.readonly,dependencies=edges,operand=node.invoke.value.operand}
+          or {value=value,type=ty,dependencies=edges,operand=node.invoke.value.operand}
+        else actual[#actual+1]=a end
+       end
+       for _,a in ipairs(args) do actual[#actual+1]=a end
        if not node.signature and targetSummary and #actual<#targetSummary.fn.inputs then
         -- Legacy Any partial supply forms a callable, not an invocation of a
         -- body with missing inputs. Preserve its supplied provenance as holdings.
@@ -853,6 +926,18 @@ local function engine(program)
   while head<=#queue do
    local ctx=queue[head];head=head+1;ctx.queued=false;stats.iterations=stats.iterations+1
    local next=run(ctx);local changed=false
+   for point,site in pairs(next.sites) do
+    local published=ctx.published_contents[point] or {};ctx.published_contents[point]=published
+    for loc,children in pairs(site.published_contents) do
+     local old=published[loc] or {};published[loc]=old
+     for child in pairs(children) do if not old[child] then old[child]=true;changed=true end end
+    end
+    -- Like the existing may-write summary, construction effects grow by union.
+    -- Comparing only the previous local run can repeatedly requeue callers as
+    -- transient per-run observations change during recursive convergence.
+    for loc in pairs(published) do site.written_contents[loc]=true end
+    site.published_contents=published
+   end
    ctx.flow={sites=next.sites,values=next.values,before=next.before}
    for _,field in ipairs{'reads','writes','requirements'} do if mergeSet(ctx[field],next[field]) then changed=true end end
    for _,field in ipairs{'transfers','invocations','failures'} do
@@ -871,12 +956,7 @@ end
 -- Memory-provenance versions use the converged effects on the original CFG.
 -- This is a finite graph problem, not another execution of source expressions.
 -- A version identifies contents, not an allocation or proof of protection.
-local function contentsVersions(summary,flow)
- local locations={}
- for _,site in pairs(flow.sites) do
-  for _,use in pairs(site.contents) do for loc in pairs(use.locations) do locations[loc]=true end end
-  for loc in pairs(site.written_contents) do locations[loc]=true end
- end
+local function contentsVersions(summary,flow,locations)
  local points,pred={},{}
  for point in pairs(flow.sites) do points[#points+1]=point;pred[point]={} end
  table.sort(points,function(a,b) return a.ordinal<b.ordinal end)
@@ -1022,7 +1102,6 @@ function M.analyze(functions)
  local flow={phase='source-flow',functions=program,contexts={},roots={}}
  for id,ctx in pairs(queries.contexts) do
   local facts=assert(ctx.flow)
-  contentsVersions(ctx.summary,facts)
   facts.fn_id=ctx.summary.fn.id;facts.formal_bindings=ctx.args
   facts.result_provenance=ctx.results;facts.ownership_events=ctx.ownership
   facts.context=ctx.context;facts.folded=ctx.folded;facts.unknown=ctx.unknown
@@ -1035,6 +1114,48 @@ function M.analyze(functions)
   end
   flow.contexts[id]=facts
  end
+ -- A callee-only field read still needs the caller's version at entry. Import
+ -- the callee's external locations through the existing call graph to a fixed
+ -- point before constructing versions; no source expression is reevaluated.
+ local domains,users,callees,interest,work,queued={},{},{},{},{},{}
+ local function enqueue(id)
+  if not queued[id] then work[#work+1]=id;queued[id]=true end
+ end
+ for id,facts in pairs(flow.contexts) do
+  domains[id]={};users[id]=users[id] or {};callees[id]={};interest[id]={}
+  for _,site in pairs(facts.sites) do
+   for _,read in pairs(site.contents) do for loc in pairs(read.locations) do domains[id][loc]=true;interest[id][loc.root]=true end end
+   for loc in pairs(site.written_contents) do domains[id][loc]=true;interest[id][loc.root]=true end
+   for _,write in pairs(site.writes) do interest[id][write.location.root]=true end
+   for _,read in pairs(site.reads) do interest[id][read.location.root]=true end
+   for child in pairs(site.calls) do users[child]=users[child] or {};users[child][id]=true;callees[id][child]=true end
+  end
+  enqueue(id)
+ end
+ local cursor=1
+ while cursor<=#work do
+  local id=work[cursor];cursor=cursor+1;queued[id]=nil
+  local facts=flow.contexts[id]
+  -- Caller projections (including wildcard array projections) must also have
+  -- an exit version in a callee that can inspect/write that containing root.
+  for child in pairs(callees[id]) do
+   local changed=false
+   for loc in pairs(domains[id]) do
+    if interest[child][loc.root] and not domains[child][loc] then domains[child][loc]=true;changed=true end
+   end
+   if changed then enqueue(child) end
+  end
+  for parent in pairs(users[id]) do
+   local changed=false
+   for loc in pairs(domains[id]) do
+    if not (loc.root.kind=='StorageRoot' and allocatedWithin(loc.root.storage,facts.fn_id,facts.context)) and not domains[parent][loc] then
+     domains[parent][loc]=true;changed=true
+    end
+   end
+   if changed then enqueue(parent) end
+  end
+ end
+ for id,facts in pairs(flow.contexts) do contentsVersions(program[facts.fn_id],facts,domains[id]) end
  for fn,ctx in pairs(roots) do flow.roots[fn]=ctx.id end
  queries.stats.seconds=os.clock()-start
  return roots,summaries,queries.stats,flow
