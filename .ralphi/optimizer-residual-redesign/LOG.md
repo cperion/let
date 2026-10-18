@@ -137,3 +137,84 @@ measured corpus (or a minimal prototype) that asserts fixpoint byte identity,
 the canonical fixture, effect/branch coverage, and O(blocks × keys) growth — i.e.
 re-run `frontend/tests/optimize.lua` and `tools/validate_optimizer_isa.lua`
 against it.
+
+## Round 3 — simplify
+
+**Mode:** simplify. **Question ranked first (of three in
+`experiments/3-loop-versions.md`):** are ABC loop headers ordinary versions, so
+that the whole `loop_candidate`/`loop_home`/`loop_prologue`/`backedge` subsystem
+retires? Ranked above (B) the exact key content (folded into A) and (C) the
+budget value (deferred: one owner either way, Q2 unchanged). A dominates because
+it removes a concept plus its state, names a measured coverage cliff, and
+settles the driver's edge-key rule.
+
+**What was measured.** Hand-built ABC modules through the existing assembler,
+loader/verifier and all four execution modes, plus the incumbent optimizer and
+the portable-C sink (`experiments/3-loop-join-probe.lua`, report and
+disassembly in `experiments/3-loop-versions.md`, artifacts in
+`3-loop-join-out/`). Any function containing a local backward branch is
+**retained byte-identically** by abc-opt — `sum-fold-source` with a foldable
+`5+6` inside the loop stays 15 instructions, while the same shape without the
+backedge optimizes 12 → 10. `dag_control` refuses any transfer with
+`fallthrough <= origin` or `target <= origin` (`optimize.c:281,288`). Native
+compiles and runs that same loop in compiled/lazy (no interpreter fallback,
+`vm.c:168-171`), and the C sink compiles it to versioned blocks with edge
+arguments (`3-loop-join-out/sum-source.c`). Hand-built "versioned emission"
+shapes — empty A/B at every boundary, loop-carried values in C slots, one shared
+header/join body reading `CGET`, backedge as an ordinary edge — verify and
+execute in all four modes for n = 3,1,0; `opt(source)` and `opt(versioned)` are
+**byte-identical and idempotent** (94 bytes for the join case). The verifier
+accepts backward branch targets (`verify.c:122-125`) but requires identical
+A/B/C shapes at every join (`verify.c:284`; a deliberately mismatched join is
+rejected).
+
+**Answers.**
+1. **Loops are ordinary versions.** The ABC loop state and lowering retire:
+   `loop_candidate`/`loop_target`/`loop_initial`/`loop_header`/`loop_home`/
+   `loop_count`/`loop_captured`/`loop_stable`/`loop_temps`/`loop_prologue`/
+   `backedge`/`nested_backedge`/`backedge_target` (`optimize.c:35-36,334-347,
+   671-681,752-765`), the root-backedge operand lowering (`:615-622`) and the
+   `N_LOOP_HOME` node kind. A virtualized recursive loop becomes a self-edge on
+   the inlined entry version (continuation chain in the key), not a prologue.
+2. **The edge-key rule is now concrete:** plain forward edge = constants +
+   locations; an edge into a function-entry pc (real or virtual) joins the
+   single lattice-keyed entry version; an edge into a non-entry loop header uses
+   the generic all-location key; the budget fallback uses the same generic key.
+   The loop-header fact (a leader with an incoming edge whose source pc is >=
+   it) moves into shared module facts, replacing the C sink's private scan
+   (`residual_builder.c:2047-2110`). The C sink's per-slot `RECURSIVE` widening
+   and native's `edge()` constant weakening collapse into that one rule. Native
+   would change (it keeps constants on a forward loop-header edge today), so
+   that policy refinement is Q9, not a silent decision.
+3. **The ABC location vocabulary is justified, not asserted:** join targets have
+   verifier-fixed shapes, so the target layout is a function of the target pc;
+   the body is emitted once for many predecessors and the ABC emitter can only
+   address the C frame (`dag_value` rejects non-`CONST`/`BACKEND`,
+   `optimize.c:165-170`; no entry-stack leaf, `:583-587`), so non-constant A/B
+   values are drained into C slots at the edge and read with `CGET`. Rejected:
+   keying A/B positions in place — needs an entry-stack value kind, gives up
+   scheduled placement, and buys no measured quality.
+4. **Key correction:** the key is constants + binding locations + **the core's
+   continuation chain** (native compares the whole context, `symbolic.c:39-54`);
+   without the continuation term virtual inline sites collide.
+
+**Decision recorded in ARCHITECTURE.md.** Added the loop invariant (loops are
+ordinary versions; no loop state/lowering), concretized the edge-mode selection
+in `version_at`, moved loop headers into module facts, corrected the key to
+include continuations, added the ABC drain rationale and the rejected A/B-key
+alternative, and extended the retired-path list with the ABC loop machinery.
+Q8 answered; Q9 opened (narrow native version-selection gate); Q1's evidence
+gained the local-loop cliff; Q4/Q5/Q6/Q7 refined in place.
+
+**Not established.** A versioned ABC emitter's byte determinism/idempotence end
+to end (structural argument only: after one pass every block has exactly one
+incoming key, and measured outputs remain idempotent), and the join's exact
+push-vs-store sequence / C-traffic on real modules. Q2 (budget authority) still
+blocks a single budget number for the shared driver, and Q9 decides whether
+native adopts the loop-header generic key.
+
+**Next uncertainty.** Whether the join's in-place store schedule can be emitted
+without extra C traffic, and whether the generic-key-at-loop-header rule plus
+the entry lattice still reproduce the documented counter specialization
+(`BLTUI_A 50` / `ADDI_A 7`); both need a versioned driver prototype or an
+emission-level fixture, after Q2/Q9 are answered.
