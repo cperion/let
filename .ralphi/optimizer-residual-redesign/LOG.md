@@ -308,3 +308,94 @@ modules; the loop-header key choice; whether removing the documented
 deliberately generalized while constants are still available; it decides whether
 "no widening anywhere except the forced entry" is really the whole key rule, and
 how many versions a constant-initialized loop costs.
+
+## Round 5 — the loop-header key is the loop-invariant join, computed without a fixpoint
+
+**Mode:** simplify (plus one measurement). **Question ranked first (of three in
+`experiments/5-loop-key.md`):** round 4 made every key exact and left two
+canonicalization points (residual-call entry, per-pc budget). That rule says
+nothing special about a non-entry loop header, so a constant counter would create
+a new version per iteration until the budget and then fall into the *all-location*
+key — but round 3 had chosen the all-location key directly, and the incumbent's
+documented counter keeps `BLTUI_A 50`/`ADDI_A 7` in its loop body. Which key form
+is a loop header, and does the answer reintroduce the widening/rebuild machinery
+round 4 deleted? Ranked above (B) the per-version drain/entry-layout contract —
+already fixed by round 3's fixtures, deferred as a clarification — and (C) where
+per-pc layouts and may-write sets are computed (opened as Q12 after A).
+
+**What was measured.** New fixtures through the existing assembler, verifier,
+four execution modes, incumbent optimizer and the portable-C sink
+(`experiments/5-loop-key.lua`, report `experiments/5-loop-key.md`, artifacts in
+`5-loop-key-out/`). The incumbent's optimized documented counter is **one body**
+at pc 6: `CGET0_A; BLTUI_A 50`, body `CGET0_A; ADDI_A 7; ZX32_A; CGET1_A; ADDI_A 1;
+ZX32_A; CSETN_A 1; CSET0_A; JMP 6` — both loop-carried slots unknown, bound and
+step constants in the same body. That is a join, and
+`frontend/tests/optimize.lua:502,505` pins it. Three hand-built emissions of one
+loop (`acc = Σ i, i += 7 while i < 120`, answer 1071; all return 1071 in
+interpreted/threaded/compiled/lazy and are idempotent): **loop-invariant key** 16
+instructions, one body, 10 instructions/iteration, both immediates;
+**generic key** 22 instructions, 12/iteration, no immediates; **exact keys** with
+budget 8: 29 instructions — seven header versions whose bodies fold to a single
+jump, four constant stores at the budget edge, then an all-location tail at
+12/iteration with no immediates. Computed executed-instruction counts for trip 18:
+188 / 229 / 152; exact keys win only for small constant trip counts (break-even
+about 36 iterations). The portable-C sink materializes the bound before the loop
+but the header version compares block-argument copies (`if(v_8 < v_5)`), its
+loop-entry mode having canonicalized with `forget_constants=1`
+(`residual_builder.c:1090-1091, 1195-1207`); the host C compiler can re-propagate
+that, ABC/native code cannot. Native weakens *all* constants on a backward edge
+(`residualize.c:414-438`), so its loop body also reads an invariant bound.
+
+**Answers.**
+1. **The loop-header key is the loop-invariant join, and it is static.** The join
+   over all incoming keys differs per component exactly when the loop can change
+   that component's storage, which is a static property of the loop body. So the
+   loop-invariant key = the incoming key with every may-write component replaced by
+   the binding's location form; it is available when the header version is created,
+   so there is **no fixpoint, no re-execution, no rebuild, no call facts**. A
+   constant-trip loop stays one body with its invariants as immediates, which is
+   what the documented fixture requires.
+2. **The may-write set is computable in one linear pass.** ABC: the loop interval
+   (header to its largest backedge source, an over-approximation) writes a C home
+   iff it contains a `CSET`/`CPUSH` to it, or its minimum C height reaches the
+   home, or a call in it gathers arguments at or below the home; an A/B depth is
+   may-write iff the interval's minimum A/B height reaches it. Native: the same
+   predicate over A/B depths and C-frame homes. Inlined callees have private A/B
+   stacks and C frames above the call base, so no cross-function analysis is
+   needed. The static rule's only loss against a dynamic join is a may-written
+   component whose value happens to stay the same constant.
+3. **Exact keys at loop headers are wrong for ABC and native.** After the budget
+   the hot body falls into the all-location key, so the documented immediates
+   disappear (`frontend/tests/optimize.lua:502,505` would fail) and up to `budget`
+   header bodies are emitted for a win that vanishes above ~36 iterations.
+   Generic keys are wrong because every iteration pays the frame reads. The
+   dynamic join remains rejected — and it is now rejected *by construction*, not
+   only by cost, because the static rule subsumes the part loops need.
+4. **Consequences for other findings.** The loop-header boolean stays as a fact and
+   gains the may-write set (Q4/Q5); Q9 becomes a native version-policy gate with a
+   clear recommendation (one header version instead of two, invariant C constants
+   kept, the peel dropped); Q10's bound for self-tail recursion is derived from the
+   loop rule (a self-tail inline is a one-version cycle), leaving the inline budget
+   for nontail chains; Q12 opens where per-pc layouts and may-write sets live.
+   Round 4's "exactly two canonicalization points" becomes "three: entry,
+   loop header, budget".
+
+**Decision recorded in ARCHITECTURE.md.** Replaced "exact keys everywhere, generic
+only at entry/budget" with "exact keys plus three static canonicalization points";
+the loop-invariant key is defined, its may-write predicate sketched for both
+bindings, `version_at`/`mode` updated, the "one version per loop header" invariant
+added, the data-representation wording fixed (the live-value set is pc-fixed, the
+layout is per version), the loop-invariant fact added to module facts, self-tail
+inlining derived, and three rejected alternatives recorded (generic header key,
+exact header keys, unroll-to-budget) with their measured costs.
+
+**Not established.** Corpus-wide version/code-size/compile-time effect of the
+may-write rule (Q12); native's measured cost/benefit under Q9; the measured
+frequency of the static rule's only loss; the ABC sink's entry-layout emission at
+scale (question B).
+
+**Next uncertainty.** Q12: whether the may-write set and the per-pc layouts are
+computed by one shared linear pass (and whether the verifier's discarded `Shape`
+data should feed it), because that decides the compile-cost of the loop rule the
+design now depends on. Q2 still blocks a single budget number; Q1 remains the
+scope gate.

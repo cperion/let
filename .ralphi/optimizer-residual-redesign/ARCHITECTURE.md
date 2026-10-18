@@ -1,21 +1,26 @@
 # Architecture
 
-Status: candidate (round 4). Derived from `CONTRACT.md`, checked against the
-code, and corrected by the round-2, round-3 and round-4 probes. Rationale and
+Status: candidate (round 5). Derived from `CONTRACT.md`, checked against the
+code, and corrected by the round-2, round-3, round-4 and round-5 probes. Rationale and
 citations: [experiments/1-rederive.md](experiments/1-rederive.md);
 [experiments/2-abc-versioned-sink.md](experiments/2-abc-versioned-sink.md);
 [experiments/3-loop-versions.md](experiments/3-loop-versions.md);
-[experiments/4-entry-lattice.md](experiments/4-entry-lattice.md).
+[experiments/4-entry-lattice.md](experiments/4-entry-lattice.md);
+[experiments/5-loop-key.md](experiments/5-loop-key.md).
 
 The one-line design: **execute ABC semantics once, symbolically, per version;
 module facts and version identity have one owner; a sink owns only residue.**
 A version key is **constants plus the binding's locations plus the core's
 continuation chain** — never sink residue identity. **A key is exact: a version
-is created when the key differs, never widened.** The key is generalized to the
-binding's canonical all-location form only where identity forces it (a call that
-can only name a function entry) or at the per-pc budget. That one rule is what
-lets every sink keep residue per version, it makes **loops ordinary versions**,
-and it makes **every version body execute exactly once, for the whole module**.
+is created when the key differs, never widened by a fixpoint.** There are exactly
+three canonicalization points: a call that can only name a function entry takes
+the binding's canonical all-location key; a non-entry **loop header** takes the
+**loop-invariant key** (every component the loop may write or destroy becomes a
+location, everything else keeps its constant); and the per-pc budget takes the
+all-location key. Each is a static function of the key plus module facts, so
+nothing is ever rebuilt. That is what lets every sink keep residue per version,
+it makes **loops ordinary versions**, and it makes **every version body execute
+exactly once, for the whole module**.
 
 ## Essential model
 
@@ -24,25 +29,30 @@ A residualizing compiler is five things:
 1. **Module facts** — immutable, computed once per module: function ranges and
    signatures, block leaders, direct-call graph, recursive/tail-only/nontail
    components (they also feed the inline rule), unknown-call reachability, entry
-   roots, and **loop headers** (a leader with an incoming edge whose source pc is
-   at or after it) while Q11 keeps a loop-header key form.
+   roots, **loop headers** (a leader with an incoming edge whose source pc is at
+   or after it) and, per loop header, the **loop may-write set** over the
+   binding's key components plus the per-pc A/B/C layouts it needs (Q12). The
+   may-write set is what makes the loop-invariant key computable before the body
+   is walked.
 2. **Symbolic machine** — A/B/C stacks of `constant | home | sink value`, C frame
    coordinates, explicit continuations, transfer dispatch. This is the only
    semantics and, for native, the register allocation.
 3. **Context key** — canonical identity of a specialization: the constants, the
    locations of everything else, and the continuation chain. **The binding
    defines what a location is** (native: register/homing; portable C: version
-   argument; ABC: C-frame slot). Key equality is version identity and is exact;
-   the binding also supplies one canonical all-location form, used only by the
-   forced-generic triggers (residual-call entry, per-pc budget, and the
-   loop-header rule pending Q11). The continuation chain is core-owned
-   because it identifies virtual (inlined) entries and return sites.
+   argument; ABC: C-frame slot) and supplies its **may-write predicate** for the
+   loop-invariant canonicalization. Key equality is version identity and is
+   exact; the binding also supplies one canonical all-location form, used by the
+   residual-call entry and by the per-pc budget. The continuation chain is
+   core-owned because it identifies virtual (inlined) entries and return sites.
 4. **Version** — `(pc, key, owning residual function)` plus the sink's residue for
    the straight-line run from `pc` and its outgoing edges. The unit of code and
    the unit of work. Residue is per version; **a key never contains sink residue
    identity**, so no sink needs a cross-version value graph to compare keys.
-   **A loop is not a version shape**: its header is a version, its backedge is an
-   edge, and loop-carried values cross as the key's constants or locations.
+   **A loop is not a version shape**: its header is a version keyed by the
+   loop-invariant key, its backedge is an edge, and loop-carried values cross as
+   the key's constants or locations. A single-entry loop header has exactly one
+   version.
 5. **Binding (sink)** — the target mechanism: the location vocabulary, record/emit
    residue, materialize join values, place and publish code. Never semantics.
 
@@ -57,19 +67,24 @@ Invariants:
   for key equality;
 - the core never inspects residue; `abc_symbolic_value.reg` is opaque to it;
 - version creation order is a function of module bytes and facts (deterministic);
-- **a key is exact.** A version is created whenever an edge's key differs from
-  every existing version's key at that `pc`; no version key is ever widened.
-  There are exactly two forced-generic cases: (i) an edge into a **residual-call
-  entry** — a function entry that a call can address only as an address, not as a
-  version — takes the binding's canonical all-location key, because the binding
-  has one entry address and the callee must be correct for every caller (ABC
-  `CALL`/`TCALL`, `verify.c:131-134`); (ii) at the per-pc version budget a key is
-  replaced by the same canonical all-location key. **There is no entry join, no
-  entry-fact lattice, no call facts, no widening fixpoint and no residue
-  rebuild.** The measured specialization that the old lattice provided comes from
-  inlining instead: an inlined call is a **virtual entry**, an ordinary version
-  whose key carries the caller's constants and whose continuation chain
-  identifies the return site;
+- **a key is exact.** A version is created whenever a canonicalized edge key
+  differs from every existing version's key at that `pc`; no version key is
+  widened by a fixpoint. There are exactly three canonicalization points:
+  (i) an edge into a **residual-call entry** — a function entry that a call can
+  address only as an address, not as a version — takes the binding's canonical
+  all-location key, because the binding has one entry address and the callee must
+  be correct for every caller (ABC `CALL`/`TCALL`, `verify.c:131-134`);
+  (ii) an edge into a **non-entry loop header** takes the **loop-invariant key**:
+  the key with every component whose storage the loop may write or destroy
+  replaced by a location, and every other component unchanged, because the header
+  body is one version that runs every iteration (see below);
+  (iii) at the per-pc version budget a key is replaced by the canonical
+  all-location key. All three are static functions of the key and module facts.
+  **There is no entry join, no entry-fact lattice, no call facts, no widening
+  fixpoint and no residue rebuild.** The measured specialization that the old
+  lattice provided comes from inlining instead: an inlined call is a **virtual
+  entry**, an ordinary version whose key carries the caller's constants and whose
+  continuation chain identifies the return site;
 - **calls and edges**: a direct call is either a virtual entry (inlined: the
   callee's pc becomes a version in the caller's residual function, under the
   caller's continuation chain) or a residual call into the callee's single
@@ -80,11 +95,23 @@ Invariants:
   (`symbolic.c:39-75`). Tail-only cycles (self-tail loops, mutual tail recursion)
   inline into a version cycle and keep their invariant constants;
 - **edge-key modes are the whole loop rule**: a plain forward edge keeps
-  constants; at the per-pc version budget the key becomes the generic key. An
-  edge into a non-entry loop header takes the generic key under the round-3 rule,
-  which is reopened in Q11 (it also loses constants that are known before the
-  loop and legitimately invariant inside it). There is no loop state, no loop
-  prologue, no backedge lowering and no path-shaped control-flow representation;
+  constants; an edge into a non-entry loop header takes the loop-invariant key;
+  at the per-pc version budget the key becomes the all-location key. The
+  loop-invariant key is the join of the header's incoming keys over all
+  iterations, computed statically: a component can differ between iterations only
+  if the loop changes its storage, so the join's fixpoint is the entry key with
+  the loop's may-write components widened. For ABC a component (a C home or a
+  drained A/B depth) is may-write when the loop interval writes that home, or its
+  minimum A/B/C height reaches the component's depth, or a call in the interval
+  gathers arguments at or below its home; for native the same predicate over A/B
+  depths and C-frame homes. A may-written component whose value happens to stay
+  the same constant is widened unnecessarily — the static rule's only loss
+  against a dynamic join, and the price of running no fixpoint. **A loop header
+  is a version like any other**: one version per distinct loop-invariant key (one
+  for a single-entry loop), its backedge is an edge, and its body keeps every
+  constant the loop does not overwrite (measured: the documented counter's one
+  body with `BLTUI_A 50`/`ADDI_A 7`). There is no loop state, no loop prologue, no
+  backedge lowering and no path-shaped control-flow representation;
 - **a residual-function entry has exactly one version**, keyed by the generic
   all-location key where the binding has one entry address; the same is true of a
   module entry (export, relocation, C entry). No join is computed, so no
@@ -96,8 +123,10 @@ Invariants:
 The reader must hold exactly these five, in this order: **facts → machine →
 key → version → binding**. Everything currently spelled "path tree", "version
 table", "directive driver", "leader discovery", "loop prologue" is an instance of
-one of them; "argument fact fixpoint" and "call facts" are not — they are deleted
-mechanisms (Q7), because a key never widens.
+one of them; "argument fact fixpoint", "call facts" and the dynamic loop join
+(`loop_captured`/`loop_stable`) are not — they are deleted mechanisms, because
+every key is computed statically: entries at the all-location key, loop headers
+at the loop-invariant key, everything else exact.
 
 ## Data representation
 
@@ -108,25 +137,30 @@ mechanisms (Q7), because a key never widens.
   locations, and the continuation chain**. Non-constant values are replaced by
   the binding's location descriptor before any lookup or comparison; the
   continuation list survives canonicalization (it is not a location). Keys are
-  compared for exact equality; **the binding's canonical all-location form is a
-  second, separate descriptor** used only by the two forced-generic triggers
-  (residual-call entry, per-pc budget) and by the loop-header rule pending Q11.
+  compared for exact equality. The binding supplies two further descriptors: its
+  **canonical all-location form** (residual-call entry and per-pc budget) and its
+  **loop-entry form** (the loop-invariant key: a constant component whose
+  may-write predicate is true becomes a location, everything else is unchanged).
   The core does not assume `HOME(stack,index)` for every slot (that is the native
   form only).
 - **ABC canonical form**: A/B empty, every value either a constant or a **C-frame
   slot**. This is forced, not chosen: join targets must arrive with identical
-  A/B/C shapes (`verify.c:284`), so the target layout is a function of the target
-  pc; the body is emitted once for all predecessors and the ABC emitter can only
-  address the C frame (`dag_value` accepts only `CONST`/`BACKEND`,
-  `optimize.c:165-170`), so the join drains live A/B values into the target key's
-  slots and the body reads them with `CGET`. Because the verifier fixes the join
-  shape, the number and kinds of drained slots agree on every edge.
+  A/B/C shapes (`verify.c:284`), so the set of live values at a target is a
+  property of the input pc; the body is emitted once per version and the ABC
+  emitter can only address the C frame (`dag_value` accepts only
+  `CONST`/`BACKEND`, `optimize.c:165-170`), so the join drains live A/B values
+  into the target key's slots and the body reads them with `CGET`. Because the
+  verifier fixes the join shape, the number and kinds of live values agree on
+  every edge. The **layout** (which of them are C slots) is per version: a
+  version is its own emitted label, so two versions at the same pc may keep
+  different components as constants, and each emits its own prologue.
 - **Version table** keyed by (owning residual function, pc, key); the owning
   function is identity for sinks whose code is placed in per-function ranges
   (ABC, portable C: the driver runs per residual function), and is implicit for
   native (one code arena; a module-scope table). A residual function has exactly
-  one entry version; every other version at a pc exists because some edge's exact
-  key differed.
+  one entry version; a single-entry loop header has exactly one version (its
+  loop-invariant key); every other version at a pc exists because some edge's
+  exact key differed.
 - **Residue is sink-owned, per version, and never shared**: native — none
   (emitter packets are consumed immediately; locations are registers); portable
   C — one `residual.asdl` block per version with block arguments as the join
@@ -146,15 +180,16 @@ mechanisms (Q7), because a key never widens.
 ```text
 version_at(pc, key, origin):
     key = canonicalize(key)                     # binding location hook
+    if pc is a residual-call entry / module entry: key = all_locations(key)
+    else if pc is a non-entry loop header:         key = loop_invariant(key)
     if version with this exact key exists: return it
     if family_count(pc, key) == budget:
-        return version_at(pc, generic(key), origin)   # forced generic
+        return version_at(pc, all_locations(key), origin)   # forced generic
     v = create(pc, key); queue.push(v); return v
 
-mode(pc, origin):                               # core rule, from module facts
-    if pc is a residual-call entry / module entry: GENERIC  # one version, no join
-    if pc is a non-entry loop header: GENERIC (round-3 rule; reopened by Q11)
-    return PRESERVE                             # constants + locations
+# binding predicate used by loop_invariant:
+#   may_write(pc_component, loop header) -- true iff the loop can change or
+#   destroy the storage of that component.  Static, from module facts.
 
 run():
     for each residual function f:
@@ -181,10 +216,12 @@ run():
   values and emits target transport — it is not a second allocator. No join ever
   changes an existing version's key.
 - **Loops are ordinary versions**: a backedge calls `version_at` exactly like a
-  forward edge; the header body is executed and emitted once per key, and the
-  join stores the loop-carried values for the next iteration. Which key form a
-  non-entry loop header takes (exact, per-slot join, or generic) is Q11; the
-  round-3 choice is generic.
+  forward edge. Every edge into a non-entry loop header is canonicalized to the
+  loop-invariant key, so a single-entry loop header has one body; the join stores
+  the loop-carried values for the next iteration, and the body keeps every
+  constant whose storage the loop does not touch (`experiments/5-loop-key.md`).
+  The invariant is a static join, not a fixpoint: no version is ever widened
+  after creation, so nothing is rebuilt.
 - **Call policy** (owned by the binding over module facts, bounded): a direct
   call is either inlined as a virtual entry (an ordinary version at the callee's
   pc under the caller's continuation chain — constants cross, invariant constants
@@ -192,8 +229,11 @@ run():
   generic-key entry version; no constants cross). Nontail recursive cycles must
   be residualized because inlining grows the continuation chain without bound.
   Inlining is bounded by a per-residual-function version budget (Q10); beyond it
-  the call is residualized. The ABC sink must inline pure acyclic direct calls:
-  `docs/abc-opt.md:82-91` fixes that canonical output.
+  the call is residualized. A **self-tail** call inlines without consuming that
+  budget: it becomes a loop header whose backedge canonicalizes to the
+  loop-invariant key, i.e. a one-version cycle (this derives the incumbent's
+  self-recursive inline rule). The ABC sink must inline pure acyclic direct
+  calls: `docs/abc-opt.md:82-91` fixes that canonical output.
 - **Entry keys**: a residual-call entry, and every module entry, is a single
   version keyed by the generic all-location key, because the call or the outside
   world supplies the argument values and the body must be correct for all
@@ -213,16 +253,19 @@ run():
 ## Interfaces and naming
 
 - Core: `symbolic.c` (+ generated handlers) owns machine, folding, captures,
-  continuations, module facts (including loop headers pending Q11), and the key
-  *rule*: exact equality, family counting, budget fallback, the forced-generic
-  triggers (residual-call entry, budget), and the loop-header key form.
+  continuations, module facts (loop headers, loop may-write sets, per-pc layouts),
+  and the key *rule*: exact equality, family counting, the three
+  canonicalization points (residual-call entry, loop-invariant loop header,
+  budget), and the two canonical descriptors (all-location and loop-entry).
 - Driver: one sink-agnostic unit, conceptually
-  `abc_residual_binding { canonicalize(key), canonical_generic(key),
-  equal/family_count, open/join/finish, jump, publish, inline(call) }` +
+  `abc_residual_binding { canonicalize(key), all_locations(key),
+  loop_entry(key, facts), may_write(component, loop), equal/family_count,
+  open/join/finish, jump, publish, inline(call) }` +
   `abc_residual_run(binding, function)`. The binding supplies its location
-  vocabulary, its canonical generic form and its bounded inline rule; the driver
-  owns traversal and the key rule. The name is the guarantee: a binding binds
-  mechanisms, the driver owns specialization.
+  vocabulary (which also defines what "may write" means), its two canonical
+  forms and its bounded inline rule; the driver owns traversal and the key rule.
+  The name is the guarantee: a binding binds mechanisms, the driver owns
+  specialization.
 - Bindings: native/threaded emitter (two output bindings of one residualizer),
   portable-C residue builder → C writer, ABC emitter/writer.
 - Retired paths (named now, deleted in the cutover):
@@ -240,7 +283,8 @@ run():
   `loop_target`/`loop_initial`/`loop_header`/`loop_home`/`loop_count`/
   `loop_captured`/`loop_stable`/`loop_temps`/`loop_prologue`/`backedge`/
   `nested_backedge`/`backedge_target`, `N_LOOP_HOME`, `emit_tree`'s backedge
-  arms and `emit_root_backedge_operands`), because loops are ordinary versions;
+  arms and `emit_root_backedge_operands`), because loops are ordinary versions
+  and the loop-invariant key replaces the dynamic loop capture;
   `residual_analysis.c` as a separate owner; `symbolic.c` DFS reachability
   helpers; `residualize.c` and `residual_builder.c` private drivers, leader
   discovery, loop-header scan and key canonicalization (their policy becomes the
@@ -288,6 +332,28 @@ run():
   versioned blocks. Keeping `loop_home`/`loop_prologue` would re-introduce
   path-shaped state that only exists because the path tree cannot represent a
   backedge.
+- **Generic (all-location) key at a non-entry loop header** — the round-3 choice,
+  rejected round 5. It is sound and one body, but it forgets every constant whose
+  value is known before the loop and invariant inside it, including the documented
+  counter's bound and step: measured 12 vs 10 instructions per iteration in the
+  probe loop, and the shipped C sink emits `if(v_8 < v_5)` where the invariant
+  version emits `BLTUI 120` (`experiments/5-loop-key.md` §1–2). ABC bytecode and
+  native code have no downstream optimizer to recover it.
+- **Exact keys at a non-entry loop header** — the round-4 rule, rejected round 5
+  for ABC and native. A constant loop-carried component produces one version per
+  iteration until the per-pc budget, at which point the all-location key makes the
+  *hot* body generic: the documented fixture's `BLTUI_A 50` / `ADDI_A 7` then
+  disappear from the emitted loop and `frontend/tests/optimize.lua:502,505`
+  fails. Measured emission: 7 folded header versions + a generic tail, 29
+  instructions vs 16 for the loop-invariant key, and its executed-instruction
+  advantage (152 vs 188 at trip count 18) vanishes above about 36 iterations
+  (`experiments/5-loop-key.md` §2).
+- **Unroll a constant-trip loop up to the per-pc budget (exact prefix + 
+  loop-invariant tail)** — the best measured code for small constant loops
+  (152 vs 188 executed instructions at trip 18) but it deliberately emits up to
+  `budget` loop-header bodies, which contradicts the compile-time and code-size
+  goals and the "one version per loop header" invariant. Recorded as a possible
+  later *binding-side unrolling choice* with its own bound, not as the key rule.
 - **A single lattice-keyed entry (monotone join + function-granular rebuild)** —
   rejected round 4. It is the only mechanism that can carry constants across a
   residual call into a function with one entry address (measured: `mutual`
@@ -303,7 +369,9 @@ run():
   cross-call constants are recoverable at virtual entries (inlined calls), which
   the ABC sink must have anyway for `docs/abc-opt.md:82-91`. It remains the
   fallback if the user requires the documented `docs/abc-opt.md:100` behavior for
-  non-inlinable recursive calls.
+  non-inlinable recursive calls. Round 5 separates the *loop-granular* part: the
+  join a loop header needs is computed statically from the loop's may-write set,
+  so no dynamic join or rebuild is needed anywhere, including loops.
 - **Inline every direct call, unbounded** — the canonical `sq(a)+sq(b)` fixture
   requires inlining pure acyclic calls, and safe tail-only recursive cycles can
   be inlined, but nontail recursive layers grow the continuation chain that is
@@ -372,12 +440,30 @@ run():
   write-time call encoding `:826-833`; C sink generic entries
   `residual_c.c:1239`, `residual_builder.c:2177-2210, 898-933`; dead lattice
   `residual_analysis.c:215-266`; continuation in key identity `symbolic.c:39-75`.
+- Round-5 measured loop-key probe (hand-built ABC through the existing assembler,
+  verifier, four execution modes, incumbent optimizer and portable-C sink):
+  `experiments/5-loop-key.md` §1–3 and `experiments/5-loop-key.lua`. Key numbers:
+  the documented counter's optimized loop is one body at pc 6 with `BLTUI_A 50`
+  and `ADDI_A 7` and both loop slots unknown — the incumbent's loop header is a
+  join that keeps unwritten constants; the loop-invariant-key emission of the same
+  loop returns 1071 in all four modes at 16 instructions with 10
+  instructions/iteration; the generic-key emission costs 22 and 12/iteration; the
+  exact-key emission with budget 8 is 29 instructions (7 folded header versions +
+  4 constant stores + a generic tail) with 12/iteration in the hot tail.
+  `frontend/tests/optimize.lua:502,505` pins the immediates, so exact keys at a
+  loop header would fail it. The portable-C sink's loop entry compares
+  block-argument copies (`if(v_8 < v_5)`) although the bound is materialized
+  before the loop. Rule citations: `residual_builder.c:1090-1091, 1195-1207`
+  (loop entry forgets constants), `residualize.c:414-438` (native weakens all
+  constants on a backward edge), `verify.c:284` (join shapes),
+  `docs/symmetric-isa.md:183-187` for the i8 immediate forms.
 
 ## Open questions
 
 See `QUESTIONS.md` (Q1 ABC version policy gate; Q2 version-budget authority;
 Q3 portable-C scope; Q9 native loop-header policy; Q10 ABC inline policy and its
-bound; Q11 loop-header key form). Do not duplicate them here.
+bound; Q12 layout/may-write fact ownership). Q11 is answered: the loop-invariant
+key. Do not duplicate them here.
 
 Q1 is the one remaining scope gate for this design. Round-2, round-3 and round-4
 measurements make the recommendation explicit: **adopt versioned blocks for
@@ -388,13 +474,17 @@ left untouched), and its argument-fact lattice exists only to patch the calls th
 path tree cannot inline (round 4). The gate is the user's because output bytes
 and the analysis policy change; the measured evidence, the representability
 argument and the validation plan are in `experiments/2-abc-versioned-sink.md`,
-`experiments/3-loop-versions.md` and `experiments/4-entry-lattice.md`. If the
+`experiments/3-loop-versions.md`, `experiments/4-entry-lattice.md` and
+`experiments/5-loop-key.md`. If the
 gate is refused, the driver is shared by native and C only, the ABC sink keeps a
 declared sink-owned path emitter with its path limit (and keeps the loop
 machinery, since a path tree cannot represent a backedge), and everything else in
 this document stands. Q2 must be answered before the version budget can have a
-single owner. Q9 decides whether native adopts the round-3 generic loop-header
-key; round 4 found that key form loses constants that are invariant *inside* the
-loop, so Q11 decides the form for all bindings. Q10 decides the ABC inline rule
-and its per-function budget. Q3 decides whether the binding set is two or three
-(the C sink's policy is already the precedent for Q5/Q6 either way).
+single owner. Q9 decides whether native adopts the loop-invariant header key
+(round 5's recommendation: yes — one header version instead of two, invariant
+C-frame constants kept, the one-iteration peel dropped); the rule is otherwise
+fixed by Q11. Q10 decides the ABC inline rule and its per-function budget, now
+with self-tail recursion bounded by the loop rule rather than the budget. Q12
+decides where per-pc layouts and loop may-write sets are computed. Q3 decides
+whether the binding set is two or three (the C sink's policy is already the
+precedent for Q5/Q6 either way).
