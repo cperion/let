@@ -938,3 +938,136 @@ then the user gates Q1, Q2, Q3, Q9, Q10's `K` value and Q12's one-owner shape
 pass. With Q18 answered the design's normative algorithm has no undefined input:
 `run(module)` starts from the binding's root set, and every other version is
 created by the construct that needs it.
+
+## Round 12 — a refusal belongs to the owner; the entry version survives it
+
+**Mode:** experiment (code reading + a measured probe of abc-opt retention, the C
+writer and the four execution modes). **Question ranked first (of three in
+`experiments/12-refusal-owner.md`):** what is the **unit of a sink refusal and of
+version publication**? The design lets a sink refuse "at a later version of the
+same owner", discards only "unpublished versions", and gives every sink a verbatim
+retained body — but (a) if recordability were a function fact the mid-walk
+machinery would be dead, while if it depends on the walk "no walk" is false and the
+queue must be cleaned; (b) a per-version publish can leave an owner whose entry
+body was published and whose interior body is refused (a mixed function); (c) only
+the ABC writer has verbatim source residue — portable C rejects what it cannot
+record and native fails the image. Ranked above (B) the same paragraph's unstated
+call contract for calls with no target version (indirect `CALLI`/`TCALLI`,
+foreign externs; answered as a corollary, Q21) and above (C) Q19's native
+compile-set policy, because a refused owner can be emitted with dangling interior
+references.
+
+**What was read.** `ARCHITECTURE.md` pre-round (`:109-111` entry-owner, `:264-278`
+retained-body paragraph, `:366-390` run block, `:454-463` entry creation,
+`:543-556` interface); `src/optimize.c:726-787` (the whole function is built in a
+local `Bytes`, freed on failure; `retain_function` replaces the whole
+`FunctionCode`), `:54-56` (`direct_target` accepts `K_CALL` **and** `K_TCALL`),
+`:871` (retain on any `residualize_function` failure), `:826` (all functions
+emitted after the walk loop), `:291-318` (`materializes_frame`, `dag_call`/
+`dag_tail`), `:726-749` (`residualize_function` installs no float/pow handlers);
+`src/symbolic.c:205-215,304-310` (a float/pow with no handler exits BOUNDARY only
+when non-folded), `:443-457` (`machine_indirect`: known target → direct call, else
+an unresolved effect), `:530-538` (`machine_foreign`); `src/residualize.c:598-650`
+(`native_emit_indirect` → `place_indirect_resolution`, no version), `:794-799`
+(any failure fails the image), `:822-841` (entry loop has no skip), `:845`
+(`publish` at the end); `src/residual_builder.c:2399-2400` (`supported` only after
+the whole function IR), `:2469-2533` (`function_references_unsupported`,
+`remove_unsupported_dependencies`, called from `finalize_program`), `:2537,2560`
+(unsupported functions omitted), `src/residual_c.c:1232-1237` (memory profile
+rejected), `:1266-1272` (export error); `docs/symbolic-vm.md:164` (portable C
+rejects outside its integer/control/direct-call subset), `docs/architecture.md:208`,
+`docs/abc-opt.md:100` ("unsupported functions are retained independently").
+
+**What was measured** (`experiments/12-refusal-owner.md`, `.lua`, `.out`,
+artifacts in `experiments/12-refusal-owner-out/`). Four hand-built modules through
+the existing assembler, verifier, abc-opt, the C writer and all four execution
+modes. `retain-float` (a non-constant `FADD`/`F2IS` over float arguments, followed
+by an independently foldable `3 + 4` witness) is emitted **byte-identically**
+(raw == opt, a fixpoint) with the witness still unfolded — the whole owner is
+retained — and executes in interpreted/compiled/lazy/threaded (8). `fold-float`
+(the **same** float instruction kinds with constant operands) optimizes 10 → **4**
+instructions (`PUSH8_A 8; RET_A 0 1`, value 8 in all modes). `mixed` (a retained
+float owner next to a foldable sibling) keeps the owner byte-identical (2 → 2
+functions) while the sibling optimizes to `PUSH8_A 7`, and both exports execute in
+all modes (calc = 8, good = 7). `calli` (round 11's relocation-rooted indirect
+call) is retained byte-identically and executes in all modes (42). The C writer
+**rejects** all four modules (exit 1, "portable C currently supports only the
+integer/static profile"), so it never retains and never reaches the incumbent's
+silent per-function drop.
+
+**Answers.**
+
+1. **Recordability is a property of the walk, not of the function.** The same float
+   instruction kinds are recordable when their operands fold and unrecordable when
+   they do not; a pre-walk "contains a float/pow operation" predicate would retain
+   `fold-float` and lose its whole fold. The refusal is discovered mid-walk and
+   stays.
+2. **The refusal is owner-granular and the entry version is the survivor.** A
+   function is entered from outside only at its entry pc (`verify.c:131-134`), and
+   every interior version is created by an edge inside that function's own walk,
+   so the only cross-owner version handle is an entry version. On a refusal the
+   driver drops every version owned by the refused function except its entry,
+   keeps that entry's handle and gives it the source body as residue, and expands
+   the owner's direct `CALL`/`TCALL` targets. No other owner's body is rebuilt.
+   Publication is per owner: the incumbent ABC sink already builds a function in a
+   local buffer and replaces or discards it as a unit (`optimize.c:726-787`), and
+   the C builder finalizes all of a function's versions together
+   (`residual_builder.c:2399-2400`). The measured `mixed` module is the form: the
+   sibling is emitted and correct.
+3. **The retained body's targets are `CALL` and `TCALL`, derivable from module
+   facts.** `direct_target` accepts both (`optimize.c:54-56`) and `retain_function`
+   records both (`:782-787`), closing round 11's open item; the direct-call graph
+   already covers both (`:57-118`), so the round-11 hook argument
+   `retain(function, direct_targets)` retires.
+4. **Only ABC can retain.** Portable C has no verbatim source residue and rejects
+   what it cannot record (measured; documented `docs/symbolic-vm.md:164`); native
+   has no per-function fallback (`residualize.c:794-799,822-841`). A binding must
+   declare the capability; a refusal in a binding without it fails the build. The
+   C builder's `supported` drop and `remove_unsupported_dependencies` closure are a
+   post-walk salvage of functions the sink cannot emit, not a target mechanism.
+5. **A call with no target version is an effect (Q21).** An unresolved
+   `CALLI`/`TCALLI` is an in-body effect whose target is a binding location and
+   whose callee the runtime resolves through the image's entry table (native
+   `native_emit_indirect` → `place_indirect_resolution`; measured 42 in all four
+   modes), which is why code-address relocations are entry roots. A statically
+   resolved indirect call becomes the corresponding direct call
+   (`symbolic.c:443-457`) and follows the direct-call rule. A foreign call names
+   the binding's extern (`symbolic.c:530-538`). Neither is ever inlined or names a
+   version; the ABC sink has no unresolved-indirect residue (`optimize.c:305-306`),
+   which is exactly why the `calli` owner is retained.
+
+**Decision recorded in ARCHITECTURE.md.** The one-line design and the version
+concept add the owner-granular refusal and the surviving entry version; the binding
+concept gains the verbatim-source-body capability; two new invariants (owner-
+granular atomic refusal; only a direct call names a version); the execution
+invariant becomes "walked at most once, each emitted body exactly once"; the
+data-representation entry table and residue rules state the retained owner's single
+entry version and per-owner staging; the invalid-state list gains a version of a
+retained owner other than its entry, a cross-owner edge to an interior version, a
+body published before its owner's refusal is resolved, and an indirect/foreign call
+naming a version; the algorithm block gains the `FAILURE` and `REFUSED` branches
+(`binding.retain(owner)` installs the source body and returns true → drop the
+owner's other versions → expand `direct_targets(owner)` from facts, else fail), the indirect/foreign call hooks and
+the `refuse` contract; the direct-call, entry-creation, refusal/publication and
+call-policy bullets are rewritten; the binding interface becomes
+`retain(owner) -> bool`, `indirect_call`, `foreign_call`,
+`publish(owner)` and drops `retain(function, direct_targets)`; the retired paths
+add the portable-C post-walk salvage; four rejected alternatives (pre-walk
+recordability, per-version publish with owner revocation, universal retention,
+silent C omission) and a round-12 evidence block are added; Q20 and Q21 are added
+and answered, the open-questions summary records that round 12 closes round 11's
+`TCALL` item, and Q19 stays the only open input-free choice.
+
+**Not established.** The portable-C binding's exact scope under Q3 (reject the
+module versus emit a statically recordable subset); whether any refusal is
+reachable from a verified integer-profile module (the builder's type-compatibility
+and unmapped-`HOME` paths were not constructed); corpus-wide retention frequency
+and its compile-time share (not measured).
+
+**Next uncertainty.** All remaining decisions are user gates: Q1 (ABC version
+policy), Q2 (budget number and scope), Q3 (portable-C scope), Q9 (native loop-header
+policy), Q10's `K` value, Q12's one-owner shape/cycle-body pass, and Q19 (native
+compile set). The normative driver contract now has a defined answer for every
+construct the machine can reach: direct calls inline or residualize, indirect and
+foreign calls are effects, a refused owner is retained only where the sink can emit
+one, and no version body is ever rebuilt.

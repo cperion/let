@@ -1,0 +1,10 @@
+function 0: 0 arguments, 1 results; kinds  -> i
+  00000000  PUSH8_A        1
+  00000002  I2FS_A        
+  00000003  PUSH8_B        2
+  00000005  I2FS_B        
+  00000006  FADD_A        
+  00000007  F2IS_A        
+  00000008  ADDI_A         5
+  0000000a  RET_A          0 1
+export calc = function 0

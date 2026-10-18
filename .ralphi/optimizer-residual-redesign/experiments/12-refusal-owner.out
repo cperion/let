@@ -1,0 +1,27 @@
+== abc-opt: does the owner optimize or stay verbatim? ==
+retain-float: functions 1 -> 1, whole module byte-identical, opt fixpoint=yes
+  raw: function 0: 2 arguments, 1 results; kinds ff -> i 00000000 CGET0_A 00000001 CGET1_B 00000002 FADD_A 00000003 F2IS_A 00000004 PUSH8_A 3 00000006 PUSH8_B 4 00000008 ADD_A 00000009 DROP_A 0000000a ADDI_A 5 0000000c RET_A 2 1 export calc = function 0 
+  opt: function 0: 2 arguments, 1 results; kinds ff -> i 00000000 CGET0_A 00000001 CGET1_B 00000002 FADD_A 00000003 F2IS_A 00000004 PUSH8_A 3 00000006 PUSH8_B 4 00000008 ADD_A 00000009 DROP_A 0000000a ADDI_A 5 0000000c RET_A 2 1 export calc = function 0 
+  run: interpreted=8 compiled=8 lazy=8 jit=threaded=8
+fold-float: functions 1 -> 1, whole module changed, opt fixpoint=yes
+  raw: function 0: 0 arguments, 1 results; kinds -> i 00000000 PUSH8_A 1 00000002 I2FS_A 00000003 PUSH8_B 2 00000005 I2FS_B 00000006 FADD_A 00000007 F2IS_A 00000008 ADDI_A 5 0000000a RET_A 0 1 export calc = function 0 
+  opt: function 0: 0 arguments, 1 results; kinds -> i 00000000 PUSH8_A 8 00000002 RET_A 0 1 export calc = function 0 
+  run: interpreted=8 compiled=8 lazy=8 jit=threaded=8
+mixed: functions 2 -> 2, whole module changed, opt fixpoint=yes
+  raw: function 0: 2 arguments, 1 results; kinds ff -> i 00000000 CGET0_A 00000001 CGET1_B 00000002 FADD_A 00000003 F2IS_A 00000004 PUSH8_A 3 00000006 PUSH8_B 4 00000008 ADD_A 00000009 DROP_A 0000000a ADDI_A 5 0000000c RET_A 2 1 function 1: 0 arguments, 1 results; kinds -> i 0000000f PUSH8_A 3 00000011 PUSH8_B 4 00000013 ADD_A 00000014 RET_A 0 1 export calc = function 0 export good = function 1 
+  opt: function 0: 2 arguments, 1 results; kinds ff -> i 00000000 CGET0_A 00000001 CGET1_B 00000002 FADD_A 00000003 F2IS_A 00000004 PUSH8_A 3 00000006 PUSH8_B 4 00000008 ADD_A 00000009 DROP_A 0000000a ADDI_A 5 0000000c RET_A 2 1 function 1: 0 arguments, 1 results; kinds -> i 0000000f PUSH8_A 7 00000011 RET_A 0 1 export calc = function 0 export good = function 1 
+  run mixed: good=interpreted=7 compiled=7 lazy=7 jit=threaded=7 calc=interpreted=8 compiled=8 lazy=8 jit=threaded=8
+calli: functions 2 -> 2, whole module byte-identical, opt fixpoint=yes
+  raw: function 0: 1 arguments, 1 results; kinds a -> i 00000000 PUSH8_A 42 00000002 RET_A 1 1 function 1: 0 arguments, 1 results; kinds -> i 00000005 GADDR_A 0 0000000a GLD64_B 0 ; loadkind=addr 0000000f CALLI_A args=1 results=1 00000011 RET_A 0 1 export entry = function 1 
+  opt: function 0: 1 arguments, 1 results; kinds a -> i 00000000 PUSH8_A 42 00000002 RET_A 1 1 function 1: 0 arguments, 1 results; kinds -> i 00000005 GADDR_A 0 0000000a GLD64_B 0 ; loadkind=addr 0000000f CALLI_A args=1 results=1 00000011 RET_A 0 1 export entry = function 1 
+  run: interpreted=42 compiled=42 lazy=42 jit=threaded=42
+
+== the C writer on the same modules: retain, omit, or reject? ==
+retain-float   exit=1 bodies=0  abc-opt: invalid at byte 0xffffffff: portable C currently supports only the integer/static profile
+fold-float     exit=1 bodies=0  abc-opt: invalid at byte 0xffffffff: portable C currently supports only the integer/static profile
+mixed          exit=1 bodies=0  abc-opt: invalid at byte 0xffffffff: portable C currently supports only the integer/static profile
+calli          exit=1 bodies=0  abc-opt: invalid at byte 0xffffffff: portable C currently supports only the integer/static profile
+
+== native (compiled/lazy/threaded) on the retained owners ==
+retain-float   interpreted=8 compiled=8 lazy=8 jit=threaded=8
+calli          interpreted=42 compiled=42 lazy=42 jit=threaded=42

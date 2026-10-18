@@ -1,7 +1,7 @@
 # Architecture
 
-Status: candidate (round 11). Derived from `CONTRACT.md`, checked against the
-code, and corrected by the round-2 … round-11 probes. Rationale and citations:
+Status: candidate (round 12). Derived from `CONTRACT.md`, checked against the
+code, and corrected by the round-2 … round-12 probes. Rationale and citations:
 [experiments/1-rederive.md](experiments/1-rederive.md);
 [experiments/2-abc-versioned-sink.md](experiments/2-abc-versioned-sink.md);
 [experiments/3-loop-versions.md](experiments/3-loop-versions.md);
@@ -12,7 +12,8 @@ code, and corrected by the round-2 … round-11 probes. Rationale and citations:
 [experiments/8-key-identity.md](experiments/8-key-identity.md);
 [experiments/9-tail-cycle.md](experiments/9-tail-cycle.md);
 [experiments/10-call-continuation.md](experiments/10-call-continuation.md);
-[experiments/11-residual-root-set.md](experiments/11-residual-root-set.md).
+[experiments/11-residual-root-set.md](experiments/11-residual-root-set.md);
+[experiments/12-refusal-owner.md](experiments/12-refusal-owner.md).
 
 The one-line design: **execute ABC semantics once, symbolically, per version;
 module facts and version identity have one owner; a sink owns only residue.**
@@ -20,7 +21,11 @@ A version body ends at a control transfer; **every control-transfer successor is
 a keyed edge, and a call is an effect unless it is inlined.** **The set of
 residual functions is derived, not precomputed: a binding-declared root set
 (what that sink can be entered into from outside) plus every callee a residual
-call or a retained body names.** A version key is
+call or a retained body names.** A sink that cannot record a body may **retain**
+its owner: the owner's entry version survives with the source body as residue,
+the owner's other versions are dropped, and the owner's `CALL`/`TCALL` targets
+become entry versions; a sink that cannot emit a source body (portable C,
+native) rejects the build instead. A version key is
 **constants plus the binding's locations plus the core's
 continuation chain** — never sink residue identity and never a canonicalisation
 mode: **identity is content.** A **family** is the key with the constants
@@ -108,21 +113,26 @@ A residualizing compiler is five things:
    non-inlined body). **A residual function is the owner of an entry version**:
    the binding's root set gets one before any body is walked, and every other
    entry version is created by the residual call (or retained body) that names it
-   (round 11).
+   (round 11). **A retained owner has exactly one version — its entry — whose
+   residue is the source body**; the owner's walk is abandoned at the refusing
+   instruction (round 12).
 5. **Binding (sink)** — the target mechanism: the location vocabulary, record/emit
    residue, materialize join values, emit a control transfer to a version handle,
-   place and publish code, and the **entry-root set** — the functions this sink
+   place and publish code, the **entry-root set** — the functions this sink
    must be able to enter from outside the traversal (ABC: the addressable
    entries, or every function when the module declares none; native: every
-   function today, Q19; portable C: every function, its statics are the C
-   compiler's dead code). Never semantics and **never a key**: the binding
+   function today, Q19; portable C: every function its profiles accept) — and
+   whether it can emit a **verbatim source body** when it cannot record an owner
+   (ABC: yes; portable C and native: no, a refusal fails the build; round 12).
+   Never semantics and **never a key**: the binding
    receives version handles, it does not compute them (round 10).
 
 Invariants:
 
-- each version body is symbolically executed exactly once, module-wide; residue is
-  never re-walked and never rebuilt, so no SSA/IR round trip and no placement
-  reconstruction can exist;
+- each version body is walked at most once and each **emitted** body exactly
+  once, module-wide; a refused owner's bodies are discarded, never re-walked, and
+  its entry's residue becomes the source body; residue is never rebuilt, so no
+  SSA/IR round trip and no placement reconstruction can exist;
 - **a key contains only constants, binding locations, the frame coordinates and
   the continuation chain**; sink value identity (`abc_symbolic_value.reg`) never
   reaches a key, and **no canonicalisation mode reaches a key** (the incumbent's
@@ -135,10 +145,29 @@ Invariants:
   root set is what can be entered from outside, so it must exist up front (round
   11). Every other entry version is created by the construct that needs it: a
   residual call creates its callee's entry version at the call instruction, and a
-  retained body creates one for each of its direct call targets. Such a call
+  refused owner creates one for each of its direct `CALL`/`TCALL` targets from the
+  direct-call-graph fact. Such a call
   names its target itself, so nothing depends on another walk's progress; the
   *set* of versions is order-independent (content keys) and the queue is FIFO
   with a fixed arm order, so the creation order is deterministic;
+- **refusal is owner-granular and atomic**: a sink refusal is discovered by the
+  walk (the same instruction set is recordable when its operands fold and
+  unrecordable when they do not, measured round 12), so it is never predicted.
+  When it happens, the driver abandons that owner: every version owned by it
+  except its **entry** version is removed from the table and queue; the entry
+  version keeps its handle and its residue becomes the source body (the binding
+  emits it verbatim, with relocated `CALL`/`TCALL` displacements); and the driver
+  creates entry versions for the owner's direct `CALL` and `TCALL` targets from
+  the direct-call-graph fact (a refused body cannot inline, so each of its calls
+  is residual). No other owner's body is rebuilt: a cross-owner reference is
+  always an **entry** version, because a function is entered from outside only at
+  its entry pc, and interior versions are created only by edges inside the
+  owner's own walk. Publication is therefore **owner-granular**: a binding that
+  can refuse stages an owner's regions until its walk (and all the versions it
+  creates) completes, and a refused owner's regions are discarded before
+  publication. A binding that cannot emit a verbatim source body cannot retain;
+  its refusal fails the build (portable C rejects residue outside its recorded
+  subset, native fails the image; round 12).
 - **a key is exact, and the version table is a function.** A version is created
   whenever an edge key differs from every existing version's key at that `pc`;
   **every widening is followed by a lookup**, so a widened key that already has a
@@ -203,6 +232,18 @@ Invariants:
   control: the machine pushes the continuation, the driver calls `edge_to` for the
   callee entry, and the binding jumps. The continuation chain therefore names only
   inlined call return sites;
+- **only a direct call names a version.** A call whose target is not a static
+  function entry is an in-body effect with **no** target version: an indirect
+  `CALLI`/`TCALLI` whose target the binding can resolve statically becomes the
+  corresponding direct call (`symbolic.c:443-457`, the `effect.direct` path);
+  otherwise its target is a binding location and the callee is entered at runtime
+  through the image's entry table, which is why code-address relocations are
+  entry roots (native: `residualize.c:598-650`, measured 42 in all four modes on
+  round 11's `reloc-root`; round 12). A foreign call is the same kind of effect
+  and names the binding's extern (`symbolic.c:530-538`). Neither is ever inlined
+  and neither creates or names a version; an ABC body containing an unresolved
+  indirect call is refused and therefore retained (the ABC sink has no
+  indirect-call residue, `optimize.c:305-306,726-749`);
 - **call decision**: a direct call is either an inlined virtual entry (the
   callee's pc becomes a version in the caller's residual function, under the
   caller's continuation chain) or a residual in-body call reaching the callee's
@@ -270,12 +311,18 @@ Invariants:
   join is computed, so no re-execution and no publish-then-modify exists, and
   **the residual-function set needs no separate computation**: it is exactly the
   set of functions that own an entry version. A body the binding cannot record is
-  **retained**: its entry version's residue is the verbatim body, every direct
-  call in it is a residual call (no walk, hence no inline decision), and the
-  binding reports those targets so the driver creates their entry versions. The
-  ABC writer emits exactly the entry-version owners, renumbers them and rewrites
-  CALL/TCALL displacements (measured: 2 → 1 function when a callee is fully
-  inlined, 3 → 2 with a relocation root, round 11);
+  **retained at owner granularity**: the walk is abandoned, the entry version is
+  the owner's only surviving version and its residue is the source body, every
+  direct call in that body is a residual call (a refused body cannot inline, hence
+  no inline decision), and the driver creates entry versions for the body's
+  direct `CALL` and `TCALL` targets from the direct-call-graph fact (round 12;
+  `direct_target` accepts both kinds, `optimize.c:54-56,782-787`). A binding that
+  cannot emit a verbatim source body (portable C, native) rejects the build
+  instead of retaining. The ABC writer emits exactly the entry-version owners,
+  renumbers them and rewrites CALL/TCALL displacements (measured: 2 → 1 function
+  when a callee is fully inlined, 3 → 2 with a relocation root, round 11; a
+  retained owner keeps its verbatim body while a sibling owner still optimizes,
+  round 12);
 - native consumes the symbolic cache directly: no stored native residual IR.
 
 ## Concepts
@@ -340,7 +387,10 @@ number of inlined call instances is bounded separately (the only non-key bound).
   version budget and of the inlining bound. The version table has at most
   `budget - 1` exact keys plus one all-location key per family per (owner, pc).
   The ABC/C binding emits one function per entry-version owner (the emitted
-  module's function table); native's entry table is its `entry_roots`.
+  module's function table); native's entry table is its `entry_roots`. A
+  **retained owner** has exactly one version, its entry, whose residue is the
+  source instruction stream; its direct `CALL`/`TCALL` targets are entry-version
+  owners too, so they survive renumbering.
 - **Residue is sink-owned, per version, and never shared**: native — none
   (emitter packets are consumed immediately; locations are registers); portable
   C — one `residual.asdl` block per version with block arguments as the join
@@ -348,7 +398,9 @@ number of inlined call instances is bounded separately (the only non-key bound).
   expression DAG scheduled locally, plus provenance and residual calls. ABC's
   only stable location is a **C-frame slot**; the join writes it (`CPUSH`/`CSET`)
   and the target body reads it (`CGET`). Constants stay in the key and need no
-  store.
+  store. Residue is staged **per owner**: a refused owner's staged versions are
+  discarded and its entry's residue is replaced by the source body; no region
+  belonging to another owner is rebuilt.
 - Invalid states: a version without an owner, a key containing sink residue
   identity, a key whose identity depends on how it was canonicalized (a mode bit),
   two versions with the same key at one pc, an edge whose target key does not
@@ -358,9 +410,12 @@ number of inlined call instances is bounded separately (the only non-key bound).
   emitted without an entry version, an entry version for a function that no root,
   residual call or retained body names, **a keyed
   edge or a version at the return pc of a *residual* call (it is an effect; a
-  virtual return's return pc is an ordinary edge target)**, a binding that
-  computes or compares a key, or a residue region that is rebuilt after publish
-  are unrepresentable by construction.
+  virtual return's return pc is an ordinary edge target)**, an indirect or
+  foreign call naming a target version, a version of a retained owner other than
+  its entry, a cross-owner edge to an interior version, a body of an owner
+  published before a refusal of that owner is resolved, a binding that computes
+  or compares a key, or a residue region **outside a refused owner** rebuilt
+  after publish are unrepresentable by construction.
 
 ## Operations and algorithms
 
@@ -405,7 +460,14 @@ run(module):
             exit = symbolic_dispatch(pc, x, ALL)
             CONTROL|TERMINATED -> binding.finish(v); break
             BLOCK|BOUNDARY     -> pc = machine.pc; continue
-            FAILURE            -> fail(v)
+            FAILURE            -> fail(v)           # allocation/limit/verifier error
+            REFUSED            -> if binding.retain(owner):   # ABC: entry residue
+                                      # becomes the source bytes (binding-owned)
+                                      drop_versions(owner, except = entry(owner))
+                                      for c in direct_targets(owner):   # CALL+TCALL,
+                                          entry_version(c)              # module fact
+                                      break
+                                  else: fail(v)   # C/native: no verbatim residue
 
 # driver-owned transfer hooks; the binding supplies values and code placement and
 # receives version handles (it never computes a key):
@@ -424,13 +486,23 @@ run(module):
 #                         continue in this body.  The call creates its own target,
 #                         so no entry pre-pass is needed and no walk-order
 #                         dependency exists.
-#   retain:   the binding cannot record a body (unsupported residue): the body's
-#             residue is the verbatim instructions; for each direct call target c
-#             in it: entry_version(c)          (a refused body cannot inline, so
-#                                               every one of its calls is residual)
-#             A refusal is function-granular: if it arrives at a later version of
-#             the same owner, that owner's unpublished versions are discarded and
-#             replaced by the retained body.  Nothing published is rebuilt.
+#               indirect: if the binding resolves the target to a known function
+#                         entry, the machine turns CALLI/TCALLI into the direct
+#                         call/tail above and this rule applies; otherwise
+#                         binding.indirect_call(v) -- NO target version, the
+#                         results are binding locations, the callee is resolved at
+#                         runtime through the entry table, and the walk continues
+#                         (a tail form just ends this body).
+#               foreign:  binding.foreign_call(v) -- NO target version, the extern
+#                         is the binding's; results are binding locations.
+#   refuse:   a binding refused the body's residue (unsupported operation, not an
+#             allocation/limit failure).  The owner is the unit: binding.retain
+#             installs the source bytes as the owner entry's residue and returns
+#             true (ABC), and the driver drops every other version of that owner
+#             and expands the owner's direct CALL/TCALL targets from module facts;
+#             a binding with no verbatim body returns false and the build fails
+#             (portable C, native).  Publication is per owner, so nothing of the
+#             refused owner was published and no other owner's body is rebuilt.
 ```
 
 - **One edge constructor, one version constructor.** `edge_to` applies the
@@ -451,16 +523,44 @@ run(module):
   call's: materialize values live across the call, hand back result locations,
   reset its placement state. Native's `K_CALL`-return block marking
   (`discover_blocks`) and the post-call version bodies it creates are retired.
+- **Only a direct call has a target version.** An unresolved indirect call and a
+  foreign call are in-body effects with no target version
+  (`binding.indirect_call`/`binding.foreign_call`): the target is a binding
+  location and the callee is resolved at runtime through the entry table, which is
+  why code-address relocations are roots (round 12; measured native `CALLI`
+  execution in all four modes, `experiments/12-refusal-owner.md`). A statically
+  resolved `CALLI`/`TCALLI` is turned into the corresponding direct call by the
+  machine (`symbolic.c:443-457`) and then follows the direct-call rule. Neither
+  form is ever inlined; the ABC sink records no unresolved indirect call, so such
+  a body is refused and retained. The driver must never receive a key, a version
+  or an inline decision for them.
 - **Entry versions are created where they are needed.** The binding's
   `entry_roots` are entered from outside the traversal, so their versions exist
   before any body is walked; a residual call creates its callee's entry version at
-  the call (`entry_version`), and a retained body creates one per direct call
-  target. Nothing else is precomputed, so the residual-function set has no
-  separate computation and no function-level worklist (`experiments/11-residual-root-set.md`).
-  A retained body is emitted verbatim, so a direct call in it is residual by
+  the call (`entry_version`). Nothing else is precomputed, so the
+  residual-function set has no separate computation and no function-level worklist
+  (`experiments/11-residual-root-set.md`). A refused owner is emitted verbatim, so
+  its direct `CALL`/`TCALL` targets are created from the direct-call-graph fact
+  (both kinds: `optimize.c:54-56,782-787`) and every one of them is residual by
   definition — this is the incumbent's `retain_function` + `append_unknown_call`
-  rule (`optimize.c:781-785`), and it is what keeps the ABC writer's "call target
+  rule (`optimize.c:781-787`), and it is what keeps the ABC writer's "call target
   must be live" check unreachable.
+- **Refusal is owner-granular and publication is per owner.** A refusal may arrive
+  after some versions of the owner were already built (the entry body may have
+  completed; an interior body is where the unsupported operation is), so the
+  driver drops every version of that owner except its entry, which keeps its
+  handle and receives the source body as residue. The driver then expands the
+  owner's direct `CALL`/`TCALL` targets from the direct-call-graph fact, and the
+  owner is never walked again. No other owner's body is rebuilt because the only
+  cross-owner version is an entry version (a function is entered from outside only
+  at its entry pc; interior versions are created only inside its own walk). A
+  binding that can refuse must therefore stage an owner's regions until its walk
+  completes; the incumbent ABC/C sinks already do (the ABC sink builds one
+  function in a local buffer and replaces or discards it as a unit,
+  `optimize.c:726-787`; the C builder finalizes all of a function's versions
+  together, `residual_builder.c:2399-2400`). Native may publish per body because
+  it cannot refuse. A binding with no verbatim residue (portable C, native) fails
+  the build on a refusal (round 12).
 - **Join materialization** (`binding.join`) is where incoming symbolic values
   meet the target key: native homes/re-homes registers, C emits block arguments,
   ABC arranges the target's C-frame slots (push a drained A/B value or store it
@@ -498,14 +598,18 @@ run(module):
   header whose backedge canonicalizes to the loop-invariant key, i.e. a
   one-version cycle (this derives the incumbent's self-recursive inline rule).
   The ABC sink must inline pure acyclic direct calls: `docs/abc-opt.md:82-91`
-  fixes that canonical output.
+  fixes that canonical output. **This rule is about direct calls only**: an
+  unresolved indirect call or a foreign call is never inlined and never names a
+  version (above); a call inside a retained body is emitted verbatim and is
+  residual by construction.
 - **Entry keys**: a residual-call entry, and every root entry (export,
   code-address relocation, C entry), is a single version keyed by the
   all-location value key, because the call or the outside world supplies the
   argument values in binding-defined locations and the body must be correct for
   all callers. Root entries are created through `version_at` before any body is
   walked; a residual call creates its callee's entry through the same function at
-  the call, and a retained body does so for each direct target. The loop rule
+  the call, and a refused owner's entry does so for each of its direct
+  `CALL`/`TCALL` targets (from the direct-call-graph fact). The loop rule
   leaves an all-location key unchanged, so an entry that is a cycle header has
   one body, not two. The set of residual functions is therefore derived (the
   entry-version owners) and is never computed; **only the root set is declared**,
@@ -556,21 +660,26 @@ run(module):
   loop_entry(key, facts), may_write(component, loop), key_refinement(key),
   entry_roots(module), open/join/finish, jump(version),
   branch(relation, taken, fallthrough), switch(arms, fallthrough), return,
-  publish, call_eligible(call), residual_call(call, target_version),
-  retain(function, direct_targets) }` +
+  publish(owner), call_eligible(call), residual_call(call, target_version),
+  indirect_call(call), foreign_call(call), retain(owner) -> bool }` +
   `abc_residual_run(binding, module)`. The binding supplies its location
   vocabulary (which also defines what "may write" means), its two canonical
   value forms, an optional resource refinement that only splits a core key
   (native headroom), whether an acyclic call may be inlined (effect and frame
-  exclusions — recursion is the core's decision), and its **root set**
+  exclusions — recursion is the core's decision), its **root set**
   (`entry_roots`: the functions it must be able to enter from outside the
-  traversal). The driver owns traversal, content equality, the family count, the
-  lookup order, the inlining bound (`K`), **every version lookup and the set of
-  residual functions** — it supplies `version_at`/`edge_to`/`entry_version` to
-  its own control/return/call/retain hooks, so the binding receives version
-  handles and never computes or compares a key (`edge_to` applies the loop rule
-  and the budget). The name is the guarantee: a binding binds mechanisms, the
-  driver owns specialization.
+  traversal), and whether it can emit a **verbatim source body** (`retain`: true
+  only for ABC). The driver owns traversal, content equality, the family count,
+  the lookup order, the inlining bound (`K`), **every version lookup, the set of
+  residual functions, and the owner-granular refusal** — it supplies
+  `version_at`/`edge_to`/`entry_version` to its own control/return/call/refuse
+  hooks, so the binding receives version handles and never computes or compares a
+  key (`edge_to` applies the loop rule and the budget). `residual_call` is for a
+  **direct** call only; `indirect_call`/`foreign_call` name no version. The name
+  is the guarantee: a binding binds mechanisms, the driver owns specialization.
+  The binding's `publish` is per owner: a refused owner's staged regions are
+  discarded and its entry gets the source body; nothing another owner holds is
+  rebuilt.
 - Bindings: native/threaded emitter (two output bindings of one residualizer),
   portable-C residue builder → C writer, ABC emitter/writer. The ABC writer emits
   exactly the functions that own an entry version and renumbers them (its
@@ -620,7 +729,16 @@ run(module):
   `residualize.c:168`); the design keeps the value transformation (constants →
   positions) and drops the bit from identity, recomputing the all-location
   property from the values (as `canonical_generic_context` already does,
-  `symbolic.c:74-85`). `docs/abc-opt.md:25,100`
+  `symbolic.c:74-85`). **The portable-C builder's post-walk function salvage**:
+  the per-function `supported` flag as a build product
+  (`residual_builder.c:2400`), `function_references_unsupported` and
+  `remove_unsupported_dependencies` (`:2469-2526`) and the `finalize_program`
+  omission of unsupported functions (`:2533,2537,2560`), because the target
+  policy is rejection, not omission (`docs/symbolic-vm.md:164`), and a walked body
+  must never name a function the sink did not emit (round 12). The round-11
+  `retain(function, direct_targets)` target list retires too: the driver derives
+  a retained owner's `CALL`/`TCALL` targets from the direct-call-graph fact.
+  `docs/abc-opt.md:25,100`
   documents the retired call-fact behavior and must be updated in the same
   cutover; that is part of Q1's gate, not a silent policy change.
 - Kept, because it is required, not duplication: the single-entry-version rule for
@@ -859,12 +977,70 @@ run(module):
   without a join, but adds a function-cloning concept, duplicate exports and
   relocation/identity questions for code addresses, callables and provenance for
   a bounded gain.
+- **Decide recordability before the walk with a function-level predicate** —
+  rejected round 12, measured. The same float instruction kinds are recordable
+  when the walk folds their operands (`fold-float`: 10 → 4 instructions,
+  `PUSH8_A 8; RET`) and unrecordable when it does not (`retain-float`: the whole
+  owner is byte-identical, including an independently foldable `3+4` witness). A
+  pre-walk "contains a float/pow operation" predicate would retain the foldable
+  function and lose the fold; the ABC sink's float/pow handlers are absent and
+  the machine turns only the *folded* path into a successful emission
+  (`symbolic.c:205-215,304-310`, `optimize.c:744-749`). The refusal is therefore
+  discovered mid-walk and must be handled at owner granularity.
+- **Publish each version body immediately and revoke the owner's bodies on a
+  later refusal** — rejected round 12. An owner's entry body may already be
+  published when an interior body is refused; revoking the interior bodies leaves
+  a mixed function (a versioned entry or a verbatim entry with unreachable
+  interior labels), and revoking published code violates the "no rebuild after
+  publish" invariant. The incumbent ABC and C sinks already build a function's
+  residue as one unit (`optimize.c:726-787`, `residual_builder.c:2399-2400`), so
+  publication is per owner.
+- **Retain verbatim in every binding** — rejected round 12. Verbatim residue is
+  an ABC capability: the portable-C writer has no source-body mode and rejects
+  the residue it cannot record (measured exit 1 on the memory/callable modules;
+  `docs/symbolic-vm.md:164`, `residual_c.c:1232-1237`), and the native residualizer
+  has no per-function fallback (any failure fails the image,
+  `residualize.c:794-799,822-841`). The driver rule is "retain only if the binding
+  declares the capability, otherwise fail".
+- **Silently omit a function the sink cannot record and every caller (the
+  incumbent portable-C salvage)** — rejected round 12. It is a **post-walk**
+  closure over functions and call lists (`residual_builder.c:2502-2533`), the same
+  shape round 11 deleted for the ABC writer; it changes the emitted program's
+  function set silently, and the documented portable-C policy is rejection, not
+  omission. Under the driver contract, a refusal is either a verbatim owner
+  (ABC) or a build failure, so no walked body can name an absent function.
 - **ABC stored SSA/IR + normalization** — forbidden by the contract.
 - **Delete the portable-C sink** — plausible simplification, but a scope decision;
   raised as a question, not decided.
 
 ## Evidence
 
+- Round-12 measured refusal/publication probe (four hand-built modules through the
+  existing assembler, verifier, abc-opt, the C writer and all four execution
+  modes): `experiments/12-refusal-owner.md`, `.lua`, `.out`, artifacts in
+  `experiments/12-refusal-owner-out/`. Key facts: a function whose float operands
+  are non-constant (`FADD`/`F2IS` over float arguments) is emitted **byte-identically**
+  (raw == opt, a fixpoint) and its independently foldable `3 + 4` witness stays
+  unfolded — the whole owner is retained — and it executes in
+  interpreted/compiled/lazy/threaded (`8`); the **same** float instruction kinds
+  with constant operands optimize 10 → **4** instructions (`PUSH8_A 8; RET_A 0 1`),
+  so recordability depends on the walk, not on a function-level instruction scan;
+  a module with a retained float owner next to a foldable sibling emits the owner
+  verbatim (2 → 2 functions) while the sibling optimizes to `PUSH8_A 7; RET_A 0 1`,
+  and both exports execute in all four modes (`calc = 8`, `good = 7`) — refusal is
+  owner-granular and publication is per owner; round 11's `CALLI` body is retained
+  byte-identically and native executes it in all four modes (`42`), while the ABC
+  sink has no indirect-call residue (`dag_indirect` succeeds only for a statically
+  known callable and `callable_safe` is 0, `optimize.c:305-306`). The C writer
+  **rejects** every one of these modules (exit 1, "portable C currently supports
+  only the integer/static profile"), so it never retains and never reaches the
+  incumbent's silent per-function drop; native has no per-function fallback
+  (`residualize.c:794-799,822-841`). Code: the ABC function is built in a local
+  buffer and replaced or discarded as a unit (`optimize.c:726-787`), the C builder
+  finalizes a function's versions together (`residual_builder.c:2399-2400`) and
+  its `supported` drop/closure is a post-walk salvage (`:2469-2533,2537,2560`),
+  and `direct_target` records both `K_CALL` and `K_TCALL`
+  (`optimize.c:54-56,782-787`), closing round 11's open `TCALL`-root item.
 - Round-11 measured root-set probe (four hand-built modules through the existing
   assembler, verifier, abc-opt, the portable-C writer and all four execution
   modes, plus a native entry-table probe against `build/libabc.a`):
@@ -893,9 +1069,10 @@ run(module):
   emits every function of its input module (1/2/2 bodies for the 1/2/2-function
   optimized modules) and only exports add wrappers (`residual_c.c:222-240,
   1254-1280`). Consequently the design's pre-pass is the binding's root set, a
-  residual call creates its callee's entry version itself, a retained body creates
-  one per direct call target, and the residual-function set is derived — the
-  incumbent's function-level worklist and the ABC writer's closure pass retire.
+  residual call creates its callee's entry version itself, a refused owner creates
+  one per direct `CALL`/`TCALL` target (round 12, from the direct-call-graph fact),
+  and the residual-function set is derived — the incumbent's function-level
+  worklist and the ABC writer's closure pass retire.
 - Round-10 measured call-continuation probe (mutual and same-function **non-tail**
   recursive fixtures through the existing compiler, abc-opt, C writer and four
   execution modes; plus a one-off version-count probe against `build/libabc.a`):
@@ -1078,9 +1255,17 @@ keyed edge through the driver's `edge_to`, a direct call is an in-body effect
 unless it is inlined, and a call-return pc is not a version boundary), and Q18 is
 answered round 11 (the residual-function set is derived: the binding's root set
 exists before any walk, a residual call creates its callee's entry version at the
-call, a retained body creates one per direct call target, and the entry-version
-owners are the residual functions — no function-level worklist, no closure pass).
-Do not duplicate them here.
+call, a refused owner creates one per direct `CALL`/`TCALL` target from the
+direct-call-graph fact, and the entry-version owners are the residual functions —
+no function-level worklist, no closure pass), Q20 is answered round 12 (a refusal is owner-granular and discovered by the walk;
+the owner's entry version survives with the source body as residue, its other
+versions are dropped, its `CALL`/`TCALL` targets are entry versions derived from
+the direct-call-graph fact, and publication is per owner; only ABC can retain —
+portable C and native fail the build), and Q21 is answered round 12 (an indirect
+or foreign call is an in-body effect with no target version; only a direct call is
+inlined or names a version). Round 12 also closes round 11's open item: a retained
+body's `TCALL` targets are recorded exactly like `CALL` (`direct_target` accepts
+both, `optimize.c:54-56`). Do not duplicate them here.
 
 Q1 is the one remaining scope gate for this design. Round-2, round-3 and round-4
 measurements make the recommendation explicit: **adopt versioned blocks for
