@@ -38,17 +38,15 @@ spill/resume bindings; PARKING/PARKED/NOTIFIED handshake; mutex-protected channe
 and worker deques; select arbitration; generation-based idle wakeups; and immutable
 per-realization native publication with atomic entry slots. These are the baseline,
 not alternative suggestions. WORKLIST E binds them to the actual VM ABI and coordinates
-O/C/D/T/P/W. The v3 orchestration and subsequent large revision7/v4 proposal remain
-retired. The subsequent blanket source materializer has now also been removed:
-it manufactured holdings from access-containing types instead of consuming individual
-borrow/transfer proofs. Counted source execution rejects during the approved
-proof-directed cutover. The small C counting/queue core, six lifetime bindings and
-concrete field-drop emitter remain. The minimal revision-7 C-entry format is assembled,
-verified and preserved by the optimizer; all execution modes retain native C-entry
-delivery. No release cache, slot registry, pinned register or second allocator returns.
+O/C/D/T/P/W. The initial explicit-Rc implementation uses declared allocation/copy/drop
+operations, borrowed Ref/Slice, typed private owning-value slots and concrete active-tag
+drops. The old whole-state inference engine is removed, not wrapped. The C core and
+six source bindings supply iterative reclamation and failure cleanup. Revision-7
+C-entry metadata delivers native lifecycle code in all four execution modes; no release
+cache, slot registry, pinned register, alternate allocator or collector remains.
 General erased/container/task, owning public/FFI and persistent owning module contracts
-remain closed. See WORKLIST E/O for current status; source-cutover/tagged-values evidence
-qualifies the preceding implementation, not present source admission or performance.
+remain closed. WORKLIST owns qualification and measured performance; historical
+implicit-ownership experiments are not evidence for those gated interfaces.
 
 ## Structured task runtime target (not implemented)
 
@@ -125,6 +123,30 @@ Generated files are disposable build products. Some historical source files stil
 exist outside the active build graph; their presence is not executable support.
 The Makefile's runtime/tooling object lists establish what is actually linked.
 
+## Source compiler responsibilities
+
+`source_state.lua:word` owns a name-free computation description. `semantic.lua`
+checks its contract and uses one `elaborateWord` path for definitions, lambdas, methods
+and handlers. Bindings supply recursive visibility/receiver state; syntax does not
+select another evaluator. `SumSchema` is a dedicated AST form; keyed callable entries
+elaborate to ordinary `FieldSupply(Lambda)` values.
+
+Capture commitment follows actual binding lookup, not the removed syntactic
+`resolve.lua` pass. Visibility/interface queries do not capture. Selected runtime
+bindings travel through intervening lexical frames; definition aliases remain identities.
+Visible word identities/contracts are reserved before body elaboration. Recursive
+capture dependencies settle before hidden prefixes, calls/defer arguments and views
+are verified or executed. First-class checks see the complete environment, not an
+early empty prefix. Capture-free words need no artificial receiver environment.
+
+Known direct calls use ordinary frame transport. Borrowed callable storage must satisfy
+its real lifetime; owning/escaping environment transport remains gated. Handler calls
+use the same elaborator and ordinary calls, not a separate interpreter or source inliner;
+code-size/call overhead is not assumed away. Language rules live in
+[syntax](syntax.md#21-word-computation-and-binding), [application](application-sugar.md)
+and [spread](spread.md); checker interfaces live in
+[runtime interfaces §9](runtime-interfaces.md#9-source-analysis-interfaces).
+
 ## Ownership rules
 
 - **Definitions and consumers.** The manifest defines instruction identity,
@@ -164,7 +186,8 @@ The Makefile's runtime/tooling object lists establish what is actually linked.
   selected source, with r1/r2 providing continuation/source at transfer. These
   registers are not permanently reserved during ordinary execution.
 - **Execution modes.** `--jit=off` executes original ABC. `--jit=threaded` eagerly
-  prepares a register-specialized handler tape without executable mappings.
+  prepares a register-specialized handler tape; ordinary tape execution needs no
+  executable mappings, but owning lifecycle C entries still require native preparation.
   `--jit=eager` prepares native versions at load; `--jit=lazy` compiles reached
   versions through persistent stable stubs. The host selects policy; there is no
   hotness threshold, automatic promotion, source-extension policy or semantic
@@ -188,18 +211,18 @@ The Makefile's runtime/tooling object lists establish what is actually linked.
   `dynamic-lowering`. Source virtual values/places, backward demands and delayed
   materialization are approved work, not completed by the current staging bridge.
 - **Staging status.** In-process scalar sessions prepare verified ABC and run the
-  same VM in any mode, with owned module/image lifetimes and exact scalar transport.
-  Foreign execution is prohibited. Prepared image writes persist; aborts do not
-  roll them back. The proposed `staticMode` API/CLI, progress/interrupt reporting,
-  aggregate snapshots/relocations and initialization transport remain future work.
-  See [staging-session-implementation.md](staging-session-implementation.md) and
+  same VM in any mode, with owned module/image lifetimes, exact scalar transport and
+  supported pointer-free aggregate/module snapshots. `staticMode` API/CLI policy and
+  progress notifications are implemented. Foreign execution is prohibited. Prepared
+  image writes persist; aborts do not roll them back. Address-bearing/owning snapshot
+  transport and general source specialization remain gated. The single contract is
   [source-compilation-api.md](source-compilation-api.md).
 - **Collector-free source target.** Profiles 1–4 remain active. The approved
   [owner design](owners-references-ids.md) replaces tracing GC/profile-5 ownership:
   explicit `Rc(T)` roots with retain-on-copy, strictly borrowed `Ref(T)`, actual
   strong-edge rank constraints, immutable value DAGs, stores/ids and value tables.
   Automatic reference promotion and hidden ownership repair are superseded. The
-  current implicit pipeline is not the explicit-Rc implementation. Source
+  initial private Rc pipeline is implemented. Source
   place/provenance analysis checks borrow/cycle obligations; the execution allocator
   does not reconstruct them. One Let language has
   independent capability facts, but legacy `.slet`/`.let` implementation behavior
@@ -208,14 +231,13 @@ The Makefile's runtime/tooling object lists establish what is actually linked.
 
 ## Validation and remaining work
 
-Historical machine qualification includes an active-suite pass and a clean
-copied-source build after the native backedge correction. This is not the current
-source-ownership acceptance status: the interrupted implicit cutover is partial,
-and explicit Rc remains unimplemented (see WORKLIST O/E). The historical checks
-cover selected operand order, A/B destinations, exact cache states with poisoned
-dead arguments, captures, explicit continuations,
-indirect observations, traps/capacity, optimizer/C contracts and frontend/staging
-boundaries. See `REFACTOR.md` for exact counts and retained logs.
+WORKLIST records current frontend, source/native Rc and optimizer qualification,
+including the fixed frame-inlining/effect-expansion defects and the sanitizer toolchain
+blocker. REFACTOR and experiment archives retain historical machine/source results.
+Do not present those earlier clean builds or sanitizer runs as acceptance of later
+code. Test selected operand order, both destinations, poisoned inactive cache cells,
+explicit continuations, indirect observations, traps/capacity, cleanup failure and
+frontend/staging boundaries as well as output values.
 
 Passing these tests does not establish the single-budget target above, complete
 source static-demand support, profile-5 execution or completion of the whole-diff

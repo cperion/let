@@ -1,45 +1,21 @@
 # Implementer contract: primitive, owner and task interfaces
 
-**Explicit Rc cutover: source semantics approved; concrete binding pending.**
-`Rc(T)` owns and copies retain; `Ref(T)` is always borrowed. Automatic promotion,
-reference capability inference and inferred preservation/result-resource contracts
-are superseded. The interrupted implicit implementation is checkpointed at
-`4a9da5db`, not qualified as explicit Rc. The C core, six runtime bindings, C-entry
-delivery and concrete active-tag drop generator remain. Source integration below
-records earlier evidence, not current Rc admission. See WORKLIST O01–O08/E01/E02
-and [source-lifetime-lowering.md](source-lifetime-lowering.md) for the approved
-removal scope and remaining source/private-ABI gates.
+**Authority:** private layouts, call handoffs, state transitions and lock protocols.
+[Ownership](owners-references-ids.md) owns language semantics;
+[runtime-primitives.md](runtime-primitives.md) owns algorithms. Delivery status and
+qualification belong in [WORKLIST](../WORKLIST.md), not duplicated test counts here.
 
-The v3 catalog/dispatch,
-release preparation/cache, scope-slot/prefix protocol and compiler lifetime client
-in §§1, 1.1 and 3 below remain historical, not implementation instructions. Their
-replacement used the now-removed source materializer and the six narrow runtime
-bindings retained below. The large revision7/v4 proposal remains withdrawn. Unrelated task/scheduler
-target protocols are unchanged; WORKLIST E/O records incomplete general admission.
+**Implemented:** the C owner core, six source bindings, native lifecycle C entries,
+and initial explicit-Rc lowering/checking (§§1, 3, 9). **Approved target:** container
+and task interfaces (§§2, 4–8), except implementation facts explicitly identified.
+**Gated:** the interfaces in §10. C fragments describing targets are not buildable
+libraries or permission to add adapters. No public encoding is assigned here.
 
-The remaining target interfaces relate the approved choices in
-[runtime-primitives.md](runtime-primitives.md) to the current source tree. C fragments
-are interface specifications, not drop-in patches. Use the names/responsibilities
-below outside the explicitly retired ownership binding; discuss material mismatches rather
-than adding an adapter or alternate subsystem. Public file-format/tag assignments
-are deliberately not invented here; see §10's explicit release gates.
-
-Execution work follows WORKLIST's substantial-chunk policy. Interfaces and their
-producers/consumers/tests migrate together, not as unused helper libraries.
-
-Current C core (`src/owner.h/.c`):
-`abc_owner_alloc` takes the complete allocation extent/alignment, local/shared policy
-and optional C field-drop function. The concrete object embeds `abc_owner` first;
-its C layout supplies field offsets. No per-owner payload offset, construction prefix,
-type descriptor or instrumentation counters remain. Retain needs only the owner/error
-sink. Release enqueues into an explicit thread-confined context; drain invokes field
-release and frees iteratively. Retain-before-replace is provided. The C caller must
-initialize fields before release/publication. The source binding zeroes all payload
-holdings before publishing the first root. The standalone core passes
-113 checks, focused ASan/UBSan/LSan and a128KiB host-stack run; the existing full
-incremental suite also passes. Native header is32 bytes. Evidence:
-`research/experiments/runtime-owners/core/`. Connected source evidence is separate:
-`research/experiments/runtime-owners/source-cutover/`.
+Retired v3 catalogs, release caches, prefix/slot registries and the implicit ownership
+binding are preserved only in the
+[documentation archive](../research/archive/docs-before-rc-consolidation/README.md).
+They are not alternative implementations. The minimal revision-7/profile-4 C-entry
+extension below is distinct from the withdrawn larger proposal.
 
 ## Current C-entry encoding boundary
 
@@ -67,26 +43,45 @@ field addresses plus enqueues, with finite tag branches for active union payload
 arbitrary handwritten bytecode. Their C stack storage is proportional to verified
 home extents; no generalized native resource-bound qualification is claimed.
 
-## Retained runtime binding and preceding source materialization
+## 1. Owner core and source runtime bindings
 
-Before the removal checkpoint, `frontend/let/placement.lua` consumed the exact checked
-program and produced a
-separate physical graph, structurally checked without repeating ownership inference.
-Counted local roots allocate from creation. Context-dependent unresolved instances
-reject rather than promote an allocation family. References carry data/root-owner;
-projections preserve the root. Proven pointer-free borrowed functions use one-cell
-access arguments, preserving `InPlace` lifetime constraints in physical IR.
-Concrete records/arrays/slices, tagged alternatives and callable environments carry
-their actual holdings. Tagged values use the existing aligned tag/union layout and
-packed cells, with explicit ADDR2BITS/BITS2ADDR transitions for address leaves.
-Compiler-only conditional traversal generates active-case copy/move/drop code; no
-runtime descriptor or tag-induced boxing is introduced. Before acquiring into reused
-scratch unions, their logical bytes are zeroed and enclosing tags published. Every
-successful acquisition is then cleanup-visible, even if a later field acquire fails.
-Proven borrowed bodies with unchanged types and call contracts keep ordinary value
-slot selection rather than being wrapped in an aggregate activation block.
-Owning results use an appended caller-owned result-record pointer; callable environment
-argument0 and the existing ABC hidden-result convention retain their meanings.
+`src/owner.h/.c` owns this concrete native layout (32 bytes on the qualified host;
+not a wasm ABI assignment):
+
+```c
+struct abc_owner {
+    union { uint64_t local; _Atomic uint64_t shared; } count;
+    abc_drop_fields_fn drop_fields;
+    abc_owner *next_dead;
+    abc_owner_kind kind;
+};
+```
+
+The object embeds this header first. Concrete layout supplies payload offsets and
+outgoing field addresses; there is no stored payload offset, construction prefix,
+universal TypeOps, ownership registry or traffic counter. `kind` and `drop_fields`
+are immutable. The callback is `void(abc_owner_context *, abc_owner *)`.
+
+- `abc_owner_alloc(bytes, alignment, kind, drop, out, error)` checks extent/alignment
+  and returns one holding; failure leaves `*out` unchanged. Payload is uninitialized:
+  the C caller must make fields cleanup-valid before publication or release. The
+  source binding zeroes the payload before publishing the owner.
+- `abc_owner_retain(owner, error)` requires existing protection, rejects zero and
+  overflow, and never wraps. Local increments are checked; shared increments use
+  a relaxed CAS loop. Immortal holds/releases do nothing. A live count never changes
+  between atomic and non-atomic policies.
+- `abc_owner_release(context, owner)` decrements/enqueues only. Shared decrement
+  is release-ordered; 1→0 performs an acquire fence before payload inspection.
+- `abc_owner_drain(context)` iteratively calls concrete field drops and frees through
+  a thread-confined intrusive queue. Drops only enqueue children: no allocation,
+  recursive drain, suspension, source callbacks or VM entry.
+- `abc_owner_replace(context, slot, incoming, error)` retains incoming before
+  replacing and enqueueing old. Failure leaves the slot/count unchanged; the caller
+  exclusively owns the writable slot. Self-replacement obeys the same rule.
+
+Use the thread-safe platform allocator and free on the thread observing final
+release. Do not add remote-free queues or allocation caches without a measured need.
+Source cell layouts are separate from these host C layouts.
 
 The revision-7/profile-4 loader admits exactly these reserved extern contracts:
 
@@ -107,109 +102,23 @@ the active execution context; none is a dispatcher or runtime layout interpreter
 
 An owning activation embeds `{previous, drop}` (16 bytes) followed by its actual
 root/value/result/scratch fields. Every acquire immediately publishes a cleanup-visible
-holding; copy acquires before replacement, single-use same-loop moves clear source.
+holding; copies acquire before replacement and proven transfers clear their source.
 Heap objects embed the32-byte core header, then concrete payload. Zero-size roots
 retain distinct allocations or byte anchors. No parallel slot registry or progress
 prefix exists. Failure unwinds linked records while ABC storage is still live, before
 reset/result publication. No source defer runs and persistent ordinary image writes
 are not rolled back. Allocation/retain exhaustion reports `ABC_NOMEM` at the original
 FCALL. Successful return with an unclosed record fails without publishing results.
+Reentry into the same executing VM rejects before stack reset. Foreign longjmp,
+asynchronous interruption and general foreign/shutdown lifetime guarantees are not
+provided by this binding.
 
-Factories, replacement/saved accesses, recursion, closure/partial/opened captures,
-indirect owning and multi-result returns, arrays and slices execute in raw/optimized
-four-mode tests. Acquisition/allocation failures, traps, stack exhaustion and RX
-publication failure are tested. See the source-cutover evidence for exact counts and
-focused sanitizer limits. Public owning/foreign transport, persistent owning modules,
-erasure, containers/tasks, context-specific physical cloning and
-unified executable `.let` remain unavailable. Tagged source qualification is recorded
-in `research/experiments/runtime-owners/tagged-values/`, including both lifecycle banks,
-partial acquisition failure, and actual generated branched C drops without source TLS. This is not completion of general
-ownership or the library/task runtime.
-
-## 1. Historical retired primitive catalog
-
-`gen/runtime_primitives.lua` is implemented for the initial owner/scope family,
-consumed during generation, not at runtime. Container/task entries remain pending.
-Each entry has these fields:
-
-```text
-name                 stable semantic operation name
-inputs/results       ordered cells, allocation facts and explicit holding/erasure operands
-holding_inputs       borrow | consume-on-success | consume-always for each holding
-holding_results      new-holding | transferred-holding | borrow-with-origin
-memory               exact read/write regions and invalidated facts
-allocation           none | possible
-failure              status/reason policy and original-site obligation
-suspension           never | operation-ticket
-clobbers             runtime-call binding clobbers, not source semantics
-binding              allocation | retain | release | container | task operation
-```
-
-Generation rejects missing ownership/effect fields and duplicate names. Generate
-immutable C metadata and frontend-readable declarations from it. `tools/opcodes.lua`
-remains the public instruction/encoding authority; the primitive catalog does not
-assign independent opcodes or create a second scalar computation. Existing arithmetic
-still comes from `gen/semantics.lua`/shared computation.
-
-Initial semantic families are owner allocate/retain/release, typed buffer copy/detach,
-store grow/add/remove/check-id and task scope/spawn/join/channel/send/receive/close/
-select/cancel/cancelled/yield. Families needing ordinary scalar control elaborate
-through existing computation; a single opaque helper per language expression is
-not the design. Do not generate register-specialized forms across the Cartesian
-product of source types, channel types and registers. Layout/operation bindings are operands.
-
-### 1.1 Historical retired owner/holding call binding
-
-The private runtime ABI uses reserved `__let_rt_v3_` symbols in the existing extern
-section and existing FCALL.A/B instructions. There are no owner operand kinds,
-owner opcodes, serialized ownership graphs or new module sections. Generated C
-metadata validates the signature at module loading; unknown versions/signatures
-reject. A host cannot override these bindings, and source `extern` declarations
-cannot introduce them. This deliberately reserves the `__let_rt_` namespace; old
-engines have no built-in implementation of these new symbols. Transitional v1/v2
-ABIs are removed, not reinterpreted: their modules reject and must be rebuilt.
-Existing ordinary externs and revision-6 encodings retain their behavior.
-
-`frontend/let/lifetime.lua` emits ordinary checked IR using the shared builder.
-Generated metadata supplies declarations and the staging allowlist. `runtime_call.c`
-binds those calls through persistent `abc_exec_context` TLS. The existing call-boundary
-synchronization is retained; specialized minimal clobbers are not claimed. Status and
-original call PC survive all four execution modes. Thirteen operations include
-`release_bind a -> a` and `owner_new aiiiia -> a` (scope, slot, bytes, alignment,
-count policy, prepared release handle). Universal `type_bind` and allocation TypeOps
-are gone. Known copy code is selected directly by the compiler, not through a
-runtime descriptor. Erased-value operation descriptors are a separate, pending binding.
-
-Each generated scope explicitly initializes a frame-storage record and its holding
-slots. Allocation registers its first holding only after initialization succeeds;
-retain installs a new slot only after checked increment; move transfers between
-initialized scopes without changing the count. Normal scope exit releases slots.
-On a failed VM call, only these registered holdings are released before stack reset.
-No source deferred actions, effect rollback or stack-root scanning occurs. Persistent
-module writes survive, and the VM can run another call. A successful return with an
-unclosed holding scope instead fails without publishing results. Reentry into the
-same executing VM rejects before resetting its stacks. Foreign longjmp/interruption,
-scheduled tasks and public exported owner handles are not supported by this binding.
-
-`release_bind` synchronously validates and prepares a private release realization
-before returning its handle. Preparation uses fresh native allocations and publishes
-only after RX sealing succeeds. A failed realization is discarded; existing source
-and release code remain executable, and retry can prepare a fresh realization. The
-error reports the original binding FCALL, not the helper-definition PC. No host C
-compiler or dependency on `abc-opt` is introduced.
-
-This preparation is required even for interpreted/threaded source. A platform without
-executable-code preparation needs an AOT release binding (not implemented); there is
-no ABC cleanup-engine fallback. Count/slot mutations enqueue zero owners, and the
-C runtime drains at drop/leave/failure boundaries. Each prepared outgoing routine
-returns before the next runs; children only enqueue. Normal native spill frames,
-not task ABC storage, hold temporary values even after source stack exhaustion.
-No SERVICE exit, reclamation register snapshot, pending descriptor or separate
-cleanup execution context remains. Source records stay readable until consumed.
-
-Allocation failure and count-limit exhaustion use existing `ABC_NOMEM` resource
-failure reporting; no new numeric language-abort reason is assigned, and counts
-never wrap. See WORKLIST E01/E02/O04–O08 for admission and measurements.
+The initial explicit-Rc slice is integration-tested in raw/optimized execution,
+all four modes and both lifecycle banks, including failure cleanup and generated
+C drains outside VM TLS. Qualification limits, measured costs and the sanitizer
+toolchain blocker are recorded in WORKLIST and the
+[cutover report](../research/experiments/runtime-owners/explicit-rc-cutover/README.md).
+Earlier implicit-ownership results are not current API admission.
 
 ## 2. Split runtime, task and execution context
 
@@ -263,91 +172,44 @@ Any future capacity specialization must key and validate its policy before entry
 Actual stack addresses are never part of a shareable code constant. Image/site metadata and mutable module-world
 storage are separate; transitive world analysis governs access to the latter.
 
-## 3. Historical retired allocation-release binding and erasure target
+## 3. Explicit Rc layout and private handoff
 
-`src/owner.h/.c` owns allocation, checked counts, explicit construction state, holding
-replacement and the intrusive C drain. `src/release.h/.c` binds portable release
-identities to direct callable entries. There is no universal allocation TypeOps bundle,
-second allocator or layout-plan interpreter. The full task/runtime split remains pending.
+**Implemented initial binding.** `Rc(T)` occupies one address cell naming the owner
+header; concrete `T` determines the payload offset. Source Rc has no null variant.
+Internal empty/moved slots use null solely for cleanup. `Ref(T)` stays one borrowed
+address and Slice stays borrowed address/length; neither acquires an owner cell.
 
-`gen/holding.lua`, called by `frontend/let/lifetime.lua`, independently generates:
+By-value inputs and results containing Rc use caller-allocated **typed owning-value
+slots**, not inferred resource records for reference data. Argument copying initializes
+these slots in source evaluation order while they are cleanup-visible. The callee
+consumes incoming holdings and clears their source on transfer; entry failure leaves
+caller holdings available to unwind. Result publication establishes holdings in
+empty cleanup-visible caller storage. Pure scalar, borrowed Ref and other nonowning
+transport keep their ordinary ABI. Callable environment argument 0 and the ABC
+hidden-result convention retain their distinct meanings.
 
-- Known copy functions, only when requested, called directly through ordinary source
-  calling conventions. They transport payload bits and commit each successful retain;
-  failure releases only the acquired prefix. There is no runtime copy lookup.
-- Private portable release bodies, using existing checked IR/ABC and `.codeaddr`
-  identities. Their selected owning offsets are code constants, not a runtime table.
-  `release_bind` forbids ABC callbacks and allocating/failing effects, then the existing
-  symbolic computation/allocator eagerly realizes every branch with a direct C ABI.
+Copy actual owning fields, including independent fields whose handles alias. Capture
+inputs before overwriting overlapping storage; acquire incoming holdings before
+releasing old ones. Reused scratch/union storage is cleared according to its old tag,
+zeroed, and given its new active tag before acquired fields become visible to cleanup.
+Partial failure drops only established holdings in the active alternative. No runtime
+layout interpreter, per-field registration or hidden borrowed-field preservation exists.
 
-The callback is `void(abc_owner_context *, abc_owner *)`. Its native wrapper reserves
-one normal frame for allocator-selected homes/spills. Native slot7 carries the explicit
-runtime-context argument; slots0–6 are allocated by the existing allocator. This is
-not a hidden ABC cell, a new allocator, or an eighth threaded value register. Leaf
-holding operations call C directly without foreign-bridge dispatch or bank flushing.
-The callback does not enter any source engine, rebind source TLS, interpret a plan,
-allocate or recursively release. Independent-context tests invoke it with source TLS
-unset and verify that the VM context remains unchanged.
+Transfers clear their source exactly once. The raw-copy/source-clear commit window
+must be non-failing in every supported binding; instruction spelling alone is not a
+proof. No callback or suspension may expose duplicate uncounted holdings. Ordinary
+copies are correct without move elimination; an unproved move remains a retain/copy.
 
-The current layout producer handles client-selected fixed owning cells. Checked-IR
-fixtures additionally qualify native branch/initialized-element-loop execution through
-ordinary scalar/address/control operations and direct C leaf bindings. General source
-representations, variants/arrays/containers and erased-value copy operations remain
-pending. The private checker is not a termination or pointer-safety verifier for
-arbitrary handwritten bytecode; broad native spill/resource bounds remain an admission
-obligation before generalized source counted execution can open.
+`placement.lua` consumes the checked program, emits a separate physical graph and
+concrete active-tag C drops, and preserves original source identity for diagnostics.
+Packed tags, aligned unions and ADDR2BITS/BITS2ADDR remain the canonical representation.
+No owning field means no cleanup record, empty drop body or enter/leave pair. Root
+allocation is explicit and immediate, never whole-activation counting or frame promotion.
 
-Current native owner layout (48 bytes; not a wasm ABI claim):
-
-```c
-typedef void (*abc_release_fn)(abc_owner_context *, abc_owner *);
-struct abc_owner {
-    union { uint64_t local; _Atomic uint64_t shared; } count;
-    abc_release_fn release_outgoing;
-    struct abc_owner *release_next;
-    size_t payload_offset;
-    uint64_t initialized;
-    abc_owner_kind kind;
-};
-
-abc_status abc_owner_new(abc_owner_context *, size_t bytes, size_t alignment,
-    abc_owner_kind, abc_release_fn, abc_owner **out, abc_error *);
-abc_status abc_owner_retain(abc_owner_context *, abc_owner *, abc_error *);
-void abc_owner_release(abc_owner_context *, abc_owner *); /* decrement/enqueue only */
-void abc_owner_drain(abc_owner_context *);
-```
-
-The image owns prepared release-code allocations/cache entries until teardown; an
-owner stores its callable release behavior, not copy/size/alignment dispatch. General
-exported owner/image retention is not implemented. Count policy is immutable per
-allocation, including identical payloads under different policies. Initialize only
-the selected union member. Never mix atomic and non-atomic accesses to one live count.
-Immortal retain/release are no-ops. Payload offset comes from checked alignment of
-`sizeof(abc_owner)`; construction progress is explicit header state, not zeroed payload.
-This costs16 more header/state bytes than the earlier24-byte header plus8-byte prefix.
-Source cell layouts remain separate from host C layouts.
-
-`new` returns one holding only after successful initialization; output is unchanged
-on failure. It uses checked size/alignment arithmetic. Constructor cleanup tracks the
-initialized prefix/fields explicitly; zeroed bytes are not proof of initialized holdings.
-`retain` does not resurrect count zero. Local checked increment rejects UINT64_MAX;
-shared increment uses a relaxed CAS loop with the same overflow check. Existing
-holding/borrow protection is a precondition for retain. Shared release uses release
-fetch-sub; the 1→0 path performs an acquire fence before inspecting payload.
-
-Release processes the worker's intrusive zero-owner queue. Each selected release
-operation visits only declared owning fields and enqueues newly zero owners. It does
-not call source code, allocate, suspend or recursively invoke the VM. Prepared release
-entries are compiler-private runtime code, not user callbacks or tracing functions.
-Repeated fields use loops bounded by explicit initialized state. Descriptors at erased
-boundaries must obey the same nonrecursive/nonallocating destruction contract.
-
-First allocator binding: use the platform allocator with thread-safe cross-thread
-free; free on the worker observing the zero transition. Do not add worker allocation
-caches/remote-free queues before measuring a need. If a later allocator requires
-remote-free routing, dead allocation storage supplies links; source release semantics
-and the nonallocation guarantee stay unchanged. This chooses a concrete implementation
-of the approved cross-worker-free requirement, not a collector.
+Public/foreign Rc handoff, persistent owning modules, owning environments/results,
+erased/container/task transport and owning snapshots remain gated. Existing borrowed
+callables do not gain ownership by having a callable type. Generalized native resource
+bounds, wasm/AOT ownership support and broad sanitizer acceptance are not established.
 
 ## 4. Containers and failure transactions
 
@@ -440,7 +302,11 @@ void abc_task_after_exit(abc_worker *, abc_task *);
 ```
 
 `abc_channel`, `abc_timer_registration` and generated `abc_primitive_info` are
-forward-declared private types. A direct ticket has one registration; a select has
+forward-declared private types. The task metadata is an approved target, not the
+retired v3 owner catalog: it must describe input/result cells and holdings, memory
+invalidation, allocation/failure, suspension and clobbers as required by
+[runtime-primitives.md §1](runtime-primitives.md#1-integration-with-the-current-machine).
+It assigns no independent scalar algorithm or opcode. A direct ticket has one registration; a select has
 its fixed case count. Use a reserved UINT32_MAX winner for NONE and reject a source
 case count that cannot be represented. Task operation-frame sizing uses checked
 arithmetic and is included in resource accounting, not a VLA on the worker stack.
@@ -617,47 +483,54 @@ until all execution-image holdings are gone. Shared inline observations need the
 own atomic state/target publication, not writes to bytecode. Threaded builds all tape
 entries eagerly and uses the same resume metadata/ownership contract.
 
-## 9. Source analysis interfaces: no disconnected analysis layer
+## 9. Source analysis interfaces
 
-The approved source owner is now the explicit type/operation contract:
-`Rc(T)` construction allocates; semantic Rc copies retain; drops release; Ref and
-Slice transport only borrows. Borrow checking rejects invalidation or escape rather
-than asking owner inference to repair it. Root-only Rc has no implicit owning
-projection. The concrete source and transport gates are in
-[source-lifetime-lowering.md §7](source-lifetime-lowering.md#7-remaining-concrete-binding-decisions).
+**Implemented initial boundary:** `Program.analyze` performs structural/type checking,
+access analysis/validation and strong-cycle checking. The checked program owns its
+results and named type definitions; shared `Ir.Fn`/type nodes do not carry mutable
+proof annotations. `Program.select` selects Call/View/Code reachability independently
+of ownership. `Placement.program` lowers declared types/operations; `Layout.physical`
+and structural physical checking complete that boundary. See
+[source compilation API](source-compilation-api.md#checked-program-and-physical-lowering).
 
-`semantic.lua`, schema and ordinary IR builders must preserve semantic owning-copy
-boundaries, including local Rc value bindings. Register transport is not a copy.
-`access.lua` remains the place/effect/provenance producer for readonly checks,
-borrow validity, callable effects and actual strong-edge checks; it is not an
-owner-capability or storage-promotion engine. No second scalar evaluator is added.
+`access.lua` checks CFGs referencing original typed statements, not a second expression
+IR. Facts describe protected locations, permissions, callable identities and active
+alternatives. Call-site activations have joined reachable inputs/results; caller memory
+is not query identity. Only argument-reachable contents and named globals cross calls.
+Private effects remain local. Scalar-only, global-independent boundaries check their
+private allocations once rather than multiplying unrelated caller contexts.
 
-The existing `ownership.lua` counted-requirement solver, capability propagation,
-preservation acquisition policy, reuse promotion and interrupted `rootBindings`
-are removal targets. Borrow liveness/identity and iterative SCC algorithms may be
-retained where they have actual checking clients. Strict Rc edges use actual root
-identity rather than referent-type reach. Join possible strong edges, reject
-self/nontrivial SCCs and preserve conservative recursive constraints; no runtime
-rank words or cycle detector are introduced. Immutable construction/COW retains
-its separate proof obligations. There is no conditional borrowed/owning Ref ABI.
+Borrow protection is separate from allocation identity. Overlapping writes, value
+redefinition and relevant scope exits invalidate protection; absent provenance is not
+proof. Mutation effects and dynamic index overlap remain conservative. Erasure cannot
+remove known borrow obligations. Opaque code without sufficient bounds rejects, rather
+than gaining hidden ownership or being assumed nonretaining.
 
-`program.lua` continues to own an immutable checked graph and its analysis results.
-`check.lua` continues structural/type validation, with the source lifetime/cycle
-validators at the program boundary. `placement.lua` lowers declared Rc operations
-and concrete owning fields; it no longer chooses ownership behind reference types.
-`Layout.physical` and `Check.program(..., true)` remain the physical boundary.
-Entry-rooted code selection must survive independently of the discarded resource
-solver. No source program is reinterpreted through the retired materializer.
+Callable facts preserve code identity and actual invocation-site environment storage:
+value captures keep their formed snapshot; place captures read current contents. Local
+ordinals from different contexts cannot collide. Formal callable invocations retain
+ordered argument/result/effect obligations; forwarding through a higher-order argument
+must reject the same escaping store as a direct call and accept supported nonretaining
+controls. Do not substitute code-global capture unions or entry-time contents for live
+captures. Recursion uses finite monotone bindings, not recursive source execution or
+an arbitrary analysis-fuel cutoff. Public serialized summaries remain gated.
 
-The current tree is not this target: it still contains the implicit summaries and
-a partial rooted materializer from `4a9da5db`. Earlier source/tagged and C-core
-qualification remains historical evidence for its exact scope, not acceptance of
-explicit Rc. Separate-compilation, public/foreign Rc handoff, owning environments,
-snapshots, erased/container/task transport and their qualification remain gated.
+`ownership.lua` retains lifetime relations and iterative SCC checking of actual strong
+Rc edges. Borrowed fields are never strong edges. Construction-only abstract cycles
+are distinguished from mutation cycles; the former rely on immutable construction,
+not a runtime cycle detector. General polymorphic/separate-compilation proofs remain
+open. Whole-state queries, published snapshots/contents versions, carrier dependencies,
+capability recovery, implicit promotion/preservation and resource-mode Ref ABIs are gone.
+`Ty.Owned` remains callable specialization, not Rc.
 
-Packs/spread/operators still elaborate through ordinary source/IR mechanisms.
-Only the VM staging service computes user values. RC lowering binds the existing
-runtime and ABC mechanisms; backends do not independently choose ownership policy.
+Module aliases resolve the existing instance before requesting a value snapshot: equal
+bytes are not alias proof. Field reads and function results are copies; source-visible
+alias identity, initializer ordering and failure publication must remain intact.
+
+Source elaboration preserves semantic Rc copies even where scalar SSA aliases would
+otherwise suffice; register copies/spills do not retain. Packs/spread/operators still
+elaborate through ordinary source IR. Only VM staging computes user values; neither
+this checker nor a backend becomes another source evaluator.
 
 ## 10. Remaining hard gates and definition of a complete slice
 
@@ -665,8 +538,9 @@ The following are actual decisions, not ordinary implementation discretion:
 
 - Public encoding/profile revision and metadata validation for new effects/types.
 - Dynamic cell/interface representation and operator authority through structural joins.
-- Explicit Rc construction/borrow surface, borrow-carrying payload admission and
-  failure-safe private handle/call transport (source-lifetime-lowering §7).
+- Borrow-carrying Rc payloads beyond the initial exclusion, explicitly owning
+  environments/snapshots and public/foreign/erased Rc transport. Initial `Rc(value)`,
+  named `r.borrow()` and private typed-slot handoff are settled, not open gates.
 - Remaining polymorphic/recursive strong-edge/borrow-summary qualification,
   separate-compilation encoding and public FFI retention contracts. The old private
   implicit-owner binding is superseded, not authority to guess these Rc interfaces.
@@ -676,8 +550,8 @@ Do not silently decide these by assigning a free opcode, adding fallback semanti
 turning an existing rejection into an unchecked path. Other structures/protocols above
 are target interfaces to implement, not an invitation to redesign them per backend.
 
-A vertical slice changes all authoritative producers/consumers together: catalog,
-source lowering, checked module representation, verifier, interpreter, residualizer,
+A vertical slice changes its authoritative producers/consumers together: operation
+contracts, source lowering, checked module representation, verifier, interpreter, residualizer,
 native/threaded bindings and focused tests. It removes replaced paths in that same
 chunk. AOT follows its explicitly scoped support matrix rather than falsely accepting
 unsupported operations. Validate at integrated boundaries; full suite/sanitizer/

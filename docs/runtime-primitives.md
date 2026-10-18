@@ -1,27 +1,14 @@
 # Runtime primitives and resumable execution
 
-**Status: explicit Rc/retain-on-copy source contract approved; cutover pending.**
-The32-byte C counting/queue core, six lifetime bindings and revision-7 native C
-lifecycle delivery remain. The implicit reference-promotion/resource-inference
-pipeline is superseded, including its interrupted rooted implementation at
-`4a9da5db`. Explicit Rc execution is not yet implemented. Earlier source integration
-qualifies only its recorded scope. The v3 orchestration below remains historical,
-and the large revision7/v4 proposal remains withdrawn.
-See runtime-interfaces' current concrete binding, WORKLIST E/O and
-`research/experiments/runtime-owners/source-cutover/` for exact supported contracts,
-full incremental checks and focused sanitizer limitations. General source ownership,
-container/task/public-ABI support and performance acceptance are not complete.
-Unrelated task/container targets remain unchanged. This records
-the selected data structures and algorithms for the collector-free runtime and tasks.
-Private interface bindings, concrete fields/signatures and lock/state protocols are
-specified in [runtime-interfaces.md](runtime-interfaces.md); file-by-file changes are
-in [implementation-map.md](implementation-map.md). The explicit Rc semantic contract,
-removal set and remaining concrete surface/private-ABI gates are in
-[source-lifetime-lowering.md](source-lifetime-lowering.md). Approved copy semantics
-are not current executable support. The removed private v3 ABI and its
-historical costs are recorded in runtime-interfaces §1.1 and WORKLIST E01/E02/O04–O08;
-this is not a completed runtime/concurrency or source-ownership implementation. Changes to
-these choices require discussion, not an undocumented alternate implementation.
+**Authority:** selected algorithms and data structures. The C owner core, iterative
+release, six bindings and initial private explicit-Rc source slice are implemented.
+Container/task algorithms below remain approved targets, not executable support.
+[Runtime interfaces](runtime-interfaces.md) owns concrete layouts/signatures and
+state/lock protocols; [ownership](owners-references-ids.md) owns source semantics.
+Do not duplicate retired ABI catalogs here. Qualification, costs and remaining
+implementation gates live in WORKLIST E/O/C/D/T/P/W; initial Rc qualification does
+not establish task concurrency, owning public transport or broad sanitizer acceptance.
+Changes to the selected algorithms require discussion, not an alternate backend design.
 
 Authorities: [ownership](owners-references-ids.md), [tasks](tasks.md),
 [operators](operators-and-blocks.md), [spread](spread.md). Live delivery tracking:
@@ -60,28 +47,22 @@ for parking, no old profile-5 file is reinterpreted and no hidden C cells are ad
 
 ## 2. Owners and semantic holdings
 
-Logical owner header:
-
-```text
-count
-prepared outgoing-release entry
-intrusive release_next
-allocation/count policy and explicit construction state
-```
-
-Allocator metadata is separate. Generate distinct confined/plain-count and
-shareable/atomic-count implementations, never a live mode transition. Their concrete
-layout/alignment and dispatch discriminator must be defined in the ABI binding.
+The concrete header is defined once in
+[runtime interfaces §1](runtime-interfaces.md#1-owner-core-and-source-runtime-bindings):
+count, direct field-drop entry, intrusive queue link and immutable count policy.
+Construction state resides in cleanup-valid concrete fields/active tags, not a header
+prefix. Allocator metadata is separate. Confined/plain and shareable/atomic count
+policies never switch on a live allocation.
 
 Do not put a universal `TypeOps` object on every allocation. Allocation destruction,
 value copying and layout are distinct concerns. The allocation carries only its
-prepared outgoing-release behavior and necessary allocation/count/construction facts.
+direct outgoing-release behavior and necessary count/queue/policy fields.
 Size/alignment/policy are explicit allocation inputs. Known-type copy/construction
 code is selected directly by the compiler, independently of allocation release.
 Only genuinely erased values or generic runtime transport boundaries need a narrowly
 scoped value-operation descriptor; that separate descriptor is not implemented yet.
 
-Portable release identities resolve through the image into a direct C-callable native
+Section-10 C-entry relocations resolve through the image into a direct C-callable native
 entry. Native addresses are process-local bindings, never serialized. Preparation uses
 the existing shared symbolic computation/allocator, not a host C compiler or a second
 value IR. All source execution modes, including interpreted, prepare this glue before
@@ -91,7 +72,7 @@ binding; there is no ABC cleanup-engine fallback.
 Ref/Slice values are borrowed carriers, never conditionally owning representations.
 Rc construction explicitly selects a counted root; Rc copies retain that root and
 drops release it. Interior projections only borrow. The concrete root-handle and
-failure-safe call handoff are source binding gates, not new runtime algorithms.
+failure-safe private handoff are fixed in runtime interfaces §3, not new algorithms.
 There is no escape-selected allocation, activation counting, late promotion or
 pointer repair.
 
@@ -301,7 +282,7 @@ by implication; specify it with group implementation before coding that slice.
 ## 8. Cross-worker lifetime and executable publication
 
 The first allocator binding uses the thread-safe platform allocator and frees on
-the worker performing the final release, as specified in runtime-interfaces §3.
+the worker performing the final release, as specified in runtime-interfaces §1.
 There are initially no worker allocation caches or remote-free queues. If measurements
 justify a later allocator replacement requiring remote routing, freed/dead allocation
 storage supplies intrusive links; release must still allocate nothing. No hidden

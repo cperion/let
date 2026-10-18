@@ -394,7 +394,9 @@ significant.
 Named definitions and literal-do bindings have the same recursion, inference, capture and
 export rules. Choose either spelling for reusable/self-recursive words or entry bindings.
 Only a literal-do initializer establishes the recursive binder; ordinary initializers do not.
-See [word-bindings.md](word-bindings.md) for the shared elaborator and remaining limits.
+See [syntax §2.1](syntax.md#21-word-computation-and-binding) for shared word/binding
+semantics and [architecture](architecture.md#source-compiler-responsibilities) for
+the single elaborator and capture boundary.
 
 Block lambdas are ordinary keyed handler values too:
 

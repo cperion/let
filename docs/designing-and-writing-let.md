@@ -806,14 +806,18 @@ subset. [WORKLIST.md](../WORKLIST.md) is the authoritative implementation ledger
   application, receiver-only borrowing, receiver scopes and binding-resolved captures.
 - **Implemented within admitted typed contexts:** opened record fields are live places,
   including scalar place captures; explicit saved values keep ordinary read semantics.
-  Module aggregate storage and broader ownership proofs remain incomplete.
-- **Implemented:** `endall` with its bounded trailing-block expansion. Updated receiver
-  and parser suites, full validation and pre-packed-lowering isolation pass.
+  Pointer-free module snapshots have bounded support; owning module transport and
+  broader proofs remain incomplete.
+- **Implemented:** `endall` with its bounded trailing-block expansion. WORKLIST owns
+  qualification and historical isolation results.
 - **Implemented and partially qualified:** ordered/keyed supplies and source-only
   rest/template specialization, including definition-point captures and fixed-ABI
   direct/indirect adapters. No runtime pack or erased variadic ABC signature.
-- **Target or incomplete:** unit fallthrough, broader spread/resource qualification, collector-free
-  ownership, broader operator/interfaces, containers, tasks and library realization.
+- **Implemented initial ownership slice:** explicit `Rc(value)`, named `r.borrow()`,
+  retain-on-copy and private owning calls; invalid borrowed escape rejects.
+- **Target or incomplete:** unit fallthrough, broader spread/resource qualification,
+  owning public/foreign/erased/environment interfaces, operators, containers, tasks
+  and library realization.
 - **Guide conventions:** PascalCase types including built-ins/constructors, snake_case values/words, activity
   naming, formatting and suggested project organization. These are not grammar rules.
 - **Not established by this guide:** bare nullary invocation, signature-only stubs,

@@ -1,0 +1,7 @@
+PASS: 262 local Markdown paths/anchors in 35 active/navigation documents (fenced examples excluded).
+PASS: all 10 frozen snapshots byte-identical to b7b74276.
+PASS: snapshots.sha256 matches all 10 files.
+PASS: runtime-interface sections 2/4/6/7/8 preserved byte-for-byte; section 5 diff reviewed as metadata-status clarification only.
+Active docs: 38 -> 29 files; 13702 -> 10095 lines (3607 fewer).
+PASS: documentation-only diff; no existing research archives/raw logs changed; whitespace check clean.
+No runtime/build/performance tests run: no implementation changes.

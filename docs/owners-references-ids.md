@@ -1,24 +1,25 @@
 # Owners, references and ids
 
-**Status: explicit `Rc(T)`, strictly borrowed `Ref(T)` and retain-on-copy approved;
-implementation cutover pending.**
-This is the ownership target for one collector-free Let language. The user replaced
-automatic ownership inference with explicit ownership types: copying an Rc retains
-its allocation, while a reference never acquires ownership or promotes a local.
-[Source lifetime lowering](source-lifetime-lowering.md) records the removal set,
-compiler boundary, acceptance cases and remaining concrete binding gates.
+**Authority:** ownership semantics for one collector-free Let. `Rc(T)` owns and
+copies retain; `Ref(T)` and `Slice(T)` borrow. No implicit promotion or hidden
+ownership repair is permitted.
 
-WORKLIST O01–O08/E01/E02 owns live status. The superseded implicit implementation
-is preserved at `4a9da5db`, including an incomplete rooted materializer. Its focused
-checks and the earlier source-cutover/tagged experiments do not qualify explicit Rc.
-The C counting/queue core, six lifetime bindings and native C-entry delivery remain.
-General containers, tasks, erased transport and owning public/foreign contracts
-remain incomplete. Examples are target semantics, not claims of executable support.
+**Implemented initial slice:** explicit construction/copy/borrow, records/fixed
+arrays/sums, private direct owning calls and failure cleanup. **Approved targets,
+not general runtime support:** containers, freezing, transferable erased values,
+owning environments and tasks. Public/foreign owning transport remains gated.
+The `.let`-only language migration is still pending. [WORKLIST](../WORKLIST.md)
+O01–O08/E01/E02 owns delivery status and measured evidence; examples outside the
+initial slice describe intended semantics, not executable admission.
+
+[Runtime interfaces](runtime-interfaces.md#3-explicit-rc-layout-and-private-handoff)
+own private layout/handoff and checker contracts; [runtime primitives](runtime-primitives.md)
+own algorithms. Historical inference designs are archived, not alternate semantics.
 
 This revision incorporates the engineering decisions approved after the initial
 proposal. In particular, it does **not** count whole activations, decide safety by
 referent-type reach alone, allow escaping store-element references, or switch live
-non-atomic counters to atomic. See §15 for the explicit replacement map.
+non-atomic counters to atomic. See §15 for the implementation authorities.
 
 ## 1. One language, independent facts
 
@@ -83,8 +84,8 @@ Ownership is declared, not inferred from escape. Returning `Ref(local)` after it
 storage dies rejects. A factory that creates independent storage declares an
 `Rc(T)` result instead. Interior projections borrow the same root's payload; the
 initial Rc design has no owning-subobject handle or implicit `Ref`→`Rc` conversion.
-Construction/borrowing spelling and private transport are binding gates in
-[source-lifetime-lowering.md §7](source-lifetime-lowering.md#7-remaining-concrete-binding-decisions).
+The initial surface is `Rc(value)` and named `r.borrow()`, specified below;
+private transport is fixed in runtime interfaces, not selected by provenance.
 
 ```
 let Counter = { value: U32, bump() = do value += 1 end }
@@ -99,6 +100,32 @@ Rc construction allocates its selected root directly; no counting of whole
 activations, later promotion or address repair occurs. Module storage needs no
 retain. Borrowing a live Rc-protected object adds no count. Foreign pointers supply
 no lifetime proof by themselves.
+
+### 2.2 Construction and semantic copies
+
+`Rc(value)` copies `value` into a fresh counted root and returns `Rc(T)`. It does
+not move addressed storage or adopt a borrowed pointer. Initial payloads admit
+scalars/raw pointers, finite records/arrays/sums and nested Rc handles; stored
+Ref/Slice, callable and erased payloads are excluded. Rc indirection permits
+recursive layout, but does not prove acyclicity. Raw pointers remain unchecked.
+
+`r.borrow()` returns `Ref(T)` through an existing named holding without copying
+or retaining it. Payload access uses that reference, with no implicit payload-method
+forwarding. `Ref(r)` still means a reference to the handle's place, not its payload.
+A temporary whose holding cannot protect subsequent use cannot be borrowed to
+extend its lifetime. Source Rc has no null variant.
+
+Semantic copies include owning local-value bindings, value arguments/results,
+stores and copied field/element reads. Records, fixed arrays and active sum cases
+copy each Rc field, even if two handles name the same allocation. Capture-by-value
+would copy a holding; a place capture borrows. This does not admit an owning
+callable environment before its separate contract is defined.
+
+Aliasing a mutable aggregate place is not a value copy. Register transport,
+spilling and intermediate address bits are also not semantic copies. A proven
+move may eliminate copy-plus-release only if the consumed holding has no remaining
+alias/borrow obligation and evaluation, failure and lifetime guarantees remain
+unchanged. Correct baseline copying never depends on global count minimization.
 
 ## 3. References, slices and lifetime proofs
 
@@ -119,7 +146,7 @@ not inferred capability cells behind `Slice(T)`.
 | --- | --- |
 | `Ref(T)` | borrowed address; no owner cell or release obligation |
 | `Slice(T)` | borrowed address and length; no owner cell |
-| `Rc(T)` | root-owning handle with retain-on-copy; concrete ABI remains a binding gate |
+| `Rc(T)` | one owner-header address cell in the private ABI; retain-on-copy; public transport gated |
 | id | position + generation packed in one 64-bit cell; no ownership |
 
 A value parameter/result of type Rc is owning; one of type Ref is borrowed. A
@@ -130,7 +157,19 @@ silently treated as borrowed. Public/foreign handoff still requires an explicit 
 A stored borrow must fit its destination's valid lifetime. Unknown protection
 rejects; it is never permission to acquire an invisible holding. An Rc allocation
 also does not make borrowed fields inside its payload safe. Admission of such
-payloads is an explicit gate, not automatic promotion of their referents.
+payloads beyond the initial exclusion is an explicit gate, not automatic promotion
+of their referents.
+
+Returning Ref into a dying local or by-value parameter rejects. Borrowed-input and
+module-lifetime relations may justify borrowed results; an owning parameter's lifetime
+during a call alone cannot protect a result after that holding is released. Use a
+borrowed input to express that interface, not hidden caller-owner recovery.
+
+A copied `saved = box.child` where `child: Rc(Point)` owns independently. Replacing
+`box.child` cannot invalidate `saved`; borrowing the old child is different and must
+reject use after its protection is lost. Moving/replacing/releasing a protecting
+holding or reexecuting its definition cannot synthesize preservation counts. Unknown
+call effects, index overlap and missing provenance must not be treated as harmless.
 
 ## 4. Mutable ownership: exact proof obligation
 
@@ -174,9 +213,9 @@ without sufficient evidence rejects; it does not erase an ownership obligation.
 
 This is deliberately conservative. Mutable owning structures that cannot satisfy
 finite checked bounds use stores and ids, not a collector or a runtime cycle check.
-The existing private solver contains reusable SCC/root-identity algorithms, but
-its automatic counted-placement policy is superseded. Explicit-Rc cycle checking,
-broader generalization and stable export/ABI encoding remain incomplete.
+The current checker uses actual Rc edges and iterative SCC checking, with a separate
+construction-only exemption. Automatic counted placement is removed. Broader
+polymorphic/generalized proofs and stable export/ABI encoding remain incomplete.
 
 ### 4.2 Interior-reference counterexample
 
@@ -495,7 +534,8 @@ COW ordering, counting and concurrency—not a claim that the implementation is 
 No tracing, weak references, finalizers, cycle detector, periodic graph walk or
 fallback collector is part of the target. Reference-count overflow must not wrap;
 allocation failure and failed construction must release partially acquired holdings.
-Exact failure/abort cleanup and concurrent release rules remain implementation gates.
+Initial private Rc failure cleanup uses the concrete runtime contract. General
+foreign/program-abort shutdown and concurrent lifetime qualification remain gates.
 
 ## 11. Source compiler obligations and effects
 
@@ -536,10 +576,13 @@ own declared owning buffer contracts, not tracing heap objects.
 
 A nominal store segment target is about 4 KiB with at least 16 elements, using a
 power-of-two slot count. Large element types necessarily produce larger segments;
-this is a tuning target, not a contradiction hidden in an ABI promise. Store layout,
-release-header offsets, atomic API, OOM behavior and handle ABI need specification.
+this is a tuning target, not a contradiction hidden in an ABI promise. Container-
+specific fields, transactions and public handles still need binding/qualification;
+the existing owner header and initial private Rc handoff are already fixed in
+runtime interfaces §§1/3.
 
-“No new instruction” is a lowering hypothesis: existing scalar/memory operations
+For remaining container/dynamic/task surfaces, “no new instruction” is a lowering
+hypothesis: existing scalar/memory operations
 and runtime calls may suffice, but allocation, atomics, release worklists and exact
 ABI transport must be validated. Do not change revision-6 bytecode or reuse old
 profile-5 encodings without an explicit compatibility decision. Existing stack-limit,
@@ -595,28 +638,17 @@ New numeric abort assignments are not allocated by this document.
   CALL/RET banks, live prefixes, safepoint/effect boundaries where applicable,
   lifetime/trap/stack limits, code growth, prep/steady time and peak retained memory.
 
-## 15. Replacement map
+## 15. Implementation authorities
 
-| Existing document/claim | Replacement |
-| --- | --- |
-| implicit escaping Ref/Slice ownership | explicit root-only `Rc(T)`, copy retains; Ref/Slice remain borrowed; owning snapshot APIs are separate |
-| syntax §7 | `..` and compound `..=` with preserved evaluation order |
-| syntax §§8.7–8.8, 14 | explicit external-resource cleanup; invisible memory release; no finalizers |
-| syntax §15: tracing GC, reference-semantic open words, filename profiles | one progressively typed Let, transferable any, value tables and frozen values |
-| spec/memory/dynamic target | counted owners and immutable graphs; no tracing/safepoints/module trace roots |
-| counted activations or escape-selected counted locals | explicit Rc construction allocates its own root; invalid frame borrows reject |
-| initial proposal: type reach proves acyclicity | actual-owner strict-order constraints and immutable construction proof |
-| initial proposal: removed slot references see replacement | nonescaping element borrows; ids for durable links |
-| initial proposal: live length bounds ids | slot extent, occupancy and generation |
-| initial proposal: no mutable ref implies sharing | transitive immutable-backing/world-access contract |
-| initial proposal: switch counters to atomic on transfer | atomic shareable-buffer counters from creation |
-| initial proposal: present SLet exactly equals count-free | independent capability facts; legacy implementation distinction is not target semantics |
-| source partial evaluation | integrate owner proofs with existing place/provenance/demand model |
-| tasks | shared values/immutable buffers; no copy(w) escape hatch or collector dependency |
+- [Runtime interfaces](runtime-interfaces.md): header, six bindings, failure-safe
+  private owning slots, checker boundary and remaining public/foreign gates.
+- [Runtime primitives](runtime-primitives.md): count/release, COW and task algorithms.
+- [Implementation map](implementation-map.md): actual files, tests and retired paths.
+- [WORKLIST](../WORKLIST.md): dependencies, qualification and remaining delivery.
 
-The superseded documents are preserved under
-`../research/archive/ownership-before-counted-design/`. Their representations and
-collector policies are historical, not a second active design.
+Historical replacement/approval narratives live in
+[the archive](../research/archive/docs-before-rc-consolidation/README.md) and REFACTOR,
+not a second active ownership specification.
 
 ## 16. Explicit remaining specification work
 
@@ -625,12 +657,12 @@ layout, counter/overflow policy, iterative release, allocator and concurrency
 algorithms are also already decided in the runtime contracts; this list does not
 reopen them. Remaining binding/qualification and genuinely open interfaces include:
 
-- explicit Rc construction/borrowing spelling, borrow-carrying payload admission,
-  private handle/call handoff, owning environment and snapshot API types, as listed
-  in source-lifetime-lowering §7; copy retains is settled, not an open gate;
-- replace the implicit owner-selection pipeline with explicit Rc lowering and
-  borrow/strong-edge checking across records, fixed arrays and active tags; then
-  integrate persistent modules, containers/initialized-element loops and erasure;
+- borrow-carrying Rc payloads beyond the initial exclusion, explicitly owning
+  environment and snapshot API types. `Rc(value)`, named `r.borrow()`, copy-retains
+  and private typed-slot handoff are settled;
+- extend the initial Rc/borrow/strong-edge implementation to persistent owning
+  modules, containers/initialized-element loops and erased transport without
+  restoring inferred ownership or changing borrowed Ref representation;
 - borrow/strong-edge generalization and stable separate-compilation summaries,
   Rc/callable export ABI, raw-pointer boundary and dynamic encoding/profile revision;
   qualify shared memory orders and foreign teardown separately. Foreign code cannot

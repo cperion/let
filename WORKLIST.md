@@ -21,7 +21,8 @@ Its partial root/result binding is superseded, not an unfinished task to continu
 Older E/O paragraphs below record chronological evidence, not current directives to
 finish automatic counted placement. No O/E item is closed by this decision.
 
-**Current scope/files:** the initial §8 cutover spans `frontend/ir.asdl`, generated
+**Current scope/files:** the initial binding (now `docs/owners-references-ids.md`
+§2.2 and `docs/runtime-interfaces.md` §3) spans `frontend/ir.asdl`, generated
 schema, `frontend/let/{schema,semantic,ir,check,analysis,access,ownership,program,
 layout,placement,abc}.lua`, frontend ownership/borrow and affected feature tests,
 `tools/validate_source_owners.c`, and narrow optimizer-boundary corrections in
@@ -31,7 +32,7 @@ Remove the implicit owner event channel, counted-selection solver, capability/
 preservation policy, reuse promotion and inferred resource ABI; preserve borrow,
 readonly/effect/callable and SCC algorithms with real remaining consumers.
 
-**Approved dependencies:** section 8 settles `Rc(value)`, `r.borrow()`, no
+**Approved dependencies:** the archived source-lifetime proposal's section 8 settled `Rc(value)`, `r.borrow()`, no
 borrow-carrying payloads initially, one owner-address handle and caller-owned typed
 owning-value slots for failure-safe private calls. Copy-retains is settled and must
 not be reopened. Producers and consumers have been cut over together; outstanding
@@ -289,6 +290,35 @@ Sources: REFACTOR Phase 5; threaded and A/B experiment records. Dependency: B ba
   hidden adapters and dead paths; record findings, not just search counts.
 - [ ] **A02** Reconcile active docs with current code and newer ownership/task specs;
   explicitly retire obsolete GC/open-word obligations while retaining history.
+
+  **Approved consolidation slice — owner: coordinator; state: complete (docs only).** Removed
+  `docs/{remaining-work,frontend-completion-plan,frontend-gap-analysis,four_lane_fork_v3,
+  actual-binding-access-conformance,staging-session-implementation,source-lifetime-lowering,
+  module-image-copy,word-bindings}.md` from the active documentation. Preserved verbatim
+  snapshots and the old runtime-interface catalog under
+  `research/archive/docs-before-rc-consolidation/`. Moved surviving semantics to
+  `docs/{owners-references-ids,syntax,application-sugar,spread}.md`, private ABI/checker
+  contracts to `runtime-interfaces.md`, session/image-copy APIs to
+  `source-compilation-api.md`, and retired-path mappings to `implementation-map.md`.
+  Reconciled `runtime-primitives.md`, `architecture.md`, `slet-subset.md`,
+  `source-{partial-evaluation,virtual-contract}.md`, `tagged-value-lowering.md`,
+  `spec.md`, `designing-and-writing-let.md`, navigation, `AGENTS.md`, root/frontend
+  READMEs and affected links. Removed the retired runtime catalog/header/release-cache
+  instructions. Corrected stale Rc, higher-order access, optimizer, spread and staging
+  claims without opening any interface or changing runtime behavior.
+
+  **Outcome:** nine active pages removed; surviving word, ownership and session
+  contracts have explicit owners, not replacement planning pages. The old O1–O9 plan
+  obligations map to existing S/O/C/D/U/T/P/W/L/X work; inference-selected placement
+  is superseded, not transferred. Historical reports/raw experiments are unchanged.
+  Archive mapping/evidence: `research/archive/docs-before-rc-consolidation/README.md`.
+  Active docs reduced from 38 to 29 files and 13,702 to 10,095 lines. Verified 262
+  local links/anchors across 35 active/navigation documents, byte-identical snapshots
+  against `b7b74276`, manifest hashes and whitespace; see the archive's `validation.log`. Runtime task/context/container sections 2/4/6/7/8 are
+  byte-identical; section 5 only clarifies that operation metadata is a target, not
+  the retired owner catalog. No runtime tests were run for documentation-only edits.
+  **Next:** broader A02/F01 code-to-spec completeness review remains open; this slice
+  does not close A02 or change O/E delivery status.
 - [ ] **A03** Rerun clean isolated build/validation at final closure; archive source
   identity, commands and artifacts separately from this incremental audit.
 - [ ] **A04** Run fresh whole-runtime sanitizer coverage and lifetime/error-path probes;
@@ -381,7 +411,8 @@ Sources: `docs/source-partial-evaluation.md`, `source-virtual-contract.md`,
   in `semantic.lua`, `source_state.lua`, `access.lua` and focused tests. Remove eager
   instance-alias snapshots and raw cross-context capture operands; preserve ABI/VM
   execution and reject unsupported ownership. Conformance findings (former proposal
-  status withdrawn): `docs/actual-binding-access-conformance.md`.
+  status withdrawn): `research/archive/docs-before-rc-consolidation/docs/actual-binding-access-conformance.md`.
+  Current checker contract: `docs/runtime-interfaces.md` §9.
   **Conformance checkpoint:** concrete view holdings now freeze value provenance
   or retain qualified live routes; raw slot IR replay removed, callable facts indexed
   by component. Finite binding nodes avoid growing nested holding trees at loop
@@ -464,7 +495,7 @@ This is a code-size regression; timing/preparation costs are unmeasured. Evidenc
 Canonical AST/parser changes add SumSchema and desugar callable entries to Lambda;
 rest syntax was shared, but pack/spread elaboration rejected at that historical
 checkpoint (now implemented/partially qualified under X02–X04). ABC,
-continuations and allocation machinery are unchanged. Documentation: `docs/word-bindings.md`.
+continuations and allocation machinery are unchanged. Current contracts: `docs/syntax.md` §2.1, `docs/application-sugar.md` and `docs/spread.md`.
 Focused checks after the cutover: word bindings 106 checks/84 four-mode executions;
 compiler 280; lambdas 269/80 executions; source demands 52. Integrated `validate-slet`
 passed, including 112 production executions, 2 static-demand diagnostics, 12 portable-C
@@ -549,7 +580,7 @@ reopening. Named `= do(...)` returns a lambda, including nullary `do()`; bare `=
 remains the executed body. No endall, implicit returns or new capture support. Syntax
 checks: 127 / 68 four-mode executions; parser 232; word bindings 105 / 84 executions.
 Existing multi-argument callback fixture migrated to an explicit argument list.
-Docs: syntax.md, application-sugar.md, operators-and-blocks.md, word-bindings.md.
+Docs: syntax.md, application-sugar.md, operators-and-blocks.md and spread.md.
 Chain-wide saturation is now implemented in the shared call path: runtime values can
 remain pending across consecutive Apply suffixes; each suffix adjusts its own results,
 and argument computations/receiver addresses are snapped before later effects. Grouping
@@ -597,7 +628,7 @@ compiler, word-binding, chain, demand and lambda suites (`isolation.log`). Compo
 probe with the same pending packed lowering: sum raw bytes 275→306, optimized 108→108;
 scalar 109→109, optimized 81→81. This is code-size evidence, not timing evidence.
 Existing aggregate staging, capture ownership and optimizer/frame-allocation limitations
-remain; no clean/sanitizer or timing qualification. See `docs/word-bindings.md` and
+remain; no clean/sanitizer or timing qualification. See `docs/syntax.md` §2.1 and
 `docs/spread.md`.
 
 Dependency: audit baseline; S/O as needed for individual paths.
@@ -753,8 +784,8 @@ removed binding directly. Unrelated task protocols are unchanged.
 
 ## O — Collector-free proofs, placement and reclamation
 
-Authority: `docs/owners-references-ids.md` and the explicit-Rc replacement in
-`docs/source-lifetime-lowering.md`; corresponds to O1–O3 in frontend plan.
+Authority: `docs/owners-references-ids.md` (semantics), `docs/runtime-interfaces.md`
+§§1/3/9 (private ABI/checking) and `docs/implementation-map.md` (files/removals).
 **Current target is explicit Rc/copy-retains. Historical implementation paragraphs
 below do not authorize implicit Ref promotion or capability/resource inference.**
 
@@ -1060,8 +1091,8 @@ capability requirements, preservation and consume/offer/result-slot inference.
 The explicit-Rc cutover removes that responsibility rather than completing it.
 Retained runtime code/evidence is not full Rc source qualification.
 
-Specification checkpoint description (before implementation approval):
-`docs/source-lifetime-lowering.md` now proposes concrete loan/guard/version records,
+Historical specification checkpoint (before explicit-Rc supersession):
+`4a9da5db:docs/source-lifetime-lowering.md` proposed concrete loan/guard/version records,
 CFG liveness and invalidation rules, conditional/join/loop decisions, private consuming
 inputs and mixed borrowed/fresh outputs, instance binding, move/failure sequencing,
 compiler APIs and exact acceptance cases. In particular, result data stays in ABC
@@ -1069,12 +1100,14 @@ cells; only actual result holdings use appended `InPlace` slot arguments. This i
 proposed private ABI refinement, not a newly approved runtime/public ABI or a tested
 implementation. The specification is kept in a separate jj change from removal.
 The subsequent explicit implementation approval is recorded above. All executable
-admission failures above remain until the replacement is integrated and validated.
+admission failures above describe that historical checkpoint, not current explicit-Rc
+admission; the current qualification is recorded at the top of this ledger.
 
 - [ ] **O04** Specify explicit Rc handle/payload and failure-safe call transport;
   Ref/Slice remain borrowed with fixed roles. Allocate only declared Rc roots and
   owning library/environment storage, never escape-promoted locals. Concrete
-  construction/borrow/payload and owning environment/snapshot gates remain open.
+  construction/borrow/payload/private transport binding is settled for the initial
+  Rc slice; owning environment/snapshot and broader transport gates remain open.
   **Partial implemented:** `placement.lua` selects checked counted local roots from
   creation, materializes root-preserving refs/slices/arrays/callable environments and
   appended owning-result storage, and structurally checks a separate physical graph.

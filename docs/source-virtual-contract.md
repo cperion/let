@@ -1,6 +1,6 @@
 # Virtual source values and application contract
 
-**Status: concrete design proposal, not implemented.** This refines
+**Status: broader source-model target, with partial implementation.** This refines
 [source-partial-evaluation.md](source-partial-evaluation.md). The source layer
 owns these contracts; neither `abc-opt` nor native residualization implements them.
 No new scalar evaluator, instruction IR, scheduler or physical allocator is proposed.
@@ -63,22 +63,22 @@ Type identity and exact bits are retained. Static object/code identity is a
 compiler/session identity, never a serialized process address. Arbitrary host
 numbers cannot be re-tagged as checked narrow values to bypass conversions.
 
-### Owner provenance extension (approved target, not implemented)
+### Ownership boundary
 
-Under [owners-references-ids.md](owners-references-ids.md), a projected `PlaceId`
-retains its actual root-owner identity. Escaping roots are placed separately from
-activations before any address is published. Record independent borrow extents,
-possible owning dependencies, destination-owner constraints and callable world
-access in the existing state/provenance domain. Higher-order/erased callables must
-preserve environment ownership bounds; the source type `Ref(T)` alone cannot
-identify the owner of an interior `T`.
+Under [ownership](owners-references-ids.md), a projected place preserves its root
+identity and independent borrow protection. Only explicit Rc construction selects
+counted storage. A dying frame borrow rejects; source knowledge/state facts cannot
+promote it or choose a different Ref ABI. Rc copies retain; ordinary register
+transport does not. Higher-order access preserves actual environment bounds, even
+through forwarding or erasure; unsupported opaque retention rejects.
 
-Unify branch possibilities conservatively and check strict owner-rank constraints
-before lowering retained references. COW value snapshots additionally require
-retain-before-uniqueness ordering and alias-aware move proofs. No metadata query
-may run a second source evaluator, repair pointers after promotion or reconstruct
-ownership from native cache placement. Concrete metadata fields, summary encoding
-and the inference/generalization algorithm remain implementation design work.
+The initial checker is implemented on original typed-IR CFGs with joined relevant
+inputs, not whole-caller-state query identities or published contents versions. See
+[runtime interfaces §9](runtime-interfaces.md#9-source-analysis-interfaces). State-indexed
+*value knowledge* in this source-specialization target is not permission to restore
+the removed ownership solver. Strong-edge generalization, public summary encoding,
+owning environments and COW transport remain gated. Their proofs must not compute
+source values, repair pointers or reconstruct ownership from native allocation.
 
 ## 2. Operations permitted on metadata
 
@@ -223,7 +223,8 @@ Required source errors are not converted into unknown values to make compilation
 continue. A refused optional request leaves the original residual computation
 and publishes no speculative writes. Actual infrastructure/resource failures
 must be reported according to an explicit host policy, not disguised as successful
-folding. Persistent transport/snapshot APIs remain a separate design dependency.
+folding. Bounded pointer-free snapshots use the [source API](source-compilation-api.md);
+address-bearing/owning identity transport remains a separate gate.
 
 ## 6. Source places and demand
 

@@ -1,16 +1,14 @@
 # Packed tagged values and explicit storage
 
-Status: **packed lowering and approved float/address bitcasts retained; blanket
-ownership materialization removed, proof-directed replacement pending**. Prior
-private owning-tagged qualification remains historical evidence, not current source
-admission; see WORKLIST O03–O08/E01/E02. The earlier nested-extraction
-shift defect is corrected. F2BITS/BITS2F now supply exact integer/binary64 kind
+**Status: packed lowering, float/address bitcasts and initial private Rc-tagged
+lowering are implemented.** Public/foreign owning and erased interfaces remain gated;
+WORKLIST F04/O/E owns qualification. The earlier nested-extraction shift defect is corrected. F2BITS/BITS2F now supply exact integer/binary64 kind
 transitions, using additive revision-6 EXT selectors 0E/0F (profile 2+); earlier
 engines reject those selectors. No numeric conversion or scratch-memory fallback
 is used. The user approved this ISA extension after the original frontend-only
 qualification exposed the missing contract.
-The focused suite is integrated; broader resource/padding/loop qualification and
-the separate optimizer frame-access defect remain open. Measurements show mixed
+The focused suite is integrated. The optimizer frame-access defect is corrected;
+broader resource/padding/loop qualification remains open. Measurements show mixed
 runtime results, including interpreted regressions; this is not a universal speedup
 or completion of F04. See WORKLIST.md and
 [qualification evidence](../research/experiments/frontend-syntax/packed-tagged/float-bitcasts/README.md).
@@ -18,20 +16,20 @@ This is not a new source feature, bytecode revision or replacement optimizer.
 Investigation and measured probes:
 [composition investigation](../research/experiments/frontend-syntax/word-bindings/composition-investigation.md).
 
-## Approved owning-tagged extension — preceding qualification
+## Owning tagged values and address casts
 
-User-approved slice: O04–O08/E01/E02, previously integrated across source, physical
-lowering, shared machine computation and tooling. The blanket ownership lowering
-has since been removed; packed cells, address casts and concrete active-case drops
-remain for the replacement. The preceding full incremental validation and focused
-ASan/UBSan/leak checks passed; evidence and limits are in
-[`runtime-owners/tagged-values/`](../research/experiments/runtime-owners/tagged-values/README.md).
-The broad work IDs remain partial; this qualification covers the boundary below. Keep the existing tag/aligned union and packed-cell transport. Extend
-concrete materialization to managed alternatives, nested records/arrays and callable
-payloads, including pointer-free variants within owning functions. Do not add boxing,
-a second sum representation, a runtime layout interpreter or a slot registry.
+Private Rc alternatives, nested records/fixed arrays and pointer-free variants in
+owning functions use the same tag/aligned-union and packed-cell representation.
+[Runtime interfaces §3](runtime-interfaces.md#3-explicit-rc-layout-and-private-handoff)
+owns partial-copy/tag-publication/drop and private handoff contracts. Borrowed
+callables do not imply supported owning callable payloads. No boxing, second sum
+representation, runtime layout interpreter or slot registry is introduced.
 
-Assign additive revision-6 EXT selectors `10`/`11` (hex), profile 2+, to
+Current evidence is in [explicit-Rc qualification](../research/experiments/runtime-owners/explicit-rc-cutover/README.md).
+The earlier tagged-values archive records the preceding implementation, including
+sanitizers; those results must not be presented as sanitization of the Rc cutover.
+
+Additive revision-6 EXT selectors `10`/`11` (hex), profile 2+, implement
 `ADDR2BITS.A/B` (address → integer) and `BITS2ADDR.A/B` (integer → address).
 Both preserve all 64 bits on the selected stack, leave its opposite/live prefixes
 unchanged, have no effects and use shared scalar computation. They do not create a
@@ -44,14 +42,14 @@ tag-conditional traversal replaces the flat-offset-only cleanup assumption. Gene
 C entries branch on active tags and enqueue only active owner fields. Scratch starts
 cleanup-valid, including nested tags; each successful acquire is immediately visible
 to cleanup. Acquire before replacement; move clears active source holdings. Call-cell
-transport itself does not acquire, and owning results retain caller-owned result records.
+transport itself does not acquire, and owning results use caller-owned typed slots.
 No new source invalid-tag semantics or rollback of ordinary writes is introduced.
 
 Files: `frontend/let/{placement,layout,abc}.lua`, structural IR checking as needed,
 `tools/opcodes.lua`, `gen/semantics.lua`, shared runtime/optimizer bindings,
 `schema/residual.asdl` and its builder/validator/C emitter, packed/source ownership and
-machine tests. Retire blanket variant rejection in materialized functions and the
-physical packed-address rejection; preserve source public/foreign ownership gates.
+machine tests. Physical private packed-address lowering is admitted; public/foreign
+ownership gates remain.
 
 Acceptance: exact pointer bits and kind checks in both banks; nested alternatives,
 replacement/self-replacement, direct/indirect calls, all acquisition-failure boundaries,
@@ -188,8 +186,8 @@ ordinary finite branches and concrete offsets, never a path table. Reused scratc
 are zeroed before their enclosing tags and acquired owner fields are published; copying
 inactive bytes must not turn old scalar bits into holdings. Last-use accounting includes
 Switch/VariantMatches/VariantPayload uses, not only expression references. Clearing moved
-owners reads tags alone. Immutable carrier captures are reused rather than copied again.
-Proven borrowed functions whose types and every call contract are unchanged retain their
+owners reads tags alone. Semantic Rc copies still retain; register transport does not.
+Nonowning functions whose types and every call contract are unchanged retain their
 original ordinary value/local lowering, avoiding unnecessary aggregate frames.
 
 ## Validation and measurement

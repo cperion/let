@@ -187,9 +187,35 @@ initializer is not self-referential. Mutually recursive local declarations are n
 Shadowing an outer binding is allowed; duplicate declarations in one lexical scope reject. Parameters
 and body declarations follow that same rule.
 
+### 2.1 Word computation and binding
+
+A word owns its requirements, result contract, body, captures and code identity;
+names belong to bindings, not a second kind of executable computation.
+
+```let
+let inc(x: U32) = x + 1
+-- Equivalent binding:
+let inc = do(x: U32) = x + 1
+```
+
+The spellings share type/result checks, recursive visibility, captures and export
+eligibility. Aliasing a word or adding a matching signature does not construct a new
+body or force an environment allocation. First-class transport is a separate boundary;
+export aliases may need ABI entry forwarders without changing computation identity.
+Literal-word file bindings are mutually visible like named definitions. Recursive
+result demands still require an annotation when the contract is unresolved, not a
+guessed Any result or an implicit result fixpoint.
+
+Named keyed definitions share the elaborator, but a keyed literal-`do` grammar has
+not been approved. The spelling equivalence above is for ordered definitions.
+Rest/template behavior is specified once in [spread.md](spread.md#3-packs-and-rest-requirements);
+there is no erased runtime variadic entry. Owning/escaping callable admission remains
+separate from these binding rules.
+
 ## 3. Application and partial supply
 
-Application uses parentheses, never juxtaposition:
+Ordinary application uses parentheses; the restricted literal-led and trailing-block
+suffixes are specified in [application-sugar.md](application-sugar.md):
 
 ```
 let transform = affine(4, 3)
@@ -323,8 +349,8 @@ A named definition's `= do ... end` introduces its executed block body; `= do(..
 introduces a returned lambda, including nullary `do()`. For example:
 `let make(x: U32) = do() = x`. A lambda's own `=` unambiguously introduces an
 expression, so its nested lambdas need no grouping. Literal-`do` bindings share named definitions'
-recursive visibility, result inference, export eligibility and conservative capture checks. See
-[word-bindings.md](word-bindings.md) for the shared computation/binding contract and implementation limits.
+recursive visibility, result inference, export eligibility and capture/lifetime checks
+under the shared binding contract in §2.1. Syntax does not admit an owning environment.
 
 Signature forms are:
 
@@ -492,7 +518,8 @@ shapes. Type-only partial supplies keep later fixed requirements outstanding;
 rest saturates as soon as those fixed requirements are met. Pack `.length` and static
 indexing are supported; ordinary pack storage/erasure rejects. Unspecialized templates
 have source-only exports, not erased variadic ABC entries. See the spread evidence
-for qualification gaps, including the existing optimizer frame-access defect.
+for the contract and WORKLIST X for remaining qualification; the optimizer frame-access
+regression is corrected, not a current spread admission gate.
 
 Suffix opening has an **implemented live-place contract within admitted typed contexts**: record fields
 become names for live places of one retained receiver, not eager field snapshots. Qualified
@@ -503,12 +530,14 @@ word using an opened field retains its place/lifetime dependency, including for 
 opening still exposes existing definitions. No new escape permission or change to ordinary
 instance aliasing is implied. [spread.md §5](spread.md#5-introducing-names-let-context) owns
 this contract. Updated vocabulary/receiver tests validate live opening; historical snapshot
-logs do not. Module aggregate storage and broader ownership proofs remain outside admission.
+logs do not. Pointer-free module storage has bounded support; owning module transport
+and broader ownership proofs remain gated.
 
 ## 7. Operators and evaluation order
 
-**Approved extension, not implemented:** [schema operators and trailing blocks](operators-and-blocks.md)
-defines static schema-owned `op_*` methods. Primitive rules below remain fixed;
+**Static schema operators are approved but not implemented:**
+[operators-and-blocks.md](operators-and-blocks.md) defines their `op_*` methods.
+The trailing-block application and `endall` syntax described there are implemented. Primitive rules below remain fixed;
 user records gain only explicitly supplied protocols, not automatic structural
 arithmetic/equality. Schema-interface preservation and comparison ordering require
 the concrete contracts listed there. `and`, `or`, `not` remain boolean-only.
@@ -711,8 +740,11 @@ let Shape = oneof { circle: Circle, rect: Rect }
 `oneof({...})` is not a compatibility spelling. Bare schema braces and this dedicated sum form
 define requirements; all other headed braces supply values. Passing a schema to an ordinary word
 requires parentheses: `f({ field: U32 })`. A `name(parameters): result = body` entry in a headed
-supply constructs an ordinary lambda value, not a schema method or lexical self-binding; see
-[word-bindings.md](word-bindings.md).
+supply constructs an ordinary lambda value, not a schema method or lexical self-binding:
+`circle(c) = c.radius` means `circle = do(c) = c.radius`. It has no implicit receiver,
+overload registry or special handler engine; its usual expected signature and written
+supply order govern checking/captures. The same spelling in a schema literal is a
+method with its existing receiver. This sugar does not implement the target Table runtime.
 
 Alternative order is canonical, not written order, so two spellings of the same alternatives are the
 same type. `oneof` requires a schema with at least one named alternative; an empty schema, or a
@@ -765,9 +797,12 @@ must already be defined, so a sum cannot mention itself by value. Section 8.2 su
 
 A reference borrows a place instead of copying or owning it. `Rc(T)` is the approved
 explicit owning type: semantic copies retain the same root, not a copy of `T`.
-Rc construction/borrowing surface and ABI gates are recorded in
-[source-lifetime-lowering.md §7](source-lifetime-lowering.md#7-remaining-concrete-binding-decisions);
-the current compiler has not implemented that cutover. References, Rc handles,
+`Rc(value)` constructs a root; named `r.borrow()` borrows its payload without retaining.
+The initial payload and copy rules are specified in
+[ownership §2.2](owners-references-ids.md#22-construction-and-semantic-copies), with
+private transport in [runtime interfaces](runtime-interfaces.md#3-explicit-rc-layout-and-private-handoff).
+The initial private slice is implemented; public/foreign/erased and owning-callable
+interfaces remain gated. References, Rc handles,
 slices, pointers and ids are indirection boundaries; growable containers also have finite handle representations.
 Finite layout is separate from acyclic ownership. For example:
 
@@ -1374,7 +1409,12 @@ specialization and compiler-derived refinements. Explicitly partial-specialized 
 contracts; implementation must check all applicable contracts and reject contradictions, never silently
 override an annotation. No static-result assertion syntax is introduced by this table.
 
-Module initialization is compile-time execution over concrete values. In the ABC implementation, executable initializer code is verified bytecode run by a compile-time VM; interpreted, eager-JIT and lazy-JIT staging policies have identical semantics. An initializer
+Module initialization is compile-time execution over concrete values. Executable
+initializer code runs as verified ABC in the VM; interpreted/threaded/eager/lazy
+staging policies have identical semantics. Current pointer-free image publication
+is specified in [source compilation API](source-compilation-api.md#static-value-and-module-snapshots).
+The following `let_init`/standalone-program emission contract is a target, not the
+current ABC artifact API: An initializer
 may read module storage and build temporary records. A module-level mutable instance that runtime
 code refers to also gets named file-scope storage, and the artifact emits an exported
 `void let_init(void)` that assigns each such object its start value. A custom host calls it
@@ -1424,10 +1464,10 @@ rejects, dynamic zero division aborts. Configurable trap handling needs a separa
 `use std.text...` is approved import-and-spread sugar for `use std.text` followed
 by `let text...`; it retains qualified `text` access. Only exported names are
 introduced, visible after the declaration, with no automatic re-export. Spread
-names cannot shadow visible names (`spread-shadow`). `let record...` copies data
-fields, not methods; `let sum_type...` binds constructors. See [spread.md](spread.md)
-for file-scope visibility, collisions and exact evaluation rules. These forms are
-not yet implemented.
+names cannot shadow visible names (`spread-shadow`). `let record...` opens live field places,
+not detached methods; `let sum_type...` binds constructors. These forms are implemented
+within admitted typed contexts. See [spread.md](spread.md) for file-scope visibility,
+collisions and exact evaluation rules.
 
 Approved self-delimiting calls omit parentheses for one atomic literal or block:
 `f 21`, `f 1.5`, `f true`, `f 'x'` and `f "text"` mean their ordinary one-argument
@@ -1449,7 +1489,7 @@ capture/escape checks apply. `f 1 + 2` means `f(1) + 2`; negative arguments requ
 means `f(1)(2)`, with independent checking and result adjustment at each application. Array indexing/keyed supplies keep their meanings; use `f([1, 2])` to pass
 an array literal. See
 [operators-and-blocks.md](operators-and-blocks.md#7-trailing-block-argument-sugar)
-for grammar boundaries and unimplemented status.
+for grammar boundaries and remaining admission limits.
 
 ### 11.1 Literal-led and lexical receiver calls
 
@@ -1593,8 +1633,8 @@ Use `f("a", do ... end)` for one call with both arguments. Newlines remain white
 semicolons separate statements where a following literal/block would otherwise attach.
 
 Rest is one final ordered requirement, with the same syntax for named words/methods and
-literal-`do` bindings. Pack elaboration remains explicitly unimplemented; foreign and erased runtime
-variadic interfaces are not introduced. Name binding spread is not destructuring.
+literal-`do` bindings. Source-only pack/template elaboration is implemented; foreign and
+erased runtime variadic interfaces are not introduced. Name binding spread is not destructuring.
 Keyed spread still needs a constructor/callee head; bare `{ ...p }` is not a value
 literal. Semantic array length/type checks apply after expansion. The `?` plus
 trailing-comma notation does not permit a lone comma in an otherwise empty list.
@@ -1949,10 +1989,12 @@ are independent effects. Other tasks may neither read nor write mutable module
 storage; immutable data may be shared. Task failures are ordinary result values;
 abort remains program-ending without running source deferred actions.
 
-The collector-free direction is approved, not implemented. Remaining gates are
-listed in [owners-references-ids.md §16](owners-references-ids.md#16-explicit-remaining-specification-work):
-ownership inference and summary encoding, cleanup/overflow/concurrency, export and
-foreign ABI, detailed library edge cases, capability syntax, implementation of the approved `.let`-only migration
+The initial explicit-Rc slice is implemented; the complete collector-free library/task
+target is not. Remaining gates are in
+[ownership §16](owners-references-ids.md#16-explicit-remaining-specification-work):
+borrow/strong-edge generalization and summary encoding, broader cleanup/concurrency
+qualification, owning export/foreign ABI, library edge cases, capability syntax,
+implementation of the approved `.let`-only migration
 and concrete task suspension, group-bound summaries, concurrent publication,
 foreign integration and shutdown protocols. Task source semantics are now specified
 in the linked design; runtime correctness is not established by that specification.

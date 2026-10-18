@@ -393,7 +393,9 @@ bytecode or claim unavailable dynamic/ownership capabilities work.
   CLI/API/staging paths and obsolete `.slet` rejection; run all four execution modes.
 - [ ] Audit for surviving semantic SLet dispatch/adapters before claiming unification.
 
-The dependency plan is `docs/frontend-completion-plan.md` (O7). Concrete interfaces
+The dependency plan at this checkpoint was `docs/frontend-completion-plan.md` (O7),
+now archived under `research/archive/docs-before-rc-consolidation/`; current dependencies
+belong to WORKLIST. Concrete interfaces
 still require the normal implementation design gate. Current `.slet` execution and
 `.let` lowering rejection remain unchanged by this documentation update.
 
@@ -2311,7 +2313,9 @@ The existing callable `Ty.Owned` is not the new Rc type.
 The interrupted implementation is preserved at `4a9da5db`, separately from this
 specification revision. It includes an incomplete rooted materializer and a narrow
 private pointer-free-root probe, not a completed source-lifetime implementation.
-The replacement contract is `docs/source-lifetime-lowering.md`; source semantics,
+The replacement contract was `docs/source-lifetime-lowering.md` (preserved in the
+A02 documentation archive). Its active authorities are now `docs/owners-references-ids.md`
+and `docs/runtime-interfaces.md`; source semantics,
 syntax, runtime-interface references and the implementation map now point to the
 explicit design. WORKLIST O01–O08/E01/E02 retains all delivery status and open gates.
 
@@ -2356,3 +2360,15 @@ compiler's missing `preserve_none` ABI support; it was not bypassed. Exact outco
 remaining gates, measurements and status live in WORKLIST and
 `research/experiments/runtime-owners/explicit-rc-cutover/README.md`. No broad O/E
 completion or optimal count/storage claim follows from this checkpoint.
+
+## A02 — Consolidate active documentation after explicit Rc
+
+Nine planning/migration/report pages have left active `docs/`. Their exact contents,
+plus the retired runtime-interface catalog, are preserved at
+`research/archive/docs-before-rc-consolidation/` with hashes and a destination map.
+Ownership semantics now live in the ownership spec; private layouts/handoffs/checker
+contracts in runtime interfaces; session/image-copy APIs in source compilation API;
+word/binding/application/opening semantics in the existing language specifications.
+WORKLIST remains the only delivery ledger and the implementation map owns files/removals.
+Task/container protocols and open gates are unchanged. This is a documentation
+cutover, not runtime qualification or closure of all A02/O/E work.

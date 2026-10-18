@@ -1,14 +1,9 @@
 # Disciplined application sugar
 
 **Status: literal/postfix application, typed receiver calls/scopes and binding-resolved
-captures implemented.** Receiver qualification has 323 checks / 304 optimized and
-unoptimized four-mode executions, including recursive transport, import-spread and
-member-wins noncaptures. These results validate the earlier snapshot-field opening.
-The live-field opening in §3.1 now replaces that contract within admitted typed
-contexts: updated tests pass 407 checks / 384 executions, full validation and
-pre-packed-lowering isolation. See `research/experiments/frontend-syntax/live-opening-endall/`. Full baseline validation and pre-packed-lowering isolation pass;
-see `research/experiments/frontend-syntax/receiver-scopes/`. Frozen-place ownership,
-discarded-copy-write effects and broader unimplemented interfaces remain Q11 work. Extends [syntax.md](syntax.md) and
+captures implemented within current admission.** Opening exposes live places, not
+snapshots. [WORKLIST](../WORKLIST.md) Q05/Q11 and X07 owns qualification and remaining
+frozen-place, discarded-copy-write and owning-interface work. Extends [syntax.md](syntax.md) and
 [operators-and-blocks.md](operators-and-blocks.md). Ordinary application remains the
 semantic operation. No signature-aware parser, implicit conversion search, extension
 registry or additional execution engine is introduced. Live work: Q05 and Q11.

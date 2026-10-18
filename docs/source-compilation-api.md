@@ -1,228 +1,180 @@
-# Source compilation and static execution API
+# Source compilation and staging API
 
-**Status: API policy approved; scalar source-demand boundary implemented.** This
-supplies the API boundary needed by [source-virtual-contract.md](source-virtual-contract.md).
-Required demands now execute verified ABC under explicit `staticMode`; completed
-`typed`/`typedFile` no longer promise absence of backend work. Broader source
-specialization/ownership remains incomplete. Pointer-free module snapshots have
-working-tree qualification, with a known higher-order proof blocker; see
-[module image copying](module-image-copy.md) and `frontend/README.md`.
+**Authority:** host compilation policy, checked-program ownership, VM session lifetime
+and static-value/image transport. [Source partial evaluation](source-partial-evaluation.md)
+and [virtual source contracts](source-virtual-contract.md) describe the broader
+approved architecture; [WORKLIST](../WORKLIST.md) S/F/O owns its delivery status.
 
-## 1. Meaning of typing
+**Implemented:** required scalar source demands under explicit `staticMode`, in-process
+VM sessions, supported pointer-free aggregate/module snapshots and the initial private
+Rc checked-to-physical boundary. **Gated:** address-bearing/owning snapshot transport,
+public/foreign owning interfaces, general virtual-value specialization and `.let`
+execution. Passing a mode does not admit unsupported types or effects.
 
-Proposed rule: `typed` identifies the completed semantic product, not the absence
-of execution during its construction. Complete source elaboration can require
-static values before dependent requirements or result contracts can be checked.
-Those demands execute verified ABC through the VM; the frontend does not evaluate
-source operations itself.
-
-A `phase="typed-ir"` result must never contain unresolved required static demands.
-Do not return a partially typed unit under the existing completed-phase name, and
-do not replace a required static value with an unknown runtime value.
-
-`Compiler.source` / `Compiler.file` remain backend-independent parsing and
-semantic checking/declaration indexing. The collector-free target checks owner and
-capability facts, not filename-selected ownership semantics; current profile
-restrictions remain until the migration is implemented. This proposal does not add a second semantic
-checker for editor use. A future incomplete-analysis API would need an explicit
-result contract and is not a substitute for completed typing.
-
-### 1.1 Checked-program and executable boundaries (implemented)
-
-`typed` and `typedFile` expose `.program`: the completed, dependency-inclusive IR
-functions, module/foreign declaration vectors, `.access[id]`,
-`.ownership[id].summary` and `.accessStats`. `let/program.lua` owns this analysis.
-`Check.program` only validates IR structure/types; it does not infer lifetimes or
-attach proofs to `Ir.Fn` nodes. Source compilation lowers its existing program;
-demand fragments and specialization create and analyze their own completed graphs.
-The public raw-IR `Compiler.lower(functions, options)` explicitly analyzes a new
-program, including its supplied module/foreign declarations.
-
-The program captures its vectors, not deep copies of every IR/type node. Nodes are
-frozen by caller contract after analysis. A transformation constructs a new graph
-and obtains a new program; lowering does not hash, revalidate or silently refresh an
-old program after in-place mutation. Private `ABC.lower` consumes that program, not
-a bare function list or a separate set of proof annotations.
-
-At the interrupted implicit-ownership checkpoint `4a9da5db`, `ABC.lower` selects
-entry-rooted code through `Ownership.bind`, then calls `Placement.program` and
-`Layout.physical`. A narrow private pointer-free-root/result-slot path executes;
-outgoing holdings, preservation and general contracts remain incomplete and
-unqualified. Partial admission is not a complete safety proof. This implementation
-is superseded by explicit `Rc(T)` with retain-on-copy, not evidence
-of Rc support. Its `rootBindings`/counted requirements are removal targets.
-
-The explicit-Rc replacement preserves the checked-to-physical boundary and
-entry-rooted selection, but lowers declared owning types/operations instead of
-inferring ownership behind Ref. `Check.program(..., true)` remains structural
-physical validation; concrete C-entry field drops and the C owner core survive.
-Artifacts retain the exact checked source `.program` and `.functions`, with a
-separate `.materialized` physical graph. Pointer-free staging/snapshots use
-`Layout.scalar`. The current `.ownership[id].summary` is an implicit-era result,
-not a frozen API contract for the Rc cutover.
-
-Cycles and unsafe-access proofs still reject during analysis. The replacement does
-not open owning public/foreign transport, persistent module holdings, erasure or a
-public packed-address ABI. `.let` execution remains `dynamic-lowering`. Staging does
-not authorize lifetime foreign bindings. See
-[runtime-interfaces.md](runtime-interfaces.md#retained-runtime-binding-and-preceding-source-materialization)
-and `research/experiments/runtime-owners/{source-cutover,tagged-values}/` for the
-preceding integrated boundary, not current source execution support.
-
-## 2. Proposed call shapes
+## Compilation policy
 
 ```lua
+Compiler.source(options)             -- parsing/declaration indexing; no VM
+Compiler.file(path)                  -- same boundary from a file
 Compiler.typed(input, options)
 Compiler.typedFile(path, options)
 Compiler.compile(options)
 Compiler.compileFile(path, options)
 ```
 
-The existing one-argument `typed` and `typedFile` forms remain usable for programs
-that need no VM execution to complete elaboration. `input` retains its current
-source-options/parsed-unit meaning. Runtime service configuration belongs in the
-new explicit options argument, not mutable annotations on a parsed source unit.
-`compile` forwards its configuration to the same semantic entry rather than
-creating a separate binding-time/import pipeline.
+`typed` means a completed semantic product, not absence of backend work. Required
+static values can be needed before dependent requirements/results can be checked;
+they execute verified ABC through the VM. A `phase="typed-ir"` result cannot contain
+unresolved required demands. Parsing stays backend-independent; no second semantic
+checker or Lua evaluator is introduced for editor use.
 
-Proposed source-compilation execution option:
+The execution option is `staticMode = "interpreted" | "threaded" | "eager" | "lazy"`.
+It selects a mechanism, not source semantics, permission to evaluate effects early,
+or the residual program's runtime tier. Without it, typing that needs no execution
+can complete; required execution rejects with `execution-policy`. Optional folding
+without a policy leaves legal residual computation. A missing policy does not make
+the source program semantically invalid.
+
+`compile` forwards policy through the same semantic entry, not a second import or
+binding-time pipeline. `tools/abc` defaults source `compile` and source `run` to
+interpreted static execution; `--static-mode=MODE` (or `--static-mode MODE`) overrides
+it independently of `--jit`. Invalid policies/static failures do not publish an
+artifact over an existing output. Source profile restrictions still apply: current
+`.slet` execution is not the approved `.let`-only migration.
+
+Each compilation request owns its demand/import/initialization state and closes its
+resources on success or failure. Recompiling a parsed unit creates request-local
+annotations rather than reusing VM addresses or stale initialization. Code identities
+are reserved before recursive elaboration; constructing recursive code is not executing
+it. Initialization uses uninitialized/initializing/initialized states: demanding an
+initializing value rejects a dependency cycle. Static execution itself uses explicit
+ABC continuations, never recursive host evaluation of source bodies.
+
+## Checked-program and physical lowering
+
+`typed`/`typedFile` expose `.program`, owned by `let/program.lua`:
+
+- dependency-inclusive function, module and foreign vectors;
+- `.typeCells`, the named definitions needed by structural and owning-ABI checks;
+- `.access[id]`, `.accessStats` and `.ownership[id].edges` for checked access/strong edges.
+
+These are private compiler results, not a public serialized summary format. There is
+no `.flow`, inferred counted summary or resource-mode Ref contract. `Check.program`
+validates structure/types; access/lifetime/cycle validation follows at the program
+boundary, without writing proofs onto shared `Ir.Fn` nodes.
+
+The program captures its vectors, not deep copies of every IR/type node. Nodes are
+frozen by caller contract after analysis. Transformations create a new graph and
+analyze it explicitly. Lowering does not hash or silently refresh mutated source IR.
+Raw-IR `Compiler.lower(functions, options)` analyzes a new program with its supplied
+declarations; source compilation consumes its existing checked program.
+
+`ABC.lower` uses `Program.select` for independent Call/View/Code reachability, then
+`Placement.program` and `Layout.physical` for declared Rc operations and owning slots.
+Structural physical checking does not repeat ownership inference. Artifacts retain
+the original `.program` and `.functions`, plus a separate `.materialized` graph whose
+source-node mapping preserves original diagnostics. Pointer-free snapshots use
+`Layout.scalar`. See [runtime interfaces](runtime-interfaces.md#3-explicit-rc-layout-and-private-handoff)
+for the private ABI and [§9](runtime-interfaces.md#9-source-analysis-interfaces) for
+the checker contract.
+
+## VM staging sessions
 
 ```lua
-{ staticMode = "interpreted" } -- also "threaded", "eager" or "lazy"
+local session = require('let.stage').open {
+    mode = 'interpreted', -- also threaded/eager/lazy; required
+    optimize = false,    -- defaults to true; optional ABC optimization only
+    -- stackCells = positive_exact_cell_limit,
+}
+local ok, result = pcall(function()
+    local program = session:prepare(artifact, checkedFunctions)
+    return program:call { entry = 'main', arguments = {} }
+end)
+session:close() -- also on failure
+if not ok then error(result, 0) end
 ```
 
-This setting selects execution mechanism, not source semantics, residual runtime
-mode, permission to evaluate effects early, or a request to run every known call.
-Existing explicit `Compiler.stage(functions, {mode=...})` remains a distinct host
-API with its existing mode spelling; it must ultimately use the same staging
-service, not retain a second execution implementation.
+The session owns one VM and prepared module handles. Each prepare owns a distinct
+verified module identity and source/provenance maps; equal module bytes do not imply
+shared image state. Reusing a prepared handle preserves its image writes. Separate
+identities/sessions isolate them. Aborts reset execution stacks but **do not roll back
+previous image writes**; speculative work must not publish failed session state.
 
-For library calls without `staticMode`:
+Mode, stack and optimization policy are fixed per session. Closed/unready handles,
+reentry, and close during a progress callback reject. Close is idempotent and frees
+the VM before releasing prepared module references. GC finalizers are defensive
+cleanup, not the primary lifetime protocol. The runtime binding loads `build/libabc.so`
+(or `ABC_RUNTIME_LIBRARY`), not the optimizer library. With `optimize=false`, staging
+must work without loading `abc-opt`.
 
-- Parsing and semantic construction that need no execution can complete.
-- Optional VM folding is not attempted; legal residual code is retained.
-- A required static demand reports a host configuration diagnostic identifying
-  the binding/source location and need for a static execution policy.
+`Compiler.stage` / `Stage.execute` prepare, call and close through this same service.
+The obsolete runtime-executable option rejects; no subprocess/text-result fallback
+remains. `Program:call` accepts an optional `progress` callback for start/finish/abort
+notifications, not an instruction-budget or resumable-source interface. VM errors
+retain structured status, reason, bytecode/optimizer provenance and original source
+spans. The VM is not a sandbox for unchecked native pointers.
 
-That diagnostic is not a judgment that the program is invalid SLet/Let. No
-implicit Lua evaluator or reinterpretation under a different source profile is
-permitted. A host-selected mode does not grant access to an unavailable backend.
+## Static value and module snapshots
 
-## 3. CLI policy
+Export signatures are checked against the typed transport contract before calling.
+Integer/bool/f64 values use exact raw cells (f64 IEEE bits, not host conversions);
+Unit has no cell. Supported pointer-free fixed-layout records, arrays and sums use
+`{type=Ty, image=bytes}`. `layout.lua` defines layout/ABI; `snapshot.lua` marshals
+bits; `stage.lua` returns raw `cells`, typed `values` and `moduleData` images.
+Specialization materializes snapshots as checked `Ir.Bytes`, not host computation.
 
-The CLI is the host and should select `interpreted` as its default static policy,
-independently of the selected residual execution tier. A proposed
-`--static-mode=interpreted|threaded|eager|lazy` option overrides that host policy for source
-compilation. This is a CLI option, not new language syntax.
+Address-bearing values, borrowed refs/slices, Rc and callable environments are not
+snapshot transport. Copying pointer bits would not establish lifetime or relocation.
+No counted/frozen owner or erased owning interface follows from this API.
 
-Both `abc compile source` and implicit compilation in `abc run source` must pass
-the same option through the production compiler. Selecting `--compiled` for the
-resulting program must not silently select eager compilation for static work.
-Invalid policy options fail before publishing an artifact. Existing output files
-remain untouched on any compilation/static-execution failure.
+A demand copies persistent module-root extents only after successful VM execution
+and typed result transport. Compiler-owned bytes are accepted after all copies
+succeed, then ordinary residual data/rodata lowering publishes them. Returned bytes
+survive session teardown. Module instance aliases preserve their original root;
+field reads/function results remain copies. Equal bytes are not alias evidence.
+The earlier higher-order retention hole is corrected; general proof/transport
+qualification remains open in WORKLIST, not excused by snapshot copying.
 
-Exact option-parser integration and diagnostics must be tested; these options
-are not currently implemented by this proposal.
+### Loaded-image copy
 
-## 4. One owned compilation session
-
-A public source compilation request owns one internal session. Its import graph,
-initialization state, static identities and specialization records are shared
-across that request. Public functions are not chained in a way that creates a
-fresh session for every demand or imported module.
-
-Conceptual internal flow:
-
-```text
-compile(request):
-    open compilation session with explicit host policy/capabilities
-    parse/resolve requested source/import graph
-    elaborate using virtual values and demand-driven static requests
-    materialize completed checked IR and required source data state
-    lower residual product through normal ABC backend
-    export durable artifact
-    close session on every success/failure path
+```c
+abc_status abc_vm_read_image(
+    const abc_vm *vm, const abc_module *module,
+    size_t offset, void *output, size_t size, abc_error *error);
 ```
 
-`typed` stops after materializing the completed semantic product. It still closes
-its execution resources. Returned values cannot retain dangling VM-local pointers;
-any retained static state must have an explicitly owned, transportable compiler
-representation. That representation and snapshot API are design dependencies,
-not assumed capabilities of the current scalar bridge.
+Copies `size` bytes at a module-image-relative offset from this module identity's
+already-loaded persistent image in `vm`. It does not execute code, load an image,
+retain an output owner, relocate addresses or synchronize concurrent access. The
+caller provides valid live handles and writable nonoverlapping output storage,
+and serializes copying against execution/image mutation. `error` may be null.
 
-Compilation of a parsed unit more than once must not reuse stale initialization
-state or VM addresses. Cross-compilation caching, if later added, requires an
-explicit ownership/state key and is not implied by value interning.
+| Result | Contract |
+| --- | --- |
+| `ABC_OK` | copied; zero size permits null output and an offset at image end |
+| `ABC_INVALID` | null VM/module, or null output with nonzero size |
+| `ABC_ARGUMENTS` | invalid offset/extent, checked without addition overflow |
+| `ABC_NOT_FOUND` | no image of that module identity is loaded in this VM |
 
-## 5. Two forms of recursion, two different checks
+Input/extent checks precede image lookup/copy. Failure leaves destination bytes
+unchanged and sets/clears error normally. This is neither an atomic snapshot nor
+rollback for an earlier aborted VM call.
 
-- Elaboration/specialization reserves code identities before elaborating recursive
-  bodies. Forming mutually recursive code does not execute it.
-- Required initialization uses `uninitialized/initializing/initialized` binding
-  state. A value demand that re-enters `initializing` rejects as a dependency cycle.
+## Errors, gates and qualification
 
-Static calls themselves execute on the ABC VM with explicit ABC continuations.
-Do not implement them using recursive host invocation of source bodies.
+Keep source/VM aborts, missing host policy, unsupported lowering/transport, actual
+resource failure and compiler invariant failures distinct. None becomes a successful
+unknown value to satisfy a required demand. A declined optional fold publishes no
+state; this is not permission to swallow execution or infrastructure errors.
 
-## 6. Errors and resource ownership
+Foreign effects are unavailable in staging, including source lifetime bindings.
+Runtime Rc execution does not imply compile-time Rc construction support. No source
+fuel, specialization-count or logical-allocation budget is introduced. Host stack
+limits are resource policy, not language acceptance heuristics.
 
-Distinguish:
-
-1. Source errors and VM language aborts, with source provenance.
-2. Missing execution policy (host configuration).
-3. Unsupported lowering/transport/profile capability.
-4. Actual VM resource failure.
-5. Compiler invariant failure.
-
-No category becomes a successful unknown value to satisfy a required demand.
-A declined optional fold retains the original computation and publishes no state;
-this is not blanket permission to swallow execution or infrastructure errors.
-
-Current implementation profile restrictions remain in force. The unified
-[collector-free target](owners-references-ids.md) replaces their language-level
-ownership split, but selecting a staging mode does not implement that migration,
-restore profile-5 execution or permit silently compiling Let as the typed subset.
-Foreign effects remain unavailable in static execution under the current contract.
-No instruction, recursion, specialization-count or logical-allocation budget is
-introduced. Host stack-capacity controls and interruption remain resource policy,
-not source acceptance heuristics.
-
-## 7. Compatibility and replacement
-
-This intentionally revises the documented promise that complete typing never
-needs backend execution. Keep the result's meaning (fully checked semantic IR),
-not a facade pretending required evaluation did not occur.
-
-Do not change executable behavior until the policy and session bridge exist.
-At implementation time, update `compiler.lua`, `stage.lua`, both CLI source entry
-paths, frontend API documentation and callers/tests together. Do not update the
-current API documentation to describe unimplemented behavior as available.
-
-The scalar explicit-stage API and its exact-cell tests remain useful. Replace its
-execution mechanism with the common VM service when ready rather than introducing
-a separate source evaluator next to it.
-
-## 8. First implementation acceptance boundary
-
-The API policy is approved. Define the concrete staging-service implementation
-boundary, then implement a vertical slice that reaches an actual source static
-demand, the VM, a returned known value and residual checked IR. An isolated unused virtual-value library does not close
-the gap.
-
-For that slice, specify supported value transport explicitly. Scalar-only support
-must not be reported as complete persistent module initialization, aggregate
-snapshotting, owned closure transport or dynamic Let execution.
-
-Tests must distinguish:
-
-- No-static-demand typing without a policy: succeeds as before.
-- Required demand without a policy: clear host configuration failure.
-- Required demand with each mode: equal typed values and source diagnostics.
-- Parsing the same source: still requires no execution service.
-- Optional evaluation without a policy: legal residual behavior, no host evaluator.
-- Compile and implicit source run: same default static policy; independent runtime tier.
-- Repeated compilation/imports: correct once-per-session initialization and cleanup.
-- Static failure: existing output preserved; resources released; no published partial state.
-
-This API decision does not modify Ershov scheduling, the ABC ISA/calling convention,
-`abc-opt` or the native symbolic allocator.
+Tests live in `frontend/tests/{source_demands,staging,staging_sessions,
+staging_no_optimizer,aggregate_staging,program}.lua` and `tools/validate_api.c`.
+They distinguish no-policy typing, required demands, all four execution modes,
+exact bits, state persistence/isolation, failure publication, cleanup and unsupported
+transport. WORKLIST and linked experiment reports own actual outcomes and performance;
+this contract does not assert full virtual-value, owning-snapshot or `.let` completion.

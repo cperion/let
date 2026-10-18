@@ -1,20 +1,20 @@
 # Source partial evaluation: bidirectional design proposal
 
-**Status: architectural direction agreed; concrete interfaces proposed, not
-implemented or validated.** The agreed direction is virtual source values and
+**Status: agreed architectural direction; partial implementation, not a complete
+source partial evaluator.** The agreed direction is virtual source values and
 places, backward demand plus forward knowledge, late source materialization,
 existing Ershov scheduling, and VM-only evaluation. This document specifies the
 source partial evaluator only; unresolved API/representation choices remain explicit.
-The bootstrap retirement and revision-6 validation work remain separate,
-incomplete integration work; this proposal does not mark either complete.
+Required scalar demands and bounded pointer-free snapshots execute through the VM;
+the bootstrap compiler is retired. Broader virtual-value specialization remains open.
 
 ## 1. Scope and authoritative contracts
 
 Language rules come from [syntax.md](syntax.md), especially sections 2–4, 9–11
 and [owners-references-ids.md](owners-references-ids.md). Static execution follows
 [spec.md](spec.md#source-partial-evaluation-and-counted-ownership). The current
-collector-free dependency plan is [frontend-completion-plan.md](frontend-completion-plan.md);
-its predecessor's F-package numbering is historical.
+dependency and acceptance authority is [WORKLIST](../WORKLIST.md), particularly S/F/O;
+older plan package numbers are historical.
 
 The target source evaluator specializes one Let language against source knowledge.
 The current typed/`.slet` implementation boundary remains until explicitly migrated.
@@ -53,10 +53,11 @@ Runtime execution remains independent of build-time `abc-opt`.
   `specialize.lua` builds scalar known-argument wrappers and rejects hidden inputs.
   Neither constitutes a general source binding-time or initialization model.
 
-The subprocess staging mechanism has since been replaced by the approved
-[in-process session foundation](staging-session-implementation.md). Source-demand
-integration, transportable initialization snapshots and the virtual source model
-remain pending; that foundation does not resolve the other findings above.
+These are historical findings, not a current gap list. The subprocess bridge has
+been replaced; scalar source demands and pointer-free module snapshots are implemented.
+[Source compilation API](source-compilation-api.md) owns the current session/transport
+contract. WORKLIST records remaining work; the entire virtual source model is not
+completed by those integrations.
 
 ## 3. Semantic records (compiler metadata, not executable IR)
 
@@ -327,12 +328,12 @@ and cannot publish writes/identities into accepted state. Transport uses typed
 layouts and explicit relocation identities; VM-local pointers are not constants.
 
 The old subprocess bridge could not meet this contract. The approved session
-foundation now provides owned in-process VM/module state, exact scalar transport,
-cleanup and source error mapping. Persistent source initialization, snapshots and
-aggregate/identity transport still require explicit API designs. This proposal
-does not presume those remaining APIs already exist.
+foundation provides owned VM/module state, exact scalar and supported pointer-free
+aggregate/module transport, cleanup and source error mapping. Address-bearing/owning
+identity transport remains gated; the [source API](source-compilation-api.md) owns
+that boundary.
 
-Interpreted/eager/lazy are execution policies, not source meanings. No source fuel,
+Interpreted/threaded/eager/lazy are execution policies, not source meanings. No source fuel,
 instruction, recursion or specialization-count budget is introduced.
 
 ## 9. Ownership and representation boundary
@@ -348,13 +349,15 @@ supported owned representation, not an exception to lifetime checking.
 Integrate [the collector-free owner proof](owners-references-ids.md) with existing
 place identities: root-owner provenance, independent borrow extents, possible
 strong edges, callable rank/world summaries and sharing state must survive copies,
-joins and erasure. Solve ownership before choosing escaping-root storage; do not
-count entire activations or relocate published places. Immutable value snapshots
+joins and erasure. Declared Rc selects ownership; checking rejects invalid borrows
+rather than choosing escaping-root storage. Do not count entire activations or
+relocate published places. Immutable value snapshots
 and mutable-owner constraints are different proof domains. No runtime value IR
 or second allocator is introduced by these metadata facts.
 
-Dynamic execution and counted source ownership remain unimplemented. Extending
-this analysis does not restore profile 5 or enable dynamic staging.
+Initial private explicit-Rc execution is implemented; dynamic `.let` execution and
+owning staging transport are not. Extending this analysis neither restores profile 5
+nor reintroduces implicit reference ownership.
 
 ## 10. File ownership and replacement boundaries
 

@@ -108,7 +108,7 @@ The simulator needs nothing: open `lab/abc_vm_lab.html` in a browser. After edit
 - **One generated symbolic executor drives peer sinks.** `src/residualize.c` emits register-addressed native stencils directly; `src/optimize.c` emits canonical verified ABC; `src/residual_builder.c` and `src/residual_c.c` emit validated strict C11. Native placement remains the symbolic stack cache and never passes through residual SSA or an all-home allocator.
 - **Portable C is a public build product.** Pure known internal calls use typed scalar parameters, returns, and ordinary C locals. Export wrappers and genuinely generic, trapping, or multi-result boundaries retain the stable pointer-array/status ABI.
 - **Typed/SLet execution remains integrated.** Active tests cover aggregates and sums, references and raw pointers, typed callables, foreign lowering, compile-time staging and imports. The unified collector-free target remains design work; non-executing Let checks are not evidence of counted-owner or dynamic runtime support.
-- **Implementation status is explicit.** `docs/frontend-gap-analysis.md` tracks remaining language, ownership, module-initialization, and persistent-staging work.
+- **Implementation status is explicit.** [WORKLIST.md](WORKLIST.md) is the live delivery ledger; [docs/README.md](docs/README.md) indexes current contracts. Historical audits are not current gap lists.
 
 ## License
 

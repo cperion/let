@@ -119,11 +119,12 @@ placement-reconstruction pass is part of the design.
 ## Memory model
 
 **Current machine contracts below are unchanged.** The new source ownership target
-is [owners-references-ids.md](owners-references-ids.md): separate counted escaping
-roots, owner-aware acyclicity proofs, stores/ids, COW lists/strings/tables and
-immutable sharing, with no collector. It is not implemented by profile 2. Its
-release ABI, encoding and verifier facts require explicit design before runtime
-changes; old profile-5 trace metadata is not a compatibility representation.
+is [owners-references-ids.md](owners-references-ids.md): explicit Rc roots with
+retain-on-copy, borrowed Ref/Slice, strong-edge proofs, stores/ids and immutable
+sharing without a collector. Initial private Rc transport/release is implemented
+through the revision-7 lifecycle binding; general container/dynamic/public owning
+interfaces remain gated. Profile 2 alone does not supply source ownership, and old
+profile-5 trace metadata is not a compatibility representation.
 
 [The memory profile](memory-profile.md) defines frame blocks, image offsets and
 unsafe pointers. In brief:
@@ -252,21 +253,22 @@ verified ABC in the VM, not a Lua source evaluator. Existing Ershov scheduling
 and backend cache allocation remain authoritative. Effects and knowledge are
 separate; known results do not erase required effects.
 
-In-process scalar staging sessions are implemented. Full source demands,
-`staticMode` policy/API, initialization snapshots/relocations and aggregate
-transport are not. Source static execution has no semantic fuel budget; optional
-execution needs justified termination/effect/no-abort safety. Required execution
-can fail through an actual abort/resource failure or external interruption.
-Progress/interrupt diagnostics and memory snapshot policies remain requirements,
-not claims about the current bridge.
+In-process sessions, scalar required demands, `staticMode` policy/API/CLI and bounded
+pointer-free aggregate/module snapshots are implemented. General source specialization
+and address-bearing/owning relocation are not. See [source compilation API](source-compilation-api.md).
+Source static execution has no semantic fuel budget; optional execution needs justified
+termination/effect/no-abort safety. Required execution can fail through an actual
+abort/resource failure or external interruption. Progress notifications are not a
+resumable execution or general interruption protocol.
 
 [Collector-free ownership](owners-references-ids.md) is the approved source target:
-one Let language, independent type/count/allocation facts, implicit owners, strict
+one Let language, independent type/count/allocation facts, explicit Rc owners, strict
 owner-edge constraints and immutable value DAGs. It replaces GC roots/safepoints,
 tracing descriptors and collected open words as future ownership requirements.
 [Dynamic values](dynamic-profile.md) retain shared scalar computation and non-owning
-named-layout tokens, but use transferable values and COW tables. The target is not
-implemented; the typed `.slet` path and `.let` lowering rejection remain current.
+named-layout tokens, but use transferable values and COW tables. The complete target is not
+implemented; initial Rc support does not remove the typed `.slet` / `.let` lowering
+boundary or enable COW tables.
 No new bytecode/profile or extension compatibility is authorized by these docs.
 Selected-first A/B semantics and the no-quickening decision remain binding.
 
@@ -305,7 +307,8 @@ source contracts supersede incompatible old wording.
     second value IR. See [threaded-execution.md](threaded-execution.md).
 15. **Execution policy:** host-selected `off`, `threaded`, `lazy`, or `eager`,
     independent of source filenames. Threaded preparation is eager and allocates
-    no executable mapping; no bytecode quickening or automatic tiering.
+    no executable mapping for ordinary tape execution; owning lifecycle entries
+    separately require native preparation. No bytecode quickening or automatic tiering.
 16. **Portable C:** shared semantic residue is the canonical build-time route;
     implemented coverage is narrower than the complete target.
 17. **Ownership target:** collector-free counted roots and immutable value DAGs

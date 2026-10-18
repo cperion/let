@@ -2,9 +2,9 @@
 
 **Status: vocabulary, ordered/keyed supplies and source-only rest/template
 specialization are implemented within current admission and partially qualified.**
-The spread suite passes all unoptimized four-mode cases; eight optimized configurations
-are blocked by the independently reproduced optimizer frame-access defect. Other
-optimized cases pass. Module binding vectors share one accepted initializer execution.
+The spread suite passes raw/optimized four-mode execution within current admission.
+The earlier optimizer frame-access defect is corrected; broader source/resource
+qualification remains tracked in WORKLIST X. Module binding vectors share one accepted initializer execution.
 Rest templates use qualified formation anchors: selected value captures snapshot at
 definition time; opened places remain live. The integrated rest suite validates direct/
 indirect adapters, recursion, captures and source-only imports/exports. See
@@ -248,8 +248,11 @@ Type comes from its annotation or a checked callback signature, never from searc
 values by type. One parameter may be opened, at the first runtime position after
 leading static Type parameters; this applies equally to named and unnamed openings.
 Opening is a word-entry operation, so both expression and block bodies are admitted.
-Whole-home assignment rejects; the retained reference holder has no public address.
-Record homes and field places retain ordinary checked borrow/lifetime rules. No
+Whole-home assignment rejects `context-use`; the retained reference holder has no
+public Ref/Ptr address. Record homes and field places retain ordinary checked
+borrow/lifetime rules. Foreign declarations cannot open parameters. Module/sum opening
+creates no runtime home; bare `...` without a runtime home rejects `context-required`.
+Receiving vocabulary does not invoke it: a nullary pipeline step still needs `step()`. No
 physical C0 placement, effect row or ownership-by-construction guarantee follows.
 
 An initialized context uses
@@ -262,13 +265,10 @@ places, not field-read snapshots. The rule is **open the context to work with it
 bind a value to remember it**. This intentionally supersedes the previous snapshot
 contract; no parallel snapshot-opening mode or compatibility spelling is introduced.
 
-The implementation has suffix forms, namespace/constructor aliases, receiver scopes
-and binding-resolved place captures. Updated vocabulary tests pass 92 checks / 64
-executions; receiver tests pass 407 checks / 384 optimized/unoptimized executions.
-Full validation and isolation with pre-packed lowering pass. Evidence:
-`research/experiments/frontend-syntax/live-opening-endall/`. Historical snapshot logs
-remain historical. WORKLIST X07 records remaining admission limits: module aggregate
-storage, broader owned closures and frozen/readonly proofs are not added by opening.
+Suffix forms, namespace/constructor aliases, receiver scopes and binding-resolved
+place captures are implemented. WORKLIST X07 owns qualification and remaining
+admission, including broader owning closures and frozen/readonly proofs. Pointer-free
+module snapshots have bounded support; opening adds no owning module transport.
 
 Otherwise-unbound bare calls use the retained receiver; actual members win over lexical
 words, and the selected first parameter determines copy versus borrow. Locally bound
