@@ -1,0 +1,8 @@
+function 0: 1 arguments, 1 results
+  00000000  CGET0_A       
+  00000001  ADDI_A         1
+  00000003  RET_A          1 1
+function 1: 0 arguments, 1 results
+  00000006  PUSH8_A        41
+  00000008  CALL_A         0x00000000 1
+  0000000e  RET_A          0 1

@@ -1,0 +1,15 @@
+function 0: 1 arguments, 1 results
+  00000000  CGET0_A       
+  00000001  JZ_A           0x00000012
+  00000004  CGET0_A       
+  00000005  SUBI_A         1
+  00000007  CALL_A         0x00000000 1
+  0000000d  ADDI_A         3
+  0000000f  RET_A          1 1
+  00000012  PUSH8_A        0
+  00000014  RET_A          1 1
+function 1: 0 arguments, 1 results
+  00000017  PUSH8_A        5
+  00000019  CALL_A         0x00000000 1
+  0000001f  RET_A          0 1
+export entry = function 1

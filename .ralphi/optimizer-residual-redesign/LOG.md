@@ -829,3 +829,112 @@ native; a layout question, not a key rule).
 omission in the algorithm — `run()` needs the set before it can create the entry
 versions; then the user gates Q1, Q2, Q3, Q9 and the input-free values Q10's `K`
 and Q12's one-owner shape pass.
+
+## Round 11 — the residual-function set is a root set plus lazy calls, not a pre-pass
+
+**Mode:** experiment (code reading + a measured probe of abc-opt's emitted
+function table, the native entry table and the portable-C writer). **Question
+ranked first (of three in `experiments/11-residual-root-set.md`):** what is the
+**residual-function set** — which functions get a residual entry version and a
+body — and when can it be computed? `run()` starts from "each residual function"
+and the design says every such entry version exists before any body is walked,
+but a function is residual only if a call to it stayed residual, which is the
+walk's output; the incumbent breaks the circle with a second, function-level
+worklist (`optimize.c:862-873`), the one the design claims to delete. Ranked
+above (B) native's entry set (`Q19`: may it shrink to the addressable entries?
+the same fact, priced in the same probe) and (C) Q12's fact ownership, because a
+normative algorithm that cannot start and a circular definition are worse than an
+ownership preference.
+
+**What was read.** `ARCHITECTURE.md:119-122` (entry-before-walking),
+`:359-386` (`run()`), `:489-505` (per-function driver), `:64-73` (module facts
+already list "entry roots", unused); `src/optimize.c:781-785`
+(`retain_function` → `append_unknown_call`), `:809-817` (`mark_live_functions`),
+`:826-846` (writer renumbering, CALL/TCALL rewrite, fail on a non-live call
+target, `else memset(live,1)`), `:862-873` (`activate_function_facts` + dirty
+loop); `docs/abc-opt.md:95`; `src/residualize.c:822-841` (native entry for every
+function, `c_entry` split), `:96-106` (`resolve_execution_target` →
+`image->entries[index]`), `src/vm.c:214,253-263` (host entry by export),
+`gen/cold.lua:19-29` (`vm_resolve_indirect` accepts any function entry),
+`docs/module-format.md:116-122` and `docs/callable-profile.md:81` (code addresses
+enter only through relocations); `src/residual_builder.c:2704-2712`,
+`src/residual_c.c:222-240, 1254-1280`.
+
+**What was measured** (`experiments/11-residual-root-set.md`, `.lua`, `.out`,
+`11-entry-table.c`, artifacts in `11-residual-root-set-out/`). Four hand-built
+modules through the assembler, verifier, abc-opt and all four modes:
+`acyclic-export` 2 → **1** function (inlined helper deleted; 42 in all modes);
+`acyclic-no-export` 2 → **2** (no roots ⇒ every function kept, helper body still
+emitted verbatim although its call folded to `PUSH8_A 42`); `recursive-export`
+2 → **2** (the `CALL_A` survives and the caller continues after it:
+`CALL_A; CPUSH_A; CGET0_A; RET`; 15 in all modes); `reloc-root` 3 → **2** (a
+`.codeaddr` relocation keeps an otherwise-uncalled `target`; `dead` dropped; 42
+in all modes). Native (eager): entries for **every** function, including one that
+no export/reloc/call reaches (2/2 on `acyclic-no-export`); 4 bodies for the raw
+two-function `acyclic-export` (1 virtual call, 1 virtual return, 0 real calls)
+against 1 body for its abc-opt output; a non-exported function named only by a
+relocation is entered and executes. Portable C emits every function of its input
+module (1/2/2 bodies for the 1/2/2-function modules).
+
+**Answers.**
+
+1. **The ABC set is a static root set plus a post-walk residual-call closure.**
+   Roots are exports ∪ code-address relocations ∪ revision-7 C-entry relocations
+   (`optimize.c:813-816, 864-869`; documented `docs/abc-opt.md:95`); if all three
+   tables are empty, every function (`:826`, measured 2 → 2). The closure is over
+   the *emitted* call lists: residual (non-inlined) direct calls plus every direct
+   call of a **retained** function (a refused body is emitted verbatim, so none of
+   its calls can be inlined), transitively. The optimizer already walks only that
+   closure; the writer emits it, renumbers it and rewrites displacements.
+2. **Native's set is every function of its input module** (split by `c_entry`
+   into execution/lifecycle images). The runtime reaches an entry only by an
+   export name or by an indirect call whose public ABC entry address resolves to a
+   function index, and the resolver accepts any function entry with a matching
+   signature; code addresses enter a module only through relocations. So the
+   cheap-looking "all functions" rule compiles one never-entered body per inlined
+   callee on raw modules (measured), while the addressable-root rule would not.
+3. **The portable-C sink emits every function**; exports only add wrappers, and
+   unused statics are the C compiler's dead code, so the set has no cost.
+4. **Design: the set is derived, not precomputed.** Only the **root set** is a
+   pre-pass (`entry_roots`), because only it can be entered from outside the
+   traversal. A residual call creates its callee's entry version at the call
+   (`entry_version` = `version_at(callee.entry, all_locations, callee)`; the key is
+   the call ABI, so identity is content and no other walk's progress matters).
+   A **retained** body is the third source: the binding reports its direct call
+   targets and they are residual by definition — exactly the incumbent's
+   `retain_function`/`append_unknown_call` rule. The residual-function set is then
+   the set of entry-version owners; the ABC writer emits exactly those functions
+   (measured 2 → 1 and 3 → 2), and its "call target must be live" failure becomes
+   unreachable. The incumbent's function-level worklist (`needed`/`dirty`/
+   `ArgumentFact` activation, each residual callee re-walked) and the writer's
+   `mark_live_functions` closure pass retire; the driver is `run(binding, module)`.
+
+**Decision recorded in ARCHITECTURE.md.** Headline, one-line design, the version
+concept ("a residual function is the owner of an entry version"), the
+deterministic-order invariant (root pre-pass only), the data-representation entry
+table (the version table's (owner, entry pc) pairs *are* the residual-function
+set; ABC emits those functions, native's table is its root set), the invalid
+states (a function emitted without an entry version; an entry version nobody can
+name), the algorithm block (`entry_version`, `run(module)`, the residual-call hook
+creating its target, the `retain` step), the call-policy/entry-key/complexity
+bullets, the binding interface (`entry_roots`, `residual_call(call, target)`,
+`retain(function, direct_targets)`, `run(binding, module)`), the retired paths
+(the function-level worklist and `mark_live_functions`), three rejected
+alternatives (static call-graph closure; walk every function; requiring all entry
+versions up front), the round-11 evidence block, and the round-10 evidence's
+superseded sentence. Q18 is added and answered, Q19 is added open; the open list
+gains Q19.
+
+**Not established.** Whether native may shrink its entry set to the addressable
+entries plus residual calls (Q19): code says the reachable set is exports ∪
+relocations, the probe prices it (2 of 4 raw eager bodies are never entered, one
+of them the inlined callee's own entry; the other is the round-10 call-return
+split), but no restricted image was built. Also whether an ABC retained body's
+`TCALL` targets must be roots (the incumbent says yes: `retain_function` records
+both `CALL` and `TCALL`).
+
+**Next uncertainty.** Q19 (native compile set) is the last input-free choice;
+then the user gates Q1, Q2, Q3, Q9, Q10's `K` value and Q12's one-owner shape
+pass. With Q18 answered the design's normative algorithm has no undefined input:
+`run(module)` starts from the binding's root set, and every other version is
+created by the construct that needs it.

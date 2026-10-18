@@ -1,7 +1,7 @@
 # Architecture
 
-Status: candidate (round 10). Derived from `CONTRACT.md`, checked against the
-code, and corrected by the round-2 … round-10 probes. Rationale and citations:
+Status: candidate (round 11). Derived from `CONTRACT.md`, checked against the
+code, and corrected by the round-2 … round-11 probes. Rationale and citations:
 [experiments/1-rederive.md](experiments/1-rederive.md);
 [experiments/2-abc-versioned-sink.md](experiments/2-abc-versioned-sink.md);
 [experiments/3-loop-versions.md](experiments/3-loop-versions.md);
@@ -11,12 +11,16 @@ code, and corrected by the round-2 … round-10 probes. Rationale and citations:
 [experiments/7-budget.md](experiments/7-budget.md);
 [experiments/8-key-identity.md](experiments/8-key-identity.md);
 [experiments/9-tail-cycle.md](experiments/9-tail-cycle.md);
-[experiments/10-call-continuation.md](experiments/10-call-continuation.md).
+[experiments/10-call-continuation.md](experiments/10-call-continuation.md);
+[experiments/11-residual-root-set.md](experiments/11-residual-root-set.md).
 
 The one-line design: **execute ABC semantics once, symbolically, per version;
 module facts and version identity have one owner; a sink owns only residue.**
 A version body ends at a control transfer; **every control-transfer successor is
-a keyed edge, and a call is an effect unless it is inlined.** A version key is
+a keyed edge, and a call is an effect unless it is inlined.** **The set of
+residual functions is derived, not precomputed: a binding-declared root set
+(what that sink can be entered into from outside) plus every callee a residual
+call or a retained body names.** A version key is
 **constants plus the binding's locations plus the core's
 continuation chain** — never sink residue identity and never a canonicalisation
 mode: **identity is content.** A **family** is the key with the constants
@@ -62,7 +66,10 @@ A residualizing compiler is five things:
    signatures, block leaders (function entries, branch/switch targets and their
    fallthrough pcs; **a call-return pc is not a leader**, round 10), direct-call
    graph, recursive/tail-only/nontail components (they also feed the inline rule),
-   unknown-call reachability, entry roots, **loop headers** (a leader with an
+   unknown-call reachability, **addressable entries** (the functions named by
+   exports, code-address relocations and revision-7 lifecycle C-entry
+   relocations — the only ways a function entry identity reaches outside the
+   module), **loop headers** (a leader with an
    incoming edge whose source pc is at or after it) and, per loop header, its
    **backedge instructions** and **cycle
    body** (the pcs on a path from the header to a backedge source, excluding the
@@ -98,10 +105,17 @@ A residualizing compiler is five things:
    version keyed by the loop-invariant key, its backedge is an edge, and
    loop-carried values cross as the key's constants or locations. A single-entry
    loop header has exactly one version per family (one for a function's own,
-   non-inlined body).
+   non-inlined body). **A residual function is the owner of an entry version**:
+   the binding's root set gets one before any body is walked, and every other
+   entry version is created by the residual call (or retained body) that names it
+   (round 11).
 5. **Binding (sink)** — the target mechanism: the location vocabulary, record/emit
    residue, materialize join values, emit a control transfer to a version handle,
-   place and publish code. Never semantics and **never a key**: the binding
+   place and publish code, and the **entry-root set** — the functions this sink
+   must be able to enter from outside the traversal (ABC: the addressable
+   entries, or every function when the module declares none; native: every
+   function today, Q19; portable C: every function, its statics are the C
+   compiler's dead code). Never semantics and **never a key**: the binding
    receives version handles, it does not compute them (round 10).
 
 Invariants:
@@ -117,9 +131,14 @@ Invariants:
   per version and a sink never needs a function-wide value graph for key equality;
 - the core never inspects residue; `abc_symbolic_value.reg` is opaque to it;
 - version creation order is a function of module bytes and facts (deterministic):
-  **every residual function's entry version is created before any body is
-  walked**, so a call can name its target version regardless of walk order
-  (round 10);
+  **every root entry version is created before any body is walked** — the sink's
+  root set is what can be entered from outside, so it must exist up front (round
+  11). Every other entry version is created by the construct that needs it: a
+  residual call creates its callee's entry version at the call instruction, and a
+  retained body creates one for each of its direct call targets. Such a call
+  names its target itself, so nothing depends on another walk's progress; the
+  *set* of versions is order-independent (content keys) and the queue is FIFO
+  with a fixed arm order, so the creation order is deterministic;
 - **a key is exact, and the version table is a function.** A version is created
   whenever an edge key differs from every existing version's key at that `pc`;
   **every widening is followed by a lookup**, so a widened key that already has a
@@ -142,8 +161,8 @@ Invariants:
   loop-invariant rule (it has no constant to widen and every component is already
   a location), so a residual function whose entry pc is a loop header has **one**
   version there, which is both its entry version and its loop-header version, one
-  body. The entry is created through `version_at` like every other version (and
-  before any body is walked);
+  body. The entry is created through `version_at` like every other version (a
+  root's before any body is walked, a residual callee's at its call, round 11);
   (iii) at the **per-family version budget** a key is replaced by its all-location
   value key, which is looked up before creation. This is total inside a family,
   because the stack shape, the frame coordinates and the continuation chain are
@@ -245,9 +264,18 @@ Invariants:
 - **a residual-function entry has exactly one version**, keyed by the generic
   all-location value key because the call ABI materializes arguments into
   locations; the same is true of a module entry (export, relocation, C entry).
-  The entry key is not a canonicalization of any incoming edge key, and it exists
-  before any body is walked, so a residual call reaches it without carrying a
-  key. No join is computed, so no re-execution and no publish-then-modify exists;
+  The entry key is not a canonicalization of any incoming edge key. Root entries
+  exist before any body is walked; a residual call creates its callee's entry
+  version at the call, so the callee's body is queued then and walked once. No
+  join is computed, so no re-execution and no publish-then-modify exists, and
+  **the residual-function set needs no separate computation**: it is exactly the
+  set of functions that own an entry version. A body the binding cannot record is
+  **retained**: its entry version's residue is the verbatim body, every direct
+  call in it is a residual call (no walk, hence no inline decision), and the
+  binding reports those targets so the driver creates their entry versions. The
+  ABC writer emits exactly the entry-version owners, renumbers them and rewrites
+  CALL/TCALL displacements (measured: 2 → 1 function when a callee is fully
+  inlined, 3 → 2 with a relocation root, round 11);
 - native consumes the symbolic cache directly: no stored native residual IR.
 
 ## Concepts
@@ -301,15 +329,18 @@ number of inlined call instances is bounded separately (the only non-key bound).
   different components as constants, and each emits its own prologue.
 - **Version table** keyed by (owning residual function, pc, key); the owning
   function is identity for sinks whose code is placed in per-function ranges
-  (ABC, portable C: the driver runs per residual function), and is implicit for
-  native (one code arena; a module-scope table). A residual function has exactly
-  one entry version; a single-entry loop header has exactly one version per
-  family (its loop-invariant key, which *is* the entry version when the entry pc
-  is the header); every other version at a pc exists because some edge's exact
-  key differed. A **family** is (stack shape, frame coordinates, continuation
-  chain) — the key with the constants removed; it is the unit of the version
-  budget and of the inlining bound. The version table has at most `budget - 1`
-  exact keys plus one all-location key per family per pc.
+  (ABC, portable C: one run per module, `owner` selects the code region), and is
+  implicit for native (one code arena; a module-scope table). The set of
+  (owner, entry pc) pairs **is** the residual-function set: a residual function
+  has exactly one entry version; a single-entry loop header has exactly one
+  version per family (its loop-invariant key, which *is* the entry version when
+  the entry pc is the header); every other version at a pc exists because some
+  edge's exact key differed. A **family** is (stack shape, frame coordinates,
+  continuation chain) — the key with the constants removed; it is the unit of the
+  version budget and of the inlining bound. The version table has at most
+  `budget - 1` exact keys plus one all-location key per family per (owner, pc).
+  The ABC/C binding emits one function per entry-version owner (the emitted
+  module's function table); native's entry table is its `entry_roots`.
 - **Residue is sink-owned, per version, and never shared**: native — none
   (emitter packets are consumed immediately; locations are registers); portable
   C — one `residual.asdl` block per version with block arguments as the join
@@ -323,7 +354,9 @@ number of inlined call instances is bounded separately (the only non-key bound).
   two versions with the same key at one pc, an edge whose target key does not
   match the materialized location set, a sink value inspected by the core, a
   loop-specific version shape, a join that bypasses `binding.join`, a
-  residual-function entry version that is not the all-location key, **a keyed
+  residual-function entry version that is not the all-location key, a function
+  emitted without an entry version, an entry version for a function that no root,
+  residual call or retained body names, **a keyed
   edge or a version at the return pc of a *residual* call (it is an effect; a
   virtual return's return pc is an ordinary edge target)**, a binding that
   computes or compares a key, or a residue region that is rebuilt after publish
@@ -356,10 +389,14 @@ edge_to(target, x, owner):                      # the only keyed-edge constructo
 #   cycle body, per-pc A/B/C heights, CSET targets and the backedge transport
 #   identity.  A heuristic: exact keys keep it sound either way.
 
-run():
-    for each residual function f:
-        version_at(f.entry, all_locations, f)    # the call ABI's key; the loop
-        # rule is a no-op on it, so a header entry is this same version
+entry_version(f):                               # the call ABI's key; the loop
+    return version_at(f.entry, all_locations, f)  # rule is a no-op on it, so a
+    # header entry is this same version.  Idempotent: one entry version per f.
+
+run(module):
+    for each f in binding.entry_roots(module):   # the only pre-pass: what the
+        entry_version(f)                         # sink can be entered into from
+        # outside (root set; Q18).  Non-root callees need no pre-pass.
     while queue not empty:
         v = queue.pop(); x = copy(v.key); pc = v.pc; owner = v.owner
         loop:
@@ -382,8 +419,18 @@ run():
 #             distinct_families(callee entry) < K):
 #               inline:   the machine pushes the continuation; t = edge_to(callee
 #                         entry, x, owner); binding.join(v, t); binding.jump(t)
-#               residual: binding.residual_call(v, callee entry); the results are
-#                         binding locations; pc = return_pc; continue in this body
+#               residual: t = entry_version(callee); binding.residual_call(v, t);
+#                         the results are binding locations; pc = return_pc;
+#                         continue in this body.  The call creates its own target,
+#                         so no entry pre-pass is needed and no walk-order
+#                         dependency exists.
+#   retain:   the binding cannot record a body (unsupported residue): the body's
+#             residue is the verbatim instructions; for each direct call target c
+#             in it: entry_version(c)          (a refused body cannot inline, so
+#                                               every one of its calls is residual)
+#             A refusal is function-granular: if it arrives at a later version of
+#             the same owner, that owner's unpublished versions are discarded and
+#             replaced by the retained body.  Nothing published is rebuilt.
 ```
 
 - **One edge constructor, one version constructor.** `edge_to` applies the
@@ -404,6 +451,16 @@ run():
   call's: materialize values live across the call, hand back result locations,
   reset its placement state. Native's `K_CALL`-return block marking
   (`discover_blocks`) and the post-call version bodies it creates are retired.
+- **Entry versions are created where they are needed.** The binding's
+  `entry_roots` are entered from outside the traversal, so their versions exist
+  before any body is walked; a residual call creates its callee's entry version at
+  the call (`entry_version`), and a retained body creates one per direct call
+  target. Nothing else is precomputed, so the residual-function set has no
+  separate computation and no function-level worklist (`experiments/11-residual-root-set.md`).
+  A retained body is emitted verbatim, so a direct call in it is residual by
+  definition — this is the incumbent's `retain_function` + `append_unknown_call`
+  rule (`optimize.c:781-785`), and it is what keeps the ABC writer's "call target
+  must be live" check unreachable.
 - **Join materialization** (`binding.join`) is where incoming symbolic values
   meet the target key: native homes/re-homes registers, C emits block arguments,
   ABC arranges the target's C-frame slots (push a drained A/B value or store it
@@ -428,7 +485,8 @@ run():
   self-tail** call — callee == calling function — in a component of size 1 with
   no nontail call. Every other recursive
   call is an **in-body residual call** to the callee's single all-location entry
-  version; **no constants cross**, so recursion that stays residual has no entry
+  version, which the call site itself creates (`entry_version`; round 11);
+  **no constants cross**, so recursion that stays residual has no entry
   constants at all (round 9). Nontail recursive cycles must be residualized because inlining
   grows the continuation chain without bound; a cross-function tail cycle is
   residualized for the same reason plus the missing cross-function cycle body
@@ -441,12 +499,17 @@ run():
   one-version cycle (this derives the incumbent's self-recursive inline rule).
   The ABC sink must inline pure acyclic direct calls: `docs/abc-opt.md:82-91`
   fixes that canonical output.
-- **Entry keys**: a residual-call entry, and every module entry, is a single
-  version keyed by the all-location value key, because the call or the outside
-  world supplies the argument values in binding-defined locations and the body
-  must be correct for all callers. It is created through `version_at` like every
-  other version: the loop rule leaves an all-location key unchanged, so an entry
-  that is a cycle header has one body, not two. This is the call ABI, not a
+- **Entry keys**: a residual-call entry, and every root entry (export,
+  code-address relocation, C entry), is a single version keyed by the
+  all-location value key, because the call or the outside world supplies the
+  argument values in binding-defined locations and the body must be correct for
+  all callers. Root entries are created through `version_at` before any body is
+  walked; a residual call creates its callee's entry through the same function at
+  the call, and a retained body does so for each direct target. The loop rule
+  leaves an all-location key unchanged, so an entry that is a cycle header has
+  one body, not two. The set of residual functions is therefore derived (the
+  entry-version owners) and is never computed; **only the root set is declared**,
+  because only it can be entered from outside the traversal. This is the call ABI, not a
   canonicalization of an incoming key; no join, no per-argument lattice, no
   re-execution. A virtual entry (inlined call) is a normal version (exact or
   loop-invariant key); an inlined self-tail loop is a self-edge on it and keeps
@@ -471,9 +534,11 @@ run():
 - **Complexity**: facts O(V+E) plus one reverse walk per loop header bounded by
   its cycle body (a nested loop is walked once per enclosing header); one walk per
   version body; per-body key comparison and scheduling; the family count and the
-  inlining bound are version-table queries, not passes; no fixpoint over
-  functions, so no function is ever walked twice. No pass re-walks emitted
-  code and no pass is exponential in branches or loop iterations.
+  inlining bound are version-table queries, not passes; **one module-scope
+  version worklist, no function-level worklist and no fixpoint over functions**,
+  so no function is ever walked twice and a function outside the root set costs
+  nothing until a residual call or retained body names it. No pass re-walks
+  emitted code and no pass is exponential in branches or loop iterations.
 
 ## Interfaces and naming
 
@@ -489,22 +554,28 @@ run():
 - Driver: one sink-agnostic unit, conceptually
   `abc_residual_binding { canonicalize(key), all_locations(key),
   loop_entry(key, facts), may_write(component, loop), key_refinement(key),
-  open/join/finish, jump(version), branch(relation, taken, fallthrough),
-  switch(arms, fallthrough), return, publish, call_eligible(call),
-  residual_call(call) }` +
-  `abc_residual_run(binding, function)`. The binding supplies its location
+  entry_roots(module), open/join/finish, jump(version),
+  branch(relation, taken, fallthrough), switch(arms, fallthrough), return,
+  publish, call_eligible(call), residual_call(call, target_version),
+  retain(function, direct_targets) }` +
+  `abc_residual_run(binding, module)`. The binding supplies its location
   vocabulary (which also defines what "may write" means), its two canonical
   value forms, an optional resource refinement that only splits a core key
-  (native headroom), and whether an acyclic call may be inlined (effect and frame
-  exclusions — recursion is the core's decision). The driver owns traversal,
-  content equality, the family count, the lookup order, the inlining bound (`K`)
-  **and every version lookup** — it supplies `version_at`/`edge_to` to its own
-  control/return/call hooks, so the binding receives version handles and never
-  computes or compares a key (`edge_to` applies the loop rule and the budget).
-  The name is the guarantee: a binding binds mechanisms, the driver owns
-  specialization.
+  (native headroom), whether an acyclic call may be inlined (effect and frame
+  exclusions — recursion is the core's decision), and its **root set**
+  (`entry_roots`: the functions it must be able to enter from outside the
+  traversal). The driver owns traversal, content equality, the family count, the
+  lookup order, the inlining bound (`K`), **every version lookup and the set of
+  residual functions** — it supplies `version_at`/`edge_to`/`entry_version` to
+  its own control/return/call/retain hooks, so the binding receives version
+  handles and never computes or compares a key (`edge_to` applies the loop rule
+  and the budget). The name is the guarantee: a binding binds mechanisms, the
+  driver owns specialization.
 - Bindings: native/threaded emitter (two output bindings of one residualizer),
-  portable-C residue builder → C writer, ABC emitter/writer.
+  portable-C residue builder → C writer, ABC emitter/writer. The ABC writer emits
+  exactly the functions that own an entry version and renumbers them (its
+  function table is the residual-function set); native's entry table is its
+  `entry_roots` (every function today, Q19).
 - Retired paths (named now, deleted in the cutover):
   the ABC **argument-fact machinery**: `ArgumentFact`, `argument_fact`,
   `record_call`/`ResidualCall.facts`, `activate_function_facts`,
@@ -522,7 +593,11 @@ run():
   `nested_backedge`/`backedge_target`, `N_LOOP_HOME`, `emit_tree`'s backedge
   arms and `emit_root_backedge_operands`), because loops are ordinary versions
   and the loop-invariant key replaces the dynamic loop capture;
-  `residual_analysis.c` as a separate owner; `symbolic.c` DFS reachability
+  `residual_analysis.c` as a separate owner; the optimizer's **function-level
+  worklist** (`needed`/`dirty` and the per-function loop in `optimize.c:862-873`)
+  and the ABC writer's `mark_live_functions` closure pass (`optimize.c:809-817`),
+  because the entry-version owners are the residual-function set (round 11;
+  `experiments/11-residual-root-set.md`); `symbolic.c` DFS reachability
   helpers; `residualize.c` and `residual_builder.c` private drivers, leader
   discovery, loop-header scan and key canonicalization (their policy becomes the
   shared rule; each keeps only its location vocabulary); and the traversal-time
@@ -759,6 +834,27 @@ run():
   intra-body labels; the C and native sinks already emit both arms as versions,
   and the per-family budget accounts for them. Recorded as a possible binding-side
   layout choice, not a key rule.
+- **Precompute the residual-function set as a static closure over the call
+  graph** (root set plus every direct callee) — rejected round 11, measured. It
+  keeps functions that end up fully inlined: the ABC sink's own rule is the
+  *post-walk* set (a fully inlined callee is deleted, measured 2 → 1 functions),
+  so a static closure would change output and compile bodies nothing can enter.
+  The same fixture's raw native image shows the cost: 4 eager bodies for a
+  two-function module whose only call is inlined, against 1 body for the
+  optimized one-function module (`experiments/11-residual-root-set.md`).
+- **Walk every module function and let the writer drop the dead ones** — the
+  static-closure failure in its worst form: it pays a full symbolic walk for every
+  function that can never be emitted, contradicting the compile-time goal; the
+  incumbent already avoids it by walking only root-activated functions
+  (`optimize.c:862-873`). The one case where every function really is a root is a
+  module that declares no export/relocation/C entry (measured 2 → 2), and there
+  the design keeps every function.
+- **Require all entry versions to exist before any body is walked (round 10's
+  form)** — superseded round 11: it needs the residual-function set up front,
+  which is the walk's output, and the incumbent pays for it with a second,
+  function-level worklist. Only the binding's root set needs to exist up front;
+  a residual call can create its own target because its key is fixed (the call
+  ABI) and content identity makes the lookup order-independent.
 - **Clone a residual function per entry key** — gives residual calls constants
   without a join, but adds a function-cloning concept, duplicate exports and
   relocation/identity questions for code addresses, callables and provenance for
@@ -769,6 +865,37 @@ run():
 
 ## Evidence
 
+- Round-11 measured root-set probe (four hand-built modules through the existing
+  assembler, verifier, abc-opt, the portable-C writer and all four execution
+  modes, plus a native entry-table probe against `build/libabc.a`):
+  `experiments/11-residual-root-set.md`, `.lua`, `.out`, artifacts in
+  `experiments/11-residual-root-set-out/`, `experiments/11-entry-table.c`. Key
+  facts: abc-opt emits 2 → **1** function when the only call is an inlined acyclic
+  helper (helper deleted, value 42 in all four modes), 2 → **2** when the same
+  module declares no export (all functions kept, helper body still emitted
+  verbatim although its call folded to `PUSH8_A 42`), 2 → **2** for a nontail
+  self-recursive callee (the `CALL_A` survives and the caller continues after it
+  with `CPUSH_A; CGET0_A`), and 3 → **2** for a code-address relocation: the
+  unreferenced `dead` function is dropped while `target`, reachable only through
+  `CALLI`, is kept (42 in all four modes). The incumbent's rule is
+  `mark_live_functions` = exports ∪ code-address relocations ∪ revision-7 C-entry
+  relocations, then a transitive closure over the *emitted* call lists, where a
+  retained function contributes every direct call (`retain_function` →
+  `append_unknown_call`, `optimize.c:781-785, 809-817`); with all three root
+  tables empty every function is live (`:826`); the documented rule is
+  `docs/abc-opt.md:95`. Native instead creates an entry version for every module
+  function, split by `c_entry` into the execution and lifecycle images
+  (`residualize.c:822-841`): measured 2/2 entries and 4 eager bodies for the raw
+  two-function fixture (1 virtual call, 1 virtual return, 0 real calls) against
+  1 body for the optimized one-function module; a non-exported function named
+  only by a relocation is entered through `image->entries[index]`
+  (`residualize.c:96-106`) and executes in all four modes. The portable-C writer
+  emits every function of its input module (1/2/2 bodies for the 1/2/2-function
+  optimized modules) and only exports add wrappers (`residual_c.c:222-240,
+  1254-1280`). Consequently the design's pre-pass is the binding's root set, a
+  residual call creates its callee's entry version itself, a retained body creates
+  one per direct call target, and the residual-function set is derived — the
+  incumbent's function-level worklist and the ABC writer's closure pass retire.
 - Round-10 measured call-continuation probe (mutual and same-function **non-tail**
   recursive fixtures through the existing compiler, abc-opt, C writer and four
   execution modes; plus a one-off version-count probe against `build/libabc.a`):
@@ -789,8 +916,10 @@ run():
   call, which has no return pc). Consequently the design's algorithm block is
   corrected: `edge_to` is the only keyed-edge constructor (branch/switch arms,
   virtual returns, virtual call entries, fallthrough into a leader), a direct call
-  is an in-body effect, the call decision happens at the call instruction, and all
-  entry versions are created before any body is walked.
+  is an in-body effect, and the call decision happens at the call instruction.
+  (The same round's "all entry versions are created before any body is walked" is
+  superseded by round 11: only the binding's root set is a pre-pass, and a
+  residual call creates its callee's entry version itself.)
 - Ownership audit with file:line citations, duplicate-SCC diff, leader-discovery
   drift, version-budget divergence: `experiments/1-rederive.md` §3.
 - Round-2 measured ABC probe (new fixtures, existing assembler/optimizer/runtime):
@@ -934,7 +1063,8 @@ run():
 See `QUESTIONS.md` (Q1 ABC version policy gate; Q2 version-budget authority —
 now number **and scope**, because a key widening cannot merge continuation
 chains; Q3 portable-C scope; Q9 native loop-header policy; Q10 the value of the
-continuation-family bound `K`; Q12 layout/cycle-body fact ownership). Q11 is
+continuation-family bound `K`; Q12 layout/cycle-body fact ownership; Q19 whether
+native's entry set may shrink to the addressable entries). Q11 is
 answered (the loop-invariant key), Q13 answers what its body is (the cycle body,
 backedge as join), Q14 is answered round 9 (every cross-function recursive call
 is residualized; the only inlined recursion is a same-function self-tail cycle,
@@ -945,8 +1075,12 @@ widening is followed by a lookup; the entry is created through `version_at`, so
 an entry that is a loop header has one body), and Q17 is answered round 10 (a
 version body ends at a control transfer, every control-transfer successor is a
 keyed edge through the driver's `edge_to`, a direct call is an in-body effect
-unless it is inlined, and a call-return pc is not a version boundary). Do not
-duplicate them here.
+unless it is inlined, and a call-return pc is not a version boundary), and Q18 is
+answered round 11 (the residual-function set is derived: the binding's root set
+exists before any walk, a residual call creates its callee's entry version at the
+call, a retained body creates one per direct call target, and the entry-version
+owners are the residual functions — no function-level worklist, no closure pass).
+Do not duplicate them here.
 
 Q1 is the one remaining scope gate for this design. Round-2, round-3 and round-4
 measurements make the recommendation explicit: **adopt versioned blocks for
@@ -977,4 +1111,14 @@ computed (round 6 pins the required data: heights, `CSET` targets, successors an
 backedges; the verifier's discarded `Shape` records the same heights but must not
 become an optimizer dependency). Q3 decides
 whether the binding set is two or three (the C sink's policy is already the
-precedent for Q5/Q6 either way).
+precedent for Q5/Q6 either way). Q19 is the one remaining input-free
+compile-set choice: native currently installs an entry for every module function
+(`residualize.c:822-841`) although the runtime reaches an entry only through an
+export name or a public code address materialized by a relocation
+(`residualize.c:96-106`, `gen/cold.lua:19-29`, `src/vm.c:214,253`); the measured
+cost is one never-entered body for an inlined callee on a raw module (4 eager
+bodies vs 1 for the optimized module, `experiments/11-residual-root-set.md`), and
+the same addressable-root rule is already the ABC writer's set
+(`optimize.c:812-817,826`). Recommendation: adopt it; it changes the runtime
+image's entry table contents, so it is recorded as a question rather than decided
+silently.

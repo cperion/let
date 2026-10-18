@@ -1,0 +1,46 @@
+== residual-function set after abc-opt (function count in the emitted module) ==
+acyclic-export     functions 2 -> 1   CALL_=0 TCALL_=0 fixpoint=yes   interpreted=42 compiled=42 lazy=42 jit=threaded=42
+  raw shape: function 0: 1 arguments, 1 results 00000000 CGET0_A 00000001 ADDI_A 1 00000003 RET_A 1 1 function 1: 0 arguments, 1 results 00000006 PUSH8_A 41 00000008 CALL_A 0x00000000 1 0000000e RET_A 0 1 export entry = function 1 
+  opt shape: function 0: 0 arguments, 1 results 00000000 PUSH8_A 42 00000002 RET_A 0 1 export entry = function 0 
+acyclic-no-export  functions 2 -> 2   CALL_=0 TCALL_=0 fixpoint=yes   (no export: not runnable by name)
+  raw shape: function 0: 1 arguments, 1 results 00000000 CGET0_A 00000001 ADDI_A 1 00000003 RET_A 1 1 function 1: 0 arguments, 1 results 00000006 PUSH8_A 41 00000008 CALL_A 0x00000000 1 0000000e RET_A 0 1 
+  opt shape: function 0: 1 arguments, 1 results 00000000 CGET0_A 00000001 ADDI_A 1 00000003 RET_A 1 1 function 1: 0 arguments, 1 results 00000006 PUSH8_A 42 00000008 RET_A 0 1 
+recursive-export   functions 2 -> 2   CALL_=2 TCALL_=0 fixpoint=yes   interpreted=15 compiled=15 lazy=15 jit=threaded=15
+  raw shape: function 0: 1 arguments, 1 results 00000000 CGET0_A 00000001 JZ_A 0x00000012 00000004 CGET0_A 00000005 SUBI_A 1 00000007 CALL_A 0x00000000 1 0000000d ADDI_A 3 0000000f RET_A 1 1 00000012 PUSH8_A 0 00000014 RET_A 1 1 function 1: 0 arguments, 1 results 00000017 PUSH8_A 5 00000019 CALL_A 0x00000000 1 0000001f RET_A 0 1 export entry = function 1 
+  opt shape: function 0: 1 arguments, 1 results 00000000 CGET0_A 00000001 JZ_A 0x00000012 00000004 CGET0_A 00000005 SUBI_A 1 00000007 CALL_A 0x00000000 1 0000000d ADDI_A 3 0000000f RET_A 1 1 00000012 PUSH8_A 0 00000014 RET_A 1 1 function 1: 0 arguments, 1 results 00000017 PUSH8_A 5 00000019 CALL_A 0x00000000 1 0000001f CPUSH_A 00000020 CGET0_A 00000021 RET_A 1 1 export entry = function 1 
+reloc-root         functions 3 -> 2   CALL_=0 TCALL_=0 fixpoint=yes   interpreted=42 compiled=42 lazy=42 jit=threaded=42
+  raw shape: function 0: 0 arguments, 1 results; kinds -> i 00000000 PUSH8_A 99 00000002 RET_A 0 1 function 1: 1 arguments, 1 results; kinds a -> i 00000005 PUSH8_A 42 00000007 RET_A 1 1 function 2: 0 arguments, 1 results; kinds -> i 0000000a GADDR_A 0 0000000f GLD64_B 0 ; loadkind=addr 00000014 CALLI_A args=1 results=1 00000016 RET_A 0 1 export entry = function 2 
+  opt shape: function 0: 1 arguments, 1 results; kinds a -> i 00000000 PUSH8_A 42 00000002 RET_A 1 1 function 1: 0 arguments, 1 results; kinds -> i 00000005 GADDR_A 0 0000000a GLD64_B 0 ; loadkind=addr 0000000f CALLI_A args=1 results=1 00000011 RET_A 0 1 export entry = function 1 
+
+== what the C sink emits for the same modules (function definitions) ==
+acyclic-export     C writer ok=true  function bodies=1
+acyclic-no-export  C writer ok=true  function bodies=2
+recursive-export   C writer ok=true  function bodies=2
+reloc-root         no C output: abc-opt: invalid at byte 0xffffffff: portable C currently supports only the integer/static profile
+
+== native execution image: which functions get an entry (eager) ==
+.ralphi/optimizer-residual-redesign/experiments/11-residual-root-set-out/acyclic-export.raw.abc
+  functions=2 exports=1 relocs=0 c_entries=0 compiled_versions=4
+  bodies=4 virtual_calls=1 real_calls=0 virtual_returns=1 virtual_tails=0
+  execution entries: every function has one (0 null of 2)
+  lifecycle image: none (no c_entry functions)
+.ralphi/optimizer-residual-redesign/experiments/11-residual-root-set-out/acyclic-export.opt.abc
+  functions=1 exports=1 relocs=0 c_entries=0 compiled_versions=1
+  bodies=1 virtual_calls=0 real_calls=0 virtual_returns=0 virtual_tails=0
+  execution entries: every function has one (0 null of 1)
+  lifecycle image: none (no c_entry functions)
+.ralphi/optimizer-residual-redesign/experiments/11-residual-root-set-out/acyclic-no-export.opt.abc
+  functions=2 exports=0 relocs=0 c_entries=0 compiled_versions=2
+  bodies=2 virtual_calls=0 real_calls=0 virtual_returns=0 virtual_tails=0
+  execution entries: every function has one (0 null of 2)
+  lifecycle image: none (no c_entry functions)
+.ralphi/optimizer-residual-redesign/experiments/11-residual-root-set-out/reloc-root.opt.abc
+  functions=2 exports=1 relocs=1 c_entries=0 compiled_versions=2
+  bodies=2 virtual_calls=0 real_calls=1 virtual_returns=0 virtual_tails=0
+  execution entries: every function has one (0 null of 2)
+  lifecycle image: none (no c_entry functions)
+.ralphi/optimizer-residual-redesign/experiments/11-residual-root-set-out/recursive-export.raw.abc
+  functions=2 exports=1 relocs=0 c_entries=0 compiled_versions=9
+  bodies=9 virtual_calls=0 real_calls=3 virtual_returns=0 virtual_tails=0
+  execution entries: every function has one (0 null of 2)
+  lifecycle image: none (no c_entry functions)

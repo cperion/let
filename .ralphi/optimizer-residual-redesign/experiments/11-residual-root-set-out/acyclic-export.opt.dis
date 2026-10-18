@@ -1,0 +1,4 @@
+function 0: 0 arguments, 1 results
+  00000000  PUSH8_A        42
+  00000002  RET_A          0 1
+export entry = function 0
