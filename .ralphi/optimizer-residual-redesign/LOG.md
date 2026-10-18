@@ -482,3 +482,82 @@ by a dominator-based reduction).
 decision: one shared shape/cycle-body pass in the core, with the verifier's
 discarded `Shape` heights proving that the data is already computed today. Q2
 still blocks a single budget number and Q1 remains the scope gate.
+
+## Round 7 — the budget is per family; the continuation chain needs its own bound
+
+**Mode:** experiment (a measured correction). **Question ranked first (of three in
+`experiments/7-budget.md`):** the design claimed "exactly three canonicalization
+points", the third being "at the per-pc version budget a key is replaced by the
+all-location key". But a key is constants + locations + the continuation chain, and
+the chain names the return site of an inlined call. Can an all-location widening
+bound versions at all? Ranked above (B) the key of a version that is both an
+inlined callee entry and a cycle header (answered as a corollary: the entry key is
+the call ABI, not an edge canonicalization) and (C) Q14, which the finding does not
+change because tail calls push no continuation.
+
+**What was read and measured.** The three sinks' equality/canonicalization code,
+and a new branch-free doubling call ladder (`experiments/7-call-paths.py`,
+artifacts in `7-call-paths-out/`, not committed) through the existing assembler,
+optimizer and disassembler.
+
+**Answers.**
+
+1. **All canonicalization in the tree is value-only; the chain is identity.**
+   `abc_symbolic_context_equal` compares the chain (`symbolic.c:45-53`) and
+   `..._family_equal` compares the stack shape *and* the chain (`:56-66`), while
+   `canonicalize`/`widen_recursive_key` only replace values with homes
+   (`residual_builder.c:851-868, 936-963`). So the all-location fallback is total
+   *inside* one family and cannot merge two call instances; versions at a pc are
+   `families x budget`, not `budget`. The only code that removes a chain is a call
+   decision (`residualize.c:395-406`). This is the gap `REFACTOR.md:811` recorded
+   verbatim (10 versions at one entry PC against the approved total-8 wording).
+2. **Families = inlined non-tail call instances.** The call continuation records
+   return pc, target and the call-time bases (`symbolic.c:471-477`); the verifier
+   fixes the shape at each pc (`verify.c:284`), so intra-procedural branch paths
+   cannot change the chain but different call paths do. Tail calls push no
+   continuation (`:486-499`), so self-tail backedges keep one chain (why the
+   loop-invariant key is stable) and multiplicity arises only from non-tail
+   inlining, which the canonical `sq(a)+sq(b)` output requires.
+3. **Measured: the multiplicity is exponential and independent of branches.** A
+   ladder `f_i(x) = f_{i+1}(x) + f_{i+1}(x| x+1)` has `2^depth` syntactic call
+   instances and no branches; the ABC sink's output doubles with the instance count
+   (22, 46, 94, 190, 382, 766 instructions for 8…256 instances, ~1.75–3 per
+   instance) until ABC's 255-cell C-frame limit stops the outer inlining at depth 9
+   (`optimize.c:753, 762`). A versioned sink emits one body per inlined instance
+   (the chain differs), so this is the multiplicity the design must bound; its
+   per-pc key budget cannot.
+4. **Corrected rule set.** (i) A residual function's entry version is the generic
+   key because of the call ABI (the caller materializes values into binding
+   locations) — not an edge canonicalization; the loop rule therefore applies to
+   *every* edge into a cycle header, including the documented counter's `loop`,
+   which **is** function 2 and whose header **is** that function's entry (a
+   pc-scoped entry rule would make the measured P shape unreachable). (ii) The
+   budget is **per family** (shape + chain), with the all-location form as the
+   family's general slot. (iii) Inlining gets its own bound: the driver counts
+   distinct continuation families at the target pc and residualizes the call at
+   `K`; `families(pc) <= K`, `versions(pc) <= K x budget`, work bounded by
+   `sum_functions (1+K) x code(f) x budget`. The static capped call-path fact and
+   the per-residual-function version budget are recorded as alternatives.
+
+**Decision recorded in ARCHITECTURE.md.** The "three canonicalization points"
+paragraph is replaced by two key rules plus two bounds; the entry key is the call
+ABI; the budget is per family and its fallback is total only within a family;
+inlining has a distinct bound with a residual-call fallback; the pseudocode checks
+the call before the leader, counts families rather than pc versions, and takes the
+general slot at `budget-1`; module/version/bounds/complexity/interfaces are
+updated; the pc-scoped entry rule, chain widening, a literal total-per-pc budget,
+the static path fact and the per-function-only budget are recorded as rejected or
+alternative with reasons; Q2 is refined from a number to a **quantity and scope**,
+Q10's bound is sharpened, Q11 loses "non-entry", and Q15 is answered.
+
+**Not established.** Corpus chain multiplicities and the right `K`; whether the
+versioned ABC sink's loss of cross-instance value sharing (the ABC DAG can CSE
+identical applications) matters on real modules; the exact trigger for the
+incumbent's depth-9 stop (the 255-cell frame limit is consistent but not
+instrumented); Q14 unchanged (tail cycles create one chain); Q9 and the C sink's
+loop predicate still unmeasured.
+
+**Next uncertainty.** Q2's scope decision (per-family vs total-per-pc) is the last
+hard gate for a single budget owner; then Q12's ownership decision and the Q10/Q14
+residual questions. If the user chooses a total-per-pc cap, the shared-budget
+allocation must be designed before the driver is buildable.
