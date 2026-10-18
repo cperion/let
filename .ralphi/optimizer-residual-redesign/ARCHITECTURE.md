@@ -1,21 +1,25 @@
 # Architecture
 
-Status: candidate (round 7). Derived from `CONTRACT.md`, checked against the
-code, and corrected by the round-2 … round-7 probes. Rationale and citations:
+Status: candidate (round 8). Derived from `CONTRACT.md`, checked against the
+code, and corrected by the round-2 … round-8 probes. Rationale and citations:
 [experiments/1-rederive.md](experiments/1-rederive.md);
 [experiments/2-abc-versioned-sink.md](experiments/2-abc-versioned-sink.md);
 [experiments/3-loop-versions.md](experiments/3-loop-versions.md);
 [experiments/4-entry-lattice.md](experiments/4-entry-lattice.md);
 [experiments/5-loop-key.md](experiments/5-loop-key.md);
 [experiments/6-may-write.md](experiments/6-may-write.md);
-[experiments/7-budget.md](experiments/7-budget.md).
+[experiments/7-budget.md](experiments/7-budget.md);
+[experiments/8-key-identity.md](experiments/8-key-identity.md).
 
 The one-line design: **execute ABC semantics once, symbolically, per version;
 module facts and version identity have one owner; a sink owns only residue.**
 A version key is **constants plus the binding's locations plus the core's
-continuation chain** — never sink residue identity. A **family** is the key with the
-constants removed: the stack shape plus the continuation chain. **A key is exact: a
-version is created when the key differs, never widened by a fixpoint.**
+continuation chain** — never sink residue identity and never a canonicalisation
+mode: **identity is content.** A **family** is the key with the constants
+removed: the stack shape, the frame coordinates and the continuation chain.
+**A key is exact: a version is created when the content differs, never widened
+by a fixpoint.** The all-location ("generic") key is a *value* key — every
+component at its canonical position — and is therefore unique per family.
 
 There are exactly **two key rules and two bounds**:
 
@@ -30,9 +34,10 @@ There are exactly **two key rules and two bounds**:
    everything else keeps its constant), including an inlined callee entry that is a
    cycle header. Both rules are static functions of the key and module facts, so
    nothing is ever rebuilt.
-3. **The per-family version budget** replaces a key with its all-location form.
-   It is per family because a value widening can never merge two continuation
-   chains: `versions(pc) <= families(pc) * budget`.
+3. **The per-family version budget** replaces a key with its all-location value
+   key. It is per family because a value widening can never merge two continuation
+   chains: `versions(pc) <= families(pc) * budget`. The widened key is looked up
+   before a version is created, so the family's general slot exists at most once.
 4. **Inlining is bounded separately** by the number of distinct continuation
    families at the target pc (`K`); the fallback is a residual call, because only a
    call decision can remove a chain. `families(pc) <= K`.
@@ -60,15 +65,17 @@ A residualizing compiler is five things:
    coordinates, explicit continuations, transfer dispatch. This is the only
    semantics and, for native, the register allocation.
 3. **Context key** — canonical identity of a specialization: the constants, the
-   locations of everything else, and the continuation chain. A **family** is the
-   key with the constants removed (stack shape + continuation chain); it is the
-   unit of the version budget, because key widening only removes constants. The
-   continuation chain is never widened: it names the return site of an inlined
-   call, so it is identity, not a location. **The binding
+   positions of everything else, the frame coordinates and the continuation chain.
+   Identity is **content**: how a key was produced is never part of it (so the
+   all-location property is a derived predicate, not a stored flag). A **family**
+   is the key with the constants removed (stack shape + frame coordinates +
+   continuation chain); it is the unit of the version budget, because key widening
+   only removes constants. The continuation chain is never widened: it names the
+   return site of an inlined call, so it is identity, not a location. **The binding
    defines what a location is** (native: register/homing; portable C: version
    argument; ABC: C-frame slot) and supplies its **may-write predicate** for the
    loop-invariant canonicalization. Key equality is version identity and is
-   exact; the binding also supplies one canonical all-location form, used as a
+   exact; the binding also supplies one canonical all-location value form, used as a
    residual function's entry key and by the per-family budget. The continuation chain is
    core-owned because it identifies virtual (inlined) entries and return sites.
 4. **Version** — `(pc, key, owning residual function)` plus the sink's residue for
@@ -87,15 +94,19 @@ Invariants:
 - each version body is symbolically executed exactly once, module-wide; residue is
   never re-walked and never rebuilt, so no SSA/IR round trip and no placement
   reconstruction can exist;
-- **a key contains only constants, binding locations and the continuation
-  chain**; sink value identity (`abc_symbolic_value.reg`) never reaches a key, so
-  residue can be per version and a sink never needs a function-wide value graph
-  for key equality;
+- **a key contains only constants, binding locations, the frame coordinates and
+  the continuation chain**; sink value identity (`abc_symbolic_value.reg`) never
+  reaches a key, and **no canonicalisation mode reaches a key** (the incumbent's
+  `generic` flag is a stored duplicate of the derived "all components at their
+  canonical positions" predicate, `symbolic.c:57-59, 74-85`), so residue can be
+  per version and a sink never needs a function-wide value graph for key equality;
 - the core never inspects residue; `abc_symbolic_value.reg` is opaque to it;
 - version creation order is a function of module bytes and facts (deterministic);
-- **a key is exact.** A version is created whenever an edge key differs from
-  every existing version's key at that `pc`; no version key is widened by a
-  fixpoint. There are two key rules, one budget and one non-key bound:
+- **a key is exact, and the version table is a function.** A version is created
+  whenever an edge key differs from every existing version's key at that `pc`;
+  **every widening is followed by a lookup**, so a widened key that already has a
+  version returns it and the key is never created twice. No version key is widened
+  by a fixpoint. There are two key rules, one budget and one non-key bound:
   (i) **a residual function's entry version is the binding's generic
   all-location key.** This is the call ABI, not an edge canonicalization: a
   residual call (or the outside world) materializes argument values into
@@ -109,10 +120,19 @@ Invariants:
   virtual entry into an inlined callee whose entry pc is a cycle header — the
   documented counter's `loop` is function 2 and its header is that function's
   entry, so a pc-scoped entry rule would make the measured P shape unreachable;
+  **the two rules compose**: the all-location key is a fixed point of the
+  loop-invariant rule (it has no constant to widen and every component is already
+  a location), so a residual function whose entry pc is a loop header has **one**
+  version there, which is both its entry version and its loop-header version, one
+  body. The entry creation path is therefore `version_at` like every other edge;
   (iii) at the **per-family version budget** a key is replaced by its all-location
-  form. This is total inside a family, because the stack shape and the
-  continuation chain are family identity and are never widened; it cannot merge
-  two families, so it bounds only `versions per family`;
+  value key, which is looked up before creation. This is total inside a family,
+  because the stack shape, the frame coordinates and the continuation chain are
+  family identity and are never widened; it cannot merge two families, so it
+  bounds only `versions per family`: at most `budget - 1` exact keys plus one
+  general slot per family (model: an arrival sequence of any length saturates at
+  `budget`; without the lookup it grows without bound,
+  `experiments/8-key-identity.md`);
   (iv) **inlining is bounded separately.** A non-tail direct call is inlined only
   while its target pc has fewer than `K` distinct continuation families (the
   driver counts families; the binding supplies call eligibility); otherwise the
@@ -132,11 +152,13 @@ Invariants:
   the fallback is a residual call, which drops the chain. A recursive cycle that
   contains a nontail call cannot be inlined: every inlined layer grows the
   continuation chain, which is part of key identity, so the family never converges
-  (`symbolic.c:39-75`). Tail calls push no continuation, so a tail-only cycle
-  inlines into a version cycle with one chain; a same-function self-tail loop
-  keeps its invariant constants under the loop rule, while a cross-function tail
-  cycle has no per-function cycle body and keeps exact keys (conservatively the
-  all-location key; Q14);
+  (`symbolic.c:39-75`). Tail calls push no continuation; a same-function self-tail
+  loop inlines as a loop header and keeps its invariant constants under the loop
+  rule. Whether a cross-function (mutual) tail cycle is inlined or residualized is
+  Q14; if it is inlined, it has no per-function cycle body, so it is an ordinary
+  version cycle under the exact/budget rule, not a loop-invariant one. The
+  incumbent's own rule inlines only a *same-function* self-tail cycle
+  (`nested_eligible` requires component size 1, `optimize.c:108-114`);
 - **edge-key modes are the whole loop rule**: a plain forward edge keeps
   constants; an edge into a loop header takes the loop-invariant key; at the
   per-family version budget the key becomes the all-location key. The
@@ -168,10 +190,10 @@ Invariants:
   state, no loop prologue, no backedge lowering and no path-shaped
   control-flow representation;
 - **a residual-function entry has exactly one version**, keyed by the generic
-  all-location key because the call ABI materializes arguments into locations;
-  the same is true of a module entry (export, relocation, C entry). The entry key
-  is not a canonicalization of any incoming edge key. No join is computed, so no
-  re-execution and no publish-then-modify exists;
+  all-location value key because the call ABI materializes arguments into
+  locations; the same is true of a module entry (export, relocation, C entry).
+  The entry key is not a canonicalization of any incoming edge key. No join is
+  computed, so no re-execution and no publish-then-modify exists;
 - native consumes the symbolic cache directly: no stored native residual IR.
 
 ## Concepts
@@ -189,18 +211,29 @@ number of inlined call instances is bounded separately (the only non-key bound).
 
 - `abc_symbolic_context` unchanged in shape: three stacks of
   `abc_symbolic_value {kind, stack, dst_stack, reg, home, dst_home, constant}`,
-  `c_origin/c_bias`, continuation stack, limits, `generic`.
+  `c_origin/c_bias`, continuation stack, limits, `generic` (the last is a
+  *derived* flag, see below).
 - **Key** = the context after the binding's canonicalization: **constants,
-  locations, and the continuation chain**. Non-constant values are replaced by
-  the binding's location descriptor before any lookup or comparison; the
-  continuation list survives canonicalization (it is not a location). Keys are
-  compared for exact equality. The binding supplies two further descriptors: its
-  **canonical all-location form** (the entry key and the per-family budget) and its
+  locations, frame coordinates (`c_origin`/`c_bias`) and the continuation chain**.
+  Non-constant values are replaced by the binding's location descriptor before any
+  lookup or comparison; the continuation list survives canonicalization (it is not
+  a location). Keys are compared for **content**: how a key was produced is never
+  part of it. The incumbent's `generic` flag is not an identity field; it is the
+  derived predicate "every component sits at its canonical position" — the
+  all-location form — which the core can recompute (`symbolic.c:74-85` first
+  computes exactly that, and `symbolic.c:57-59` then compares the stored flag as
+  well). The binding supplies two descriptors: its **canonical all-location value
+  key** (the entry key and the per-family budget; unique per family) and its
   **loop-entry form** (the loop-invariant key: a component the loop's cycle body
   may write or the backedge transports non-identically becomes a location,
   everything else keeps its constant).
   The core does not assume `HOME(stack,index)` for every slot (that is the native
   form only).
+  A binding may add a **resource condition that only splits** a core key (native:
+  a version created with proven headroom `L` is reused only by a context with at
+  least `L` headroom, `residualize.c:411`); a split stays inside one family and is
+  therefore counted by the same per-family budget. A binding never merges two core
+  keys.
 - **ABC canonical form**: A/B empty, every value either a constant or a **C-frame
   slot**. This is forced, not chosen: join targets must arrive with identical
   A/B/C shapes (`verify.c:284`), so the set of live values at a target is a
@@ -217,9 +250,12 @@ number of inlined call instances is bounded separately (the only non-key bound).
   (ABC, portable C: the driver runs per residual function), and is implicit for
   native (one code arena; a module-scope table). A residual function has exactly
   one entry version; a single-entry loop header has exactly one version per
-  family (its loop-invariant key); every other version at a pc exists because
-  some edge's exact key differed. A **family** is (stack shape, continuation
-  chain): the unit of the version budget and of the inlining bound.
+  family (its loop-invariant key, which *is* the entry version when the entry pc
+  is the header); every other version at a pc exists because some edge's exact
+  key differed. A **family** is (stack shape, frame coordinates, continuation
+  chain) — the key with the constants removed; it is the unit of the version
+  budget and of the inlining bound. The version table has at most `budget - 1`
+  exact keys plus one all-location key per family per pc.
 - **Residue is sink-owned, per version, and never shared**: native — none
   (emitter packets are consumed immediately; locations are registers); portable
   C — one `residual.asdl` block per version with block arguments as the join
@@ -229,11 +265,12 @@ number of inlined call instances is bounded separately (the only non-key bound).
   and the target body reads it (`CGET`). Constants stay in the key and need no
   store.
 - Invalid states: a version without an owner, a key containing sink residue
-  identity, an edge whose target key does not match the materialized location
-  set, a sink value inspected by the core, a loop-specific version shape, a join
-  that bypasses `binding.join`, a residual-function entry version that is not the
-  generic key, or a residue region that is rebuilt after publish are
-  unrepresentable by construction.
+  identity, a key whose identity depends on how it was canonicalized (a mode bit),
+  two versions with the same key at one pc, an edge whose target key does not
+  match the materialized location set, a sink value inspected by the core, a
+  loop-specific version shape, a join that bypasses `binding.join`, a
+  residual-function entry version that is not the all-location key, or a residue
+  region that is rebuilt after publish are unrepresentable by construction.
 
 ## Operations and algorithms
 
@@ -241,13 +278,17 @@ number of inlined call instances is bounded separately (the only non-key bound).
 version_at(pc, key, owner):
     key = canonicalize(key)                     # binding location hook
     if pc is a loop header: key = loop_invariant(key)   # may-write heuristic
-    if a version with this exact key exists: return it
-    if family_count(pc, family(key)) >= budget - 1:
-        key = all_locations(key)   # the family's "general slot"; total in the family
+    v = lookup(pc, key)                         # content identity
+    if v exists: return v
+    if versions_in_family(pc, family(key)) >= budget - 1:
+        key = all_locations(key)                # a value key, unique per family
+        v = lookup(pc, key)                     # the general slot may exist
+        if v exists: return v
     v = create(pc, key); queue.push(v); return v
 
-# family(key) = stack shape + continuation chain; constants are the only part a
-# widening can remove, so a budget is per family, never per pc.
+# family(key) = stack shape + frame coordinates + continuation chain; constants
+# are the only part a widening can remove, so a budget is per family, never per
+# pc.  Every widening is followed by a lookup: the version table is a function.
 # binding predicate used by loop_invariant:
 #   may_write(component, header) -- true iff the loop's cycle body can change the
 #   value the header sees at that component.  Static, from module facts: the
@@ -256,7 +297,8 @@ version_at(pc, key, owner):
 
 run():
     for each residual function f:
-        v = create(f.entry, generic_key(f))     # the call ABI's key; no edge
+        v = version_at(f.entry, all_locations, f)   # the call ABI's key; the
+        # loop rule is a no-op on it, so a header entry is this same version
         while f.queue not empty:
             v = f.queue.pop(); x = copy(v.key)
             loop:
@@ -282,17 +324,18 @@ run():
   changes an existing version's key.
 - **Loops are ordinary versions**: a backedge calls `version_at` exactly like a
   forward edge. Every edge into a loop header is canonicalized to the
-  loop-invariant key, so a single-entry loop header has one body per family (its own
-  non-inlined body has exactly one); the join stores
-  the loop-carried values for the next iteration, and the body keeps every
-  constant whose storage the loop does not touch (`experiments/5-loop-key.md`).
-  The invariant is a static join, not a fixpoint: no version is ever widened
-  after creation, so nothing is rebuilt.
+  loop-invariant key, so a single-entry loop header has one body per family; a
+  function's own non-inlined body has exactly one, and when the entry pc *is* the
+  header that body is the entry version (the all-location key is a fixed point of
+  the loop rule). The join stores the loop-carried values for the next iteration,
+  and the body keeps every constant whose storage the loop does not touch
+  (`experiments/5-loop-key.md`). The invariant is a static join, not a fixpoint:
+  no version is ever widened after creation, so nothing is rebuilt.
 - **Call policy** (the binding supplies eligibility over module facts; the driver
   supplies the bound): a direct call is either inlined as a virtual entry (an
   ordinary version at the callee's pc under the caller's continuation chain —
   constants cross, invariant constants of same-function tail cycles survive) or
-  residualized (the callee's single generic-key entry version; no constants
+  residualized (the callee's single all-location entry version; no constants
   cross). Nontail recursive cycles must be residualized because inlining grows
   the continuation chain without bound. Inlining is bounded by the number of
   distinct continuation families already at the target pc: below `K` the call
@@ -304,23 +347,27 @@ run():
   The ABC sink must inline pure acyclic direct calls: `docs/abc-opt.md:82-91`
   fixes that canonical output.
 - **Entry keys**: a residual-call entry, and every module entry, is a single
-  version keyed by the generic all-location key, because the call or the outside
+  version keyed by the all-location value key, because the call or the outside
   world supplies the argument values in binding-defined locations and the body
-  must be correct for all callers. This is the call ABI, not a canonicalization of
-  an incoming key; no join, no per-argument lattice, no re-execution. A virtual
-  entry (inlined call) is a normal version (exact or loop-invariant key); an
-  inlined self-tail loop is a self-edge on it and keeps the invariant constants.
+  must be correct for all callers. It is created through `version_at` like every
+  other version: the loop rule leaves an all-location key unchanged, so an entry
+  that is a cycle header has one body, not two. This is the call ABI, not a
+  canonicalization of an incoming key; no join, no per-argument lattice, no
+  re-execution. A virtual entry (inlined call) is a normal version (exact or
+  loop-invariant key); an inlined self-tail loop is a self-edge on it and keeps
+  the invariant constants.
 - **Bounds**: three independent limits, each with an explicit fallback. (1) The
-  **per-family version budget** (the approved policy number; the all-location form
-  is the family's "general slot"; Q2 decides number *and* scope) — fallback: the
-  all-location key, total inside the family. (2) The **inlining bound `K`** on
-  distinct continuation families per target pc — fallback: a residual call,
-  because no key widening can remove a chain. (3) The binding's own
-  vtable/state limits. Together: `families(pc) <= K`, `versions(pc) <= K *
-  budget`, and total work is bounded by `sum_functions (1 + K) * code(f) *
-  budget`. The ABC `ABC_OPTIMIZER_PATH_LIMIT` is a path-tree bound and retires
-  with the path tree if Q1 is approved; it is not a module code-size budget
-  either way.
+  **per-family version budget** (the approved policy number; the all-location
+  value key is the family's "general slot"; Q2 decides number *and* scope) —
+  fallback: the all-location key, looked up so it exists at most once and is
+  total inside the family (at most `budget - 1` exact keys plus the general slot).
+  (2) The **inlining bound `K`** on distinct continuation families per target pc
+  — fallback: a residual call, because no key widening can remove a chain.
+  (3) The binding's own vtable/state limits. Together: `families(pc) <= K`,
+  `versions(pc) <= K * budget`, and total work is bounded by
+  `sum_functions (1 + K) * code(f) * budget`. The ABC
+  `ABC_OPTIMIZER_PATH_LIMIT` is a path-tree bound and retires with the path tree
+  if Q1 is approved; it is not a module code-size budget either way.
 - **Complexity**: facts O(V+E) plus one reverse walk per loop header bounded by
   its cycle body (a nested loop is walked once per enclosing header); one walk per
   version body; per-body key comparison and scheduling; the family count and the
@@ -333,19 +380,21 @@ run():
 - Core: `symbolic.c` (+ generated handlers) owns machine, folding, captures,
   continuations, module facts (loop headers, backedge instructions, cycle bodies,
   per-pc heights and `CSET` targets, loop may-write sets), and the key *rule*:
-  exact equality, family counting (shape + continuation chain), the loop-invariant
-  canonicalization, the per-family budget, and the two canonical descriptors
-  (all-location and loop-entry).
+  content equality (constants, locations, frame coordinates, chain), family
+  counting (shape + frame coordinates + chain), the lookup-after-widening
+  discipline, the loop-invariant canonicalization, the per-family budget, and the
+  two canonical descriptors (all-location value key and loop-entry).
 - Driver: one sink-agnostic unit, conceptually
   `abc_residual_binding { canonicalize(key), all_locations(key),
-  loop_entry(key, facts), may_write(component, loop), equal/family_count,
+  loop_entry(key, facts), may_write(component, loop), key_refinement(key),
   open/join/finish, jump, publish, call_eligible(call), residual_call(call) }` +
   `abc_residual_run(binding, function)`. The binding supplies its location
   vocabulary (which also defines what "may write" means), its two canonical
-  forms and whether a call may be inlined at all (recursion, effect and frame
-  exclusions); the driver owns traversal, the key rule, the family count and the
-  inlining bound (`K`), because both are properties of key identity, not of the
-  target mechanism.
+  value forms, an optional resource refinement that only splits a core key
+  (native headroom), and whether a call may be inlined at all (recursion, effect
+  and frame exclusions); the driver owns traversal, content equality, the family
+  count, the lookup order and the inlining bound (`K`), because they are
+  properties of key identity, not of the target mechanism.
   The name is the guarantee: a binding binds mechanisms, the driver owns
   specialization.
 - Bindings: native/threaded emitter (two output bindings of one residualizer),
@@ -372,7 +421,14 @@ run():
   discovery, loop-header scan and key canonicalization (their policy becomes the
   shared rule; each keeps only its location vocabulary); and the traversal-time
   continuation scan inside native's `inline_candidate` (`residualize.c:401-406`),
-  which becomes the driver's family count with the same `K` fallback. `docs/abc-opt.md:25,100`
+  which becomes the driver's family count with the same `K` fallback. **The
+  stored canonicalisation-mode bit in key identity**: `abc_symbolic_context_equal`
+  compares `generic` (`symbolic.c:57-59`), which `canonicalize`/`conform_generic`
+  set from the widening argument (`residual_builder.c:856`,
+  `residualize.c:168`); the design keeps the value transformation (constants →
+  positions) and drops the bit from identity, recomputing the all-location
+  property from the values (as `canonical_generic_context` already does,
+  `symbolic.c:74-85`). `docs/abc-opt.md:25,100`
   documents the retired call-fact behavior and must be updated in the same
   cutover; that is part of Q1's gate, not a silent policy change.
 - Kept, because it is required, not duplication: the single-entry-version rule for
@@ -461,6 +517,35 @@ run():
   take the all-location key there and make the measured P shape
   (`BLTUI_A 50`/`ADDI_A 7`) unreachable. The generic key belongs to the callee's
   own residual-function entry, which is the call ABI.
+- **Look up the incoming key only, then create the widened key (the round-7
+  algorithm block)** — rejected round 8, measured. The family's general slot is
+  never found, so each distinct incoming key past the budget creates another
+  version whose key is the all-location key: a duplicate key in the version
+  table, and `versions per family` grows without bound (model: 4, 6, 8, 10
+  versions for arrival sequences of length 4, 6, 8, 10 at budget 3, against 3 for
+  the corrected rule; `experiments/8-key-identity.md`). Both incumbent sinks look
+  up after widening (`residual_builder.c:1110-1119`; `residualize.c:410, 436`).
+  This also falsified the invariant "a version is created whenever an edge key
+  differs from every existing version's key", which the algorithm failed to
+  implement.
+- **Keep the incumbent's `generic` canonicalisation-mode bit in key identity** —
+  rejected round 8, measured. `abc_symbolic_context_equal` compares the stored
+  flag (`symbolic.c:57-59`) although `canonical_generic_context` recomputes the
+  same property from the values (`:74-85`). Value-identical keys then differ:
+  at a loop-header PC entered by a residual call, the all-location entry key and
+  the loop-invariant backedge key have the same value vector (a residual entry
+  supplies only locations, and may-write widening can only remove constants) and
+  differ only in the flag → two bodies for one family (model: 2 versions, 2
+  sharing a value vector, against 1 / 0 with content identity). The design makes
+  "all-location" a predicate over the values, so the entry version *is* the
+  loop-header version.
+- **Put native's proven-headroom condition into the core key** — rejected
+  round 8: it is a binding-owned resource fact (a version body compiled with
+  headroom `L` may only be entered where `L` cells are proven available,
+  `residualize.c:411`). It only splits a core key, so it belongs to the binding;
+  the split stays in one family and is counted by the same per-family budget.
+  Core identity stays content-only, so the driver can compare keys without
+  knowing a sink's resource model.
 - **A static capped call-path multiplicity fact as the inlining bound** —
   recorded alternative (round 7): order-independent and no version-table scan,
   but a new module fact plus a saturating DP over the call DAG, over-counting
@@ -564,6 +649,23 @@ run():
   write-time call encoding `:826-833`; C sink generic entries
   `residual_c.c:1239`, `residual_builder.c:2177-2210, 898-933`; dead lattice
   `residual_analysis.c:215-266`; continuation in key identity `symbolic.c:39-75`.
+- Round-8 key-identity probe: `experiments/8-key-identity.md` and
+  `experiments/8-version-model.py` / `.out`. Key facts: `abc_symbolic_context_equal`
+  compares the stored `generic` canonicalisation-mode bit (`symbolic.c:57-59`)
+  which `canonicalize`/`conform_generic` set from the widening argument
+  (`residual_builder.c:856`, `residualize.c:168`), while the derived predicate is
+  recomputed from the values (`symbolic.c:74-85`) and family equality ignores the
+  bit (`:64-72`); the C sink's `VERSION_LOOP_ENTRY` *is* `canonicalize(key,1)`
+  (all constants forgotten + the bit), which is the code reason its loop entry
+  forgets invariants, and both sinks look up after widening
+  (`residual_builder.c:1110-1119`; `residualize.c:410, 436`). Model: the
+  round-7 lookup-before-widening rule reaches 4/6/8/10 versions for arrival
+  sequences of length 4/6/8/10 at budget 3 (unbounded, with duplicate keys);
+  content identity + lookup-after-widening saturates at 3 = budget, one version
+  per value vector; the loop-header-entry configuration is 2 versions (2 with the
+  same value vector) with the mode bit and 1 version with content identity.
+  Incumbent recursion rule: `nested_eligible` requires call-component size 1, so
+  mutual (tail) calls are residual calls (`optimize.c:108-114, 299-318`).
 - Round-7 measured budget/chain probe: `experiments/7-budget.md` §1–§6 and
   `experiments/7-call-paths.py` (artifacts in `7-call-paths-out/`, not committed).
   Key facts: key equality compares the continuation chain (`src/symbolic.c:45-53`)
@@ -622,9 +724,11 @@ chains; Q3 portable-C scope; Q9 native loop-header policy; Q10 ABC inline policy
 and its bound — round 7 recommends the driver's continuation-family count with a
 residual-call fallback; Q12 layout/cycle-body fact ownership; Q14 cross-function
 tail cycles). Q11 is answered (the loop-invariant key), Q13 answers what its body
-is (the cycle body, backedge as join), and Q15 is answered round 7 (the budget is
-per family; families are bounded by the inline rule). Do not duplicate them
-here.
+is (the cycle body, backedge as join), Q15 is answered round 7 (the budget is
+per family; families are bounded by the inline rule), and Q16 is answered round 8
+(key identity is content; every widening is followed by a lookup; the entry is
+created through `version_at`, so an entry that is a loop header has one body). Do
+not duplicate them here.
 
 Q1 is the one remaining scope gate for this design. Round-2, round-3 and round-4
 measurements make the recommendation explicit: **adopt versioned blocks for
@@ -654,6 +758,10 @@ computed (round 6 pins the required data: heights, `CSET` targets, successors an
 backedges; the verifier's discarded `Shape` records the same heights but must not
 become an optimizer dependency). Q14 decides whether a cross-function tail cycle
 keeps invariants (round 5's claim is unsupported; the conservative answer is the
-all-location key). Q3 decides
+all-location key). Round 8 sharpens Q14's evidence: the incumbent's
+`nested_eligible` requires call-component size 1 (`optimize.c:108-114`), so its
+canonical output residualizes every mutual call, tail or not; the design's
+inline rule should say whether it keeps that policy or pays for a module-wide
+cycle body. Q3 decides
 whether the binding set is two or three (the C sink's policy is already the
 precedent for Q5/Q6 either way).

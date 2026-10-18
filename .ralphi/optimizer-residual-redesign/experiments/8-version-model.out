@@ -1,0 +1,28 @@
+budget=3  arrival vectors=9  max sequence length=6
+
+scenario                                       identity algorithm   states max versions  same-value versions
+------------------------------------------------------------------------------------------------------------
+plain edge, no loop rule                       mode     as_written     190            6                    5
+plain edge, no loop rule                       mode     looked_up       82            3                    2
+plain edge, no loop rule                       content  as_written     190            6                    5
+plain edge, no loop rule                       content  looked_up       74            3                    1
+
+loop header, may-write {0,1}                   mode     as_written       2            1                    1
+loop header, may-write {0,1}                   mode     looked_up        2            1                    1
+loop header, may-write {0,1}                   content  as_written       2            1                    1
+loop header, may-write {0,1}                   content  looked_up        2            1                    1
+
+loop header, may-write {1}                     mode     as_written      19            6                    5
+loop header, may-write {1}                     mode     looked_up       10            3                    2
+loop header, may-write {1}                     content  as_written      16            6                    5
+loop header, may-write {1}                     content  looked_up        8            3                    1
+
+loop-header entry (residual entry at header pc) mode     as_written       2            2                    2
+loop-header entry (residual entry at header pc) mode     looked_up        2            2                    2
+loop-header entry (residual entry at header pc) content  as_written       1            1                    0
+loop-header entry (residual entry at header pc) content  looked_up        1            1                    0
+
+interpretation: 'as_written' grows with arrival variety because the
+all-location version is never looked up; 'mode' identity adds a second
+version that has the same value vector (the entry version and the
+loop-invariant backedge version).

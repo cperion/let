@@ -561,3 +561,83 @@ loop predicate still unmeasured.
 hard gate for a single budget owner; then Q12's ownership decision and the Q10/Q14
 residual questions. If the user chooses a total-per-pc cap, the shared-budget
 allocation must be designed before the driver is buildable.
+
+## Round 8 — key identity is content; every widening is looked up
+
+**Mode:** experiment (a model plus code oracle). **Question ranked first (of three
+in `experiments/8-key-identity.md`):** is a version key's identity its *value
+content* (constants, binding locations, frame coordinates, continuation chain), or
+also the canonicalisation *mode* — and does version creation look the key up after
+the budget widens it? The round-7 algorithm looks up the incoming key only, then
+creates the all-location key; the incumbent's exact equality compares a stored
+`generic` bit that `canonicalize` sets from the widening argument. Ranked above (B)
+whether the design inlines a cross-function mutual tail cycle (Q14) and (C) Q12's
+fact ownership.
+
+**What was read and modelled.** Both incumbent version tables and canonicalizers,
+and a model of the creation rule over an abstract key space
+(`experiments/8-version-model.py`, output `.out`; 2-component keys, all arrival
+sequences of the 9 possible value vectors, breadth-first over reachable version
+tables, budget 3).
+
+**Answers.**
+
+1. **The mode bit is not content and makes value-identical keys distinct.** A key
+   is values + `c_origin`/`c_bias` + continuation chain; `generic` is set by
+   `canonicalize`/`conform_generic` from the *argument*
+   (`residual_builder.c:856`, `residualize.c:168`) and compared by
+   `abc_symbolic_context_equal` (`symbolic.c:57-59`), while the same property is
+   recomputed from the values by `canonical_generic_context` (`:74-85`) and family
+   equality ignores the bit (`:64-72`). The C sink's `VERSION_LOOP_ENTRY` is
+   literally `canonicalize(key,1)` — the code reason its loop entry forgets
+   invariants. In the design (loop keys keep constants) this costs a duplicate
+   body exactly at a residual-function entry that is a loop header: the
+   all-location entry key and the loop-invariant backedge key agree on every value
+   (a residual entry supplies only locations; may-write widening only removes
+   constants) and differ only in the bit. Model: 2 versions, 2 sharing a value
+   vector with the bit; 1 version, 0 with content identity.
+2. **The round-7 creation step never finds the general slot.** It looks up the
+   incoming key, widens, and creates without a second lookup: past the budget,
+   every distinct incoming key creates another all-location version — a duplicate
+   key and unbounded family growth. Model: 4, 6, 8, 10 versions for arrival
+   sequences of length 4, 6, 8, 10 (grows with variety); content identity plus
+   lookup-after-widening saturates at 3 = budget, one version per value vector.
+   Both incumbent sinks look up after widening (`residual_builder.c:1110-1119`;
+   `residualize.c:410, 436`), so the design's algorithm contradicted its own
+   invariant ("a version is created whenever an edge key differs from every
+   existing version's key") and its own bound.
+3. **The two key rules compose with no special case.** The all-location value key
+   is a fixed point of the loop-invariant rule (no constants to widen, every
+   component already a location), so the entry rule and the loop rule agree when a
+   residual function's entry pc is a loop header: one version, one body. The
+   `create(f.entry, ...)` bypass is unnecessary; the entry is an ordinary
+   `version_at` call with the all-location key.
+4. **Native's headroom condition is a binding refinement, not core identity.**
+   `version_for` requires `in->limit[s] >= v->in.limit[s]` for an exact match
+   (`residualize.c:411`): proven stack headroom is a resource condition that
+   only *splits* a core key. A split stays in one family, so the per-family budget
+   still bounds it, and a binding never merges two core keys.
+
+**Decision recorded in ARCHITECTURE.md.** The key summary, the family, the
+invariants, the data representation, the algorithm block, the bounds, the
+interfaces and the evidence are updated: identity is content (constants,
+locations, frame coordinates, chain); the all-location form is a value key and
+"is generic" is a derived predicate; every widening is followed by a lookup; the
+entry is created through `version_at`; a binding may add a resource refinement
+that only splits. The stored mode bit and the lookup-before-widening order are
+recorded as rejected alternatives with the model numbers. Q16 is answered; Q14's
+evidence is sharpened (`nested_eligible` requires call-component size 1, so the
+incumbent residualizes mutual calls, tail or not) but its policy choice stays open;
+Q2, Q12 unchanged.
+
+**Not established.** Whether any corpus module other than a hand-built two-root
+case reaches the loop-header-entry configuration (the documented counter is fully
+inlined, so its header is a virtual entry); the exact native headroom semantics
+(`limit` records required cells, `residualize.c:84-92`) and whether native could
+drop the refinement; the compile cost of the family scan (`version_for` is
+linear in the versions at a pc, and the family count is a scan, not an index).
+
+**Next uncertainty.** Q14's policy (inline a mutual tail cycle with a module-wide
+cycle body, or residualize it as the incumbent does) is now the only key-rule
+question with a concept cost; then Q2's scope decision, Q12's ownership and Q10's
+`K` value.
