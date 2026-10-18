@@ -221,6 +221,36 @@ for _,kind in ipairs{'difference','observe'} do
 .export main
  ]]):format(kind,kind=='observe' and '-' or 'i',kind,kind=='observe' and 'PUSH.B 7' or '')}
 end
+-- Frame allocation is an existing optimizer boundary, including through wrappers.
+for _,tail in ipairs{false,true} do
+ cases[#cases+1]={name=tail and 'frame-tail-boundary' or 'frame-call-boundary',args='42',expected='42',retained=true,source=([[
+.profile memory
+.function main 1 1 i i
+ CGET.A 0
+ %s
+.function helper 1 1 i i
+ CALLOC 8
+ FADDR.A 8
+ CGET.B 1
+ ST64.A 0
+ FADDR.A 8
+ LD64.A 0
+ CFREE 8
+ RET.A 1 1
+.export main
+ ]]):format(tail and 'TCALL.A helper 1 1' or 'CALL.A helper 1\n RET.A 1 1')}
+end
+-- No allocation and no Rc: reject already-unsupported multi-path effects before
+-- expanding 4096 paths and repeating their 32-effect common suffix.
+for _,before in ipairs{false,true} do
+ local lines={'.profile memory','.datazero 8','.function main 1 1 i i','CGET.A 0','CALL.A helper 1','RET.A 1 1','.function helper 1 1 i i'}
+ local function effects() for i=1,32 do lines[#lines+1]='GADDR.A 0\n PUSH.B '..i..'\n ST64.A 0' end end
+ if before then effects() end
+ for i=1,12 do lines[#lines+1]='CGET.A 0\n JZ.A skip'..i..'\n PUSH.A '..i..'\n DROP.A\n skip'..i..':' end
+ if not before then effects() end
+ lines[#lines+1]='GADDR.A 0\n LD64.A 0\n RET.A 1 1\n .export main'
+ cases[#cases+1]={name=before and 'effects-before-branches' or 'effects-after-branches',args='1',expected='32',retained=true,source=table.concat(lines,'\n')}
+end
 local extra_samples={
  ['immediate-branch']={{'0','11'},{'2','11'},{'-1','11'}},
  ['fused-branch']={{'2','11'},{'-1','11'}},
@@ -242,7 +272,8 @@ for _,case in ipairs(cases) do for mirror=0,1 do
  local mapped=0;for _ in pairs(map) do mapped=mapped+1 end
  -- A canonical input may re-emit identical bytes. Retained functions map
  -- every original instruction; actual emission maps its residual operations.
- assert(output_code~=input_code or mapped<#input_instructions,name..': did not exercise optimized emission')
+ if case.retained then assert(output_code==input_code,name..': crossed an unsupported effect/frame boundary')
+ else assert(output_code~=input_code or mapped<#input_instructions,name..': did not exercise optimized emission') end
  assert(optimized:sub(1,8)==original:sub(1,8),name..': changed revision/profile')
  for target,origin in pairs(map) do
   assert(output_starts[target] and input_starts[origin],name..': provenance points inside an instruction')

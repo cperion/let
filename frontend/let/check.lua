@@ -31,7 +31,7 @@ local function falls(list)
 end
 M.falls = falls
 
-function M.function_(fn, definitions, seeded)
+function M.function_(fn, definitions, seeded, typeCells)
     -- `visible` is the set of values in scope at this point. Arm bodies get a copy so an
     -- arm-local definition cannot be referenced from the continuation.
     -- `visible` maps each value in scope to its type, so later statements can cross-check the
@@ -88,7 +88,12 @@ function M.function_(fn, definitions, seeded)
     local function checkList(list, visible, storages, inLoop, initialized)
         for _, stmt in ipairs(list) do
             local kind = stmt.kind
-            if kind == "Let" then
+            if kind == 'RcNew' then
+                if not stmt.type:isRc() or M.expr(stmt.initial,visible,storages)~=stmt.type.target or not S.rcPayload(stmt.type.target) then
+                    D.bug('ir-Rc','Rc construction needs an admissible payload of its declared type')
+                end
+                bind(visible,stmt.value.id,stmt.type)
+            elseif kind == "Let" then
                 if M.expr(stmt.expr, visible, storages) ~= stmt.type then
                     D.bug("ir-type", "Let type does not match its expression")
                 end
@@ -347,7 +352,7 @@ function M.function_(fn, definitions, seeded)
     -- initializer (interfaces.md §6 item 3).
 
     -- Storage ids are one function-wide namespace: a Var, a place-parameter binding, a seeded module
-    -- global and a View adapter must all be distinct, wherever they appear. Value ids are a separate
+    -- global, Rc allocation identity and View adapter must all be distinct, wherever they appear. Value ids are a separate
     -- namespace, so a View adapter and its value may share a number.
     local reserved = {}
     local function reserveStorage(id, what)
@@ -369,6 +374,7 @@ function M.function_(fn, definitions, seeded)
                 return false
             end
             if Ir.Var:isclassof(node) then reserveStorage(node.storage.id, "a Var") end
+            if Ir.RcNew:isclassof(node) then reserveStorage(node.root.id, 'an Rc allocation') end
             if Ir.View:isclassof(node) and node.adapter then
                 reserveStorage(node.adapter.id, "a View adapter")
             end
@@ -376,7 +382,7 @@ function M.function_(fn, definitions, seeded)
     }
     -- Initializer descriptors may be plain tables; their statements are always ASDL nodes.
     for _, stmt in ipairs(fn.body) do Walk.walk(stmt, reservation) end
-    local storages, initialized = {}, {}
+    local storages, initialized = {typeCells=typeCells}, {}
     for id, ty in pairs(seeded or {}) do storages[id], initialized[id] = ty, true end
     for _, param in ipairs(fn.params) do
         if param.kind == "PlaceParam" then
@@ -441,6 +447,19 @@ function M.expr(expr, locals, storages)
         if not locals[expr.value.id] then
             D.bug("ir-scope", "Reference to value " .. expr.value.id .. " is not in scope")
         end
+        return expr.type
+    elseif kind == 'RcBorrow' then
+        if expr.holding.kind=='ValueArg' and expr.holding.value.kind~='Ref' then D.bug('ir-Rc','Rc borrow needs an existing value holding') end
+        local owner=M.arg(expr.holding,locals,storages)
+        if not owner:isRc() or not expr.type:isRef() then D.bug('ir-Rc','Rc borrow needs an owning holding and a payload reference') end
+        local target=owner.target;local seen={}
+        while target:isNamed() do
+            if seen[target.cell] or not storages or not storages.typeCells or not storages.typeCells[target.cell] then
+                D.bug('ir-Rc','Rc borrow needs its actual named payload definition')
+            end
+            seen[target.cell]=true;target=storages.typeCells[target.cell]
+        end
+        if target~=expr.type.target then D.bug('ir-Rc','Rc borrow payload type does not match its holding') end
         return expr.type
     elseif kind == "Make" then
         if expr.type:isSlice() then
@@ -510,6 +529,7 @@ function M.expr(expr, locals, storages)
         return expr.type
     elseif kind == "Convert" then
         local operand = M.expr(expr.operand, locals, storages)
+        if S.hasRc(operand) or S.hasRc(expr.type) then D.reject('Rc-erasure','Rc values cannot cross erased or numeric conversions') end
         if operand==S.Any or expr.type==S.Any then
             if operand==S.Any and expr.type==S.Any then D.bug("ir-type","Redundant any conversion") end
             if operand==S.Type or expr.type==S.Type then D.bug("ir-type","type cannot cross an any boundary") end
@@ -668,7 +688,7 @@ end
 
 -- Structural/type validation only. Program analysis and executable admission
 -- are separate boundaries; checking IR never publishes lifetime facts.
-function M.program(fnList, modules, foreigns, physical)
+function M.program(fnList, modules, foreigns, physical, typeCells)
     local definitions = {}
     -- A foreign target is declared rather than defined, so it has a result contract and no body, which
     -- is all the call check needs to know about it.
@@ -708,7 +728,7 @@ function M.program(fnList, modules, foreigns, physical)
             if node.kind=='Global' and not roots[node.root] then D.bug('ir-module','Global place has no initialized module root') end
             if S.Ty.V:isclassof(node) then return false end
         end})
-        M.function_(fn,definitions)
+        M.function_(fn,definitions,nil,typeCells or fnList.typeCells)
     end
     return true
 end

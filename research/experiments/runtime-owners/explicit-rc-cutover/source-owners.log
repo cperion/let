@@ -1,0 +1,29 @@
+clang -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror tools/validate_source_owners.c build/libabc.a -lm -Wl,--wrap=aligned_alloc,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free,--wrap=abc_owner_replace,--wrap=abc_owner_drain,--wrap=mprotect -o build/validate-source-owners
+cd frontend && luajit tests/source_owners.lua
+Rc analysis: 285 bindings / 571 iterations; cleanup frames: 5488 declared bytes, 424 largest, 229 typed slots
+Rc frontend: 2.216s CPU, 20.3 MiB Lua heap, 308195 assembly bytes
+Rc raw image: 64305 bytes; optimizing
+explicit Rc execution: 1718 checks, 560 VM executions; raw/optimized, four modes, both lifecycle banks
+build/validate-source-owners build/source-owners.abc build/source-owners-opt.abc build/source-owners-b.abc build/source-owners-b-opt.abc
+traffic pair_result: owners=2 holds=6 nonnull-acquires=6 peak-owner-bytes=80
+traffic array: owners=4 holds=14 nonnull-acquires=14 peak-owner-bytes=168
+traffic slice: owners=1 holds=2 nonnull-acquires=2 peak-owner-bytes=40
+traffic borrow: owners=2 holds=6 nonnull-acquires=6 peak-owner-bytes=80
+traffic projection: owners=1 holds=2 nonnull-acquires=2 peak-owner-bytes=40
+traffic direct_result: owners=2 holds=6 nonnull-acquires=6 peak-owner-bytes=80
+traffic partial: owners=1 holds=2 nonnull-acquires=2 peak-owner-bytes=40
+traffic keyed: owners=1 holds=2 nonnull-acquires=2 peak-owner-bytes=40
+traffic self_replace: owners=2 holds=8 nonnull-acquires=8 peak-owner-bytes=80
+traffic zero_width: owners=2 holds=4 nonnull-acquires=4 peak-owner-bytes=64
+traffic opened: owners=2 holds=6 nonnull-acquires=6 peak-owner-bytes=80
+traffic variant: owners=1 holds=13 nonnull-acquires=13 peak-owner-bytes=40
+traffic variant_replace: owners=4 holds=47 nonnull-acquires=47 peak-owner-bytes=200
+traffic variant_nested: owners=3 holds=30 nonnull-acquires=30 peak-owner-bytes=160
+traffic variant_borrowed_call: owners=1 holds=2 nonnull-acquires=2 peak-owner-bytes=40
+traffic variant_slice: owners=1 holds=8 nonnull-acquires=8 peak-owner-bytes=40
+traffic variant_loop: owners=2 holds=32 nonnull-acquires=32 peak-owner-bytes=80
+traffic variant_scalar: owners=1 holds=2 nonnull-acquires=2 peak-owner-bytes=40
+traffic variant_multi: owners=2 holds=28 nonnull-acquires=28 peak-owner-bytes=80
+traffic variant_raw: owners=1 holds=2 nonnull-acquires=2 peak-owner-bytes=40
+traffic private_recursive: owners=7 holds=14 nonnull-acquires=14 peak-owner-bytes=280
+source ownership cleanup: 2560862 checks; four modes, raw/optimized, both lifecycle banks, allocation/acquire failures, trap, stack limit, generated C drain

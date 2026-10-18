@@ -1,0 +1,3 @@
+frozen fixture: 79 functions, 281 bindings, 563 iterations, 537 CFG points
+compile CPU 2.254952s; analysis CPU 0.812592s; heap before 1.498 MiB, after 19.348 MiB, after collection 8.585 MiB
+assembly 305985 bytes; raw 63794 bytes; optimized 63776 bytes; optimizer CPU 0.010000s

@@ -111,7 +111,6 @@ function M.program(program)
  assert(program.phase=='checked-program','layout needs a checked program')
  -- Admission includes allocation-site reuse, not just the original extent
  -- summary. Ownership owns these proofs; layout must not guess them from types.
- require('let.ownership').requireBorrowed(program)
  return setmetatable({program=program,reference={kind='a',size=8,align=8}},Layout)
 end
 function M.physical(program)

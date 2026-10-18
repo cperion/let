@@ -1,0 +1,69 @@
+phase let.check.program 0.000s heap=4.3 MiB
+phase let.access.analyze 0.000s heap=4.3 MiB
+ access iterations=1
+ access seconds=0
+ access relations=2
+ access contexts=1
+phase let.ownership.analyze 0.000s heap=4.3 MiB
+phase let.program.analyze 0.000s heap=4.3 MiB
+phase let.check.program 0.000s heap=4.3 MiB
+phase let.placement.program 0.000s heap=4.3 MiB
+phase let.abc.lower 0.000s heap=4.4 MiB
+phase let.check.program 0.012s heap=7.6 MiB
+progress cpu=5.0 heap=178.5 MiB
+progress cpu=10.0 heap=283.1 MiB
+progress cpu=15.0 heap=392.7 MiB
+progress cpu=20.0 heap=428.6 MiB
+progress cpu=25.0 heap=302.2 MiB
+phase let.access.analyze 28.445s heap=318.7 MiB
+ access iterations=6257
+ access seconds=28.445331
+ access relations=537
+ access contexts=3258
+phase let.ownership.analyze 0.218s heap=343.3 MiB
+phase let.program.analyze 28.675s heap=343.3 MiB
+phase let.semantic.build 28.737s heap=343.3 MiB
+phase let.check.program 0.045s heap=375.4 MiB
+phase let.placement.program 0.193s heap=375.4 MiB
+phase let.abc.lower 0.542s heap=480.3 MiB
+53	J ./let/access.lua:179./let/access.lua:951./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+51	G ./let/access.lua:179./let/access.lua:951./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+41	G ./let/access.lua:179./let/access.lua:752./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+31	J ./let/access.lua:183./let/access.lua:744./let/access.lua:952./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11
+26	N ./let/access.lua:27./let/access.lua:65./let/access.lua:179./let/access.lua:951./let/access.lua:960./let/access.lua:1102
+19	N ./let/access.lua:179./let/access.lua:752./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+19	J ./let/access.lua:660./let/access.lua:845./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+18	G ./let/access.lua:755./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15/tmp/let-rc-phase-probe.lua:11
+17	J ./let/access.lua:24./let/access.lua:96./let/access.lua:519./let/access.lua:769./let/access.lua:960./let/access.lua:1102
+17	J ./let/access.lua:179./let/access.lua:752./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+16	J ./let/access.lua:170./let/access.lua:189./let/access.lua:379./let/access.lua:665./let/access.lua:845./let/access.lua:960
+16	N ./let/access.lua:179./let/access.lua:951./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+15	N ./let/access.lua:27./let/access.lua:65./let/access.lua:179./let/access.lua:752./let/access.lua:960./let/access.lua:1102
+15	J ./let/access.lua:679./let/access.lua:845./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+14	J ./let/access.lua:49./let/access.lua:57./let/access.lua:184./let/access.lua:744./let/access.lua:952./let/access.lua:960
+14	J ./let/schema.lua:208./let/ownership.lua:18./let/access.lua:621./let/access.lua:770./let/access.lua:960./let/access.lua:1102
+13	J ./let/ownership.lua:27./let/ownership.lua:29./let/access.lua:513./let/access.lua:769./let/access.lua:960./let/access.lua:1102
+13	G ./let/access.lua:660./let/access.lua:845./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+12	J ./let/access.lua:24./let/access.lua:113./let/access.lua:425./let/access.lua:765./let/access.lua:960./let/access.lua:1102
+12	J ./let/access.lua:183./let/access.lua:931./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+12	N ./let/access.lua:190./let/access.lua:379./let/access.lua:665./let/access.lua:845./let/access.lua:960./let/access.lua:1102
+12	J ./let/access.lua:50./let/access.lua:670./let/access.lua:845./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11
+11	G ./let/access.lua:55./let/access.lua:65./let/access.lua:179./let/access.lua:951./let/access.lua:960./let/access.lua:1102
+11	J ./let/ownership.lua:27./let/ownership.lua:29./let/access.lua:619./let/access.lua:770./let/access.lua:960./let/access.lua:1102
+10	J ./let/ownership.lua:27./let/access.lua:940./let/access.lua:960./let/access.lua:1102/tmp/let-rc-phase-probe.lua:11./let/program.lua:15
+source functions	79	contexts	3258	assembly bytes	306052
+contexts	leaf	602
+contexts	tagged_box__constructor_13	282
+contexts	parent	241
+contexts	choice_value_word_11	240
+contexts	choice_value	239
+contexts	choice_value_word_10	232
+contexts	choice_value_word_12	232
+contexts	choice_value_word_9	232
+contexts	variant_loop_word_17	186
+contexts	loop_word_3	152
+contexts	noise	146
+contexts	noise__constructor_6	146
+contexts	deep	76
+contexts	choose__constructor_8	31
+contexts	chain__constructor_5	21

@@ -13,7 +13,6 @@ M.Ir = M.ctx.Ir
 M.Surface = M.ctx.Surface
 M.Borrow = M.ctx.Borrow
 M.Ownership = M.ctx.Ownership
-M.Lifetime = M.ctx.Lifetime
 
 local Ty = M.Ty
 M.U32, M.U8, M.U16, M.I32 = Ty.U32, Ty.U8, Ty.U16, Ty.I32
@@ -62,6 +61,7 @@ function Ty.V:isSum() return self.kind == "Sum" end
 function Ty.V:isTagged() return self.kind == "Tagged" end
 function Ty.V:isTaggedType() return self.kind == "Sum" or self.kind == "Tagged" end
 function Ty.V:isRef() return self.kind == "Ref" end
+function Ty.V:isRc() return self.kind == "Rc" end
 function Ty.V:isPtr() return self.kind == "Ptr" end
 function Ty.V:isArray() return self.kind == "Array" end
 function Ty.V:isSlice() return self.kind == "Slice" end
@@ -71,7 +71,7 @@ function Ty.V:isView() return self.kind == "View" end
 -- ref | ptr | slice: a representation that stops, so what it reaches through is not embedded. A
 -- predicate over three variants, not a fourth variant (structure.md §0.1).
 function Ty.V:isIndirection()
-    return self.kind == "Ref" or self.kind == "Ptr" or self.kind == "Slice"
+    return self.kind == "Ref" or self.kind == "Rc" or self.kind == "Ptr" or self.kind == "Slice"
 end
 
 -- The byte slice: text and bytes are one mechanism rather than two, so they are one type.
@@ -221,6 +221,24 @@ function M.Ref(target) return Ty.Ref(target) end
 -- reference and none of the same guarantee, which is why it is a separate kind rather than a flag on
 -- one: a signature that asks for `ptr(T)` is asking for an unchecked address.
 function M.Ptr(target) return Ty.Ptr(target) end
+function M.Rc(target) return Ty.Rc(target) end
+
+-- Declared owning fields, not inferred ownership of reference-bearing values.
+function M.hasRc(t)
+ if t:isRc() then return true end
+ if t:isRecord() then for _,f in ipairs(t.fields) do if M.hasRc(f.type) then return true end end
+ elseif t:isArray() then return t.length>0 and M.hasRc(t.element)
+ elseif t:isTaggedType() then for _,f in ipairs(M.alternatives(t)) do if M.hasRc(f.type) then return true end end
+ elseif t:isOwned() then return M.hasRc(t.environment) end
+ return false
+end
+function M.rcPayload(t)
+ if t:isInteger() or t==Ty.F64 or t==Ty.Bool or t==Ty.Unit or t:isPtr() or t:isRc() then return true end
+ if t:isRecord() then for _,f in ipairs(t.fields) do if not M.rcPayload(f.type) then return false end end;return true end
+ if t:isArray() then return M.rcPayload(t.element) end
+ if t:isTaggedType() then for _,f in ipairs(M.alternatives(t)) do if not M.rcPayload(f.type) then return false end end;return true end
+ return false
+end
 
 -- An array is a fixed-length sequence of one element type. Its length is part of the type, so a
 -- static index is checked while compiling and only a run-time index needs a bounds guard.
@@ -347,6 +365,7 @@ function M.runtime(t, visiting)
     if type(t) ~= "table" then return false end
     if t:isInteger() or t == Ty.F64 or t == Ty.Bool or t == Ty.Unit then return true end
     if t == Ty.Type then return false end
+    if t:isRc() then return t.target:isNamed() or M.rcPayload(t.target) and M.runtime(t.target,visiting) end
     if t:isRef() then
         -- A pointer is a runtime value whatever it points at; a named cell is always a data type
         -- that was sealed, so the target's own runtime-ness was checked when it was defined.
@@ -435,6 +454,7 @@ function M.display(t)
     if t:isSum() then return "oneof {" .. M.encodeFields(t.cases) .. "}" end
     if t:isPtr() then return "Ptr(" .. M.display(t.target) .. ")" end
     if t:isRef() then return "Ref(" .. M.display(t.target) .. ")" end
+    if t:isRc() then return "Rc(" .. M.display(t.target) .. ")" end
     return M.encode(t)
 end
 

@@ -1,0 +1,97 @@
+load begin 0.001
+load end 0.003 functions=123
+fn 0 begin 0.003 entry=0 size=16
+fn 0 end 0.003 optimized=1
+fn 3 begin 0.003 entry=408 size=22
+fn 3 end 0.003 optimized=0
+fn 4 begin 0.003 entry=430 size=640
+fn 4 end 0.003 optimized=0
+fn 1 begin 0.003 entry=16 size=150
+fn 1 end 0.003 optimized=0
+fn 2 begin 0.003 entry=166 size=242
+fn 2 end 0.003 optimized=0
+fn 5 begin 0.003 entry=1070 size=47
+fn 5 end 0.003 optimized=1
+fn 6 begin 0.003 entry=1117 size=449
+fn 6 end 0.003 optimized=0
+fn 8 begin 0.003 entry=1692 size=265
+fn 8 end 0.003 optimized=0
+fn 7 begin 0.003 entry=1566 size=126
+fn 7 end 0.003 optimized=0
+fn 9 begin 0.003 entry=1957 size=354
+fn 9 end 0.003 optimized=0
+fn 10 begin 0.003 entry=2311 size=46
+fn 10 end 0.003 optimized=0
+fn 12 begin 0.003 entry=2545 size=230
+fn 12 end 0.003 optimized=0
+fn 11 begin 0.003 entry=2357 size=188
+fn 11 end 0.003 optimized=0
+fn 14 begin 0.003 entry=2989 size=384
+fn 14 end 0.003 optimized=0
+fn 13 begin 0.003 entry=2775 size=214
+fn 13 end 0.003 optimized=0
+fn 16 begin 0.003 entry=3798 size=866
+fn 16 end 0.003 optimized=0
+fn 15 begin 0.003 entry=3373 size=425
+fn 15 end 0.003 optimized=0
+fn 18 begin 0.003 entry=4877 size=317
+fn 18 end 0.003 optimized=0
+fn 17 begin 0.003 entry=4664 size=213
+fn 17 end 0.003 optimized=0
+fn 20 begin 0.003 entry=5425 size=361
+fn 20 end 0.003 optimized=0
+fn 19 begin 0.003 entry=5194 size=231
+fn 19 end 0.003 optimized=0
+fn 21 begin 0.003 entry=5786 size=432
+fn 21 end 0.003 optimized=0
+fn 22 begin 0.003 entry=6218 size=414
+fn 22 end 0.003 optimized=0
+fn 23 begin 0.003 entry=6632 size=11
+fn 23 end 0.003 optimized=1
+fn 26 begin 0.003 entry=6765 size=255
+fn 26 end 0.003 optimized=0
+fn 25 begin 0.003 entry=6676 size=89
+fn 25 end 0.003 optimized=0
+fn 27 begin 0.003 entry=7020 size=247
+fn 27 end 0.003 optimized=0
+fn 28 begin 0.003 entry=7267 size=401
+fn 28 end 0.003 optimized=0
+fn 29 begin 0.003 entry=7668 size=15
+fn 29 end 0.003 optimized=1
+fn 31 begin 0.003 entry=8650 size=214
+fn 31 end 0.003 optimized=0
+fn 30 begin 0.003 entry=7683 size=967
+fn 30 end 0.003 optimized=0
+fn 36 begin 0.003 entry=14554 size=814
+fn 36 end 0.003 optimized=0
+fn 33 begin 0.003 entry=9666 size=1879
+fn 33 end 0.003 optimized=0
+fn 34 begin 0.003 entry=11545 size=1581
+fn 34 end 0.003 optimized=0
+fn 37 begin 0.003 entry=15368 size=4365
+fn 37 end 0.003 optimized=0
+fn 35 begin 0.003 entry=13126 size=1428
+fn 35 end 0.003 optimized=0
+fn 38 begin 0.003 entry=19733 size=1590
+fn 38 end 0.003 optimized=0
+fn 39 begin 0.003 entry=21323 size=11
+nodes=10000 paths=77 root=39 time=0.021
+nodes=20000 paths=157 root=39 time=0.065
+nodes=30000 paths=240 root=39 time=0.148
+nodes=40000 paths=320 root=39 time=0.271
+nodes=50000 paths=400 root=39 time=0.441
+nodes=60000 paths=480 root=39 time=0.661
+nodes=70000 paths=561 root=39 time=0.938
+nodes=80000 paths=641 root=39 time=1.257
+nodes=90000 paths=724 root=39 time=1.630
+nodes=100000 paths=804 root=39 time=2.060
+nodes=110000 paths=885 root=39 time=2.539
+nodes=120000 paths=965 root=39 time=3.064
+nodes=130000 paths=1045 root=39 time=3.639
+nodes=140000 paths=1128 root=39 time=4.263
+nodes=150000 paths=1208 root=39 time=4.973
+nodes=160000 paths=1288 root=39 time=5.712
+nodes=170000 paths=1369 root=39 time=6.518
+nodes=180000 paths=1452 root=39 time=7.423
+nodes=190000 paths=1532 root=39 time=8.372
+nodes=200000 paths=1612 root=39 time=9.384

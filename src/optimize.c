@@ -35,6 +35,7 @@ typedef struct {
     int unsupported, follow_control, terminal_abort, terminal_halt, unknown_control, callable_safe, backedge, nested_backedge, loop_candidate, loop_captured, loop_stable; uint32_t pending_origin;
     abc_symbolic_context loop_initial; abc_symbolic_value loop_header[255]; uint32_t loop_home[255], loop_count;
     abc_symbolic_control pending_control; size_t paths;
+    unsigned branching, noncall_effect;
     ResidualCall *calls; uint32_t call_count, call_capacity; uint32_t terminal_tail;
 } DagSink;
 typedef struct DagTree {
@@ -150,7 +151,12 @@ static int same_node(const DagSink *sink,const Node *a,const Node *b) {
     return a->kind==N_UNARY||a->kind==N_CHECK||a->right==b->right;
 }
 static uint32_t node(DagSink *s,Node n) {
-    for(uint32_t i=0;i<s->count;i++)if(same_node(s,&s->nodes[i],&n))return i+1;
+    /* The scheduler already declines multi-path non-call effects. Enforce that
+       same eligibility when it becomes known, not after enumerating every path
+       and duplicating its ordered suffix. This also applies inside virtual calls. */
+    if(n.effect&&n.kind!=N_CALL){s->noncall_effect=1;if(s->branching){s->unsupported=1;return 0;}}
+    /* Ordered effects and tails are never common expressions. */
+    if(!n.effect&&n.kind!=N_TAIL)for(uint32_t i=0;i<s->count;i++)if(same_node(s,&s->nodes[i],&n))return i+1;
     if(!grow_nodes(s))return 0;s->nodes[s->count]=n;return ++s->count;
 }
 static abc_symbolic_value backend(uint32_t id,unsigned stack,int32_t home) {
@@ -275,14 +281,23 @@ static int dag_control(void *opaque,uint32_t origin,const abc_symbolic_control *
         if(!supported||control->fallthrough<=origin){s->unsupported=1;return 1;}
         if(control->kind==ABC_SYM_CONTROL_SWITCH){const uint8_t *p=s->module->code+origin;for(uint32_t i=0;i<control->count;i++)if((uint32_t)((int64_t)control->fallthrough+abc_i32(p+3+4*i))<=origin){s->unsupported=1;return 1;}}
         else if(control->target<=origin){s->unsupported=1;return 1;}
+        s->branching=1;if(s->noncall_effect){s->unsupported=1;return 1;}
         s->pending_control=*control;s->pending_origin=origin;s->unknown_control=1;return 1;
     }
     uint32_t target=control->kind==ABC_SYM_CONTROL_JUMP||control->taken?control->target:control->fallthrough;
     if(target<=origin){s->unsupported=1;return 1;}s->control_target=target;s->follow_control=1;return 1;
 }
 
+static int materializes_frame(const abc_module *m,uint32_t fi) {
+    const abc_function *f=&m->functions[fi];if(f->hidden_bytes)return 1;
+    for(uint32_t pc=f->entry;pc<f->end;pc+=abc_instruction_length(m->code+pc)){
+        unsigned action=abc_instruction_info(m->code+pc)->memory_action;
+        if(action==M_ALLOC||action==M_FREE)return 1;
+    }
+    return 0;
+}
 static int dag_call(void *opaque,uint32_t origin,abc_symbolic_call *effect) {
-    DagSink *s=opaque;int fi=abc_find_function(s->module,effect->target);if(fi<0||s->module->functions[fi].hidden_bytes){unsupported(s);return 0;}int recursive=s->graph->recursive[fi];
+    DagSink *s=opaque;int fi=abc_find_function(s->module,effect->target);if(fi<0||materializes_frame(s->module,(uint32_t)fi)){unsupported(s);return 0;}int recursive=s->graph->recursive[fi];
     if(recursive&&effect->target!=s->root_entry&&s->graph->nested_eligible[fi]&&!s->loop_candidate){s->loop_candidate=1;s->loop_target=effect->target;effect->virtualize=1;return 1;}
     if(recursive){abc_symbolic_context *x=s->machine->context;unsigned selected_stack=effect->destination;uint32_t base=x->n[selected_stack]-effect->arguments;if(!record_call(s,(uint32_t)fi,effect->arguments,x->s[selected_stack]+base))return 0;uint32_t call=node(s,(Node){N_CALL,origin,(uint32_t)fi,0,(uint16_t)s->module->code[origin],(uint8_t)effect->destination,0,1});if(!call||!add_payload(s,call,effect->arguments,x->s[selected_stack]+base,origin,effect->results))return 0;EffectPayload *p=find_payload(s,call);p->destination=(uint8_t)effect->destination;p->result_nodes=calloc(effect->results?effect->results:1,sizeof *p->result_nodes);if(!p->result_nodes)return 0;for(unsigned i=0;i<effect->results;i++){uint32_t result=node(s,(Node){N_RESULT,origin,call,0,0,(uint8_t)i,0,0});if(!result)return 0;p->result_nodes[i]=result;effect->result[i]=backend(result,effect->destination,0);}return 1;}effect->virtualize=1;return 1;
 }
@@ -292,7 +307,7 @@ static int dag_indirect(void *opaque,uint32_t origin,abc_symbolic_indirect *effe
 }
 
 static int dag_tail(void *opaque,uint32_t origin,abc_symbolic_tail *effect) {
-    DagSink *s=opaque;int fi=abc_find_function(s->module,effect->target);if(fi<0||s->module->functions[fi].hidden_bytes){unsupported(s);return 0;}int recursive=s->graph->recursive[fi];
+    DagSink *s=opaque;int fi=abc_find_function(s->module,effect->target);if(fi<0||materializes_frame(s->module,(uint32_t)fi)){unsupported(s);return 0;}int recursive=s->graph->recursive[fi];
     if(effect->target!=s->root_entry){
         if(s->loop_candidate&&effect->target==s->loop_target)return 1;
         if(recursive&&s->graph->nested_eligible[fi]&&!s->loop_candidate){s->loop_candidate=1;s->loop_target=effect->target;return 1;}
@@ -708,8 +723,7 @@ static int emit_phi_tree(Bytes *b,const Schedule *schedule,const DagTree *tree,u
 }
 
 static int residualize_function(const abc_module *m,const CallGraph *graph,uint32_t fi,const ArgumentFact *facts,FunctionCode *out) {
-    const abc_function *f=&m->functions[fi];if(f->hidden_bytes)return 0;
-    for(uint32_t pc=f->entry;pc<f->end;pc+=abc_instruction_length(m->code+pc)){unsigned action=abc_instruction_info(m->code+pc)->memory_action;if(action==M_ALLOC||action==M_FREE)return 0;}
+    const abc_function *f=&m->functions[fi];if(materializes_frame(m,fi))return 0;
     if(m->memory_profile){for(uint32_t i=0;i<f->arguments;i++)if(f->argument_kinds[i]!=ABC_KIND_INT)return 0;for(uint32_t i=0;i<f->results;i++)if(f->result_kinds[i]!=ABC_KIND_INT)return 0;}
     DagSink sink={.module=m,.graph=graph,.root_function=fi,.root_entry=f->entry,.root_arguments=f->arguments,.callable_safe=0};abc_symbolic_context context={0};
     uint32_t *uses=NULL,*path_uses=NULL;int32_t *homes=NULL;uint8_t *expanded=NULL;Bytes code={.function=out};DagTree *tree=NULL;

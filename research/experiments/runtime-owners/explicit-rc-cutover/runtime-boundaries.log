@@ -1,0 +1,9 @@
+clang -Iinclude -Isrc -Ibuild -O2 -g -pthread -std=c11 -Wall -Wextra -Wpedantic -Werror tools/validate_c_entries.c build/libabc.a build/libabc-tool.a -lm -o build/validate-c-entries
+build/validate-owner-core
+luajit tools/validate_no_collector.lua
+owner core: 113 checks; 100001-object chain, branching queue, shared-thread release; header 32 bytes; no source/VM binding claim
+collector-free dependency audit: 235 active files, 17 negative/positive guard probes; archives/build artifacts excluded
+luajit tools/validate_c_entries.lua build/c-entry-tests
+C-entry format: 180 assembler/loader/optimizer checks; no lifecycle execution
+build/validate-c-entries build/c-entry-tests/entries.abc build/c-entry-tests/optimized.abc build/c-entry-tests/ordinary.abc build/c-entry-tests/empty.abc
+C-entry boundaries: 193 checks; ABC target exclusion and fail-closed delivery in four modes; no lifecycle execution

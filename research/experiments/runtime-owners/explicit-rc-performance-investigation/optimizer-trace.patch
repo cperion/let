@@ -1,0 +1,51 @@
+--- src/optimize.c	2026-10-16 10:27:58.579853466 +0200
++++ /tmp/let-rc-opt-trace.c	2026-10-18 15:39:23.407927184 +0200
+@@ -1,3 +1,5 @@
++#include <time.h>
++#include <stdio.h>
+ #include "abc_tool.h"
+ #include "symbolic.h"
+ 
+@@ -151,7 +153,9 @@
+ }
+ static uint32_t node(DagSink *s,Node n) {
+     for(uint32_t i=0;i<s->count;i++)if(same_node(s,&s->nodes[i],&n))return i+1;
+-    if(!grow_nodes(s))return 0;s->nodes[s->count]=n;return ++s->count;
++    if(!grow_nodes(s))return 0;s->nodes[s->count]=n;++s->count;
++    if(s->count%10000==0)fprintf(stderr,"nodes=%u paths=%zu root=%u time=%.3f\n",s->count,s->paths,s->root_function,(double)clock()/CLOCKS_PER_SEC);
++    return s->count;
+ }
+ static abc_symbolic_value backend(uint32_t id,unsigned stack,int32_t home) {
+     return abc_symbolic_backend(id,stack,home);
+@@ -843,7 +847,9 @@
+ static abc_status optimize_impl(const void *input,size_t input_size,void **output,size_t *output_size,abc_provenance **provenance,size_t *provenance_count,abc_error *error) {
+     abc_clear(error);if(output)*output=NULL;if(output_size)*output_size=0;if(provenance)*provenance=NULL;if(provenance_count)*provenance_count=0;
+     if(!input||!output||!output_size||(provenance&&!provenance_count))return abc_fail(error,ABC_INVALID,UINT32_MAX,"invalid optimizer input");
++    fprintf(stderr,"load begin %.3f\n",(double)clock()/CLOCKS_PER_SEC);
+     abc_module *m=NULL;abc_status status=abc_module_load(input,input_size,&m,error);if(status!=ABC_OK)return status;
++    fprintf(stderr,"load end %.3f functions=%u\n",(double)clock()/CLOCKS_PER_SEC,m->function_count);
+     void *bytes=NULL;size_t size=0;abc_provenance *map=NULL;size_t map_count=0;int optimized=0;
+     CallGraph graph={0};FunctionCode *functions=calloc(m->function_count,sizeof *functions);uint8_t *needed=calloc(m->function_count,1),*dirty=calloc(m->function_count,1);ArgumentFact **facts=calloc(m->function_count,sizeof *facts);
+     if(!functions||!needed||!dirty||!facts||!build_call_graph(m,&graph)){free(functions);free(needed);free(dirty);free(facts);free_call_graph(&graph);status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer allocation failed");goto done;}
+@@ -853,10 +859,12 @@
+         for(uint32_t i=0;i<m->reloc_count;i++)if(!activate_function_facts(m,facts,needed,dirty,m->relocs[i].function,1))goto optimize_failed;
+         for(uint32_t i=0;i<m->c_entry_count;i++)if(!activate_function_facts(m,facts,needed,dirty,m->c_entries[i].function,1))goto optimize_failed;
+     }else for(uint32_t i=0;i<m->function_count;i++)if(!activate_function_facts(m,facts,needed,dirty,i,1))goto optimize_failed;
+-    optimized=1;for(;;){uint32_t i=0;while(i<m->function_count&&!dirty[i])i++;if(i==m->function_count)break;dirty[i]=0;clear_function_code(&functions[i]);
++    optimized=1;for(;;){uint32_t i=0;while(i<m->function_count&&!dirty[i])i++;if(i==m->function_count)break;dirty[i]=0;clear_function_code(&functions[i]);fprintf(stderr,"fn %u begin %.3f entry=%u size=%u\n",i,(double)clock()/CLOCKS_PER_SEC,m->functions[i].entry,m->functions[i].end-m->functions[i].entry);
+         if(!residualize_function(m,&graph,i,facts[i],&functions[i])){clear_function_code(&functions[i]);if(!retain_function(m,i,&functions[i])){status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer allocation failed");optimized=0;break;}}
++        fprintf(stderr,"fn %u end %.3f optimized=%d\n",i,(double)clock()/CLOCKS_PER_SEC,functions[i].optimized);
+         for(uint32_t j=0;j<functions[i].call_count;j++)if(!join_call_facts(m,facts,needed,dirty,&functions[i].calls[j])){status=abc_fail(error,ABC_INVALID,UINT32_MAX,"optimizer residual call facts are invalid");optimized=0;break;}if(!optimized)break;
+     }
++    fprintf(stderr,"write begin %.3f\n",(double)clock()/CLOCKS_PER_SEC);
+     if(optimized&&!write_module(m,functions,input,input_size,&bytes,&size,provenance?&map:NULL,&map_count)){status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer emission failed");optimized=0;}
+     goto optimize_cleanup;
+ optimize_failed:status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer allocation failed");optimized=0;
+@@ -864,6 +872,7 @@
+     if(!optimized) { bytes=malloc(input_size);if(!bytes){status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"optimizer allocation failed");goto done;}memcpy(bytes,input,input_size);size=input_size;
+         if(provenance){for(uint32_t pc=0;pc<m->code_size;pc+=abc_instruction_length(m->code+pc))map_count++;map=calloc(map_count?map_count:1,sizeof *map);if(!map){free(bytes);bytes=NULL;status=abc_fail(error,ABC_NOMEM,UINT32_MAX,"provenance allocation failed");goto done;}size_t j=0;for(uint32_t pc=0;pc<m->code_size;pc+=abc_instruction_length(m->code+pc))map[j++]=(abc_provenance){pc,pc};}
+     }
++    fprintf(stderr,"verify begin %.3f\n",(double)clock()/CLOCKS_PER_SEC);
+     abc_module *verified=NULL;status=abc_module_load(bytes,size,&verified,error);if(status!=ABC_OK){free(bytes);free(map);bytes=NULL;size=0;goto done;}abc_module_free(verified);
+     *output=bytes;*output_size=size;if(provenance){*provenance=map;*provenance_count=map_count;}status=ABC_OK;
+ done:abc_module_free(m);return status;

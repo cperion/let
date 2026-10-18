@@ -11,7 +11,7 @@ local M = {}
 local I, L = S.Ir, S.ASDL.List
 local DEFINITION_LOOKUP = {}
 local RECEIVER_SCOPE = {}
-local VOCABULARY_BUILTINS={Ref=true,Ptr=true,Slice=true,Array=true,null=true,is=true}
+local VOCABULARY_BUILTINS={Ref=true,Rc=true,Ptr=true,Slice=true,Array=true,null=true,is=true}
 local DYNAMIC_VOCABULARY={open=true,has=true,remove=true,count=true,key=true,freeze=true}
 
 local BUILTIN_TYPES = {
@@ -36,7 +36,7 @@ local function schemaName(node,schemas)
     elseif node.kind=='FieldSelect' and schemas[DEFINITION_LOOKUP] then
         local definition=schemas[DEFINITION_LOOKUP](node)
         return definition and definition.kind=='type' and definition.schema or nil
-    elseif node.kind=="Apply" and node.callee.kind=="Reference" and (node.callee.name.text=="Ref" or node.callee.name.text=="Ptr") then return schemaName(node.arguments[1],schemas) end
+    elseif node.kind=="Apply" and node.callee.kind=="Reference" and (node.callee.name.text=="Ref" or node.callee.name.text=="Rc" or node.callee.name.text=="Ptr") then return schemaName(node.arguments[1],schemas) end
     return name and schemas[name] or nil
 end
 local function reject(code, message, node) D.reject(code, message, node and node.span) end
@@ -69,10 +69,10 @@ local function typeExpr(node, types)
         return node.kind=='SumSchema' and S.Sum(fields) or S.Record(fields)
     elseif node and node.kind=="Apply" and node.callee.kind=="Reference" then
         local name=node.callee.name.text
-        if name=="Ref" or name=="Ptr" or name=="Slice" then
+        if name=="Ref" or name=="Rc" or name=="Ptr" or name=="Slice" then
             if #node.arguments~=1 then reject("arity",name.." type expects one argument",node) end
             local child=typeExpr(node.arguments[1],types)
-            return name=="Ref" and S.Ref(child) or name=="Ptr" and S.Ptr(child) or S.Slice(child)
+            return name=="Ref" and S.Ref(child) or name=="Rc" and S.Rc(child) or name=="Ptr" and S.Ptr(child) or S.Slice(child)
         elseif name=="Array" then
             local length=ungroup(node.arguments[2])
             if #node.arguments~=2 or length.kind~='U32Literal' or length.value<1 then reject('array-length','array expects a type and a positive literal length',node) end
@@ -297,6 +297,7 @@ function Function:placeBinding(node)
         if not (parent.place or parent.storage or parent.getPlace) or not parent.type then return nil end
         local ty=parent.type
         if node.kind=='IndexExpr' then
+            if ty:isRef() and self:sealed(ty.target):isArray() then ty=self:sealed(ty.target) end
             local element=(ty:isArray() or ty:isSlice()) and ty.element or ty:isPtr() and ty.target
             if not element then return nil end
             return {getPlace=function() return self:place(node) end,type=element}
@@ -330,7 +331,7 @@ function Function:sameType(left,right,seen)
     if left==right then return true end
     if not left or not right or left.kind~=right.kind then return false end
     seen=seen or {};seen[left]=seen[left] or {};if seen[left][right] then return true end;seen[left][right]=true
-    if left:isRef() or left:isPtr() then return self:sameType(left.target,right.target,seen) end
+    if left:isRef() or left:isRc() or left:isPtr() then return self:sameType(left.target,right.target,seen) end
     if left:isSlice() then return self:sameType(left.element,right.element,seen) end
     if left:isArray() then return left.length==right.length and self:sameType(left.element,right.element,seen) end
     if left:isRecord() or left:isTaggedType() then
@@ -371,6 +372,7 @@ function Function:place(node)
             local binding=node.base.kind=="Reference" and self:lookupBinding(node.base.name.text) or true
             if binding and (binding==true or binding.storage or binding.place) then
                 local base,ty=self:place(node.base)
+                if ty:isRef() and self:sealed(ty.target):isArray() then local target=self:sealed(ty.target);base,ty=I.Deref(base,target),target end
                 if ty:isArray() then return I.Index(base,index,ty.element),ty.element end
             end
         end
@@ -1060,7 +1062,7 @@ function Function:receiverSelection(receiver,name,owner)
         local key=self.builder:const(S.String,I.Str(name.text))
         return self:dynamicWord('WordGet',{self:receiverValue(receiver),key},owner)
     end
-    local interface=receiver.schema
+    local interface=not ty:isRc() and receiver.schema
     if interface and interface.methods[name.text] then
         local binding=receiver.binding or {type=receiver.type,schema=interface}
         return nil,self:methodTarget(binding,name.text,owner)
@@ -1269,6 +1271,7 @@ function Function:coerce(expr, expected, node)
         if expr.kind=="Addr" then return located(self.builder:addr(expr.place,expected),node) end
         if expr.kind=="Null" then return located(self.builder:nullPtr(expected),node) end
     end
+    if (expected==S.Any and S.hasRc(expr.type)) or (expr.type==S.Any and S.hasRc(expected)) then reject('Rc-erasure','Rc erased transport is not admitted',node) end
     if expected==S.Any and (expr.type:isRecord() or expr.type:isArray() or expr.type:isTaggedType()) then
         local storage=self.builder:var(self.body,expr.type,expr);return located(self.builder:convert(self.builder:addr(I.Local(storage),S.Ref(expr.type)),S.Any),node)
     end
@@ -1351,6 +1354,20 @@ function Function:snapshotArgument(value,origin)
 end
 
 function Function:callSuffix(node, expected, discard, allResults, prepareOnly, continuing, pending, calleeValue)
+    if not pending and not calleeValue and node.callee.kind=='FieldSelect' and node.callee.field.text=='borrow' then
+        local base=node.callee.base;local binding=self:placeBinding(base)
+        local ty=binding and binding.type
+        if ty and ty:isRc() then
+            if #node.arguments~=0 then reject('arity','Rc.borrow expects no arguments',node) end
+            local place=self:bindingPlace(binding)
+            local holding=place and I.BorrowArg(place) or I.ValueArg(self:bindingValue(binding,base))
+            local target=self:sealed(ty.target)
+            if not S.rcPayload(target) then reject('Rc-payload','Rc payload cannot contain borrowed or erased values',node) end
+            local result=self.builder:rcBorrow(holding,S.Ref(target))
+            result.schema=binding.rcSchema or binding.schema
+            return located(result,node)
+        end
+    end
     local name,callable,selectedMethod,lexicalReceiver
     local implicit=not pending and not calleeValue and node.callee.kind=='Reference'
         and self:usesImplicitReceiver(node.callee.name.text) and self:activeReceiver()
@@ -1389,12 +1406,20 @@ function Function:callSuffix(node, expected, discard, allResults, prepareOnly, c
     if not pending and (name=="Ref" or name=="Ptr") then
         if #node.arguments~=1 then reject("arity",name.." expects one place",node) end
         local place,ty=self:place(node.arguments[1]);return located(self.builder:addr(place,name=="Ref" and S.Ref(ty) or S.Ptr(ty)),node)
+    elseif not pending and name=="Rc" then
+        if #node.arguments~=1 then reject('arity','Rc expects one value',node) end
+        local initial=self:expr(node.arguments[1])
+        if not S.rcPayload(initial.type) then reject('Rc-payload','Rc payload cannot contain borrowed, callable or erased values',node) end
+        local result=self.builder:rcNew(self.body,initial);result.rcSchema=initial.schema
+        return located(result,node)
     elseif name=="null" then
         if #node.arguments~=1 then reject("arity","null expects one element type",node) end
         return located(self.builder:nullPtr(S.Ptr(typeExpr(node.arguments[1],self.types))),node)
     elseif name=="Slice" then
         if #node.arguments~=1 then reject("arity","slice expects one array",node) end
-        local place,ty=self:place(node.arguments[1]);if not ty:isArray() then reject("type-mismatch","slice expects an array place",node.arguments[1]) end
+        local place,ty=self:place(node.arguments[1])
+        if ty:isRef() and self:sealed(ty.target):isArray() then local target=self:sealed(ty.target);place,ty=I.Deref(place,target),target end
+        if not ty:isArray() then reject("type-mismatch","slice expects an array place",node.arguments[1]) end
         local first=I.Index(place,self.builder:u32(0),ty.element);local address=self.builder:addr(first,S.Ref(ty.element),S.Borrow.ReadAccess)
         return located(self.builder:make(S.Slice(ty.element),{address,self.builder:u32(ty.length)}),node)
     end
@@ -1564,7 +1589,7 @@ function Function:expr(node, expected, allowDefinition)
     local kind=node.kind
     local expr
     if allowDefinition and (kind=='SignatureExpr' or kind=='SchemaExpr' or kind=='SumSchema' or
-        kind=='Apply' and node.callee.kind=='Reference' and (node.callee.name.text=='Array' or node.callee.name.text=='Ref' or node.callee.name.text=='Ptr' or node.callee.name.text=='Slice')) then
+        kind=='Apply' and node.callee.kind=='Reference' and (node.callee.name.text=='Array' or node.callee.name.text=='Ref' or node.callee.name.text=='Rc' or node.callee.name.text=='Ptr' or node.callee.name.text=='Slice')) then
         return Source.definitionValue(Source.typeDefinition(typeExpr(node,self.types),schemaName(node,self.schemas),node),node.span)
     end
     if kind=='Group' then return self:expr(node.value,expected,allowDefinition)
@@ -1851,7 +1876,7 @@ function Function:installBinding(entry,owner)
     elseif expr.sourceTemplate then binding={sourceTemplate=expr.sourceTemplate,callable=true}
     elseif expr.sourcePack then reject('pack-use','A pack cannot be bound as an ordinary value',entry.binder)
     elseif expr.sourceCallable then binding={sourceCallable=expr.sourceCallable,type=expr.type,callable=true}
-    elseif (expr.type:isView() or expr.type:isSum()) and expr.kind=='Ref' then
+    elseif (expr.type:isView() or expr.type:isSum() and not S.hasRc(expr.type)) and expr.kind=='Ref' then
         binding={value=expr.value,type=expr.type,callable=expr.type:isView()}
     elseif expr.type:isRecord() or expr.type:isArray() or expr.type:isRef() or expr.type:isPtr() then
         binding={storage=self.builder:var(self.body,expr.type,expr),type=expr.type,schema=entry.schema}
@@ -1859,6 +1884,7 @@ function Function:installBinding(entry,owner)
         local value=self.builder:let(self.body,expr.type,located(expr,owner))
         binding={value=value,type=expr.type,callable=expr.type:isView() or expr.type:isOwned()}
     end
+    binding.rcSchema=expr.rcSchema or expr.type and expr.type:isRc() and entry.schema
     binding.origin=entry.binder;binding.localCallable=true;binding.owner=self;self.scope[name]=binding
 end
 
@@ -2053,7 +2079,7 @@ function M.build(unit, options)
     end
     types[DEFINITION_LOOKUP]=definitionPath;schemas[DEFINITION_LOOKUP]=definitionPath
     local moduleScope,scopeFor,scopedEnvironment
-    local constructors={Ref=true,Ptr=true,Slice=true,Array=true}
+    local constructors={Ref=true,Rc=true,Ptr=true,Slice=true,Array=true}
     local function obviousType(node) node=ungroup(node);return node.kind=='SchemaExpr' or node.kind=='SumSchema' or node.kind=='SignatureExpr' or (node.kind=="Apply" and node.callee.kind=="Reference" and constructors[node.callee.name.text]) end
     for _,decl in ipairs(unit.ast.declarations) do
         local def=declarationValues(decl)
@@ -2364,9 +2390,9 @@ function M.build(unit, options)
         end})
         checked[#checked+1]=fn
     end
-    checked.moduleData=lambdaState.demands:data()
+    checked.moduleData=lambdaState.demands:data();checked.typeCells=cells
     unit.program=Program.analyze(checked,nil,foreigns)
-    functions.moduleData=checked.moduleData
+    functions.moduleData=checked.moduleData;functions.typeCells=cells
     local exportedTypes,exportedSchemas={},{}
     for _,item in ipairs(unit.ast.export.types) do
         local ty

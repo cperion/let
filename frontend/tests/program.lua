@@ -49,19 +49,19 @@ check(compiled.program==compiled.sourceUnit.program,'compile carries the semanti
 -- unsatisfied during removal: no repeated inference; public/staging gates remain.
 local escaping=[[
 let Point = { x: U32 }
-let make(): Ref(Point) = do let p = Point { x = 42 } return Ref(p) end
+let make(): Rc(Point) = Rc(Point { x = 42 })
 let main(): U32 = 0
 ]]
 for _,profile in ipairs{'slet','let'} do
  local owned=C.typed{profile=profile,source=escaping}
- check(#owned.program.ownership.make.summary.counted>0,'typing preserves the counted requirement')
+ check(owned.program.functions[1].results[1]:isRc(),'the declared result, not a counted requirement, owns storage')
  if profile=='slet' then
   Access.analyze=function() error('materialization repeated source analysis') end
   local emitted=ABC.lower(owned.program,{profile=profile,exports={'main'}})
   Access.analyze=analyze
   check(emitted.materialized.source==owned.program and emitted.functions==owned.program.functions,'physical graph retains its exact checked source')
   check(C.lower(owned.functions,{profile=profile,exports={'main'}}).materialized~=nil,'raw lowering explicitly analyzes then materializes')
-  rejects('ownership-materialization',function() C.compile{profile=profile,source=escaping,exports={'make'}} end)
+  rejects('Rc-interface',function() C.compile{profile=profile,source=escaping,exports={'make'}} end)
   check(not emitted.assembly:find('.extern',1,true) and not emitted.assembly:find('.function make ',1,true),'unrequested owning templates emit neither code nor lifetime foreign declarations')
   local pure=Stage.execute(emitted,owned.functions,{entry='main',mode='interpreted',optimize=false})
   check(tonumber(pure.cells[1])==0,'an unused owning template does not turn pure requested code into foreign execution')
@@ -85,18 +85,20 @@ local functions={base}
 local first=Program.analyze(functions)
 local oldAccess,oldOwnership,oldStats=first.access,first.ownership,first.accessStats
 local slot=I.Storage(1)
-local changed=I.Fn('value',I.Entry,0,L{},L{S.Ref(S.U32)},L{},L{
- I.Var(slot,S.U32,I.Const(S.U32,I.UInt(42))),
- I.Return(L{I.Addr(I.Local(slot),S.Ref(S.U32),S.Borrow.WriteAccess)})})
+local ownedValue=I.Value(1)
+local changed=I.Fn('value',I.Entry,0,L{},L{S.Rc(S.U32)},L{},L{
+ I.RcNew(ownedValue,slot,S.Rc(S.U32),I.Const(S.U32,I.UInt(42))),
+ I.Return(L{I.Ref(ownedValue,S.Rc(S.U32))})})
 functions[1]=changed
 check(Check.program(functions),'structural checking does not choose physical placement')
 check(changed.access==nil and changed.ownership==nil,'structural checking publishes no proofs')
 local second=Program.analyze(functions)
 check(first.functions[1]==base and second.functions[1]==changed,'each program owns its function vector')
 check(first.access==oldAccess and first.ownership==oldOwnership and first.accessStats==oldStats,'later analysis does not mutate prior results')
-check(#first.ownership.value.summary.counted==0 and #second.ownership.value.summary.counted>0,'changed graph has its own ownership decision')
+check(first.functions[1].results[1]==S.U32 and second.functions[1].results[1]==S.Rc(S.U32),'ownership comes from the changed declared type')
 check(second.access~=first.access and second.ownership~=first.ownership,'analysis results are not shared through function identities')
-rejects('ownership-materialization',function() ABC.lower(second,{profile='slet',exports={'value'}}) end)
+rejects('Rc-interface',function() ABC.lower(second,{profile='slet',exports={'value'}}) end)
+rejects('borrow-escape',function() C.typed{profile='slet',source='let bad(): Ref(U32) = do let p = [42] return Ref(p[0]) end let main(): U32 = 0'} end)
 local third=Program.analyze({base})
 check(third.access.value~=first.access.value and base.access==nil,'even reused function nodes have program-local access results')
 local root=I.ModuleRoot('snapshot',S.U32,false)

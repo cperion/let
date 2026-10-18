@@ -11,6 +11,7 @@ module Ty {
     | Sum(string meaning, Field* cases) unique
     | Tagged(Sig visible, Field* arms) unique
     | Ref(V target) unique
+    | Rc(V target) unique
     # An address the compiler does not track: no lifetime, no ownership and no null check. It is a
     # different type from Ref on purpose, so a signature says which guarantee it carries.
     | Ptr(V target) unique
@@ -57,6 +58,9 @@ module Borrow {
          | Instantiated(string frame, number storage, Point* context) unique
          # A recursive family is finite but does not prove two activations equal.
          | Recurring(string frame, number storage, Point* context) unique
+         | Heap(string frame, number storage, Point* context, boolean folded) unique
+         | ValueGuard(string frame, number value, Point* context, boolean folded) unique
+         | FieldGuard(Source parent, Location slot) unique
          | ValueInput(string frame, number parameter, Path path) unique
          | PlaceInput(string frame, number parameter, Path path) unique
          # Finite open-template field-content obligation, qualified by the original
@@ -98,48 +102,15 @@ module Borrow {
   Location = (Target root, Path path) unique
   Footprint = (Location* writes, boolean unknown) unique
 
-  # One ordering requirement between symbolic sources: `longer` must outlive `shorter`.
-  Constraint = Outlives(Source longer, Source shorter) unique
 }
 
-# Source-only owner inference. These are proof variables/obligations, not runtime
-# owners, ranks, placement, cells or another executable IR. Lists are canonical sets.
+# Concrete strong-edge checking identities; never inferred storage or holdings.
 module Ownership {
   Root = Module(Borrow.Source source) unique | Formal(Borrow.Source source) unique
-       | Fresh(Borrow.Source source) unique | Deferred(Borrow.Source source) unique
+       | Fresh(Borrow.Source source) unique
   Extent = Activation(string frame, Borrow.Point* context, boolean folded) unique
   Site = (Borrow.Point point, Extent extent) unique
-  # `activation` is independent evidence that both allocations belong to this
-  # actual activation, even when recursive families share a finite name. It is
-  # invalidated by counting the holder, never used to justify its own retain.
-  Holding = (Root holder, Root target, Site site, Extent? activation,
-             Borrow.Location? destination) unique
-  Requirement = (Root root, Site site, string reason) unique
-  BorrowProof = (Root target, Extent extent, Site site) unique
   Edge = (Root holder, Root target, Site site) unique
-  Result = (number index, Borrow.Path path, Root* roots) unique
-  Summary = (Root* roots, Result* results, Holding* holdings, BorrowProof* borrows,
-             Edge* edges, Requirement* counted, boolean unknown) unique
-}
-
-# Lifetime identities refer to original checked source sites, never instructions.
-# Version edges live in program-owned maps, not recursively interned values.
-module Lifetime {
-  Use = (Borrow.Point point, number operand, Borrow.Path path) unique
-  Version = Entry(Borrow.Location location) unique
-          | Written(Borrow.Point point, Borrow.Location location) unique
-          | Join(Borrow.Point point, Borrow.Location location) unique
-  # A Call can define several values at one Point; retain its original binding
-  # ID rather than collapse equal-typed result components into one loan.
-  Loan = Defined(Borrow.Point point, number value, Borrow.Path path) unique
-       | Parameter(string frame, number parameter, Borrow.Path path) unique
-       | Contents(Version version) unique
-
-  # Edges between original reference-producing operations, not another value IR.
-  # Reads resolve to versions only after the access worklist has converged.
-  Dependency = Carrier(Loan loan) unique | Read(Use use) unique | Address(Use use) unique
-             | Result(Borrow.Point call, number result, Borrow.Path path) unique
-             | CallContents(Borrow.Point call, Borrow.Location location) unique
 }
 
 module Ir {
@@ -183,6 +154,7 @@ module Ir {
        | Addr(Place place, Ty.V type, Borrow.Access? access)
        # The length of a slice value. Pure, like a record field projection.
        | SliceLength(Expr view, Ty.V type)
+       | RcBorrow(Arg holding, Ty.V type)
        # A dynamic type test. `operand` is any, `tested` is a concrete run-time type and `type` is bool.
        | Is(Expr operand, Ty.V tested, Ty.V type)
        # The null pointer of a ptr type. Pure, so it is interned like any other constant.
@@ -219,6 +191,7 @@ module Ir {
 
   # Ordered effects. Loop-carried storage is declared by Var before its Loop.
   Stmt = Let(Value value, Ty.V type, Expr expr)
+       | RcNew(Value value, Storage root, Ty.V type, Expr initial)
        | Var(Storage storage, Ty.V type, Expr? initial)
        | Read(Value value, Ty.V type, Place place)
        | Store(Place place, Expr value)

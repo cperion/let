@@ -86,9 +86,7 @@ for _,definition in ipairs{
     'let read(): U32 = box.value',
     'let read = do(): U32 = box.value',
 } do
-    local escaped=Compiler.typed{profile='slet',source='let Cell = { value: U32 }\nlet make(): (): U32 = do let box = Cell { value = 42 } '..definition..' return read end\nreturn { functions = { make } }'}
-    local ok,err=pcall(Compiler.lower,escaped.functions,{profile='slet',exports={'make'}})
-    check(not ok and D.is(err) and err.code=='ownership-materialization','Owning public callable export requires its own ABI')
+    reject('borrow-escape','let Cell = { value: U32 }\nlet make(): (): U32 = do let box = Cell { value = 42 } '..definition..' return read end\nreturn { functions = { make } }')
     run('let Cell = { value: U32 }\nlet main() = do let box = Cell { value = 42 } '..definition..' return read() end',42)
 end
 reject('unknown-name','let main() = do let x = x + 1 return x end')

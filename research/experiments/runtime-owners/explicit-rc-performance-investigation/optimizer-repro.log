@@ -1,0 +1,11 @@
+probe 8 wrapper 32 (3s limit)
+branches	8	tail effects	32	direct	false	bytes	391	optimized bytes	391	CPU seconds	0.051806
+status=0
+probe 10 wrapper 32 (3s limit)
+branches	10	tail effects	32	direct	false	bytes	409	optimized bytes	409	CPU seconds	0.700783
+status=0
+probe 12 wrapper 32 (3s limit)
+status=124
+probe 12 direct 32 (3s limit)
+branches	12	tail effects	32	direct	true	bytes	399	optimized bytes	399	CPU seconds	0.00033
+status=0

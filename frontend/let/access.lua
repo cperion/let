@@ -1,102 +1,52 @@
--- Access/retention analysis of checked IR. Scalar computation and execution stay
--- in the VM. Each body is inspected once to build provenance/state relations;
--- calls compose those summaries, never replay source bodies or IR operands under
--- another frame's ordinals. The finite query worklist also closes recursion.
+-- Borrow/effect checking of the original typed IR. Ownership is declared by Rc.
+-- A call-site binding has one monotone input and one result; changing memory is
+-- never a query identity. Only argument-reachable storage and named globals cross
+-- a call. There are no ownership demands, carrier dependency graphs, contents
+-- versions, whole-caller-state keys or published per-instruction snapshots.
 local S=require('let.schema')
 local D=require('let.diag')
-local B=S.Borrow
-local Ownership=require('let.ownership')
-local O=S.Ownership
-local L=S.Lifetime
-local M={}
+local Owner=require('let.ownership')
+local B,O,I=S.Borrow,S.Ownership,S.Ir
 local ROOT=B.Root
--- These keys contain only immutable interned source identities. Publishing
--- environment contents increases their reuse; do not serialize them at every
--- lattice union. Weak keys keep separate compiler sessions collectible.
-local encoded=setmetatable({}, {__mode='k'})
-local function key(value)
- local result=encoded[value]
- if not result then result=S.encode(value);encoded[value]=result end
- return result
+local M={}
+local encoded=setmetatable({},{__mode='k'})
+local function key(v) local s=encoded[v];if not s then s=S.encode(v);encoded[v]=s end;return s end
+local function empty() return {refs={},calls={},tags={},unknown=false} end
+local function owner(root)
+ if root.kind=='StorageRoot' then return root.storage end
+ if root.kind=='InputTarget' then return B.ValueInput(root.frame,root.parameter,root.path) end
+ if root.kind=='ContentsTarget' then return B.ContentsInput(root.frame,root.read,root.operand,root.path) end
+ return B.CallOutput(root.invocation,root.result,root.path)
 end
-local checkedAccess,checkedPath=Ownership.checkedAccess,Ownership.checkedPath
-local function wildcard(path)
- while path.kind~='Root' do if path.kind=='Element' then return true end;path=path.base end
- return false
+local function access(root,path,writable,source,current,bad,borrowed)
+ return {location=B.Location(root,path),source=source or owner(root),writable=writable,current=current or false,bad=bad or false,borrowed=borrowed or false}
 end
-local function empty() return {refs={},calls={},unknown=false,wild=false} end
-local function target(source)
- assert(source.kind=='Global' or source.kind=='Local' or source.kind=='Instantiated' or source.kind=='Recurring' or source.kind=='PlaceInput','loan source is not a physical target')
- return B.StorageRoot(source)
-end
-local function owner(route)
- if route.kind=='StorageRoot' then return route.storage end
- if route.kind=='InputTarget' then return B.ValueInput(route.frame,route.parameter,route.path) end
- if route.kind=='ContentsTarget' then return B.ContentsInput(route.frame,route.read,route.operand,route.path) end
- return B.CallOutput(route.invocation,route.result,route.path)
-end
-local function location(route,path,writable,source,current)
- return {location=B.Location(route,path),source=source or owner(route),writable=writable,current=current or false}
-end
-local function accessKey(a) return key(a.location)..':'..key(a.source)..':'..tostring(a.writable)..':'..tostring(a.current) end
-local function add(set,a)
- local id=accessKey(a);if set[id] then return false end;set[id]=a;return true
-end
-local function mergeSet(dst,src)
+local function accessKey(a) return key(a.location)..':'..key(a.source)..':'..tostring(a.writable)..':'..tostring(a.current)..':'..tostring(a.bad)..':'..tostring(a.borrowed) end
+local function add(set,a) local k=accessKey(a);if set[k] then return false end;set[k]=a;return true end
+local function singleton(a) local set={};add(set,a);return set end
+local function union(a,b) local changed=false;for k,v in pairs(b or {}) do if not a[k] then a[k]=v;changed=true end end;return changed end
+local function merge(a,b)
  local changed=false
- -- Every source set is already indexed by accessKey, including its permission
- -- and activation-relative current bit. Copy those canonical keys unchanged.
- for id,a in pairs(src or {}) do if not dst[id] then dst[id]=a;changed=true end end
+ if b.unknown and not a.unknown then a.unknown=true;changed=true end
+ for _,field in ipairs{'refs','calls','tags'} do for p,set in pairs(b[field]) do
+  if not a[field][p] then a[field][p]={};changed=true end
+  if union(a[field][p],set) then changed=true end
+ end end
  return changed
 end
-local function merge(dst,src)
- local changed=false
- if src.unknown and not dst.unknown then dst.unknown=true;changed=true end
- for p,set in pairs(src.refs) do
-  if wildcard(p) then dst.wild=true end
-  dst.refs[p]=dst.refs[p] or {};if mergeSet(dst.refs[p],set) then changed=true end
- end
- for p,codes in pairs(src.calls) do
-  dst.calls[p]=dst.calls[p] or {}
-  for id,binding in pairs(codes) do if not dst.calls[p][id] then dst.calls[p][id]=binding;changed=true end end
- end
- return changed
-end
-local function clone(value) local out=empty();merge(out,value);return out end
--- `current` is a relative proof, not part of root identity. Arguments, results
--- and state cross activation boundaries: equal folded families are not proof
--- that their live allocations belong to this activation.
-local function external(value)
- local out=empty();out.unknown=value.unknown;out.wild=value.wild
- for p,set in pairs(value.refs) do
-  out.refs[p]={};for _,a in pairs(set) do add(out.refs[p],location(a.location.root,a.location.path,a.writable,a.source)) end
- end
- for p,codes in pairs(value.calls) do out.calls[p]=codes end
- return out
-end
-local function externalTargets(set)
- local out={};for _,a in pairs(set) do add(out,location(a.location.root,a.location.path,a.writable,a.source)) end;return out
-end
-local function single(a) local out={};add(out,a);return out end
-local function prepend(path,base)
+local function clone(v) local out=empty();merge(out,v);return out end
+local function append(path,base)
  if path.kind=='Root' then return base end
- if path.kind=='Field' then return B.Field(prepend(path.base,base),path.name) end
- if path.kind=='Case' then return B.Case(prepend(path.base,base),path.name) end
- if path.kind=='Index' then return B.Index(prepend(path.base,base),path.index) end
- return B.Element(prepend(path.base,base))
+ if path.kind=='Field' then return B.Field(append(path.base,base),path.name) end
+ if path.kind=='Case' then return B.Case(append(path.base,base),path.name) end
+ if path.kind=='Index' then return B.Index(append(path.base,base),path.index) end
+ return B.Element(append(path.base,base))
 end
 local function aliases(a,b)
  if a==b then return true end
  if a.kind=='Root' or b.kind=='Root' then return false end
- local elements=(a.kind=='Element' and (b.kind=='Element' or b.kind=='Index'))
-  or (b.kind=='Element' and a.kind=='Index')
- return (elements or a.kind==b.kind and a.name==b.name and a.index==b.index) and aliases(a.base,b.base)
-end
-local function at(value,path)
- if path==ROOT or not value.wild and not wildcard(path) then return value.refs[path] or {} end
- local result={}
- for candidate,set in pairs(value.refs) do if aliases(candidate,path) then mergeSet(result,set) end end
- return result
+ local element=a.kind=='Element' and (b.kind=='Element' or b.kind=='Index') or b.kind=='Element' and a.kind=='Index'
+ return (element or a.kind==b.kind and a.name==b.name and a.index==b.index) and aliases(a.base,b.base)
 end
 local function under(path,base,exact)
  if path==base or not exact and aliases(path,base) then return ROOT end
@@ -107,1065 +57,569 @@ local function under(path,base,exact)
  if path.kind=='Index' then return B.Index(tail,path.index) end
  return B.Element(tail)
 end
-local function project(value,path)
- local out=empty();out.unknown=value.unknown
- for p,set in pairs(value.refs) do local suffix=under(p,path);if suffix then
-  if wildcard(suffix) then out.wild=true end
-  out.refs[suffix]=out.refs[suffix] or {};mergeSet(out.refs[suffix],set)
- end end
- for p,codes in pairs(value.calls) do local suffix=under(p,path);if suffix then
-  out.calls[suffix]=out.calls[suffix] or {};for id,code in pairs(codes) do out.calls[suffix][id]=code end
+local function overlaps(a,b) return a.root==b.root and (under(a.path,b.path)~=nil or under(b.path,a.path)~=nil) end
+local function project(v,path)
+ local out=empty();out.unknown=v.unknown
+ for _,field in ipairs{'refs','calls','tags'} do for p,set in pairs(v[field]) do
+  local suffix=under(p,path);if suffix then out[field][suffix]=out[field][suffix] or {};union(out[field][suffix],set) end
  end end
  return out
 end
-local function component(dst,value,path)
- local out=empty();out.unknown=value.unknown
- for p,set in pairs(value.refs) do out.refs[prepend(p,path)]=set end
- for p,codes in pairs(value.calls) do out.calls[prepend(p,path)]=codes end
- return merge(dst,out)
+local function component(dst,v,path)
+ if v.unknown then dst.unknown=true end
+ for _,field in ipairs{'refs','calls','tags'} do for p,set in pairs(v[field]) do
+  local at=append(p,path);dst[field][at]=dst[field][at] or {};union(dst[field][at],set)
+ end end
 end
--- Dependency maps describe transport between original carrier components. They
--- are deliberately separate from abstract values/query keys and never evaluated.
-local function dependency(out,path,edge)
- out[path]=out[path] or {};out[path][edge]=true
-end
-local function transport(out,input,base)
- for path,edges in pairs(input) do
-  for edge in pairs(edges) do dependency(out,prepend(path,base),edge) end
- end
-end
-local function selection(input,base)
- local out={}
- for path,edges in pairs(input) do
-  local suffix=under(path,base);if suffix then for edge in pairs(edges) do dependency(out,suffix,edge) end end
- end
+local function cross(v)
+ local out=clone(v)
+ for p,set in pairs(v.refs) do out.refs[p]={};for _,a in pairs(set) do add(out.refs[p],access(a.location.root,a.location.path,a.writable,a.source,false,a.bad,a.borrowed)) end end
  return out
 end
-local cases=Ownership.activeCases
-local function seed(ty,frame,index,path,invocation,contents,contentsOperand)
- path=path or ROOT;local out=empty()
- if ty:isRef() or ty:isPtr() or ty:isSlice() or ty:isView() or ty:isOwned() or ty==S.Any then
-  if ty~=S.Any then
-   local route=contents and B.ContentsTarget(frame,contents,contentsOperand,path) or invocation and B.OutputTarget(invocation,index,path) or B.InputTarget(frame,index,path)
-   out.refs[ROOT]=single(location(route,ROOT,not ty:isSlice()))
-  end
-  if ty:isView() or ty:isOwned() or ty==S.Any then
-   local code=contents and B.ContentsCode(contents,contentsOperand,path) or invocation and B.ResultCode(invocation,index,path) or B.ParameterCode(frame,index,path)
-   out.calls[ROOT]={[code]={origin=code,slots={}}}
-  end
- elseif ty:isRecord() then
-  for _,f in ipairs(ty.fields) do component(out,seed(f.type,frame,index,B.Field(path,f.name),invocation,contents,contentsOperand),B.Field(ROOT,f.name)) end
- elseif ty:isArray() and ty.length>0 then
-  local first=seed(ty.element,frame,index,B.Index(path,0),invocation,contents,contentsOperand)
-  if next(first.refs) or next(first.calls) then
-   component(out,first,B.Index(ROOT,0))
-   for i=1,ty.length-1 do component(out,seed(ty.element,frame,index,B.Index(path,i),invocation,contents,contentsOperand),B.Index(ROOT,i)) end
-  end
- elseif ty:isTaggedType() then
-  for _,f in ipairs(S.alternatives(ty)) do component(out,seed(f.type,frame,index,B.Case(path,f.name),invocation,contents,contentsOperand),B.Case(ROOT,f.name)) end
- end
- return out
+local function crossTargets(set)
+ local out={};for _,a in pairs(set) do add(out,access(a.location.root,a.location.path,a.writable,a.source,false,a.bad,a.borrowed)) end;return out
 end
-local function sortedKeys(set,encode)
- local out={};for id in pairs(set) do out[#out+1]=encode and encode(id) or id end;table.sort(out);return out
-end
-local function factKey(value)
- local out={value.unknown and '?' or '!'}
- for _,p in ipairs(sortedKeys(value.refs,key)) do out[#out+1]=p end
- for p,set in pairs(value.refs) do for id in pairs(set) do out[#out+1]=key(p)..'='..id end end
- for p,codes in pairs(value.calls) do for id in pairs(codes) do out[#out+1]=key(p)..'@'..key(id) end end
- table.sort(out);return table.concat(out,';')
-end
-local function copyState(state) local out={};for id,v in pairs(state) do out[id]=clone(v) end;return out end
-local function joinState(dst,src)
+-- Scalar register/storage contents are not borrow facts. Do not copy them
+-- through CFG states merely because the original IR has an SSA binding.
+local function meaningful(v) return v.unknown or next(v.refs) or next(v.calls) or next(v.tags) end
+local function put(map,k,v) map[k]=meaningful(v) and v or nil end
+local function copyMap(map) local out={};for k,v in pairs(map) do out[k]=clone(v) end;return out end
+local function joinMap(dst,src)
  local changed=false
- for id,v in pairs(src) do
-  if not dst[id] then dst[id]=empty();changed=true end
-  if merge(dst[id],v) then changed=true end
- end
+ for k,v in pairs(src) do if meaningful(v) then
+  if not dst[k] then dst[k]=clone(v);changed=true elseif merge(dst[k],v) then changed=true end
+ end end
  return changed
 end
-local function stateKey(state)
- local out={};for _,id in ipairs(sortedKeys(state,key)) do out[#out+1]=id end
- for id,v in pairs(state) do out[#out+1]=key(id)..'='..factKey(v) end
- table.sort(out);return table.concat(out,'|')
+local function seed(t,frame,index,path,point,operand)
+ path=path or ROOT;local v=empty()
+ if t:isRc() or t:isRef() or t:isPtr() or t:isSlice() or t:isView() or t:isOwned() or t==S.Any then
+  if t~=S.Any then
+   local root=point and B.ContentsTarget(frame,point,operand,path) or B.InputTarget(frame,index,path)
+   v.refs[ROOT]=singleton(access(root,ROOT,not t:isSlice()))
+  end
+  if t:isView() or t:isOwned() or t==S.Any then
+   local code=point and B.ContentsCode(point,operand,path) or B.ParameterCode(frame,index,path)
+   v.calls[ROOT]={[code]={origin=code}}
+  end
+ elseif t:isRecord() then for _,f in ipairs(t.fields) do component(v,seed(f.type,frame,index,B.Field(path,f.name),point,operand),B.Field(ROOT,f.name)) end
+ elseif t:isArray() and Owner.checkedAccess(t.element) then for i=0,t.length-1 do component(v,seed(t.element,frame,index,B.Index(path,i),point,operand),B.Index(ROOT,i)) end
+ elseif t:isTaggedType() then
+  v.tags[ROOT]={}
+  for _,f in ipairs(S.alternatives(t)) do v.tags[ROOT][f.name]=true;component(v,seed(f.type,frame,index,B.Case(path,f.name),point,operand),B.Case(ROOT,f.name)) end
+ end
+ return v
 end
-local function argKey(arg)
- if arg.targets then return (arg.readonly and 'R:' or 'W:')..(arg.unknown and '?' or '!')..table.concat(sortedKeys(arg.targets),';') end
- return 'V:'..factKey(arg.value)
-end
-local function ordered(set)
- local out={};for _,v in pairs(set) do out[#out+1]=v end
- table.sort(out,function(a,b) return accessKey(a)<accessKey(b) end);return out
-end
-
--- Only provenance-bearing expression structure is retained. There are no scalar
--- operators/literals to interpret, no placement, and no executable call bodies.
--- Successor edges refer to the original checked control/effect points.
-local function build(fn)
- local summary={fn=fn,nodes={},storageTypes={},placeParams={},statement_at={},value_origins={},storage_origins={},addressed={},operands={}}
+-- CFG nodes reference original statements, not a second expression/value IR.
+local function graph(fn)
+ local g={fn=fn,nodes={},types={},values={},origins={},scopes={},globals={},calls={},contextFree=true}
+ local function scalar(t) return t:isInteger() or t==S.F64 or t==S.Bool or t==S.Unit end
+ for _,input in ipairs(fn.inputs) do if input.kind~='InValue' or not scalar(input.type) then g.contextFree=false end end
+ for _,t in ipairs(fn.results) do if not scalar(t) then g.contextFree=false end end
  for _,p in ipairs(fn.params) do
-  if p.kind=='PlaceParam' then summary.storageTypes[p.binding.id]=p.type;summary.placeParams[p.binding.id]=p.input
-  else summary.value_origins[p.binding.id]={parameter=p.input,type=p.type} end
+  if p.kind=='PlaceParam' then g.types[p.binding.id]=p.type else g.values[p.binding.id]={type=p.type,scope=0} end
  end
- local function types(body)
+ local ordinal,scope=0,0
+ local function block(body,nextPoint,backedge,parent)
+  scope=scope+1;local current=scope;g.scopes[current]=parent or 0
+  local points={}
   for _,s in ipairs(body) do
-   if s.kind=='Var' then summary.storageTypes[s.storage.id]=s.type
-   elseif s.kind=='If' then types(s.yes);types(s.no)
-   elseif s.kind=='Switch' then for _,c in ipairs(s.cases) do types(c.body) end
-   elseif s.kind=='Loop' then types(s.body) end
-  end
- end
- types(fn.body)
- local value,place,resolveValue
- local operands
- local function operand(original)
-  operands[#operands+1]=original;return #operands
- end
- local function withOperand(term,original)
-  term.operand=operand(original);return term
- end
- place=function(p)
-  local result
-  local k=p.kind
-  if k=='Local' then result={root=target(B.Local(fn.id,p.storage.id)),param=summary.placeParams[p.storage.id],type=summary.storageTypes[p.storage.id],readonly=false}
-  elseif k=='Global' then result={root=target(B.Global(p.root.identity)),type=p.root.type,readonly=not p.root.writable}
-  elseif k=='Project' or k=='Index' then
-   local base=place(p.base)
-   local index=p.index and p.index.kind=='Const' and p.index.literal.kind=='UInt' and p.index.literal.value
-   result={base=base,path=k=='Project' and B.Field(ROOT,p.field.name) or index and B.Index(ROOT,index) or B.Element(ROOT),type=k=='Project' and S.field(base.type,p.field.name) or p.type,readonly=base.readonly,index=p.index and value(p.index),unchecked=base.unchecked}
-  elseif k=='Deref' then
-   local base=place(p.base);result={deref=base,type=p.type,readonly=false,unchecked=base.type:isPtr() or base.unchecked}
-  elseif k=='SliceIndex' or k=='PtrIndex' then result={view=value(p.view),type=p.type,readonly=k=='SliceIndex',pointer=k=='PtrIndex',unchecked=k=='PtrIndex',index=value(p.index)}
-  else D.bug('access-place','Unknown place in access summary') end
-  return withOperand(result,p)
- end
- local function expose(p)
-  while p.base do p=p.base end
-  if p.root and p.root.kind=='StorageRoot' and p.root.storage.kind=='Local' and not p.param then
-   summary.fresh=true;summary.addressed[p.root.storage.storage]=true
-  end
- end
- resolveValue=function(e)
-  local k=e.kind
-  if k=='Ref' then return {id=e.value.id,type=e.type} end
-  if k=='Addr' then
-   local p=place(e.place);expose(p)
-   return {address=p,type=e.type,write=not e.access or e.access.kind=='WriteAccess'}
-  end
-  if k=='Get' then return {base=value(e.aggregate),path=e.field.kind=='Element' and B.Index(ROOT,e.field.index) or B.Field(ROOT,e.field.name),type=e.type} end
-  if k=='Make' then
-   local fields={};for i,f in ipairs(e.fields) do fields[i]=value(f) end
-   return {fields=fields,type=e.type}
-  end
-  if k=='Convert' then return {conversion=value(e.operand),type=e.type} end
-  if k=='Const' and e.type:isSlice() then return {literal=e.literal.bytes,type=e.type} end
-  local children={}
-  if k=='Un' or k=='Is' then children[1]=value(e.operand)
-  elseif k=='Bin' then children[1]=value(e.left);children[2]=value(e.right)
-  elseif k=='SliceLength' then children[1]=value(e.view) end
-  return {type=e.type,children=children}
- end
- value=function(e) return withOperand(resolveValue(e),e) end
- local function argument(a)
-  if a.kind=='BorrowArg' then local p=place(a.place);expose(p);return {place=p} end
-  return {value=value(a.value)}
- end
- local function arguments(args) local out={};for i,a in ipairs(args) do out[i]=argument(a) end;return out end
- local points={};local ordinal=0
- local function enumerate(body)
-  for _,s in ipairs(body) do
-   ordinal=ordinal+1;points[s]=B.Point(fn.id,ordinal)
-   summary.statement_at[points[s]]=s
-   if s.kind=='Var' then summary.storage_origins[s.storage.id]=points[s]
-   elseif s.kind=='View' and s.adapter then
-    summary.storage_origins[s.adapter.id]=points[s];summary.addressed[s.adapter.id]=true
+   ordinal=ordinal+1;local p=B.Point(fn.id,ordinal);points[s]=p
+   local node={point=p,stmt=s,scope=current};g.nodes[p]=node
+   if s.kind=='Var' then g.types[s.storage.id]=s.type;g.origins[s.storage.id]=node
+   elseif s.kind=='RcNew' then g.types[s.root.id]=s.initial.type;g.origins[s.root.id]=node
+   elseif s.kind=='View' and s.adapter then g.origins[s.adapter.id]=node end
+   if s.kind=='Let' or s.kind=='Read' or s.kind=='RcNew' or s.kind=='View' or s.kind=='ConstructVariant' or s.kind=='VariantPayload' or s.kind=='VariantMatches' then
+    g.values[s.value.id]={point=p,scope=current,type=s.kind=='VariantPayload' and S.caseOf(s.sum,s.tag) or s.kind=='VariantMatches' and S.Bool or s.type}
    end
-   -- Expr.id is also used by the source builder's expression memoization.
-   -- In particular Store.value is an Expr, not an SSA definition.
-   if s.kind=='Let' or s.kind=='Read' or s.kind=='View' or s.kind=='ConstructVariant' or s.kind=='VariantPayload' or s.kind=='VariantMatches' then
-    local ty=s.kind=='VariantPayload' and S.caseOf(s.sum,s.tag) or s.kind=='VariantMatches' and S.Bool or s.type
-    summary.value_origins[s.value.id]={point=points[s],type=ty}
-   end
-   for _,v in ipairs(s.results or {}) do summary.value_origins[v.id]={point=points[s]} end
-   if s.kind=='If' then enumerate(s.yes);enumerate(s.no)
-   elseif s.kind=='Switch' then for _,c in ipairs(s.cases) do enumerate(c.body) end
-   elseif s.kind=='Loop' then enumerate(s.body) end
+   for _,v in ipairs(s.results or {}) do g.values[v.id]={point=p,scope=current} end
   end
- end
- enumerate(fn.body)
- local graph
- graph=function(body,nextPoint,backedge)
   local next=nextPoint
   for i=#body,1,-1 do
-   local s=body[i];local point=points[s];local node={point=point,span=s.span,next=next and {next} or {}}
-   operands={};summary.operands[point]=operands
-   local k=s.kind
-   if k=='Let' then node.define=s.value.id;node.value=value(s.expr)
-   elseif k=='Var' then node.initialize=target(B.Local(fn.id,s.storage.id));node.value=s.initial and value(s.initial);node.type=s.type
-   elseif k=='Read' then node.define=s.value.id;node.read=place(s.place);node.type=s.type
-   elseif k=='Store' then node.store=place(s.place);node.value=value(s.value);node.type=s.value.type
-   elseif k=='View' then node.define=s.value.id;node.code=B.KnownCode(point);node.entry=s.entry;node.slots=arguments(s.slots);node.type=s.type;node.adapter=s.adapter and target(B.Local(fn.id,s.adapter.id));node.result_operand=operand(s)
-   elseif k=='Call' or k=='Indirect' then
-    node.invoke=k=='Call' and {target=s.target} or {value=value(s.callable)}
-    node.arguments=arguments(s.arguments);node.results={}
-    for j,v in ipairs(s.results) do node.results[j]=v.id end
-    if k=='Indirect' then node.signature=s.callable.type==S.Any and nil or s.callable.type.visible end
-   elseif k=='ConstructVariant' then node.define=s.value.id;node.variant=s.payload and value(s.payload);node.path=B.Case(ROOT,s.tag)
-   elseif k=='VariantPayload' then node.define=s.value.id;node.value={base=withOperand({id=s.variant.id,type=s.sum},s),path=B.Case(ROOT,s.tag)}
-   elseif k=='VariantMatches' then node.define=s.value.id;node.tag_test=s.variant.id
-   elseif k=='Return' then
-    node.returns={};for j,e in ipairs(s.values) do node.returns[j]=value(e) end;node.next={}
-   elseif k=='If' then
-    node.observes={value(s.test)}
-    local test=s.test.kind=='Const' and s.test.literal.kind=='Boolean' and s.test.literal or nil
-    node.next={}
-    if not test or test.value then local edge=graph(s.yes,next,backedge);if edge then node.next[#node.next+1]=edge end end
-    if not test or not test.value then local edge=graph(s.no,next,backedge);if edge then node.next[#node.next+1]=edge end end
-   elseif k=='Switch' then
-    node.tag_test=s.variant.id;node.next={};node.cases={}
-    for _,c in ipairs(s.cases) do
-     local edge=graph(c.body,next,backedge)
-     if edge then node.next[#node.next+1]=edge;node.cases[c.tag]=edge end
-    end
-   elseif k=='Loop' then node.next={graph(s.body,nil,point)}
-   elseif k=='Next' then node.next=backedge and {backedge} or {}
-   elseif k=='Dynamic' then node.opaque=true
-   elseif k=='Trap' then
-    node.observes={value(s.failure)}
-    local constant=s.failure.kind=='Const' and s.failure.literal.kind=='Boolean' and s.failure.literal
-    node.failure_exit=not constant or constant.value
-    if constant and constant.value then node.next={} end
-   end
-   if node.adapter or (node.initialize and checkedAccess(node.type)) or (node.invoke and not node.invoke.target) then summary.fresh=true end
-   summary.nodes[point]=node;next=point
+   local s=body[i];local p=points[s];local n=g.nodes[p];n.next=next and {next} or {}
+   if s.kind=='Return' then n.next={}
+   elseif s.kind=='If' then
+    n.next={};local literal=s.test.kind=='Const' and s.test.literal.kind=='Boolean' and s.test.literal
+    if not literal or literal.value then local to=block(s.yes,next,backedge,current);if to then n.next[#n.next+1]=to end end
+    if not literal or not literal.value then local to=block(s.no,next,backedge,current);if to then n.next[#n.next+1]=to end end
+   elseif s.kind=='Switch' then
+    n.next={};n.cases={}
+    for _,c in ipairs(s.cases) do local to=block(c.body,next,backedge,current);if to then n.next[#n.next+1]=to;n.cases[to]=c.tag end end
+   elseif s.kind=='Loop' then n.next={block(s.body,nil,p,current)}
+   elseif s.kind=='Next' then n.next=backedge and {backedge} or {}
+   elseif s.kind=='Trap' and s.failure.kind=='Const' and s.failure.literal.kind=='Boolean' and s.failure.literal.value then n.next={} end
+   next=p
   end
   return next
  end
- summary.entry=graph(fn.body)
- return summary
+ g.entry=block(fn.body)
+ require('let.walk').walk(fn,{enter=function(n)
+  if S.Ty.V:isclassof(n) then return false end
+  if I.Call:isclassof(n) then g.calls[n.target]=true
+  elseif I.View:isclassof(n) or I.Code:isclassof(n) then g.calls[n.entry]=true end
+  if I.Global:isclassof(n) then g.globals[B.StorageRoot(B.Global(n.root.identity))]=true end
+ end})
+ return g
 end
-
--- Static allocation-site containment, used only to publish possible construction
--- effects. In a recursive family this is NOT an allocation-identity/liveness proof.
-local function allocatedWithin(source,frame,context)
- if source.kind~='Local' and source.kind~='Instantiated' and source.kind~='Recurring' then return false end
- local path=source.context or S.List{}
- if #path<#context then return false end
- for i,p in ipairs(context) do if path[i]~=p then return false end end
- if #path==#context then return source.frame==frame end
- return path[#context+1].frame==frame
-end
-local function engine(program)
- local contexts,queue,bindings={}, {}, {}
- local head=1
- local stats={contexts=0,relations=0,iterations=0}
- for _,s in pairs(program) do for _ in pairs(s.nodes) do stats.relations=stats.relations+1 end end
- local function enqueue(ctx)
-  if not ctx.queued then ctx.queued=true;queue[#queue+1]=ctx end
- end
- local function bindingChanged()
-  for _,ctx in pairs(contexts) do enqueue(ctx) end
- end
- local function request(frame,args,state,context,folded)
-  context=context or S.List{};folded=folded or false
-  local parts={frame,key(O.Activation(frame,context,folded)),stateKey(state)};for i,a in ipairs(args) do parts[#parts+1]=i..':'..argKey(a) end
-  local id=table.concat(parts,'\n');local ctx=contexts[id]
-  if not ctx then
-   ctx={id=id,summary=assert(program[frame]),context=context,folded=folded,args=args,input=copyState(state),users={},results={},state={},reads={},writes={},requirements={},transfers={},invocations={},failures={},ownership=Ownership.events(),published_contents={},unknown=false}
-   contexts[id]=ctx;stats.contexts=stats.contexts+1;enqueue(ctx)
-  end
-  return ctx
- end
- local function run(ctx)
-  local summary=ctx.summary;local fn=summary.fn
-  local values,entry,aliases={},copyState(ctx.input),{}
-  local out={results={},state={},reads={},writes={},requirements={},transfers={},invocations={},failures={},ownership=Ownership.events(),unknown=false,sites={}}
-  local function observed(node) return assert(out.sites[node.point]) end
-  local extent=O.Activation(fn.id,ctx.context,ctx.folded)
-  local function site(node) return O.Site(node.point,extent) end
-  local function qualify(route)
-   if route.kind=='StorageRoot' and route.storage.kind=='Local' and route.storage.frame==fn.id then
-    return target(Ownership.localSource(fn.id,route.storage.storage,ctx.context,ctx.folded))
-   end
-   return route
-  end
-  local function codeAt(point)
-   return #ctx.context==0 and B.KnownCode(point) or B.InstanceCode(point,ctx.context,ctx.folded)
-  end
-  for i in ipairs(fn.results) do out.results[i]=empty() end
-  local function failure(code,message,node)
-   local id=code..':'..key(node.point)
-   out.failures[id]={code=code,message=message,span=node.span}
-  end
-  local function record(set,targets,node,write)
-   local field=set==out.writes and 'writes' or set==out.reads and 'reads' or 'requirements'
-   mergeSet(observed(node)[field],targets)
-   for _,a in pairs(targets) do
-    if write and not a.writable then failure('readonly-write','Write or mutable borrowing reaches readonly storage',node) end
-    add(set,a)
-   end
-  end
-  local function invalidate(state,targets)
-   for _,a in pairs(targets) do local id=a.location.root;if state[id] then state[id].unknown=true end end
-  end
-  local function read(state,targets,ty,uncertain,node,operand,prefix)
-   local value=empty();local dependencies={}
-   value.unknown=uncertain and checkedAccess(ty) or false
-   for _,a in pairs(targets) do
-    local stored=state[a.location.root]
-    local contents=stored and project(stored,a.location.path)
-    local root=a.location.root
-    local external=root.kind=='InputTarget' or root.kind=='OutputTarget' or root.kind=='ContentsTarget'
-    if external and not uncertain then
-     -- Open templates carry relative contents obligations, not invented roots
-     -- or recursively expanded pointees. A prior write can populate only part
-     -- of an external object: untouched fields must not become lattice bottom.
-     local initial=seed(ty,root.frame or root.invocation.frame,0,ROOT,nil,node.point,operand)
-     if not contents then contents=initial
-     else
-      for path,set in pairs(initial.refs) do
-       if not contents.refs[path] and not contents.calls[path] then contents.refs[path]=set end
-      end
-      for path,codes in pairs(initial.calls) do if not contents.calls[path] then contents.calls[path]=codes end end
-     end
-    end
-    if contents then merge(value,contents)
-    elseif checkedAccess(ty) then value.unknown=true;out.unknown=true;observed(node).unknown=true end
-    -- The locator names the protecting contents, not the pointed-to object.
-    -- Keep the original place operand so lowering can capture its evaluated
-    -- index/base once; this metadata is not itself an evaluated address.
-    for p in pairs(Ownership.components(ty)) do
-     local id=L.Use(node.point,assert(operand),prefix and prepend(p,prefix) or p)
-     local reads=observed(node).contents
-     local use=reads[id] or {locations={},provenance={},alternatives={},active_cases=cases(p)};reads[id]=use
-     dependency(dependencies,p,L.Read(id))
-     local loc=B.Location(a.location.root,prepend(p,a.location.path))
-     use.locations[loc]=true;use.alternatives[loc]=use.alternatives[loc] or {}
-     if contents then
-      mergeSet(use.provenance,at(contents,p))
-      mergeSet(use.alternatives[loc],at(contents,p))
-     end
-    end
-   end
-   observed(node).unknown=observed(node).unknown or value.unknown
-   return value,dependencies
-  end
-  for _,p in ipairs(fn.params) do
-   local a=assert(ctx.args[p.input+1],'missing access summary argument')
-   if p.kind=='PlaceParam' then
-    local root=qualify(target(B.Local(fn.id,p.binding.id)));aliases[root]=a
-   else values[p.binding.id]=clone(a.value) end
-  end
-  local place,fact,argument,store,resolvePlace
-  resolvePlace=function(p,state,node)
-   if p.root then
-    local root=qualify(p.root);local alias=aliases[root]
-    if alias then
-     return alias.targets,alias.unknown,{[ROOT]={[L.Carrier(L.Parameter(fn.id,assert(p.param),ROOT))]=true}}
-    end
-    return single(location(root,ROOT,not p.readonly,nil,root.kind=='StorageRoot' and root.storage.kind~='Global')),false
-   end
-   if p.base then
-    local base,uncertain,dependencies=place(p.base,state,node);local targets={}
-    for _,a in pairs(base) do add(targets,location(a.location.root,prepend(p.path,a.location.path),a.writable,a.source,a.current)) end
-    return targets,uncertain,dependencies
-   end
-   if p.deref then
-    local base,uncertain=place(p.deref,state,node)
-    local carried,dependencies=read(state,base,p.deref.type,uncertain,node,p.deref.operand);local targets=at(carried,ROOT)
-    if not next(targets) then out.unknown=true end
-    return targets,carried.unknown,dependencies
-   end
-   local value,dependencies=fact(p.view,state,node);local targets={}
-   if p.pointer then out.unknown=true;observed(node).unknown=true end
-   for _,a in pairs(at(value,ROOT)) do
-    add(targets,location(a.location.root,p.pointer and a.location.path or B.Element(a.location.path),p.pointer and a.writable or false,a.source,a.current))
-   end
-   return targets,value.unknown,dependencies
-  end
-  place=function(p,state,node)
-   if p.index then fact(p.index,state,node) end
-   local targets,unknown,dependencies=resolvePlace(p,state,node)
-   dependencies=dependencies or {}
-   if not p.unchecked then
-    local id=L.Use(node.point,p.operand,ROOT);local uses=observed(node).root_uses
-    uses[id]=uses[id] or {};mergeSet(uses[id],targets)
-    observed(node).root_dependencies[id]=dependencies
-   end
-   return targets,unknown,dependencies
-  end
-  fact=function(term,state,node,demand)
-   if not term then return empty(),{} end
-   local dependencies={}
-   demand=demand or ROOT
-   if term.id then
-    local result=values[term.id] or empty()
-    if result.unknown then observed(node).unknown=true end
-    for path in pairs(Ownership.components(assert(term.type))) do
-     if under(path,demand) then
-      local origin=assert(summary.value_origins[term.id],'missing original value definition')
-      local loan=origin.point and L.Defined(origin.point,term.id,path) or L.Parameter(fn.id,origin.parameter,path)
-      local id=L.Use(node.point,term.operand,path)
-      local use=observed(node).uses[id] or {loan=loan,provenance={},active_cases=cases(path)}
-      observed(node).uses[id]=use;mergeSet(use.provenance,at(result,path))
-      dependency(dependencies,path,L.Carrier(loan))
-     end
-    end
-    return result,dependencies
-   end
-   if term.base then
-    local value,edges=fact(term.base,state,node,prepend(demand,term.path))
-    return project(value,term.path),selection(edges,term.path)
-   end
-   if term.address then
-    local targets,uncertain,parents=place(term.address,state,node)
-    if term.write then
-     if term.address.readonly then failure('readonly-write','Mutable borrowing requires writable access',node) end
-     record(out.requirements,targets,node,true)
-    end
-    local value=empty();value.refs[ROOT]=targets
-    value.unknown=uncertain or term.address.pointer==true
-    local id=L.Use(node.point,term.operand,ROOT)
-    observed(node).addresses[id]=targets;observed(node).address_dependencies[id]=parents
-    dependency(dependencies,ROOT,L.Address(id))
-    return value,dependencies
-   end
-   if term.fields then
-    local value=empty();local ty=term.type
-    if ty:isSlice() then
-     local first,edges=fact(term.fields[1],state,node)
-     local targets={};for _,a in pairs(at(first,ROOT)) do add(targets,location(a.location.root,a.location.path,false,a.source,a.current)) end
-     value.refs[ROOT]=targets;dependencies=edges
-     for i=2,#term.fields do fact(term.fields[i],state,node) end
-    elseif ty:isRecord() or ty:isArray() then
-     for i,f in ipairs(term.fields) do
-      local part,edges=fact(f,state,node)
-      local path=ty:isRecord() and B.Field(ROOT,ty.fields[i].name) or B.Index(ROOT,i-1)
-      component(value,part,path);transport(dependencies,edges,path)
-     end
-    end
-    return value,dependencies
-   end
-   if term.conversion then
-    local original,edges=fact(term.conversion,state,node);local value=clone(original)
-    if term.conversion.type==S.Any and checkedAccess(term.type) then
-     local hasContract=(term.type:isView() or term.type:isOwned()) and next(value.calls) or next(value.refs)
-     if not hasContract then value.unknown=true end
-    end
-    return value,edges
-   end
-   if term.literal then
-    local value=empty();value.refs[ROOT]=single(location(target(B.Global('literal:'..term.literal)),ROOT,false))
-    local id=L.Use(node.point,term.operand,ROOT);observed(node).addresses[id]=value.refs[ROOT]
-    dependency(dependencies,ROOT,L.Address(id));return value,dependencies
-   end
-   for _,child in ipairs(term.children or {}) do fact(child,state,node) end
-   return empty(),{}
-  end
-  argument=function(a,state,node)
-   if a.place then
-    local targets,uncertain,parents=place(a.place,state,node)
-    local id=L.Use(node.point,a.place.operand,ROOT);observed(node).addresses[id]=targets
-    observed(node).address_dependencies[id]=parents
-    return {targets=targets,unknown=uncertain,readonly=a.place.readonly,type=a.place.type,operand=a.place.operand,dependencies={[ROOT]={[L.Address(id)]=true}}}
-   end
-   local value,dependencies=fact(a.value,state,node)
-   return {value=clone(value),type=a.value.type,operand=a.value.operand,dependencies=dependencies}
-  end
-  store=function(state,targets,value,ty,node,dependencies)
-   if value.unknown and checkedAccess(ty) then failure('borrow-proof','Stored access has no established owner provenance',node) end
-   local count=0;for _ in pairs(targets) do count=count+1 end
-   for _,a in pairs(targets) do
-    local destination=owner(a.location.root)
-    for p,set in pairs(value.refs) do for _,retained in pairs(set) do
-     local source=retained.source;local checked=checkedPath(ty,p)
-     if checked then Ownership.hold(out.ownership,destination,source,site(node),node.span,a.current and retained.current and extent or nil,B.Location(a.location.root,prepend(p,a.location.path))) end
-     local id=accessKey(a)..':'..key(p)..':'..accessKey(retained)
-     out.transfers[id]={target=a,path=p,retained=retained,checked=checked,operand=node.value and node.value.operand}
-     observed(node).retentions[id]=out.transfers[id]
-    end end
-    for p in pairs(Ownership.components(ty)) do
-     local loc=B.Location(a.location.root,prepend(p,a.location.path))
-     observed(node).written_contents[loc]=true
-     local stored=observed(node).stored[loc] or {};observed(node).stored[loc]=stored
-     for edge in pairs((dependencies or {})[p] or {}) do stored[edge]=true end
-    end
-    local route=a.location.path;local unique=a.location.root.kind=='StorageRoot' and (destination.kind=='Local' or destination.kind=='Instantiated' or destination.kind=='Recurring')
-    while route.kind~='Root' do if route.kind=='Element' then unique=false end;route=route.base end
-    local current=state[a.location.root] or empty();state[a.location.root]=current
-    if unique and count==1 then
-     for p in pairs(current.refs) do if under(p,a.location.path,true) then current.refs[p]=nil end end
-     for p in pairs(current.calls) do if under(p,a.location.path,true) then current.calls[p]=nil end end
-     if a.location.path==ROOT then current.unknown=false end
-    end
-    component(current,value,a.location.path)
-   end
-  end
-  local function opaque(args,state,node)
-   out.unknown=true;observed(node).unknown=true;observed(node).opaque=true
-   for _,a in ipairs(args) do
-    if a.targets or (a.type and checkedAccess(a.type)) then
-     failure('borrow-proof','Opaque call has no checked retention contract for supplied access',node)
-    end
-    local sets=a.targets and {a.targets} or a.value.refs
-    for _,targets in pairs(sets) do
-     record(out.requirements,targets,node,true);record(out.reads,targets,node,false);record(out.writes,targets,node,true);invalidate(state,targets)
-    end
-   end
-  end
-  local function compose(frame,args,state,node)
-   if not program[frame] then opaque(args,state,node);return nil end
-   local bound,arguments={},{}
-   for i,a in ipairs(args) do
-    local input=program[frame].fn.inputs[i];local edges=a.dependencies or {}
-    if input.kind=='InValue' then
-     local value=a.value
-     if a.targets then value,edges=read(state,a.targets,input.type,a.unknown,node,node.invoke.value and node.invoke.value.operand or a.operand) end
-     bound[i]={value=external(value)}
-    else bound[i]={targets=externalTargets(a.targets),unknown=a.unknown,readonly=a.readonly,type=a.type} end
-    arguments[i]={binding=bound[i],dependencies=edges}
-   end
-   local transported={};for root,v in pairs(state) do transported[root]=external(v) end
-   local context,folded=ctx.context,ctx.folded
-   if program[frame].fresh then
-    local repeated;context,repeated=Ownership.context(context,node.point);folded=folded or repeated
-   end
-   local child=request(frame,bound,transported,context,folded);child.users[ctx.id]=ctx
-   observed(node).calls[child.id]=child
-   local alternatives=observed(node).call_arguments[child.id] or {}
-   observed(node).call_arguments[child.id]=alternatives;alternatives[#alternatives+1]=arguments
-   observed(node).unknown=observed(node).unknown or child.unknown
-   mergeSet(observed(node).reads,child.reads);mergeSet(observed(node).writes,child.writes)
-   mergeSet(observed(node).requirements,child.requirements)
-   Ownership.merge(out.ownership,child.ownership)
-   mergeSet(out.requirements,child.requirements);mergeSet(out.reads,child.reads);mergeSet(out.writes,child.writes)
-   for id,invocation in pairs(child.invocations) do out.invocations[id]=invocation end
-   for id,f in pairs(child.failures) do out.failures[id]=f end
-   out.unknown=out.unknown or child.unknown
-   -- These are completed child-state relations at this invocation, not a bag of
-   -- callback effects appended after unrelated stores in the caller.
-   for root in pairs(state) do if child.state[root] then state[root]=external(child.state[root]) end end
-   -- Fresh result roots carry their established contents back to the caller.
-   -- Transport only reachable storage, not every local of the child activation.
-   local pending,seen,carried,seenCodes={},{},{},{}
-   local constructed={}
-   for _,effect in pairs(child.flow and child.flow.sites or {}) do
-    for loc in pairs(effect.written_contents) do
-     if loc.root.kind=='StorageRoot' and allocatedWithin(loc.root.storage,frame,child.context) then
-      constructed[loc.root]=constructed[loc.root] or {};constructed[loc.root][loc]=true
-     end
-    end
-   end
-   local function targets(set)
-    for _,a in pairs(set) do
-     local root=a.location.root
-     if not seen[root] then seen[root]=true;pending[#pending+1]=root end
-    end
-   end
-   for _,v in ipairs(child.results) do carried[#carried+1]=v end
-   local cursor,valueCursor=1,1
-   while cursor<=#pending or valueCursor<=#carried do
-    while valueCursor<=#carried do
-     local v=carried[valueCursor];valueCursor=valueCursor+1
-     for _,set in pairs(v.refs) do targets(set) end
-     for _,codes in pairs(v.calls) do for code,binding in pairs(codes) do
-      if not seenCodes[code] then
-       seenCodes[code]=true
-       -- A materialized environment's actual fields are already reached
-       -- through its root. Do not also transport a code-global capture union.
-       if not binding.environment then for _,a in ipairs(binding.slots) do
-        if a.targets then targets(a.targets) else carried[#carried+1]=a.value end
-       end end
-      end
-     end end
-    end
-    local root=pending[cursor]
-    if root then
-     cursor=cursor+1
-     if child.state[root] then
-      state[root]=external(child.state[root]);carried[#carried+1]=child.state[root]
-      -- Construction is a write even on a later loop iteration with the same
-      -- finite source name. Do not invent an Entry version for a returned object.
-      for loc in pairs(constructed[root] or {}) do
-       observed(node).written_contents[loc]=true
-       observed(node).published_contents[loc]=observed(node).published_contents[loc] or {}
-       observed(node).published_contents[loc][child.id]=true
-      end
-     end
-    end
-   end
-   for id,t in pairs(child.transfers) do
-    local destination=owner(t.target.location.root)
-    -- A copied input retained only in callee-local storage does not escape into
-    -- the caller. The callee's own local-store/return checks still apply there.
-    if destination.kind~='Instantiated' or destination.frame~=frame or O.Activation(destination.frame,destination.context,false)~=O.Activation(frame,child.context,child.folded) then
-     out.transfers[id]=t
-    end
-   end
-   local results={};for i,v in ipairs(child.results) do results[i]=external(v) end
-   return results
-  end
-  local before,work,queued={}, {}, {}
-  local function enqueuePoint(point,state)
-   if not point then return end
-   local first=not before[point];before[point]=before[point] or {}
-   if joinState(before[point],state) or first then
-    if not queued[point] then work[#work+1]=point;queued[point]=true end
-   end
-  end
-  enqueuePoint(summary.entry,entry)
-  local cursor=1
-  while cursor<=#work do
-   local point=work[cursor];cursor=cursor+1;queued[point]=nil
-   local node=summary.nodes[point];local state=copyState(before[point]);local value,dependencies
-   -- Replace the last local iteration, rather than publish transient bottom
-   -- observations. Caller dependencies still converge in the existing queue.
-   out.sites[point]={uses={},root_uses={},root_dependencies={},addresses={},address_dependencies={},contents={},written_contents={},published_contents={},stored={},definitions={},returns={},reads={},writes={},requirements={},calls={},call_arguments={},invocations={},retentions={},unknown=false}
-   for _,observation in ipairs(node.observes or {}) do fact(observation,state,node) end
-   if node.initialize then
-    local root=qualify(node.initialize);local initial,edges=fact(node.value,state,node)
-    store(state,single(location(root,ROOT,true,nil,true)),initial,node.type,node,edges)
-   elseif node.read then
-    local targets,uncertain=place(node.read,state,node);record(out.reads,targets,node,false);value,dependencies=read(state,targets,node.type,uncertain,node,node.read.operand)
-   elseif node.store then
-    if node.store.readonly then failure('readonly-write','Writes require a writable place',node) end
-    local targets=place(node.store,state,node);record(out.writes,targets,node,true)
-    local incoming,edges=fact(node.value,state,node)
-    store(state,targets,incoming,node.type,node,edges)
-   elseif node.code then
-    local code=codeAt(node.point);local binding=bindings[code]
-    local adapter=node.adapter and qualify(node.adapter)
-    if not binding then
-     binding={origin=code,target=node.entry,environment=adapter}
-     if adapter then binding.captures={} else binding.slots={} end
-     bindings[code]=binding
-    end
-    local changed=false;local captures={}
-    for i,a in ipairs(node.slots) do
-     local held=argument(a,state,node);captures[i]=held
-     if adapter then
-      -- Code shares the capture layout, not the contents of different actual
-      -- environments. The latter belong solely to this query's storage state.
-      binding.captures[i]={borrowed=held.targets~=nil,type=held.type,readonly=held.readonly}
-     else
-      local old=binding.slots[i]
-      if not old then binding.slots[i]=held;changed=true
-      elseif held.targets then
-       if mergeSet(old.targets,held.targets) then changed=true end
-       if held.readonly and not old.readonly then old.readonly=true;changed=true end
-       if held.unknown and not old.unknown then old.unknown=true;changed=true end
-      elseif merge(old.value,held.value) then changed=true end
-     end
-    end
-    if changed then bindingChanged() end
-    value=empty();value.calls[ROOT]={[code]=binding}
-    if adapter then state[adapter]=empty() end
-    dependencies={}
-    if adapter then
-     value.refs[ROOT]=single(location(adapter,ROOT,true,nil,true))
-     local id=L.Use(node.point,node.result_operand,ROOT);observed(node).addresses[id]=value.refs[ROOT]
-     dependency(dependencies,ROOT,L.Address(id))
-    end
-    for index,a in ipairs(captures) do
-     if adapter then
-      local field=B.Field(ROOT,string.format('_%04d',index))
-      local stored=a.value
-      if a.targets then stored=empty();stored.refs[ROOT]=a.targets end
-      component(state[adapter],stored,field)
-      local ty=a.targets and S.Ref(a.type) or a.type
-      for p in pairs(Ownership.components(ty)) do
-       local destination=B.Location(adapter,prepend(p,field))
-       observed(node).written_contents[destination]=true
-       local edges=observed(node).stored[destination] or {};observed(node).stored[destination]=edges
-       for edge in pairs((a.dependencies or {})[p] or {}) do edges[edge]=true end
-      end
-     end
-     local sets=a.targets and {[ROOT]=a.targets} or a.value.refs
-     for p,set in pairs(sets) do
-      -- A materialized callable retains its environment root. Its captures are
-      -- outgoing environment holdings, not additional direct roots of the value.
-      if not adapter then
-       value.refs[ROOT]=value.refs[ROOT] or {};mergeSet(value.refs[ROOT],set)
-       for edge in pairs((a.dependencies or {})[p] or {}) do dependency(dependencies,ROOT,edge) end
-      end
-      if adapter and (a.targets or checkedPath(a.type,p)) then
-       for _,retained in pairs(set) do
-        local destination=B.Location(adapter,prepend(p,B.Field(ROOT,string.format('_%04d',index))))
-        Ownership.hold(out.ownership,owner(adapter),retained.source,site(node),node.span,retained.current and extent or nil,destination)
-        observed(node).written_contents[destination]=true
-        local stored=observed(node).stored[destination] or {};observed(node).stored[destination]=stored
-        for edge in pairs((a.dependencies or {})[p] or {}) do stored[edge]=true end
-        local operand=node.slots[index].place or node.slots[index].value
-        observed(node).retentions[key(destination)..':'..accessKey(retained)]={
-         target=location(adapter,destination.path,true),path=ROOT,retained=retained,checked=true,operand=operand.operand}
-       end
-      end
-     end
-     if a.value then value.unknown=value.unknown or a.value.unknown end
-    end
-   elseif node.invoke then
-    local args={};for i,a in ipairs(node.arguments) do args[i]=argument(a,state,node) end
-    local returned={}
-    if node.invoke.target then
-     returned=compose(node.invoke.target,args,state,node)
-     if not returned then
-      returned={};for i in ipairs(node.results) do returned[i]=empty();returned[i].unknown=true end
-     end
-    else
-     local callable=fact(node.invoke.value,state,node);local codes=callable.calls[ROOT] or {};local states={};local known=false
-     for _,binding in pairs(codes) do
-      known=true;local alternative=copyState(state);local part
-      if binding.target then
-       local actual={}
-       local targetSummary=program[binding.target]
-       for index,a in ipairs(binding.captures or binding.slots) do
-        if binding.environment then
-         -- Captures are read from this callable's environment at invocation,
-         -- not from the producer's possibly expired SSA bindings/frame.
-         local field=B.Field(ROOT,string.format('_%04d',index))
-         local ty=targetSummary.fn.inputs[index].type
-         local value,edges=read(alternative,single(location(binding.environment,field,false)),a.borrowed and S.Ref(ty) or ty,false,node,node.invoke.value.operand,field)
-         actual[#actual+1]=a.borrowed and {targets=at(value,ROOT),type=ty,unknown=value.unknown,readonly=a.readonly,dependencies=edges,operand=node.invoke.value.operand}
-          or {value=value,type=ty,dependencies=edges,operand=node.invoke.value.operand}
-        else actual[#actual+1]=a end
-       end
-       for _,a in ipairs(args) do actual[#actual+1]=a end
-       if not node.signature and targetSummary and #actual<#targetSummary.fn.inputs then
-        -- Legacy Any partial supply forms a callable, not an invocation of a
-        -- body with missing inputs. Preserve its supplied provenance as holdings.
-        local code=codeAt(point);local partial=bindings[code]
-        if not partial then partial={origin=code,target=binding.target,slots={}};bindings[code]=partial end
-        local changed=false
-        for i,a in ipairs(actual) do
-         local held=partial.slots[i]
-         if not held then partial.slots[i]=a;changed=true
-         elseif a.targets then if mergeSet(held.targets,a.targets) then changed=true end
-         elseif merge(held.value,a.value) then changed=true end
-        end
-        if changed then bindingChanged() end
-        local v=empty();v.calls[ROOT]={[code]=partial}
-        for _,a in ipairs(partial.slots) do
-         for _,set in pairs(a.targets and {a.targets} or a.value.refs) do v.refs[ROOT]=v.refs[ROOT] or {};mergeSet(v.refs[ROOT],set) end
-         if a.value then v.unknown=v.unknown or a.value.unknown end
-        end
-        part={v}
-       else part=compose(binding.target,actual,alternative,node) end
-      else
-       local obligation=B.Invocation(point,binding.origin);out.invocations[obligation]=obligation
-       observed(node).invocations[obligation]=true
-       part={}
-       for i,id in ipairs(node.results) do
-        local ty=node.signature and node.signature.results[i] or S.Any
-        part[i]=seed(ty,fn.id,i-1,ROOT,point)
-       end
-      end
-      joinState(states,alternative)
-      if part then for i,v in ipairs(part) do returned[i]=returned[i] or empty();merge(returned[i],v) end
-      else for i in ipairs(node.results) do returned[i]=returned[i] or empty();returned[i].unknown=true end end
-     end
-     if known then state=states
-     elseif callable.unknown or node.invoke.value.type==S.Any then
-      local supplied={{value=callable}};for _,a in ipairs(args) do supplied[#supplied+1]=a end
-      opaque(supplied,state,node)
-      for i in ipairs(node.results) do returned[i]=empty();returned[i].unknown=true end
-     else
-      -- A typed callable returned by an unfinished child query is lattice
-      -- bottom, not an opaque call. Its producer requeues this context when code
-      -- facts arrive. Inventing unknown here poisons otherwise known factories.
-      for i in ipairs(node.results) do returned[i]=empty() end
-     end
-    end
-    for i,id in ipairs(node.results) do
-     values[id]=values[id] or empty();merge(values[id],returned[i] or empty())
-     local results=node.invoke.target and program[node.invoke.target] and program[node.invoke.target].fn.results or node.signature and node.signature.results
-     local edges={}
-     for path in pairs(results and Ownership.components(results[i]) or {}) do
-      dependency(edges,path,L.Result(point,i-1,path))
-     end
-     observed(node).definitions[id]=edges
-    end
-   elseif node.returns then
-    for i,t in ipairs(node.returns) do
-     local v,edges=fact(t,state,node)
-     observed(node).returns[i]=edges
-     if checkedAccess(fn.results[i]) then
-      for p,set in pairs(v.refs) do for _,a in pairs(set) do
-       if checkedPath(fn.results[i],p) then Ownership.returned(out.ownership,a.source,site(node),node.span) end
-      end end
-      if v.unknown then failure('borrow-proof','Returned access has no established owner provenance',node) end
-     end
-     merge(out.results[i],v)
-    end
-    joinState(out.state,state)
-   elseif node.variant then
-    local part,edges=fact(node.variant,state,node);value=empty();component(value,part,node.path)
-    dependencies={};transport(dependencies,edges,node.path)
-   elseif node.value then value,dependencies=fact(node.value,state,node)
-   elseif node.opaque then out.unknown=true end
-   if node.define then
-    dependencies=dependencies or {}
-    local definedType=assert(summary.value_origins[node.define].type,fn.id..'#'..point.ordinal..': missing definition type')
-    for path in pairs(Ownership.components(definedType)) do
-     dependencies[path]=dependencies[path] or {}
-    end
-    observed(node).definitions[node.define]=dependencies
-    values[node.define]=values[node.define] or empty()
-    if merge(values[node.define],value or empty()) then
-     -- Value identities are immutable; loop-carried formations join possibilities.
-     -- Requeue dependent reachable points without generating new binding trees.
-     for p in pairs(before) do if not queued[p] then work[#work+1]=p;queued[p]=true end end
-    end
-   end
-   for _,successor in ipairs(node.next) do enqueuePoint(successor,state) end
-  end
-  out.values=values;out.before=before
-  return out
- end
- local function drain()
-  while head<=#queue do
-   local ctx=queue[head];head=head+1;ctx.queued=false;stats.iterations=stats.iterations+1
-   local next=run(ctx);local changed=false
-   for point,site in pairs(next.sites) do
-    local published=ctx.published_contents[point] or {};ctx.published_contents[point]=published
-    for loc,children in pairs(site.published_contents) do
-     local old=published[loc] or {};published[loc]=old
-     for child in pairs(children) do if not old[child] then old[child]=true;changed=true end end
-    end
-    -- Like the existing may-write summary, construction effects grow by union.
-    -- Comparing only the previous local run can repeatedly requeue callers as
-    -- transient per-run observations change during recursive convergence.
-    for loc in pairs(published) do site.written_contents[loc]=true end
-    site.published_contents=published
-   end
-   ctx.flow={sites=next.sites,values=next.values,before=next.before}
-   for _,field in ipairs{'reads','writes','requirements'} do if mergeSet(ctx[field],next[field]) then changed=true end end
-   for _,field in ipairs{'transfers','invocations','failures'} do
-    for id,v in pairs(next[field]) do if not ctx[field][id] then ctx[field][id]=v;changed=true end end
-   end
-   for i,v in ipairs(next.results) do ctx.results[i]=ctx.results[i] or empty();if merge(ctx.results[i],v) then changed=true end end
-   if Ownership.merge(ctx.ownership,next.ownership) then changed=true end
-   if joinState(ctx.state,next.state) then changed=true end
-   if next.unknown and not ctx.unknown then ctx.unknown=true;changed=true end
-   if changed then for _,user in pairs(ctx.users) do enqueue(user) end end
-  end
- end
- return {request=request,drain=drain,stats=stats,contexts=contexts}
-end
-
--- Memory-provenance versions use the converged effects on the original CFG.
--- This is a finite graph problem, not another execution of source expressions.
--- A version identifies contents, not an allocation or proof of protection.
-local function contentsVersions(summary,flow,locations)
- local points,pred={},{}
- for point in pairs(flow.sites) do points[#points+1]=point;pred[point]={} end
- table.sort(points,function(a,b) return a.ordinal<b.ordinal end)
- for _,point in ipairs(points) do
-  for _,successor in ipairs(summary.nodes[point].next) do
-   if pred[successor] then pred[successor][point]=true end
-  end
- end
- local before,after,joins,incoming,kills={},{},{},{},{}
- local function overlaps(a,b)
-  return a.root==b.root and (under(a.path,b.path)~=nil or under(b.path,a.path)~=nil)
- end
- for _,point in ipairs(points) do
-  before[point]={};after[point]={};joins[point]={};kills[point]={}
-  local site=flow.sites[point]
-  for loc in pairs(locations) do
-   for written in pairs(site.written_contents) do if overlaps(loc,written) then kills[point][loc]=true;break end end
-   -- Bound calls publish their substituted effects, including scalar writes
-   -- to a whole parent place. Those invalidate any tracked contents below it.
-   for _,write in pairs(site.writes) do if overlaps(loc,write.location) then kills[point][loc]=true;break end end
-  end
- end
- local work,queued={},{}
- local function enqueue(point)
-  if point and before[point] and not queued[point] then work[#work+1]=point;queued[point]=true end
- end
- enqueue(summary.entry)
- local cursor=1
- while cursor<=#work do
-  local point=work[cursor];cursor=cursor+1;queued[point]=nil
-  local changed=false
-  for loc in pairs(locations) do
-   local versions={}
-   if point==summary.entry then versions[L.Entry(loc)]=true end
-   for previous in pairs(pred[point]) do
-    local v=after[previous][loc];if v then versions[v]=true end
-   end
-   local first=next(versions)
-   if first then
-    -- Once needed, keep the finite join identity while its incoming edges
-    -- converge. In particular a backedge never embeds a version recursively.
-    if next(versions,first) then joins[point][loc]=true end
-    local v=joins[point][loc] and L.Join(point,loc) or first
-    if joins[point][loc] then incoming[v]=versions end
-    before[point][loc]=v
-    local result=kills[point][loc] and L.Written(point,loc) or v
-    if after[point][loc]~=result then after[point][loc]=result;changed=true end
-   end
-  end
-  if changed then for _,successor in ipairs(summary.nodes[point].next) do enqueue(successor) end end
- end
- for _,point in ipairs(points) do
-  local site=flow.sites[point];site.invalidates={};site.written_dependencies={}
-  for loc in pairs(kills[point]) do
-   -- Even if the static Written ID is identical on successive iterations,
-   -- this is an invalidation. Equality of source families cannot elide it.
-   site.invalidates[loc]=before[point][loc]
-   local edges={};site.written_dependencies[loc]=edges
-   for stored,inputs in pairs(site.stored) do
-    if overlaps(loc,stored) then for edge in pairs(inputs) do edges[edge]=true end end
-   end
-   if next(site.calls) then
-    edges[L.CallContents(point,loc)]=true
-   else
-    -- An unknown index changes one selected cell, not the whole alias class.
-    -- Retain the predecessor dependencies of all potentially untouched cells.
-    local exact=site.stored[loc]~=nil
-    local path=loc.path
-    while path.kind~='Root' do if path.kind=='Element' then exact=false end;path=path.base end
-    local writes=0;for _ in pairs(site.writes) do writes=writes+1 end
-    local initialize=summary.nodes[point].initialize
-    if not initialize and (not exact or writes~=1) then
-     edges[L.Carrier(L.Contents(assert(before[point][loc])))]=true
-    end
-   end
-  end
-  for _,use in pairs(site.contents) do
-   use.versions={}
-   for loc in pairs(use.locations) do use.versions[assert(before[point][loc])]=true end
-  end
- end
- flow.contents_versions={before=before,after=after,incoming=incoming,locations=locations}
-end
-
+local function ordered(set) local out={};for _,v in pairs(set) do out[#out+1]=v end;table.sort(out,function(a,b)return accessKey(a)<accessKey(b)end);return out end
 function M.analyze(functions)
- local start=os.clock();local program={};for _,fn in ipairs(functions) do program[fn.id]=build(fn) end
- -- Alpha-renaming is necessary only where a call can produce local root/code
- -- identities. Propagate that property through direct calls, including SCCs;
- -- scalar-only call chains must not acquire one query per full call path.
+ local started=os.clock();local graphs,definitions={},{}
+ local stats={contexts=0,iterations=0,relations=0,points=0}
+ for _,fn in ipairs(functions) do definitions[fn.id]=fn;graphs[fn.id]=graph(fn);for _ in pairs(graphs[fn.id].nodes) do stats.relations=stats.relations+1 end end
+ -- Named global effects are transitive, unlike caller frame storage.
  local changed=true
- while changed do
-  changed=false
-  for _,s in pairs(program) do if not s.fresh then
-   for _,node in pairs(s.nodes) do
-    local child=node.invoke and node.invoke.target and program[node.invoke.target]
-    if child and child.fresh then s.fresh=true;changed=true;break end
-   end
+ while changed do changed=false
+  for _,g in pairs(graphs) do for target in pairs(g.calls) do
+   if graphs[target] and union(g.globals,graphs[target].globals) then changed=true end
   end end
  end
- local queries=engine(program);local roots,summaries={},{}
+ for _,g in pairs(graphs) do if next(g.globals) then g.contextFree=false end end
+ local contexts,queue,head={}, {},1
+ local function enqueue(c) if not c.queued then c.queued=true;queue[#queue+1]=c end end
+ local function reachable(memory,args,globals)
+  local selected,pending,seen={}, {},{}
+  local function root(r) if not seen[r] then seen[r]=true;pending[#pending+1]=r end end
+  local function value(v) for _,set in pairs(v.refs) do for _,a in pairs(set) do root(a.location.root) end end end
+  for _,a in ipairs(args) do if a.targets then for _,r in pairs(a.targets) do root(r.location.root) end else value(a.value) end end
+  for r in pairs(globals or {}) do root(r) end
+  local i=1
+  while i<=#pending do local r=pending[i];i=i+1;local v=memory[r]
+   if v then selected[r]=cross(v);value(v) end
+  end
+  return selected,seen
+ end
+ local function request(name,args,memory,path,folded)
+  path=path or S.List{};folded=folded or false
+  local identity=O.Activation(name,path,folded);local c=contexts[identity]
+  if not c then
+   c={id=identity,g=graphs[name],context=path,folded=folded,args={},input={},visible={},users={},results={},state={},reads={},writes={},requirements={},strong={},failures={},invocations={},normal=false}
+   contexts[identity]=c;stats.contexts=stats.contexts+1
+  end
+  local changed=false
+  for i,a in ipairs(args) do
+   local old=c.args[i]
+   if not old then c.args[i]=a.targets and {targets=crossTargets(a.targets),type=a.type,unknown=a.unknown} or {value=cross(a.value),type=a.type};changed=true
+   elseif a.targets then if union(old.targets,crossTargets(a.targets)) then changed=true end;if a.unknown and not old.unknown then old.unknown=true;changed=true end
+   elseif merge(old.value,cross(a.value)) then changed=true end
+  end
+  local incoming,visible=reachable(memory,args,c.g.globals)
+  if joinMap(c.input,incoming) then changed=true end
+  if union(c.visible,visible) then changed=true end
+  if changed or not c.ran then enqueue(c) end
+  return c
+ end
+ local function run(c)
+  local g,fn=c.g,c.g.fn
+  local out={results={},state={},reads={},writes={},requirements={},strong={},failures={},invocations={},normal=false}
+  for i in ipairs(fn.results) do out.results[i]=empty() end
+  local aliasesByStorage={};local initial={values={},memory=copyMap(c.input)}
+  for _,p in ipairs(fn.params) do local a=c.args[p.input+1]
+   if p.kind=='PlaceParam' then aliasesByStorage[p.binding.id]=a else put(initial.values,p.binding.id,clone(a.value)) end
+  end
+  local function root(storage,heap)
+   local source=heap and B.Heap(fn.id,storage,c.context,c.folded) or Owner.localSource(fn.id,storage,c.context,c.folded)
+   return B.StorageRoot(source)
+  end
+  local function failure(code,message,node)
+   out.failures[code..':'..node.point.ordinal]={code=code,message=message..' ('..fn.id..')',span=node.stmt.span}
+  end
+  local function checkAccess(set,node)
+   for _,a in pairs(set) do if a.bad then failure('borrow-invalidated','Borrow used after its storage or holding was invalidated',node) end end
+  end
+  local function checkValue(v,t,node)
+   local function covered(ty,path)
+    if ty:isRc() or ty:isRef() or ty:isSlice() then return v.refs[path] and next(v.refs[path])~=nil end
+    if ty:isRecord() then for _,f in ipairs(ty.fields) do if not covered(f.type,B.Field(path,f.name)) then return false end end
+    elseif ty:isArray() and Owner.checkedAccess(ty.element) then for i=0,ty.length-1 do if not covered(ty.element,B.Index(path,i)) then return false end end
+    elseif ty:isTaggedType() and Owner.checkedAccess(ty) then
+     local tags=v.tags[path];if not tags then return false end
+     for tag in pairs(tags) do if not covered(S.caseOf(ty,tag),B.Case(path,tag)) then return false end end
+    end
+    return true
+   end
+   if Owner.checkedAccess(t) and (v.unknown or not covered(t,ROOT)) then failure('borrow-proof','Access has no established provenance',node) end
+   for path,set in pairs(v.refs) do
+    local ty=t~=S.Any and Owner.selected(t,path)
+    local next={}
+    for _,a in pairs(set) do
+     local borrowed=a.borrowed
+     if ty then borrowed=ty:isRef() or ty:isSlice() or ty:isView() or ty:isOwned() end
+     local item=access(a.location.root,a.location.path,a.writable,a.source,a.current,a.bad,borrowed);add(next,item)
+     if borrowed then checkAccess(singleton(item),node) end
+    end
+    v.refs[path]=next
+   end
+  end
+  local function publish(which,targets)
+   for _,a in pairs(targets) do
+    if c.visible[a.location.root] or a.location.root.kind~='StorageRoot' then add(out[which],a) end
+   end
+  end
+  local function record(which,targets,node,write)
+   checkAccess(targets,node);publish(which,targets)
+   if write then for _,a in pairs(targets) do if not a.writable then failure('readonly-write','Write or mutable borrowing reaches readonly storage',node) end end end
+  end
+  local function typeOf(p)
+   if p.kind=='Local' then return g.types[p.storage.id] end
+   if p.kind=='Global' then return p.root.type end
+   if p.kind=='Project' then return S.field(typeOf(p.base),p.field.name) end
+   return p.type
+  end
+  local function poison(state,predicate)
+   local function value(v)
+    local result=clone(v)
+    for p,set in pairs(v.refs) do
+     local next={};for _,a in pairs(set) do add(next,access(a.location.root,a.location.path,a.writable,a.source,a.current,a.bad or predicate(a.source),a.borrowed)) end
+     result.refs[p]=next
+    end
+    return result
+   end
+   for id,v in pairs(state.values) do state.values[id]=value(v) end
+   for id,v in pairs(state.memory) do state.memory[id]=value(v) end
+  end
+  local function written(source,locations)
+   if source.kind~='FieldGuard' then return false end
+   for _,a in pairs(locations) do if overlaps(source.slot,a.location) then return true end end
+   return written(source.parent,locations)
+  end
+  local function invalidate(state,locations) poison(state,function(source)return written(source,locations)end) end
+  local function localSource(source)
+   return source.frame==fn.id and Owner.sameContext(source.context,c.context)
+  end
+  local function redefined(source,node)
+   if source.kind=='FieldGuard' then return redefined(source.parent,node) end
+   if not localSource(source) then return false end
+   if source.kind=='ValueGuard' then return g.values[source.value] and g.values[source.value].point==node.point end
+   if source.kind=='Local' or source.kind=='Instantiated' or source.kind=='Recurring' then return g.origins[source.storage]==node end
+   return false
+  end
+  local function containsScope(parent,child)
+   if parent==0 then return true end
+   while child and child~=0 do if child==parent then return true end;child=g.scopes[child] end
+   return false
+  end
+  local function scopeEnded(source,to)
+   if source.kind=='FieldGuard' then return scopeEnded(source.parent,to) end
+   if not localSource(source) then return false end
+   if source.kind=='ValueGuard' then local origin=g.values[source.value];return origin and not containsScope(origin.scope,to) end
+   if source.kind=='Local' or source.kind=='Instantiated' or source.kind=='Recurring' then
+    local origin=g.origins[source.storage];local ty=g.types[source.storage]
+    return origin and ty and S.hasRc(ty) and not containsScope(origin.scope,to)
+   end
+   return false
+  end
+  local expr,place,argument,store
+  local function read(state,targets,ty,node,operand)
+   record('reads',targets,node,false);local v=empty()
+   for _,a in pairs(targets) do
+    local r=a.location.root;local stored=state.memory[r];local part=stored and project(stored,a.location.path)
+    if r.kind=='InputTarget' or r.kind=='ContentsTarget' or r.kind=='OutputTarget' then
+     local fallback=seed(ty,r.frame or fn.id,0,ROOT,node.point,operand or 0)
+     if not part then part=fallback else
+      for _,field in ipairs{'refs','calls','tags'} do for path,set in pairs(fallback[field]) do if not part[field][path] then part[field][path]=set end end end
+     end
+    end
+    if part then merge(v,part) elseif Owner.checkedAccess(ty) then v.unknown=true end
+   end
+   checkValue(v,ty,node);return v
+  end
+  place=function(p,state,node)
+   local k=p.kind
+   if k=='Local' then
+    local a=aliasesByStorage[p.storage.id]
+    if a then checkAccess(a.targets,node);return a.targets end
+    return singleton(access(root(p.storage.id),ROOT,true,nil,true))
+   elseif k=='Global' then return singleton(access(B.StorageRoot(B.Global(p.root.identity)),ROOT,p.root.writable))
+   elseif k=='Project' or k=='Index' then
+    local base=place(p.base,state,node);local path
+    if k=='Project' then path=B.Field(ROOT,p.field.name) else
+     expr(p.index,state,node);local constant=p.index.kind=='Const' and p.index.literal.kind=='UInt' and p.index.literal.value
+     path=constant and B.Index(ROOT,constant) or B.Element(ROOT)
+    end
+    local set={};for _,a in pairs(base) do add(set,access(a.location.root,append(path,a.location.path),a.writable,a.source,a.current,a.bad)) end;return set
+   elseif k=='Deref' then
+    local v=read(state,place(p.base,state,node),typeOf(p.base),node,0);return v.refs[ROOT] or {}
+   elseif k=='SliceIndex' or k=='PtrIndex' then
+    local v=expr(p.view,state,node);expr(p.index,state,node);local set={}
+    if k=='PtrIndex' then out.unknown=true end
+    for _,a in pairs(v.refs[ROOT] or {}) do add(set,access(a.location.root,k=='PtrIndex' and a.location.path or B.Element(a.location.path),k=='PtrIndex' and a.writable or false,a.source,a.current,a.bad)) end
+    return set
+   end
+   D.bug('access-place','Unknown place '..k)
+  end
+  expr=function(e,state,node)
+   local k=e.kind;local v=empty()
+   if k=='Ref' then v=state.values[e.value.id] or empty()
+   elseif k=='Addr' then
+    v.refs[ROOT]=place(e.place,state,node)
+    if not e.access or e.access.kind=='WriteAccess' then record('requirements',v.refs[ROOT],node,true) end
+   elseif k=='RcBorrow' then
+    if e.holding.kind=='BorrowArg' then
+     for _,slot in pairs(place(e.holding.place,state,node)) do
+      local held=read(state,singleton(slot),typeOf(e.holding.place),node,0)
+      for _,a in pairs(held.refs[ROOT] or {}) do v.refs[ROOT]=v.refs[ROOT] or {};add(v.refs[ROOT],access(a.location.root,a.location.path,a.writable,B.FieldGuard(slot.source,slot.location),slot.current,a.bad)) end
+     end
+    else
+     local holding=e.holding.value;local held=expr(holding,state,node)
+     local guard=B.ValueGuard(fn.id,holding.value.id,c.context,c.folded)
+     for _,a in pairs(held.refs[ROOT] or {}) do v.refs[ROOT]=v.refs[ROOT] or {};add(v.refs[ROOT],access(a.location.root,a.location.path,a.writable,guard,true,a.bad)) end
+    end
+   elseif k=='Get' then v=project(expr(e.aggregate,state,node),e.field.kind=='Field' and B.Field(ROOT,e.field.name) or B.Index(ROOT,e.field.index))
+   elseif k=='Make' then
+    if e.type:isSlice() then
+     local first=expr(e.fields[1],state,node);v.unknown=first.unknown;v.refs[ROOT]={}
+     for _,a in pairs(first.refs[ROOT] or {}) do add(v.refs[ROOT],access(a.location.root,a.location.path,false,a.source,a.current,a.bad)) end
+     for i=2,#e.fields do expr(e.fields[i],state,node) end
+    else for i,f in ipairs(e.fields) do component(v,expr(f,state,node),e.type:isArray() and B.Index(ROOT,i-1) or B.Field(ROOT,e.type.fields[i].name)) end end
+   elseif k=='Convert' then
+    v=clone(expr(e.operand,state,node))
+    if e.operand.type==S.Any and Owner.checkedAccess(e.type) and not next(v.refs) and not next(v.calls) then v.unknown=true end
+   elseif k=='Const' and e.type:isSlice() then v.refs[ROOT]=singleton(access(B.StorageRoot(B.Global('literal:'..e.literal.bytes)),ROOT,false))
+   elseif k=='Code' then local code=B.KnownCode(node.point);v.calls[ROOT]={[code]={origin=code,target=e.entry,captures={}}}
+   else e:each(function(child)expr(child,state,node)end) end
+   checkValue(v,e.type,node);return v
+  end
+  argument=function(a,state,node)
+   if a.kind=='BorrowArg' then return {targets=place(a.place,state,node),type=typeOf(a.place)} end
+   return {value=expr(a.value,state,node),type=a.value.type}
+  end
+  store=function(state,targets,v,ty,node,initializing)
+   checkValue(v,ty,node)
+   if S.hasRc(ty) and not next(targets) then failure('borrow-proof','Owning store has no established target for strong-edge checking',node) end
+   if not initializing then record('writes',targets,node,true);invalidate(state,targets) end
+   local n=0;for _ in pairs(targets) do n=n+1 end
+   for _,a in pairs(targets) do
+    local holder=owner(a.location.root)
+    for p,set in pairs(v.refs) do if ty==S.Any or Owner.checkedPath(ty,p) then
+     local owning=ty~=S.Any and Owner.selected(ty,p):isRc()
+     for _,r in pairs(set) do
+      if owning then
+       if holder.kind=='Heap' or holder.kind=='Global' or holder.kind=='ValueInput' or holder.kind=='PlaceInput' or holder.kind=='ContentsInput' then
+        local edge=O.Edge(Owner.root(holder),Owner.root(r.source),O.Site(node.point,O.Activation(fn.id,c.context,c.folded)));out.strong[edge]=true
+       end
+      elseif r.borrowed and not Owner.borrowStore(holder,r.source,a.current and r.current) then failure('borrow-escape','Stored borrow outlives its protecting storage or holding',node) end
+     end
+    end end
+    local current=state.memory[a.location.root] or empty();current=clone(current)
+    local exact=n==1 and a.location.root.kind=='StorageRoot'
+    local path=a.location.path;while path.kind~='Root' do if path.kind=='Element' then exact=false end;path=path.base end
+    if exact then
+     for _,field in ipairs{'refs','calls','tags'} do for p in pairs(current[field]) do if under(p,a.location.path,true) then current[field][p]=nil end end end
+     if a.location.path==ROOT then current.unknown=false end
+    end
+    component(current,v,a.location.path);put(state.memory,a.location.root,current)
+   end
+  end
+  local function opaque(args,node)
+   out.unknown=true
+   for _,a in ipairs(args) do
+    local borrowed=a.targets or a.type and Owner.checkedAccess(a.type)
+    if a.value then for _,set in pairs(a.value.refs) do for _,r in pairs(set) do borrowed=borrowed or r.borrowed and r.source.kind~='Global' end end end
+    if borrowed then failure('borrow-proof','Opaque effect has no checked retention contract',node) end
+   end
+  end
+  local function invoke(name,args,state,node)
+   local callee=graphs[name]
+   if not callee then opaque(args,node);return nil,true end
+   if #args<#callee.fn.inputs then
+    failure('Rc-interface','Owning runtime partial-call environments are not admitted',node);return nil,false
+   elseif #args>#callee.fn.inputs then opaque(args,node);return nil,true end
+   local bound={}
+   for i,input in ipairs(callee.fn.inputs) do
+    local a=assert(args[i],'missing checked argument')
+    bound[i]=input.kind=='InValue' and {value=a.value or read(state,a.targets,input.type,node,i),type=input.type} or {targets=a.targets,type=input.type}
+   end
+   -- A scalar-only boundary with no named-global access cannot share storage
+   -- with its caller. Check its locals normally, once; do not create call-path
+   -- instances for private lifetimes that cannot cross the boundary.
+   local path,repeated,folded
+   if not callee.contextFree then path,repeated=Owner.context(c.context,node.point);folded=c.folded or repeated end
+   local child=request(name,bound,state.memory,path,folded);child.users[c.id]=c
+   for _,field in ipairs{'reads','writes','requirements'} do publish(field,child[field]) end
+   for _,field in ipairs{'strong','failures','invocations'} do union(out[field],child[field]) end
+   if child.unknown then out.unknown=true end
+   if not child.normal then return nil,false end
+   invalidate(state,child.writes)
+   -- Import only normal-return effects and reachable results, never a callee's
+   -- private scratch/frame state. Unchanged input storage is not overwritten.
+   local changedRoots={};for _,a in pairs(child.writes) do changedRoots[a.location.root]=true end
+   for r in pairs(changedRoots) do if child.state[r] then state.memory[r]=cross(child.state[r]) end end
+   local results={};local roots={}
+   for i,v in ipairs(child.results) do results[i]=cross(v);roots[i]={value=results[i]} end
+   for r,v in pairs(reachable(child.state,roots)) do state.memory[r]=v end
+   return results,true
+  end
+  local before,work,queued={}, {},{}
+  local function enqueuePoint(p,state)
+   if not p then return end
+   local old=before[p];local changed=false
+   if not old then old={values=copyMap(state.values),memory=copyMap(state.memory)};before[p]=old;changed=true
+   else if joinMap(old.values,state.values) then changed=true end;if joinMap(old.memory,state.memory) then changed=true end end
+   if changed and not queued[p] then queued[p]=true;work[#work+1]=p end
+  end
+  enqueuePoint(g.entry,initial)
+  local cursor=1
+  while cursor<=#work do
+   local p=work[cursor];cursor=cursor+1;queued[p]=nil;stats.points=stats.points+1
+   local node=g.nodes[p];local s=node.stmt;local state={values=copyMap(before[p].values),memory=copyMap(before[p].memory)}
+   local k=s.kind;local proceed=true
+   if s.value and I.Value:isclassof(s.value) or s.results or k=='Var' or k=='View' then poison(state,function(source)return redefined(source,node)end) end
+   if k=='RcNew' then
+    local v=expr(s.initial,state,node);local r=root(s.root.id,true)
+    store(state,singleton(access(r,ROOT,true,nil,true)),v,s.initial.type,node,true)
+    local held=empty();held.refs[ROOT]=singleton(access(r,ROOT,true,nil,true));state.values[s.value.id]=held
+   elseif k=='Let' then put(state.values,s.value.id,clone(expr(s.expr,state,node)))
+   elseif k=='Var' then
+    local v=s.initial and expr(s.initial,state,node) or empty()
+    if s.initial then store(state,singleton(access(root(s.storage.id),ROOT,true,nil,true)),v,s.type,node,true)
+    else state.memory[root(s.storage.id)]=nil end
+   elseif k=='Read' then put(state.values,s.value.id,read(state,place(s.place,state,node),s.type,node,0))
+   elseif k=='Store' then local targets=place(s.place,state,node);local v=expr(s.value,state,node);store(state,targets,v,s.value.type,node)
+   elseif k=='ConstructVariant' then
+    local v=empty();v.tags[ROOT]={[s.tag]=true};if s.payload then component(v,expr(s.payload,state,node),B.Case(ROOT,s.tag)) end;state.values[s.value.id]=v
+   elseif k=='VariantPayload' then put(state.values,s.value.id,project(state.values[s.variant.id] or empty(),B.Case(ROOT,s.tag)))
+   elseif k=='VariantMatches' then checkValue(state.values[s.variant.id] or empty(),s.sum,node);state.values[s.value.id]=nil
+   elseif k=='View' then
+    local code=#c.context==0 and B.KnownCode(p) or B.InstanceCode(p,c.context,c.folded)
+    local binding={origin=code,target=s.entry,captures={}};local v=empty();v.calls[ROOT]={[code]=binding}
+    if s.adapter then
+     binding.environment=root(s.adapter.id);state.memory[binding.environment]=nil
+     v.refs[ROOT]=singleton(access(binding.environment,ROOT,true,nil,true,false,true))
+    end
+    for i,a in ipairs(s.slots) do
+     local held=argument(a,state,node);binding.captures[i]={borrowed=held.targets~=nil,type=held.type}
+     if not binding.environment then D.bug('access-environment','Captures require their actual environment storage') end
+     local saved=held.value;local ty=held.type
+     if held.targets then saved=empty();saved.refs[ROOT]=held.targets;ty=S.Ref(ty) end
+     local field=B.Field(ROOT,string.format('_%04d',i))
+     store(state,singleton(access(binding.environment,field,true,nil,true)),saved,ty,node,true)
+    end
+    state.values[s.value.id]=v
+   elseif k=='Call' or k=='Indirect' then
+    local args={};for i,a in ipairs(s.arguments) do args[i]=argument(a,state,node) end
+    local returned
+    if k=='Call' then returned,proceed=invoke(s.target,args,state,node)
+    else
+     local callable=expr(s.callable,state,node);local codes=callable.calls[ROOT] or {};local joined={values={},memory={}};returned={};proceed=false
+     for _,binding in pairs(codes) do
+      local alternative={values=copyMap(state.values),memory=copyMap(state.memory)};local part,normal
+      if binding.target then
+       local actual={}
+       for i,a in ipairs(binding.captures) do
+        local ty=definitions[binding.target].inputs[i].type
+        local captured=read(alternative,singleton(access(binding.environment,B.Field(ROOT,string.format('_%04d',i)),false)),a.borrowed and S.Ref(ty) or ty,node,i)
+        actual[#actual+1]=a.borrowed and {targets=captured.refs[ROOT] or {},type=ty} or {value=captured,type=ty}
+       end
+       for _,a in ipairs(args) do actual[#actual+1]=a end
+       part,normal=invoke(binding.target,actual,alternative,node)
+      else
+       local obligation=B.Invocation(p,binding.origin);out.invocations[obligation]=obligation;part={};normal=true
+       local sig=s.callable.type.visible
+       for i in ipairs(s.results) do part[i]=sig and seed(sig.results[i],fn.id,i-1,ROOT,p,0) or empty() end
+      end
+      if normal then
+       proceed=true;joinMap(joined.values,alternative.values);joinMap(joined.memory,alternative.memory)
+       for i in ipairs(s.results) do
+        local v=part and part[i] or empty();if not part then v.unknown=true end
+        returned[i]=returned[i] or empty();merge(returned[i],v)
+       end
+      end
+     end
+     if not next(codes) then
+      if callable.unknown or s.callable.type==S.Any then opaque(args,node);returned=nil;proceed=true
+      else failure('borrow-proof','Callable has no established target or input contract',node) end
+     end
+     if proceed and next(codes) then state=joined end
+    end
+    if proceed then for i,v in ipairs(s.results) do
+     local r=returned and returned[i] or empty();if not returned then r.unknown=true end;put(state.values,v.id,r)
+    end end
+   elseif k=='Return' then
+    out.normal=true;local exported={}
+    for i,e in ipairs(s.values) do
+     local v=expr(e,state,node)
+     for _,set in pairs(v.refs) do
+      for _,a in pairs(set) do if a.borrowed and Owner.localTo(a.source,fn.id,c.context) then failure('borrow-escape','Returned borrow names a dying local or Rc holding',node) end end
+     end
+     merge(out.results[i],v);exported[i]={value=v}
+    end
+    local writtenRoots={};for _,a in pairs(out.writes) do writtenRoots[a.location.root]=true end
+    joinMap(out.state,reachable(state.memory,exported,writtenRoots))
+   elseif k=='If' then expr(s.test,state,node)
+   elseif k=='Switch' then checkValue(state.values[s.variant.id] or empty(),s.sum,node)
+   elseif k=='Trap' then expr(s.failure,state,node)
+   elseif k=='Dynamic' then
+    local args={};for i,e in ipairs(s.operands) do args[i]={value=expr(e,state,node),type=e.type} end
+    opaque(args,node)
+    for _,v in ipairs(s.results) do local unknown=empty();unknown.unknown=true;state.values[v.id]=unknown end
+   end
+   if proceed then for _,to in ipairs(node.next) do
+    local edge={values=copyMap(state.values),memory=copyMap(state.memory)};local admitted=true
+    if node.cases then
+     local v=state.values[s.variant.id] or empty();local tag=node.cases[to];local tags=v.tags[ROOT]
+     admitted=not tags or tags[tag]
+     if admitted then
+      local narrowed=empty();component(narrowed,project(v,B.Case(ROOT,tag)),B.Case(ROOT,tag));narrowed.tags[ROOT]={[tag]=true};edge.values[s.variant.id]=narrowed
+     end
+    end
+    if admitted then poison(edge,function(source)return scopeEnded(source,g.nodes[to].scope)end);enqueuePoint(to,edge) end
+   end end
+  end
+  return out
+ end
+ local roots={}
  for _,fn in ipairs(functions) do
-  local args,state={},{}
+  local args,memory={},{}
   for i,input in ipairs(fn.inputs) do
    if input.kind=='InPlace' then
-    local route=target(B.PlaceInput(fn.id,i-1,ROOT));args[i]={targets=single(location(route,ROOT,true)),readonly=false}
-    state[route]=seed(input.type,fn.id,i-1)
-   else args[i]={value=seed(input.type,fn.id,i-1)} end
+    local r=B.StorageRoot(B.PlaceInput(fn.id,i-1,ROOT));args[i]={targets=singleton(access(r,ROOT,true)),type=input.type};put(memory,r,seed(input.type,fn.id,i-1))
+   else args[i]={value=seed(input.type,fn.id,i-1),type=input.type} end
   end
-  roots[fn.id]=queries.request(fn.id,args,state)
+  roots[fn.id]=request(fn.id,args,memory)
  end
- queries.drain()
+ while head<=#queue do
+  local c=queue[head];head=head+1;c.queued=false;stats.iterations=stats.iterations+1
+  local out=run(c);c.ran=true;local changed=false
+  for _,field in ipairs{'reads','writes','requirements','strong','failures','invocations'} do if union(c[field],out[field]) then changed=true end end
+  if out.normal and not c.normal then c.normal=true;changed=true end
+  if out.unknown and not c.unknown then c.unknown=true;changed=true end
+  for i,v in ipairs(out.results) do c.results[i]=c.results[i] or empty();if merge(c.results[i],v) then changed=true end end
+  if joinMap(c.state,out.state) then changed=true end
+  if changed then for _,user in pairs(c.users) do enqueue(user) end end
+ end
+ local summaries={}
  for _,fn in ipairs(functions) do
-  local summary=roots[fn.id]
+  local c=roots[fn.id]
   local function footprint(set)
-   local list,seen={},{}
-   for _,a in ipairs(ordered(set)) do local id=key(a.location);if not seen[id] then list[#list+1]=a.location;seen[id]=true end end
-   return B.Footprint(S.List(list),summary.unknown)
+   local list,seen={},{};for _,a in ipairs(ordered(set)) do if not seen[a.location] then seen[a.location]=true;list[#list+1]=a.location end end
+   return B.Footprint(S.List(list),c.unknown or false)
   end
   local results={}
-  for i,v in ipairs(summary.results) do
+  for i,v in ipairs(c.results) do
    local components={}
    for path,set in pairs(v.refs) do
-    local sources,seen={},{}
-    for _,a in ipairs(ordered(set)) do local id=key(a.source);if not seen[id] then sources[#sources+1]=a.source;seen[id]=true end end
-    table.sort(sources,function(a,b) return key(a)<key(b) end)
+    local sources,seen={},{};for _,a in ipairs(ordered(set)) do if not seen[a.source] then seen[a.source]=true;sources[#sources+1]=a.source end end
     components[#components+1]=B.Component(path,B.Loans(S.List(sources)))
    end
-   table.sort(components,function(a,b) return key(a.path)<key(b.path) end)
-   results[i]=B.Contents(S.List(components))
+   table.sort(components,function(a,b)return key(a.path)<key(b.path)end);results[i]=B.Contents(S.List(components))
   end
-  local bounds,seen={},{}
-  for _,t in pairs(summary.transfers) do
-   if t.checked then
-    local bound=B.Outlives(t.retained.source,owner(t.target.location.root));local id=key(bound)
-    if not seen[id] then bounds[#bounds+1]=bound;seen[id]=true end
-   end
-  end
-  table.sort(bounds,function(a,b) return key(a)<key(b) end)
-  local invocations={};for _,v in pairs(summary.invocations) do invocations[#invocations+1]=v end
-  table.sort(invocations,function(a,b) return key(a)<key(b) end)
-  summaries[fn.id]={reads=footprint(summary.reads),writes=footprint(summary.writes),writable=footprint(summary.requirements),results=results,bounds=S.List(bounds),invocations=S.List(invocations)}
+  local invocations={};for _,v in pairs(c.invocations) do invocations[#invocations+1]=v end
+  summaries[fn.id]={reads=footprint(c.reads),writes=footprint(c.writes),writable=footprint(c.requirements),results=results,invocations=S.List(invocations)}
  end
- local flow={phase='source-flow',functions=program,contexts={},roots={}}
- for id,ctx in pairs(queries.contexts) do
-  local facts=assert(ctx.flow)
-  facts.fn_id=ctx.summary.fn.id;facts.formal_bindings=ctx.args
-  facts.result_provenance=ctx.results;facts.ownership_events=ctx.ownership
-  facts.context=ctx.context;facts.folded=ctx.folded;facts.unknown=ctx.unknown
-  facts.call_edges={}
-  for point,site in pairs(facts.sites) do
-   local edges={};facts.call_edges[point]=edges
-   for childId in pairs(site.calls) do edges[childId]=true end
-   -- Do not expose mutable analysis contexts through the published graph.
-   site.calls=edges
-  end
-  flow.contexts[id]=facts
- end
- -- A callee-only field read still needs the caller's version at entry. Import
- -- the callee's external locations through the existing call graph to a fixed
- -- point before constructing versions; no source expression is reevaluated.
- local domains,users,callees,interest,work,queued={},{},{},{},{},{}
- local function enqueue(id)
-  if not queued[id] then work[#work+1]=id;queued[id]=true end
- end
- for id,facts in pairs(flow.contexts) do
-  domains[id]={};users[id]=users[id] or {};callees[id]={};interest[id]={}
-  for _,site in pairs(facts.sites) do
-   for _,read in pairs(site.contents) do for loc in pairs(read.locations) do domains[id][loc]=true;interest[id][loc.root]=true end end
-   for loc in pairs(site.written_contents) do domains[id][loc]=true;interest[id][loc.root]=true end
-   for _,write in pairs(site.writes) do interest[id][write.location.root]=true end
-   for _,read in pairs(site.reads) do interest[id][read.location.root]=true end
-   for child in pairs(site.calls) do users[child]=users[child] or {};users[child][id]=true;callees[id][child]=true end
-  end
-  enqueue(id)
- end
- local cursor=1
- while cursor<=#work do
-  local id=work[cursor];cursor=cursor+1;queued[id]=nil
-  local facts=flow.contexts[id]
-  -- Caller projections (including wildcard array projections) must also have
-  -- an exit version in a callee that can inspect/write that containing root.
-  for child in pairs(callees[id]) do
-   local changed=false
-   for loc in pairs(domains[id]) do
-    if interest[child][loc.root] and not domains[child][loc] then domains[child][loc]=true;changed=true end
-   end
-   if changed then enqueue(child) end
-  end
-  for parent in pairs(users[id]) do
-   local changed=false
-   for loc in pairs(domains[id]) do
-    if not (loc.root.kind=='StorageRoot' and allocatedWithin(loc.root.storage,facts.fn_id,facts.context)) and not domains[parent][loc] then
-     domains[parent][loc]=true;changed=true
-    end
-   end
-   if changed then enqueue(parent) end
-  end
- end
- for id,facts in pairs(flow.contexts) do contentsVersions(program[facts.fn_id],facts,domains[id]) end
- for fn,ctx in pairs(roots) do flow.roots[fn]=ctx.id end
- queries.stats.seconds=os.clock()-start
- return roots,summaries,queries.stats,flow
+ local construction={};for _,g in pairs(graphs) do for p,n in pairs(g.nodes) do if n.stmt.kind=='RcNew' then construction[p]=true end end end
+ stats.seconds=os.clock()-started
+ return roots,summaries,stats,construction
 end
 function M.validate(functions,roots)
  for _,fn in ipairs(functions) do
   local failures={};for _,f in pairs(roots[fn.id].failures) do failures[#failures+1]=f end
   table.sort(failures,function(a,b)
-   if a.code~=b.code then return a.code=='readonly-write' end
-   return (a.message or '')<(b.message or '')
+   if a.code~=b.code then
+    if a.code=='readonly-write' then return true end
+    if b.code=='readonly-write' then return false end
+    return a.code<b.code
+   end
+   return a.message<b.message
   end)
   if failures[1] then local f=failures[1];D.reject(f.code,f.message,f.span) end
  end

@@ -52,6 +52,9 @@ eachExpr = function(expr, visit, root)
     -- storage is named, so the place is visited as a place here (which reaches those same
     -- expressions, in the same order).
     if expr.kind == "Addr" then return eachPlace(expr.place, visit, false) end
+    if expr.kind == 'RcBorrow' and expr.holding.kind=='BorrowArg' then
+        visit.borrow(expr.holding.place);return eachPlace(expr.holding.place,visit,false)
+    end
     expr:each(function(child) eachExpr(child, visit, false) end)
 end
 
@@ -70,7 +73,8 @@ local function eachStatement(stmt, visit)
             end
         end
     end
-    if kind == "Let" then eachExpr(stmt.expr, visit, true)
+    if kind == 'RcNew' then eachExpr(stmt.initial,visit,true)
+    elseif kind == "Let" then eachExpr(stmt.expr, visit, true)
     elseif kind == "Var" then eachExpr(stmt.initial, visit, true)
     elseif kind == "Read" then eachPlace(stmt.place, visit, true)
     elseif kind == "Store" then
@@ -153,7 +157,7 @@ function M.analyze(fn)
                 current = entry
                 local kind = stmt.kind
                 reads[stmt] = {}
-                if kind == "Let" or kind == "Read" or kind == "ConstructVariant"
+                if kind == 'RcNew' or kind == "Let" or kind == "Read" or kind == "ConstructVariant"
                     or kind == "VariantMatches" or kind == "VariantPayload" then
                     defs[stmt.value.id] = stmt
                 end

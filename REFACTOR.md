@@ -2322,3 +2322,37 @@ approved by the type decision. This documentation change does not implement Rc o
 claim speedups. Compiler time/memory, count traffic, emitted code and retained-memory
 measurements belong to integrated qualification; immutable historical logs remain
 unchanged.
+
+## Explicit-Rc implementation: remove the analysis engine, not just its solver
+
+The first migration removed promotion/capability decisions but retained whole-caller-
+state query identities and their snapshot/version machinery. That was an incorrect
+architectural cut, not merely a cache-performance problem.
+
+The replacement operates on original typed-IR CFG nodes. It retains only borrow
+protection, permissions, active alternatives, invocation-environment contents and
+actual strong edges. Call-site bindings join relevant inputs; caller frame state is
+not an identity. Scalar contents are not proof facts. Private effects, including
+callee effects on borrowed locals, do not leak into an external contract. A scalar-
+only boundary without named globals checks its own local allocations once, rather
+than multiplying unrelated activation contexts. A recursive-child regression guards
+against confusing a source-site family with shared runtime storage.
+
+Rc placement is independent of these facts: declared types select holdings,
+semantic copies retain, and typed private slots protect call/result failure paths.
+Actual-field/active-tag drops and the six C bindings remain. Nonowning transport no
+longer acquires synthetic cleanup captures; physical source maps retain original
+trap nodes. Recursive ABI gates use the checked program's named definitions rather
+than treating every named pointee as owning.
+
+The optimizer's pre-existing frame restriction now also applies while inlining.
+Already-unsupported multi-path non-call effects decline before enumeration, rather
+than after producing an enormous ordered DAG. Generic non-Rc tests exercise both
+boundaries; this is not a second Rc optimizer mode.
+
+The initial slice passes frontend, source/native ownership, optimizer-ISA and core/
+C-entry qualification. Focused sanitizer compilation is blocked by the installed
+compiler's missing `preserve_none` ABI support; it was not bypassed. Exact outcomes,
+remaining gates, measurements and status live in WORKLIST and
+`research/experiments/runtime-owners/explicit-rc-cutover/README.md`. No broad O/E
+completion or optimal count/storage claim follows from this checkpoint.

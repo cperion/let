@@ -7,8 +7,8 @@ checkboxes and O1–O9 packages are supporting records, not competing live task 
 
 ## Latest ownership decision — explicit Rc, copy retains
 
-**Owner: coordinator. State: design; semantic decision approved, implementation
-not cut over (O01–O08/E01/E02).** The user explicitly chose `Rc(T)` ownership,
+**Owner: coordinator. State: partial delivery; approved initial explicit-Rc slice
+implemented and integration-tested (O01–O08/E01/E02); sanitizer qualification blocked.** The user explicitly chose `Rc(T)` ownership,
 strictly borrowed `Ref(T)` and **copy retains**, to make ownership developer-visible
 and typechecked and remove compiler inference complexity. No implicit promotion,
 owner-capability recovery or hidden acquisition to rescue invalid borrows remains
@@ -21,34 +21,118 @@ Its partial root/result binding is superseded, not an unfinished task to continu
 Older E/O paragraphs below record chronological evidence, not current directives to
 finish automatic counted placement. No O/E item is closed by this decision.
 
-**Current scope/files:** revise `docs/{owners-references-ids,source-lifetime-lowering,
-syntax,runtime-interfaces,runtime-primitives,implementation-map,architecture,
-source-compilation-api}.md`, this ledger and the architectural decision record in
-`REFACTOR.md`. The implementation map names the actual schema, semantic,
-access/checking, layout/materialization and test cutover paths.
+**Current scope/files:** the initial §8 cutover spans `frontend/ir.asdl`, generated
+schema, `frontend/let/{schema,semantic,ir,check,analysis,access,ownership,program,
+layout,placement,abc}.lua`, frontend ownership/borrow and affected feature tests,
+`tools/validate_source_owners.c`, and narrow optimizer-boundary corrections in
+`src/optimize.c` / `tools/validate_optimizer_isa.lua`. Documentation and qualification
+evidence are recorded below. The implementation map binds these responsibilities.
 Remove the implicit owner event channel, counted-selection solver, capability/
 preservation policy, reuse promotion and inferred resource ABI; preserve borrow,
 readonly/effect/callable and SCC algorithms with real remaining consumers.
 
-**Dependencies / next action:** settle the concrete construction/borrow surface,
-borrow-carrying Rc payload rule, private handle/failure-safe handoff and explicitly
-owning environment/snapshot APIs for the selected slice (source-lifetime-lowering
-§7). The user has now explicitly approved section 8: `Rc(value)`, `r.borrow()`,
-no borrow-carrying payloads initially, one owner-address handle and caller-owned
-typed owning-value slots for failure-safe private calls. Owner: coordinator;
-state: active implementation of this integrated slice. Replace producers/consumers
-and retire the implicit solver together; no implementation deliverable is yet closed.
-Copy-retains is settled and must not be reopened.
+**Approved dependencies:** section 8 settles `Rc(value)`, `r.borrow()`, no
+borrow-carrying payloads initially, one owner-address handle and caller-owned typed
+owning-value slots for failure-safe private calls. Copy-retains is settled and must
+not be reopened. Producers and consumers have been cut over together; outstanding
+qualification and the next action are recorded below, not a request to reapprove §8.
 Public/foreign, erasure, containers/tasks and `.let` migration remain their existing
 separate gates, not silently enabled by a type name. No new sidecar or parallel
 implementation is authorized.
 
-**Evidence:** this is a specification/removal-plan change, not new runtime support.
+**Prior specification evidence:** the original specification/removal-plan change
+was not new runtime support.
 Documentation diffs reviewed; `git diff --check` passed and 88 local Markdown file
 targets across the ten changed documents resolved. Runtime tests were not rerun
 for this documentation-only change. Explicit-Rc source acceptance and compiler/
 code-size/count/storage/performance measurements remain outstanding. Preserve
 existing raw experiments and historical `.slet` filenames.
+
+### Historical explicit-Rc interruption: performance investigation
+
+**Historical checkpoint: partial, unqualified; implementation was paused for
+performance design review (O03–O08/E01/E02).** The working cutover changes
+`frontend/ir.asdl`, generated `schema/ir.lua`, frontend schema/semantic/IR,
+access/ownership/program/check/analysis, layout/placement/ABC and
+`tests/{schemas,program,source_owners}.lua`. It removes the implicit solver and
+adds initial declared-Rc lowering, but is not a completed or validated replacement.
+The small raw/optimized Rc probe ran in four modes; schema checks and the program
+boundary test (37 checks / 2 VM executions) passed. Broader test migration and
+source-owner qualification remain incomplete.
+
+The user stopped the broad run after 51.4 CPU seconds in the frontend and a long
+optimizer run. Investigation-only, time-bounded probes then isolated two costs:
+full-caller-state query proliferation in `access.lua` (3,258 contexts / 6,257
+iterations in a profiled fixture compile), and path expansion plus linear DAG
+lookups in the unchanged `src/optimize.c`. A 427-byte, Rc-free optimizer
+reproduction exceeds a three-second limit; an isolated four-function frontend
+loop produces 460 contexts and retains 44.5 MiB of Lua heap after collection.
+These are diagnostic measurements, not acceptance or speedup claims.
+
+**Next action at that checkpoint:** discuss a sound relevant-input/query-join design for borrowed and
+strong-edge checking, plus bounded optimizer speculation and lookup costs, before
+implementing fixes. Do not increase the full-suite timeout or disable checking/
+optimization to hide the cost. No production code changed during this
+investigation and no O/E deliverable closed. Logs, frozen fixture, bounded probes
+and exact findings are in
+[`explicit-rc-performance-investigation`](research/experiments/runtime-owners/explicit-rc-performance-investigation/README.md).
+
+### Current explicit-Rc cutover and qualification
+
+**Owner: coordinator; state: implemented initial slice, partially qualified;
+O01–O08/E01/E02 remain open.** The requested architectural cut is implemented:
+no whole-caller-state query identities, before/after publication, contents-version/
+carrier dependency graph, loan-demand/capability solver, implicit preservation,
+root binding or inferred reference-resource ABI remains. The unused `Lifetime`
+schema is removed. Borrow checking uses the original IR CFG, sparse protection/
+permission/tag/callable facts, joined call-site bindings and argument-reachable
+contents. Private effects do not escape a function's contract. Scalar-only,
+global-independent boundaries are checked once, including their private allocations.
+Actual invocation environments and concrete strong-edge checks remain.
+
+Declared Rc types drive one-cell handles, semantic retain-on-copy, cleanup-visible
+private argument/result slots and actual-field/active-tag drops. Nonowning code
+keeps ordinary transport; source diagnostics survive physical cloning. Named type
+cells accompany the checked program so recursive ABI gates inspect real definitions.
+The native fixture no longer expects an extra inferred preservation field.
+
+The optimizer now enforces its existing frame-materialization boundary at nested
+call/tail inlining too; already-unsupported multi-path non-call effects decline
+before path expansion. No Rc-specific bypass or disabled optimization was added.
+The unchanged 427-byte reproduction completes in 0.000791 CPU seconds under its
+original three-second bound. Generic non-Rc regressions cover both corrections.
+
+**Actual checks:** `make validate-source-owners` passes 1,718 checks / 560 VM
+executions and 2,560,862 native checks: raw/optimized, all four modes, both lifecycle
+banks, exact count/peak-owner measurements, every allocation/acquire failure,
+partial construction, replacement, trap/stack/publication failure and iterative
+100,001-object generated-C drains outside VM TLS. `make validate-slet` passes the
+complete frontend target, including 172 borrow/effect checks / 120 executions,
+55 ownership checks (including resolved named Rc payloads and unique allocation
+identities), staging, source/optimizer and mirrored portable-C tests.
+`make validate-optimizer-isa` passes 58 mirrored modules / 340 execution pairs;
+C-entry, owner-core and collector-free targets pass independently.
+
+**Measured costs:** the unchanged 79-function fixture compiles in 2.544576 CPU
+seconds (access: 0.958663), with 281 bindings / 561 iterations and 9.189 MiB Lua heap
+after collection. Raw/optimized images are 63,794 / 63,776 bytes. The expanded
+fixture has 5,576 declared cleanup-frame bytes / 235 typed slots, largest frame
+424 bytes; these are not peak stack measurements. Count traffic is not claimed
+optimal: `variant_replace` has 47 holds and four allocations. The original profiling
+conditions differ, so these are observations, not a controlled speedup claim.
+
+**Remaining / next action:** focused ASan/UBSan/LSan compilation is blocked by
+installed Clang 18 lacking the required `preserve_none` handler ABI. Do not disable
+that ABI/check to get a pass; rerun the recorded script with a suitable compiler.
+No top-level full `make validate`, clean-build, TSan, wasm/browser or general resource-
+bound claim is made. Public/foreign/erased/owning-callable/task/container and `.let`
+execution gates remain closed. Baseline copies retain; proven move elimination is
+separate work, not a correctness dependency. No O/E box is closed here.
+
+Evidence, commands, exact scope and logs:
+[`explicit-rc-cutover`](research/experiments/runtime-owners/explicit-rc-cutover/README.md).
+Production/document whitespace checks pass excluding the immutable diagnostic
+`optimizer-trace.patch` context line; raw historical evidence was preserved.
 
 ## Guide and latest approved source conventions
 

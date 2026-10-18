@@ -144,16 +144,18 @@ The general separate-compilation/polymorphic rank interface remains a gate.
 | `ownership.lua`: `reuseRequirements` | Remove counted-placement repair; retain required reuse-invalidates-borrow checks |
 | `ownership.lua`: `requireBorrowed` | Retire the temporary implicit-materializer admission gate |
 | `ownership.lua`: interrupted `rootBindings` | Remove inferred result resources, alias/resource partitioning and ownership-mode binding |
-| `bindLoans`, `lifetimeTemplate`, `locators`, `sameLocator` and context/version facts | Audit for borrow/cycle-check clients; retain necessary checking algorithms, not the entire ownership solver as an optimizer |
+| `bindLoans`, `lifetimeTemplate`, `locators`, `sameLocator`, whole-state query keys and context/version producers | Retire this organizing path. Check borrow protection, readonly permissions, actual environments and strong edges directly on original-IR CFGs with relevant-input joins; do not retain the ownership solver as an optimizer |
 | `access.lua`: `Ownership.events/hold/returned/merge` channel and `facts.ownership_events` | Remove implicit-owner producers and their propagation; introduce only facts required for explicit strong edges and borrows |
 | `ir.asdl`: implicit `Ownership.Requirement` / counted summary contracts | Replace with explicit Rc type/semantic operations and actual checking contracts; regenerate schema |
 | `program.lua` | Keep immutable checked-program ownership; replace implicit owner-selection analysis with Rc/borrow/cycle validation |
 | `layout.lua`, `placement.lua` | Use declared owning types and explicit operations; keep concrete drop/layout algorithms |
 | `abc.lua`, `compiler.lua` | Keep entry-rooted code selection and the checked-to-physical boundary; disconnect implicit resource binding |
 
-Keep original-site identities, readonly checks, alias/mutation footprints, callable
-resolution, provenance needed for borrow validity, module identity, and sound SCC
-code. `Ty.Owned` is an existing callable specialization form, **not** the new Rc
+Preserve responsibilities, not the old engine: keep original-site identities,
+readonly checks, alias/mutation footprints, callable resolution, provenance needed
+for borrow validity, module identity, and sound SCC code. Scalar register contents,
+whole-caller-state query identities and published contents-version snapshots are
+not required for those responsibilities. `Ty.Owned` is an existing callable specialization form, **not** the new Rc
 type: it must not be deleted merely because of its name. Materialized environments
 must continue to read actual invocation-site capture storage, not resurrect the
 removed code-global capture-value union.

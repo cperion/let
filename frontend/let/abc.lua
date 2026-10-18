@@ -119,7 +119,7 @@ function Function.new(fn, definitions, profile, constants, metadata, physical)
             local components=physical:abiComponents(param.type)
             if components==false or #components~=input.count then D.bug("lower-param","Parameter representation disagrees with input")
             elseif #components==1 then self.valueSlots[param.binding.id]={parameter=input.base,type=param.type}
-            elseif #components>1 then local holder={type=param.type,cells={}};for i,component in ipairs(components) do holder.cells[i]={parameter=input.base+i-1,type=component} end;self.valueSlots[param.binding.id]=holder end
+            else local holder={type=param.type,cells={}};for i,component in ipairs(components) do holder.cells[i]={parameter=input.base+i-1,type=component} end;self.valueSlots[param.binding.id]=holder end
         elseif param.kind=="PlaceParam" then
             if input.count~=1 then D.bug("lower-param","Place parameter is not one address cell") end
             self.storageSlots[param.binding.id]={parameter=input.base,address=true,type=param.type}
@@ -130,7 +130,7 @@ function Function.new(fn, definitions, profile, constants, metadata, physical)
     local function reserve(map,id,ty,place,forceFrame)
         if map[id] then D.bug("lower-slot","IR slot "..tostring(id).." is defined twice") end
         local components=physical:abiComponents(ty)
-        if components and #components>0 and not physical:cellKind(ty)
+        if components and not physical:cellKind(ty)
             and (not place or (ty:isTaggedType() and not self.addressTaken[id] and not forceFrame)) then
             local holder={type=ty,cells={}};for _,component in ipairs(components) do local slot={index=#self.locals+1,type=component};self.locals[#self.locals+1]=slot;holder.cells[#holder.cells+1]=slot end;map[id]=holder;return
         end
@@ -900,7 +900,7 @@ function M.lower(program, options)
     end
     local entries=options.exports
     if entries==nil then entries={};for _,fn in ipairs(program.functions) do entries[#entries+1]=fn.id end end
-    local bound=require('let.ownership').bind(program,entries)
+    local bound=require('let.program').select(program,entries)
     program=require('let.placement').program(bound)
     local physical=Layout.physical(program)
     local functions=program.functions
@@ -1034,7 +1034,7 @@ function M.lower(program, options)
     local lines, lineMap = {}, {}
     local function append(text, node)
         lines[#lines + 1] = text
-        lineMap[#lines] = node or false
+        lineMap[#lines] = node and (program.sourceNodes[node] or node) or false
     end
     if profile~="integer" then append(".profile "..profile) end
     for _,foreign in ipairs(program.foreigns) do

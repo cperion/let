@@ -261,8 +261,8 @@ local anyStringMain=I.Fn("any_string_main",I.Entry,0,L{},L{S.U32},L{},L{
     I.Let(stringAnyLength,S.U32,I.SliceLength(ref(castString,S.String),S.U32)),
     I.Return(L{ref(stringAnyLength,S.U32)})})
 local escapeOK,escapeError=pcall(Compiler.lower,{add,captureTarget,makeAdder,captureMain},{profile='slet'})
-check(not escapeOK and D.is(escapeError) and escapeError.code=='ownership-materialization',
-    'erased capture payloads still require their own physical contract')
+check(not escapeOK and D.is(escapeError) and escapeError.code=='borrow-escape',
+    'A borrowed environment cannot escape its local storage: '..tostring(escapeError))
 local managedFunctions={add,anyMain,anyStringMain}
 require('let.program').analyze(managedFunctions)
 local managedOK,managedError=pcall(Compiler.lower,managedFunctions,{profile="let",exports={"any_main","any_string_main"}})

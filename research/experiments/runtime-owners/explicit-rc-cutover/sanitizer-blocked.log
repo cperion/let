@@ -1,0 +1,9 @@
+In file included from src/vm.c:5:
+In file included from build/generated/banked.h:3:
+src/handler_abi.h:15:9: error: unknown attribute 'preserve_none' ignored [-Werror,-Wunknown-attributes]
+   15 | typedef ABC_HANDLER_CC abc_value (*abc_handler)(ABC_HANDLER_ARGS);
+      |         ^~~~~~~~~~~~~~
+src/handler_abi.h:9:39: note: expanded from macro 'ABC_HANDLER_CC'
+    9 | #define ABC_HANDLER_CC __attribute__((preserve_none))
+      |                                       ^~~~~~~~~~~~~
+1 error generated.

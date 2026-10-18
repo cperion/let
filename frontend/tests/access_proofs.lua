@@ -1,7 +1,6 @@
 package.path='./?.lua;./?/init.lua;../tools/?.lua;../build/?.lua;'..package.path
 local C=require('let.compiler')
 local S=require('let.schema')
-local IR=require('let.ir')
 local Program=require('let.program')
 local D=require('let.diag')
 local I,L=S.Ir,S.List
@@ -9,1171 +8,177 @@ local checks,executions=0,0
 local function check(ok,message) checks=checks+1;assert(ok,message) end
 local function reject(code,source,profiles)
  for _,profile in ipairs(profiles or {'slet','let'}) do
-  local ok,err=pcall(function()
-   local unit=C.typed{profile=profile,source=source,name='access-proof.'..profile}
-   return require('let.layout').program(unit.program)
-  end)
+  local ok,err=pcall(C.typed,{profile=profile,source=source})
   check(not ok and D.is(err) and err.code==code,profile..'/'..code..': '..tostring(err))
  end
 end
-local function counted(reason,source,profiles)
- for _,profile in ipairs(profiles or {'slet','let'}) do
-  local unit=C.typed{profile=profile,source=source,name='access-proof.'..profile};local found=false
-  for _,fn in ipairs(unit.functions) do for _,r in ipairs(unit.program.ownership[fn.id].summary.counted) do if r.reason==reason then found=true end end end
-  check(found,profile..': expected counted '..reason..' obligation')
- end
-end
-local function run(source,wanted,options)
- local unit=C.typed({profile='slet',source=source,name='access-proof.slet'},options)
+local function run(source,wanted,profile)
+ local unit=C.typed({profile=profile or 'slet',source=source},{staticMode='interpreted',staticOptimize=false})
  for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do for _,optimize in ipairs{false,true} do
   local result=C.stage(unit.functions,{profile='slet',entry='main',mode=mode,optimize=optimize})
   executions=executions+1;check(tonumber(result.cells[1])==wanted,mode..'/'..tostring(optimize))
  end end
  return unit
 end
-local prelude='let Point = { x: U32 }\n'
-counted('return',prelude..'let bad(): Ref(Point) = do let p = Point { x = 42 } return Ref(p) end let main(): U32 = 0')
-counted('return','let bad(): Slice(U32) = do let xs = [42] return Slice(xs) end let main(): U32 = 0')
-counted('return',prelude..'let bad(p: Point): Ref(U32) = Ref(p.x) let main(): U32 = 0')
-counted('return',prelude..[[
-let Holder = { value: Ref(Point) }
-let identity(p: Ref(Point)): Ref(Point) = p
-let bad(): Holder = do let p = Point { x = 42 } return Holder { value = identity(Ref(p)) } end
-let main(): U32 = 0
-]])
-counted('return',[[
-let bad(n: U32): (U32): U32 = do let saved = n return do(x: U32) = saved + x end
-let main(): U32 = 0
-]],{'let'})
-counted('return',prelude..[[
-let bad(): (): U32 = do let p = Point { x = 42 } return do() = p.x end
-let main(): U32 = 0
-]],{'let'})
-counted('store',prelude..[[
-let Holder = { value: Ref(Point) }
-let bad(holder: Ref(Holder)): Unit = do let p = Point { x = 42 } holder.value = Ref(p) return end
-let main(): U32 = 0
-]])
-counted('store',prelude..[[
-let Holder = { value: Ref(Point) }
-let put(holder: Ref(Holder), value: Ref(Point)): Unit = do holder.value = value return end
-let relay(holder: Ref(Holder), value: Ref(Point)): Unit = put(holder,value)
-let bad(holder: Ref(Holder)): Unit = do let p = Point { x = 42 } relay(holder,Ref(p)) return end
-let main(): U32 = 0
-]])
-counted('return',prelude..[[
-let Holder = { value: Ref(Point) }
-let put(holder: Ref(Holder), value: Ref(Point)): Unit = do holder.value = value return end
-let bad(incoming: Ref(Point)): Holder = do
- let local = Point { x = 42 } let holder = Holder { value = incoming }
- put(Ref(holder),Ref(local))
- return holder
-end
-let main(): U32 = 0
-]])
-counted('return',prelude..[[
-let Holder = { value: Ref(Point) }
-let bad(incoming: Ref(Point), condition: Bool): Holder = do
- let p = Point { x = 42 } let holder = Holder { value = incoming }
- if condition then holder.value = Ref(p) end
- return holder
-end
-let main(): U32 = 0
-]])
-reject('readonly-write',[[
-let bad(view: Slice(U32)): Unit = do view[0] = 42 return end
-let main(): U32 = 0
-]])
-reject('readonly-write',prelude..[[
-let bad(view: Slice(Point)): Unit = do view[0].x += 1 return end
-let main(): U32 = 0
-]])
-reject('readonly-write',prelude..[[
-let mutate(p: Ref(Point)): Unit = do p.x += 1 return end
-let bad(view: Slice(Point)): Unit = mutate(Ref(view[0]))
-let main(): U32 = 0
-]])
-reject('readonly-write',prelude..[[
-let mutate(p: Ref(Point)): Unit = do p.x += 1 return end
-let bad(view: Slice(Point)): Unit = view[0].mutate()
-let main(): U32 = 0
-]])
--- Formal callable transport composes the actual contract, not an unknown-effect
--- substitute. All spellings and forwarding routes retain the same store bound.
-local higherPrelude=prelude..[[
-let Holder = { value: Ref(Point) }
+local prelude='let Point = { x: U32 }\nlet Holder = { value: Ref(Point) }\n'
+-- The former promotion cases now reject. No amount of caller demand repairs them.
+for _,body in ipairs{
+ 'let bad(): Ref(Point) = do let p = Point { x = 42 } return Ref(p) end',
+ 'let bad(): Slice(U32) = do let xs = [42] return Slice(xs) end',
+ 'let bad(p: Point): Ref(U32) = Ref(p.x)',
+ 'let identity(p: Ref(Point)): Ref(Point) = p let bad(): Holder = do let p = Point { x = 42 } return Holder { value = identity(Ref(p)) } end',
+ 'let bad(holder: Ref(Holder)): Unit = do let p = Point { x = 42 } holder.value = Ref(p) return end',
+ [[let put(holder: Ref(Holder), value: Ref(Point)): Unit = do holder.value = value return end
+ let relay(holder: Ref(Holder), value: Ref(Point)): Unit = put(holder,value)
+ let bad(holder: Ref(Holder)): Unit = do let p = Point { x = 42 } relay(holder,Ref(p)) return end]],
+ [[let put(holder: Ref(Holder), value: Ref(Point)): Unit = do holder.value = value return end
+ let bad(incoming: Ref(Point)): Holder = do let p = Point { x = 42 } let h = Holder { value = incoming } put(Ref(h),Ref(p)) return h end]],
+ [[let bad(incoming: Ref(Point), condition: Bool): Holder = do
+ let p = Point { x = 42 } let h = Holder { value = incoming }
+ if condition then h.value = Ref(p) end return h end]],
+} do reject('borrow-escape',prelude..body..' let main(): U32 = 0') end
+for _,body in ipairs{
+ 'let bad(view: Slice(U32)): Unit = do view[0] = 42 return end',
+ 'let bad(view: Slice(Point)): Unit = do view[0].x += 1 return end',
+ 'let mutate(p: Ref(Point)): Unit = do p.x += 1 return end let bad(view: Slice(Point)): Unit = mutate(Ref(view[0]))',
+ 'let mutate(p: Ref(Point)): Unit = do p.x += 1 return end let bad(view: Slice(Point)): Unit = view[0].mutate()',
+ 'let bad(view: Slice(Point)): Bool = Ptr(view[0]) == null(Point)',
+} do reject('readonly-write',prelude..body..' let main(): U32 = 0') end
+local higher=prelude..[[
 let Actions = { body: (): Unit }
 let apply(body: (): Unit): Unit = body()
 let relay(body: (): Unit): Unit = apply(body)
 let identity(body: (): Unit): (): Unit = body
 let through(actions: Actions): Unit = actions.body()
-let recursive(n: U32, body: (): Unit): Unit = do
- if n == 0 then return body() end
- return recursive(n - 1, body)
-end
+let recursive(n: U32, body: (): Unit): Unit = do if n == 0 then return body() end return recursive(n-1,body) end
 ]]
 for _,invocation in ipairs{'saved()','apply(saved)','relay(saved)','identity(saved)()',
- 'through(Actions { body = saved })','recursive(2, saved)',
- 'apply do() holder.value = Ref(p) return end'} do
- counted('store',higherPrelude..[[
-let bad(holder: Ref(Holder)): U32 = do
- let p = Point { x = 42 }
+ 'through(Actions { body = saved })','recursive(2,saved)','apply do() holder.value = Ref(p) return end'} do
+ reject('borrow-escape',higher..[[
+ let bad(holder: Ref(Holder)): U32 = do let p = Point { x = 42 }
  let saved = do() holder.value = Ref(p) return end
- ]]..invocation..[[
- return 0
+ ]]..invocation..[[ return 0 end let main(): U32 = 0]],{'let'})
 end
-let main(): U32 = 0
-]],{'let'})
-end
-counted('return',prelude..[[
-let invoke(body: (): Ref(Point)): Ref(Point) = body()
-let bad(): Ref(Point) = do
- let p = Point { x = 42 }
- return invoke(do() = Ref(p))
-end
-let main(): U32 = 0
-]],{'let'})
-counted('return',prelude..[[
-let invoke(body: (): Ref(Point)): Ref(Point) = body()
-let Holder = { value: Ref(Point) }
-let bad(incoming: Ref(Point)): Ref(Point) = do
- let p = Point { x = 42 }
- let ctx... = Holder { value = incoming }
- let body = do() = value
- value = Ref(p)
- return (invoke)(body)
-end
-let main(): U32 = 0
-]],{'let'})
-local function runCallable(source,wanted)
- local unit=C.typed{profile='let',source=source,name='higher-order-access.let'}
- for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do for _,optimize in ipairs{false,true} do
-  local result=C.stage(unit.functions,{profile='slet',entry='main',mode=mode,optimize=optimize})
-  executions=executions+1;check(tonumber(result.cells[1])==wanted,'higher-order contract '..mode..'/'..tostring(optimize))
- end end
- return unit
-end
-local safeHigher=runCallable(higherPrelude..[[
-let main(): U32 = do
- let p = Point { x = 40 }
- let saved = do() p.x += 1 return end
- relay(saved)
- identity(saved)()
- return p.x
-end
-]],42)
-check(#safeHigher.program.access[safeHigher.functions[1].id].invocations>0,'formal invocation obligation is published')
--- Query live places at the invocation point, not at wrapper entry or after all
--- its stores. The two intermediate snapshots must remain independent.
-runCallable(prelude..[[
-let Holder = { value: Ref(Point) }
+for _,body in ipairs{
+ 'let bad(n: U32): (U32): U32 = do let saved = n return do(x: U32) = saved+x end',
+ 'let bad(): (): U32 = do let p = Point { x = 42 } return do() = p.x end',
+ [[let invoke(body: (): Ref(Point)): Ref(Point) = body()
+ let bad(): Ref(Point) = do let p = Point { x = 42 } return invoke(do() = Ref(p)) end]],
+ [[let save(holder: Ref(Holder), body: (): Ref(Point)): Unit = do holder.value = body() return end
+ let bad(holder: Ref(Holder)): Unit = do let p = Point { x = 42 } save(holder,do() = Ref(p)) return end]],
+ [[let Actions = { safe: (): Unit, bad: (): Unit }
+ let bad(holder: Ref(Holder)): Unit = do let p = Point { x = 42 }
+ let actions = Actions { safe = do() return end, bad = do() holder.value = Ref(p) return end }
+ actions.bad() return end]],
+} do reject('borrow-escape',prelude..body..' let main(): U32 = 0',{'let'}) end
+local higherUnit=run(higher..[[
+let main(): U32 = do let p = Point { x = 40 } let saved = do() p.x += 1 return end
+ relay(saved) identity(saved)() return p.x end
+]],42,'let')
+check(#higherUnit.program.access.apply.invocations>0,'formal callback obligation remains explicit')
+-- Calls observe the environment at each invocation, not a code-global capture union.
+run(prelude..[[
 let sequence(holder: Ref(Holder), q: Ref(Point), body: (): U32): U32 = do
- let before = body()
- holder.value = q
- let after = body()
- return before + after
-end
-let main(): U32 = do
- let p = Point { x = 40 } let q = Point { x = 42 }
- let ctx... = Holder { value = Ref(p) }
- let saved = value
- let body = do() = value.x
- return (sequence)(Ref(ctx), Ref(q), body) + saved.x
-end
-]],122)
--- A live callback must read between these stores. Moving invocation effects
--- behind the second store would incorrectly hide the local result's escape.
-local orderedPrelude=prelude..[[
-let Holder = { value: Ref(Point) }
+ let before = body() holder.value = q let after = body() return before+after end
+let main(): U32 = do let p = Point { x = 40 } let q = Point { x = 42 }
+ let ctx... = Holder { value = Ref(p) } let saved = value let body = do() = value.x
+ return (sequence)(Ref(ctx),Ref(q),body)+saved.x end
+]],122,'let')
+local between=prelude..[[
 let between(holder: Ref(Holder), first: Ref(Point), last: Ref(Point), body: (): Ref(Point)): Ref(Point) = do
- holder.value = first
- let result = body()
- holder.value = last
- return result
-end
+ holder.value = first let result = body() holder.value = last return result end
 ]]
-counted('return',orderedPrelude..[[
-let bad(incoming: Ref(Point)): Ref(Point) = do
- let p = Point { x = 42 }
- let ctx... = Holder { value = incoming }
- let body = do() = value
- return (between)(Ref(ctx), Ref(p), incoming, body)
-end
-let main(): U32 = 0
+reject('borrow-escape',between..[[
+let bad(incoming: Ref(Point)): Ref(Point) = do let p = Point { x = 42 }
+ let ctx... = Holder { value = incoming } let body = do() = value
+ return (between)(Ref(ctx),Ref(p),incoming,body) end let main(): U32 = 0
 ]],{'let'})
-runCallable(orderedPrelude..[[
-let remember(incoming: Ref(Point)): Ref(Point) = do
- let p = Point { x = 0 }
- let ctx... = Holder { value = incoming }
- let body = do() = value
- return (between)(Ref(ctx), incoming, Ref(p), body)
-end
+run(between..[[
+let remember(incoming: Ref(Point)): Ref(Point) = do let p = Point { x = 0 }
+ let ctx... = Holder { value = incoming } let body = do() = value
+ return (between)(Ref(ctx),incoming,Ref(p),body) end
 let main(): U32 = do let p = Point { x = 42 } let r = remember(Ref(p)) return r.x end
-]],42)
--- A value holding is a saved snapshot, unlike the live opened place above.
-runCallable(prelude..[[
+]],42,'let')
+run(prelude..[[
 let invoke(body: (): Ref(Point)): Ref(Point) = body()
-let remember(incoming: Ref(Point)): Ref(Point) = do
- let p = Point { x = 0 }
- let selected = incoming
- let body = do() = selected
- selected = Ref(p)
- return invoke(body)
-end
+let remember(incoming: Ref(Point)): Ref(Point) = do let p = Point { x = 0 }
+ let selected = incoming let body = do() = selected selected = Ref(p) return invoke(body) end
 let main(): U32 = do let p = Point { x = 42 } let r = remember(Ref(p)) return r.x end
-]],42)
--- A callback result feeds an ordinary store; retaining its actual local owner
--- must not be erased by a formal invocation/result identity.
-counted('store',higherPrelude..[[
-let save(holder: Ref(Holder), body: (): Ref(Point)): Unit = do
- holder.value = body()
- return
-end
-let bad(holder: Ref(Holder)): Unit = do
- let p = Point { x = 42 }
- save(holder, do() = Ref(p))
- return
-end
-let main(): U32 = 0
-]],{'let'})
--- Concrete callable holdings retain their formation context and component. A
--- harmless sibling field cannot hide a retaining callback, or become its code.
-counted('store',prelude..[[
-let Holder = { value: Ref(Point) }
-let Actions = { safe: (): Unit, bad: (): Unit }
-let bad(holder: Ref(Holder)): Unit = do
- let p = Point { x = 42 }
- let actions = Actions {
-  safe = do() return end,
-  bad = do() holder.value = Ref(p) return end,
- }
- actions.bad()
- return
-end
-let main(): U32 = 0
-]],{'let'})
-local concrete=C.typed{profile='let',source=[[
-let Actions = { first: (): U32, second: (): U32 }
-let main(): U32 = do
- let actions = Actions { first = do() = 40, second = do() = 42 }
- return actions.second()
-end
-]]}
-for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do for _,optimize in ipairs{false,true} do
- local result=C.stage(concrete.functions,{profile='slet',entry='main',mode=mode,optimize=optimize})
- executions=executions+1;check(tonumber(result.cells[1])==42,'qualified callable component '..mode)
-end end
-local holdings=C.typed{profile='let',source=[[
-let Point = { x: U32 }
-let Holder = { r: Ref(Point) }
+]],42,'let')
+run(prelude..[[
 let Actions = { saved: (): U32, live: (): U32 }
-let main(): U32 = do
- let p = Point { x = 40 } let q = Point { x = 42 }
- let ctx... = Holder { r = Ref(p) }
- let snapshot = r
- let actions = Actions { saved = do() = snapshot.x, live = do() = r.x }
- r = Ref(q)
- return actions.saved() + actions.live()
+let main(): U32 = do let p = Point { x = 40 } let q = Point { x = 42 }
+ let ctx... = Holder { value = Ref(p) } let snapshot = value
+ let actions = Actions { saved = do() = snapshot.x, live = do() = value.x }
+ value = Ref(q) return actions.saved()+actions.live() end
+]],82,'let')
+run([[let Actions = { first: (): U32, second: (): U32 }
+let main(): U32 = do let actions = Actions { first = do() = 40, second = do() = 42 } return actions.second() end]],42,'let')
+for _,replacement in ipairs{'holder.value = Ref(local)','if choose then holder.value = Ref(local) end'} do
+ run(prelude..[[
+ let saved(incoming: Ref(Point), choose: Bool): Ref(Point) = do
+ let local = Point { x = 0 } let holder = Holder { value = incoming } let before = holder.value
+ ]]..replacement..[[ return before end
+ let main(): U32 = do let p = Point { x = 42 } let r = saved(Ref(p),true) return r.x end]],42)
 end
-]]}
-for _,mode in ipairs{'interpreted','threaded','eager','lazy'} do for _,optimize in ipairs{false,true} do
- local result=C.stage(holdings.functions,{profile='slet',entry='main',mode=mode,optimize=optimize})
- executions=executions+1;check(tonumber(result.cells[1])==82,'value snapshot versus live place holding '..mode)
-end end
--- Collection-element schema propagation is a separate existing admission gap.
-reject('unknown-name',[[
-let Point = { x: U32, mutate(): Unit = do x += 1 return end }
-let bad(view: Slice(Point)): Unit = view[0].mutate()
-let main(): U32 = 0
-]])
-run([[
-let Point = { x: U32 }
-let query(p: Point): U32 = p.x
-let main(): U32 = do let values = [Point { x = 42 }] let view = Slice(values) return view[0].query() end
-]],42)
-run([[
-let Point = { x: U32, mutate(): Unit = do x += 2 return end }
-let main(): U32 = do
- let values = [Point { x = 40 }] let view = Slice(values)
- let saved: Point = view[0]
- saved.mutate()
- return saved.x + values[0].x
-end
-]],82)
--- Saved field reads retain their original loan even after the live field changes.
-run(prelude..[[
-let Holder = { value: Ref(Point) }
-let saved(incoming: Ref(Point)): Ref(Point) = do
- let local = Point { x = 0 }
- let holder = Holder { value = incoming }
- let before = holder.value
- holder.value = Ref(local)
- return before
-end
-let main(): U32 = do let p = Point { x = 42 } let r = saved(Ref(p)) return r.x end
-]],42)
-run(prelude..[[
-let Holder = { value: Ref(Point) }
-let saved(incoming: Ref(Point), choose: Bool): Ref(Point) = do
- let local = Point { x = 0 } let holder = Holder { value = incoming }
- let before = holder.value
- if choose then holder.value = Ref(local) end
- return before
-end
-let main(): U32 = do let p = Point { x = 42 } let r = saved(Ref(p),true) return r.x end
-]],42)
-reject('readonly-write',prelude..[[
-let bad(view: Slice(Point)): Bool = Ptr(view[0]) == null(Point)
-let main(): U32 = 0
-]])
 local identity=run(prelude..[[
 let identity(p: Ref(Point)): Ref(Point) = p
-let main(): U32 = do let p = Point { x = 40 } let r = identity(Ref(p)) r.x += 2 return p.x end
-]],42)
-check(identity.program.access[identity.functions[1].id].results[1].components[1].loans.sources[1].kind=='ValueInput','identity exports actual input provenance')
+let main(): U32 = do let p = Point { x = 40 } let r = identity(Ref(p)) r.x += 2 return p.x end]],42)
+check(identity.program.access.identity.results[1].components[1].loans.sources[1].kind=='ValueInput','borrow result retains input relation')
 run(prelude..[[
-let Holder = { value: Ref(Point) }
 let put(holder: Ref(Holder), value: Ref(Point)): Unit = do holder.value = value return end
-let main(): U32 = do
- let p = Point { x = 40 } let q = Point { x = 42 }
- let holder = Holder { value = Ref(p) }
- put(Ref(holder),Ref(q))
- return holder.value.x
-end
-]],42)
-local module=run(prelude..[[
-let state = Point { x = 40 }
-let expose(): Ref(Point) = Ref(state)
-let main(): U32 = do let r = expose() r.x += 2 return state.x end
-]],42,{staticMode='interpreted'})
-check(module.program.access[module.functions[1].id].results[1].components[1].loans.sources[1].kind=='Global','module references retain module-root identity')
+let main(): U32 = do let p = Point { x = 40 } let q = Point { x = 42 }
+ let holder = Holder { value = Ref(p) } put(Ref(holder),Ref(q)) return holder.value.x end]],42)
+run([[let Point = { x: U32, mutate(): Unit = do x += 2 return end }
+let main(): U32 = do let values = [Point { x = 40 }] let view = Slice(values)
+ let saved: Point = view[0] saved.mutate() return saved.x+values[0].x end]],82)
+run(prelude..[[let query(p: Point): U32 = p.x
+let main(): U32 = do let values = [Point { x = 42 }] let view = Slice(values) return view[0].query() end]],42)
+run(prelude..[[let state = Point { x = 40 } let expose(): Ref(Point) = Ref(state)
+let main(): U32 = do let r = expose() r.x += 2 return state.x end]],42)
 run('let expose(): Slice(U8) = "*" let main(): U32 = U32(expose()[0])',42)
--- Return state from a PlaceParam method follows its stores, rather than keeping
--- the entry field as an alias. The caller instantiates its owner constraint.
-counted('return',[[
+reject('borrow-escape',[[
 let Point = { x: U32 }
-let Holder = {
- saved_ref: Ref(Point),
- replace(next: Ref(Point)): Ref(Point) = do saved_ref = next return saved_ref end,
-}
-let bad(incoming: Ref(Point)): Ref(Point) = do
- let holder = Holder { saved_ref = incoming } let local = Point { x = 42 }
- return holder.replace(Ref(local))
-end
-let main(): U32 = 0
-]])
--- Readonly module permissions must survive ordinary direct-call summaries, not
--- merely syntax-level bans on slice stores.
-local Point=S.Record{x=S.U32}
-local root=I.ModuleRoot('readonly_test',Point,false)
-local bytes=require('let.snapshot').fromCells(Point,{42}).image
-local storage=I.Storage(1)
-local place=I.Project(I.Local(storage),I.Field('x'))
-local mutation=I.Fn('mutate',I.Body,0,L{S.inPlace(Point)},L{S.Unit},L{I.PlaceParam(0,storage,Point)},L{I.Store(place,I.Const(S.U32,I.UInt(1))),I.Return(L{I.Const(S.Unit,I.UInt(0))})})
-local caller=I.Fn('main',I.Entry,0,L{},L{S.Unit},L{},L{I.Call(L{I.Value(1)},'mutate',L{I.BorrowArg(I.Global(root))}),I.Return(L{I.Const(S.Unit,I.UInt(0))})})
-local functions={mutation,caller};functions.moduleData={I.ModuleData(root,bytes)}
-local ok,err=pcall(Program.analyze,functions)
-check(not ok and D.is(err) and err.code=='readonly-write','callee mutation cannot acquire readonly module permissions')
--- Borrow/callable metadata closes a cyclic holding graph over finite qualified
--- definitions. This is typing/analysis convergence only, not runtime qualification
--- of loop-carried frame-backed environments or their storage reuse.
-local signature=S.Sig({}, {S.U32});local view=S.View(signature)
-local constant=I.Fn('constant',I.Body,0,L{},L{S.U32},L{},L{I.Return(L{I.Const(S.U32,I.UInt(40))})})
-local input,result=I.Value(1),I.Value(2)
-local forwarded=I.Fn('forwarded',I.Body,1,L{S.inValue(view)},L{S.U32},L{I.ValueParam(0,input,view)},L{
- I.Indirect(L{result},I.Ref(input,view),L{}),I.Return(L{I.Ref(result,S.U32)})})
-local initial,before,after=I.Value(1),I.Value(2),I.Value(3)
-local cell,environment=I.Storage(1),I.Storage(2)
-local cyclic=I.Fn('cyclic',I.Entry,0,L{},L{S.U32},L{},L{
- I.View(initial,view,'constant',L{},nil),I.Var(cell,view,I.Ref(initial,view)),
- I.Loop(L{I.Read(before,view,I.Local(cell)),
-  I.View(after,view,'forwarded',L{I.ValueArg(I.Ref(before,view))},environment),
-  I.Store(I.Local(cell),I.Ref(after,view)),I.Next})})
-local cyclicProgram=Program.analyze({constant,forwarded,cyclic})
-check(cyclicProgram.access.cyclic~=nil,'cyclic callable holding graph reaches a finite metadata fixed point')
--- Explicit unknown implementations do not manufacture returned borrow provenance.
-local b=IR.builder();local value=b:valueId()
-local foreign=I.Foreign('unknown',L{},L{S.Ref(S.U32)})
-local unknown=I.Fn('unknown_result',I.Entry,0,L{},L{S.Ref(S.U32)},L{},L{I.Call(L{value},'unknown',L{}),I.Return(L{b:ref(value,S.Ref(S.U32))})})
-ok,err=pcall(Program.analyze,{unknown},nil,{foreign})
-check(not ok and D.is(err) and err.code=='borrow-proof','opaque result does not acquire a lifetime proof')
-local opaqueView=S.View(S.Sig({}, {S.Ref(S.U32)}))
-local callee,borrowed=I.Value(1),I.Value(2)
-local indirect=I.Fn('opaque_indirect',I.Entry,0,L{},L{S.Ref(S.U32)},L{},L{
- I.View(callee,opaqueView,'unknown',L{},nil),I.Indirect(L{borrowed},I.Ref(callee,opaqueView),L{}),
- I.Return(L{I.Ref(borrowed,S.Ref(S.U32))})})
-ok,err=pcall(Program.analyze,{indirect},nil,{foreign})
-check(not ok and D.is(err) and err.code=='borrow-proof','concrete opaque view retains the missing-result proof, not a nonexistent signature field')
--- Loan origins cannot masquerade as footprint addresses. Symbolic targets are
--- explicit, and actual caller storage replaces them when summaries compose.
-for _,fn in ipairs(safeHigher.functions) do
- local access=safeHigher.program.access[fn.id]
- for _,footprint in ipairs{access.reads,access.writes,access.writable} do
-  for _,loc in ipairs(footprint.writes) do
-   check(S.Borrow.Target:isclassof(loc.root),'footprint root is a target, not an owner loan')
-   if loc.root.kind=='StorageRoot' then
-    check(loc.root.storage.kind~='ValueInput' and loc.root.storage.kind~='CallOutput','owner-only sources cannot be physical storage')
-   end
-  end
- end
-end
-local borrowingForeign=I.Foreign('uncontracted',L{S.inValue(S.Ref(S.U32))},L{S.Unit})
-local heldInput,ignored=I.Value(1),I.Value(2)
-local opaqueBorrow=I.Fn('opaque_borrow',I.Entry,0,L{S.inValue(S.Ref(S.U32))},L{S.Unit},L{I.ValueParam(0,heldInput,S.Ref(S.U32))},L{
- I.Call(L{ignored},'uncontracted',L{I.ValueArg(I.Ref(heldInput,S.Ref(S.U32)))}),
- I.Return(L{I.Const(S.Unit,I.UInt(0))})})
-ok,err=pcall(Program.analyze,{opaqueBorrow},nil,{borrowingForeign})
-check(not ok and D.is(err) and err.code=='borrow-proof','opaque supplied borrow requires a retention contract')
--- Unknown target provenance remains unknown after a dereference/projection.
-local nestedTy=S.Record{value=S.Ref(S.U32)}
-local nestedForeign=I.Foreign('unknown_holder',L{},L{S.Ref(nestedTy)})
-local pointer,field=I.Value(1),I.Value(2);local pointerCell=I.Storage(1)
-local unknownField=I.Fn('unknown_field',I.Entry,0,L{},L{S.Ref(S.U32)},L{},L{
- I.Call(L{pointer},'unknown_holder',L{}),I.Var(pointerCell,S.Ref(nestedTy),I.Ref(pointer,S.Ref(nestedTy))),
- I.Read(field,S.Ref(S.U32),I.Project(I.Deref(I.Local(pointerCell),nestedTy),I.Field('value'))),
- I.Return(L{I.Ref(field,S.Ref(S.U32))})})
-ok,err=pcall(Program.analyze,{unknownField},nil,{nestedForeign})
-check(not ok and D.is(err) and err.code=='borrow-proof','unknown dereferenced field cannot acquire an owner proof')
--- A recursive unchecked pointer walk must converge without inventing an
--- unbounded owner-path family. It retains an explicitly unknown footprint.
-local recursive=C.typed{profile='slet',source=[[
-let walk(p: Ptr(U32), n: U32): Unit = do
- if n > 0 then p[0] = n return walk(Ptr(p[0]), n - 1) end
- return
-end
-let main(): U32 = 0
-]]}
-check(recursive.program.access[recursive.functions[1].id].writes.unknown,'unchecked pointer walk retains unknown effects')
--- Original-site lifetime publication: versions describe contents, not root
--- identity. The saved SSA read survives a replacement of its source slot.
-do
- local B,T=S.Borrow,S.Lifetime
- local p,q,flag,saved,current=I.Value(1),I.Value(2),I.Value(3),I.Value(4),I.Value(5)
- local slot=I.Storage(1);local ref=S.Ref(S.U32)
- local initialize=I.Var(slot,ref,I.Ref(p,ref))
- local snapshot=I.Read(saved,ref,I.Local(slot))
- local trap=I.Trap(I.Const(S.Bool,I.Boolean(false)),'unreachable failure')
- local replacement=I.Store(I.Local(slot),I.Ref(q,ref))
- -- The source builder assigns Expr.id too; it is not an SSA result binding.
- replacement.value.id=saved.id
- local branch=I.If(I.Ref(flag,S.Bool),L{replacement},L{})
- local reread=I.Read(current,ref,I.Local(slot))
- local ret=I.Return(L{I.Ref(saved,ref),I.Ref(current,ref)})
- local fn=I.Fn('versions',I.Entry,0,L{S.inValue(ref),S.inValue(ref),S.inValue(S.Bool)},L{ref,ref},
-  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref),I.ValueParam(2,flag,S.Bool)},
-  L{initialize,snapshot,trap,branch,reread,ret})
- local program=Program.analyze{fn};local flow=program.flow
- local graph=flow.functions.versions;local facts=flow.contexts[flow.roots.versions]
- local template=program.ownership.versions.lifetime_template.contexts[flow.roots.versions]
- local function point(n) return B.Point('versions',n) end
- local loc=B.Location(B.StorageRoot(B.Local('versions',1)),B.Root)
- check(graph.statement_at[point(2)]==snapshot and graph.statement_at[point(5)]==replacement,'flow refers to original source nodes')
- check(graph.value_origins[saved.id].point==point(2),'Store operand memo ID cannot overwrite the original SSA definition')
- check(graph.nodes[point(3)].next[1]==point(4),'false trap preserves the normal successor')
- check(facts.sites[point(7)]~=nil,'post-trap uses are published after convergence')
- check(facts.contents_versions.before[point(2)][loc]==T.Written(point(1),loc),'snapshot reads the original contents version')
- check(facts.sites[point(5)].invalidates[loc]==T.Written(point(1),loc),'replacement kills the preceding contents')
- local joined=facts.contents_versions.before[point(6)][loc]
- check(joined==T.Join(point(6),loc),'branch joins have finite source-site version identities')
- local incoming=facts.contents_versions.incoming[joined]
- check(incoming[T.Written(point(1),loc)] and incoming[T.Written(point(5),loc)],'join retains both incoming versions')
- check(template.live_out[point(5)][T.Defined(point(2),saved.id,B.Root)],'saved read remains live across replacement')
- check(not template.live_in[point(2)][T.Defined(point(2),saved.id,B.Root)],'definition kills its own outgoing loan demand')
- check(template.live_out[point(5)][T.Contents(T.Written(point(5),loc))],'owning edge carries its own version demand')
- check(not template.live_out[point(5)][T.Contents(T.Written(point(1),loc))],'join does not assign the other edge witness to a writing edge')
- for _,site in pairs(facts.sites) do for id in pairs(site.uses) do
-  check(graph.operands[id.point][id.operand]~=nil,'every carrier use retains its original operand')
- end end
- for _,holding in ipairs(program.ownership.versions.summary.holdings) do
-  check(holding.destination==loc,'source retention includes the actual destination component')
- end
- local dynamicTrap=I.Fn('dynamic_trap',I.Entry,0,L{S.inValue(S.Bool),S.inValue(ref)},L{ref},
-  L{I.ValueParam(0,flag,S.Bool),I.ValueParam(1,p,ref)},
-  L{I.Trap(I.Ref(flag,S.Bool),'conditional'),I.Return(L{I.Ref(p,ref)})})
- local dynamicProgram=Program.analyze{dynamicTrap}
- check(#dynamicProgram.flow.functions.dynamic_trap.nodes[B.Point('dynamic_trap',1)].next==1,'unknown conditional trap has a success edge')
- local fatal=I.Fn('fatal',I.Entry,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},
-  L{I.Trap(I.Const(S.Bool,I.Boolean(true)),'always'),I.Return(L{I.Ref(p,ref)})})
- local dead=Program.analyze{fatal};local deadFacts=dead.flow.contexts[dead.flow.roots.fatal]
- check(deadFacts.sites[B.Point('fatal',2)]==nil,'always-true trap has no normal continuation')
- -- A write on a loop backedge remains a kill on every occurrence. The Join
- -- edges may be cyclic; the interned Version itself is never recursive.
- local loopStore=I.Store(I.Local(slot),I.Ref(q,ref))
- local loopRead=I.Read(saved,ref,I.Local(slot))
- local loop=I.Fn('versions_loop',I.Entry,0,L{S.inValue(ref),S.inValue(ref)},L{},
-  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref)},
-  L{initialize,I.Loop(L{loopRead,loopStore,I.Next})})
- local loopProgram=Program.analyze{loop};local loopFacts=loopProgram.flow.contexts[loopProgram.flow.roots.versions_loop]
- local loopLoc=B.Location(B.StorageRoot(B.Local('versions_loop',1)),B.Root)
- local loopPoint=B.Point('versions_loop',2);local writePoint=B.Point('versions_loop',4)
- local loopVersion=loopFacts.contents_versions.before[loopPoint][loopLoc]
- check(loopVersion==T.Join(loopPoint,loopLoc),'loop-carried contents use one finite join')
- check(loopFacts.sites[writePoint].invalidates[loopLoc]==loopVersion,'loop write invalidates the preceding iteration')
- check(loopFacts.contents_versions.incoming[loopVersion][T.Written(writePoint,loopLoc)],'backedge carries the write version')
- -- Scalar loads through a reference still demand protection of its root.
- local derefCell=I.Storage(2);local scalar=I.Value(6)
- local deref=I.Fn('scalar_access',I.Entry,0,L{S.inValue(ref)},L{S.U32},L{I.ValueParam(0,p,ref)},L{
-  I.Var(derefCell,ref,I.Ref(p,ref)),I.Read(scalar,S.U32,I.Deref(I.Local(derefCell),S.U32)),I.Return(L{I.Ref(scalar,S.U32)})})
- local scalarProgram=Program.analyze{deref};local scalarFacts=scalarProgram.flow.contexts[scalarProgram.flow.roots.scalar_access]
- local scalarSite=scalarFacts.sites[B.Point('scalar_access',2)]
- check(next(scalarSite.contents)~=nil and next(scalarSite.root_uses)~=nil,'scalar dereference keeps contents and containing-root demands')
- local scalarOnly=I.Fn('scalar_only',I.Entry,0,L{},L{S.U32},L{},L{I.Return(L{I.Const(S.U32,I.UInt(42))})})
- local scalarOnlyProgram=Program.analyze{scalarOnly}
- local scalarTemplates=scalarOnlyProgram.ownership.scalar_only.lifetime_template
- check(scalarTemplates.contexts[scalarTemplates.entry].empty,'scalar-only function has an empty lifetime template')
- check(fn.access==nil and fn.ownership==nil and fn.flow==nil,'flow and liveness are owned by the checked program')
- local direct=I.Fn('direct_address',I.Entry,0,L{},L{ref},L{},L{
-  I.Var(slot,S.U32,I.Const(S.U32,I.UInt(42))),I.Return(L{I.Addr(I.Local(slot),ref,B.WriteAccess)})})
- local directProgram=Program.analyze{direct};local directTemplate=directProgram.ownership.direct_address.lifetime_template
- local directFacts=directTemplate.contexts[directTemplate.entry]
- local directRoot=S.Ownership.Fresh(B.Local('direct_address',slot.id))
- check(not directFacts.empty and directFacts.root_live_out[B.Point('direct_address',1)][directRoot],'direct address result demands the allocation root without an intermediate SSA carrier')
- check(not directFacts.root_live_in[B.Point('direct_address',1)][directRoot],'allocation defines its root demand')
- -- Distinct results at one Call are distinct loans even when their types and
- -- component paths coincide. Root equality is not a source-binding identity.
- local pair=I.Fn('pair_loans',I.Body,0,L{S.inValue(ref),S.inValue(ref)},L{ref,ref},
-  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref)},L{I.Return(L{I.Ref(p,ref),I.Ref(q,ref)})})
- local pairCall=I.Fn('pair_caller',I.Entry,0,L{S.inValue(ref),S.inValue(ref)},L{ref,ref},
-  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref)},L{
-   I.Call(L{saved,current},'pair_loans',L{I.ValueArg(I.Ref(p,ref)),I.ValueArg(I.Ref(q,ref))}),
-   I.Return(L{I.Ref(saved,ref),I.Ref(current,ref)})})
- local pairsProgram=Program.analyze{pair,pairCall};local pairsTemplate=pairsProgram.ownership.pair_caller.lifetime_template
- local outgoing=pairsTemplate.contexts[pairsTemplate.entry].live_out[B.Point('pair_caller',1)]
- check(outgoing[T.Defined(B.Point('pair_caller',1),saved.id,B.Root)] and outgoing[T.Defined(B.Point('pair_caller',1),current.id,B.Root)],'same-site call results retain separate loan IDs')
- -- Effects of a bound call invalidate the caller's actual field, not a
- -- callee-formal placeholder. Publication contains IDs, not query objects.
- local formalSlot=I.Storage(9);local ignored=I.Value(9)
- local replace=I.Fn('replace_loan',I.Body,0,L{S.inPlace(ref),S.inValue(ref)},L{S.Unit},
-  L{I.PlaceParam(0,formalSlot,ref),I.ValueParam(1,q,ref)},L{
-   I.Store(I.Local(formalSlot),I.Ref(q,ref)),I.Return(L{I.Const(S.Unit,I.UInt(0))})})
- local mutation=I.Fn('mutation',I.Entry,0,L{S.inValue(ref),S.inValue(ref)},L{ref,ref},
-  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref)},L{initialize,snapshot,
-   I.Call(L{ignored},'replace_loan',L{I.BorrowArg(I.Local(slot)),I.ValueArg(I.Ref(q,ref))}),reread,ret})
- local mutationProgram=Program.analyze{replace,mutation}
- local mutationFacts=mutationProgram.flow.contexts[mutationProgram.flow.roots.mutation]
- local callPoint=B.Point('mutation',3)
- local mutationLoc=B.Location(B.StorageRoot(B.Local('mutation',slot.id)),B.Root)
- check(mutationFacts.sites[callPoint].invalidates[mutationLoc]==T.Written(B.Point('mutation',1),mutationLoc),'bound call kills actual caller contents')
- local calleeId=next(mutationFacts.call_edges[callPoint])
- check(calleeId and mutationFacts.call_edges[callPoint][calleeId]==true and mutationProgram.flow.contexts[calleeId].fn_id=='replace_loan','call edge identifies the converged child context')
- -- A runtime index can itself use a slice carrier. Preserve both that demand
- -- and the exact original place/index for later address capture, not a reread.
- local xs=I.Storage(3);local view=I.Value(7);local item=I.Value(8)
- local index=I.SliceLength(I.Ref(view,S.Slice(S.U32)),S.U32)
- local indexed=I.Index(I.Local(xs),index,S.U32)
- local array=S.Array(S.U32,2)
- local indexing=I.Fn('indexing',I.Entry,0,L{S.inValue(S.Slice(S.U32))},L{S.U32},
-  L{I.ValueParam(0,view,S.Slice(S.U32))},L{
-   I.Var(xs,array,I.Make(array,L{I.Const(S.U32,I.UInt(1)),I.Const(S.U32,I.UInt(2))})),
-   I.Read(item,S.U32,indexed),I.Return(L{I.Ref(item,S.U32)})})
- local indexingProgram=Program.analyze{indexing}
- local indexPoint=B.Point('indexing',2);local indexFacts=indexingProgram.flow.contexts[indexingProgram.flow.roots.indexing]
- local indexTemplate=indexingProgram.ownership.indexing.lifetime_template
- check(indexTemplate.contexts[indexTemplate.entry].live_in[indexPoint][T.Parameter('indexing',0,B.Root)],'dynamic index carrier demand remains live')
- local original=indexingProgram.flow.functions.indexing.operands[indexPoint]
- local found=false;for _,operand in ipairs(original) do if operand==indexed and operand.index==index then found=true end end
- check(found,'indexed locator retains the exact original place and index')
- -- Keep each read alternative tied to its own field; a union of guards cannot
- -- certify every alternative on every path.
- local holder=S.Record{value=ref};local left,right,choice=I.Storage(11),I.Storage(12),I.Storage(13)
- local holderRef=S.Ref(holder)
- local function addr(storage) return I.Addr(I.Local(storage),holderRef,B.WriteAccess) end
- local alternatives=I.Fn('read_alternatives',I.Entry,0,L{S.inValue(ref),S.inValue(ref),S.inValue(S.Bool)},L{ref},
-  L{I.ValueParam(0,p,ref),I.ValueParam(1,q,ref),I.ValueParam(2,flag,S.Bool)},L{
-   I.Var(left,holder,I.Make(holder,L{I.Ref(p,ref)})),I.Var(right,holder,I.Make(holder,L{I.Ref(q,ref)})),
-   I.Var(choice,holderRef,addr(left)),I.If(I.Ref(flag,S.Bool),L{I.Store(I.Local(choice),addr(right))},L{}),
-   I.Read(saved,ref,I.Project(I.Deref(I.Local(choice),holder),I.Field('value'))),I.Return(L{I.Ref(saved,ref)})})
- local alternativesProgram=Program.analyze{alternatives}
- local alternativesFacts=alternativesProgram.flow.contexts[alternativesProgram.flow.roots.read_alternatives]
- local leftLoc=B.Location(B.StorageRoot(B.Local('read_alternatives',left.id)),B.Field(B.Root,'value'))
- local rightLoc=B.Location(B.StorageRoot(B.Local('read_alternatives',right.id)),B.Field(B.Root,'value'))
- local located
- for _,use in pairs(alternativesFacts.sites[B.Point('read_alternatives',6)].contents) do
-  if use.locations[leftLoc] then located=use end
- end
- check(located and located.locations[rightLoc],'selected read keeps both possible protecting field locations')
- for _,alternative in pairs(located.alternatives[leftLoc]) do
-  check(alternative.source==B.ValueInput('read_alternatives',0,B.Root),'left field keeps only its own referent provenance')
- end
- for _,alternative in pairs(located.alternatives[rightLoc]) do
-  check(alternative.source==B.ValueInput('read_alternatives',1,B.Root),'right field keeps only its own referent provenance')
- end
- -- A false trap cannot hide the later escaping source self-cycle.
- local box=S.Record{child=S.U32,saved=ref};local boxSlot=I.Storage(20)
- local childPlace=I.Project(I.Local(boxSlot),I.Field('child'))
- local cyclic=I.Fn('cycle_after_trap',I.Entry,0,L{S.inValue(ref)},L{S.Ref(box)},L{I.ValueParam(0,p,ref)},L{
-  I.Var(boxSlot,box,I.Make(box,L{I.Const(S.U32,I.UInt(1)),I.Ref(p,ref)})),trap,
-  I.Store(I.Project(I.Local(boxSlot),I.Field('saved')),I.Addr(childPlace,ref,B.WriteAccess)),
-  I.Return(L{I.Addr(I.Local(boxSlot),S.Ref(box),B.WriteAccess)})})
- local cycleOK,cycleError=pcall(Program.analyze,{cyclic})
- check(not cycleOK and D.is(cycleError) and cycleError.code=='Ref-cycle','post-trap owning cycle is still rejected')
- local ptr=S.Ptr(S.U32)
- local raw=I.Fn('raw_transport',I.Entry,0,L{S.inValue(ptr)},L{ptr},L{I.ValueParam(0,p,ptr)},L{
-  I.Var(slot,ptr,I.Ref(p,ptr)),I.Read(saved,ptr,I.Local(slot)),I.Return(L{I.Ref(saved,ptr)})})
- local rawProgram=Program.analyze{raw};local rawTemplate=rawProgram.ownership.raw_transport.lifetime_template
- check(rawTemplate.contexts[rawTemplate.entry].empty,'raw pointer contents do not become checked lifetime loans')
-end
--- Open field results carry finite relative obligations. In a closed call those
--- obligations resolve against the caller's actual storage, not a synthetic owner.
+let Holder = { saved_ref: Ref(Point), replace(next: Ref(Point)): Ref(Point) = do saved_ref = next return saved_ref end }
+let bad(incoming: Ref(Point)): Ref(Point) = do let holder = Holder { saved_ref = incoming }
+ let local = Point { x = 42 } return holder.replace(Ref(local)) end let main(): U32 = 0]])
 local getter=run([[
-let Point={x:U32}
-let Box={child:Ref(Point)}
+let Point={x:U32} let Box={child:Ref(Point)}
 let child(p:Ref(Box)):Ref(Point)=p.child
-let main():U32=do
- let a=Point{x=17} let b=Point{x=25} let box=Box{child=Ref(a)}
- let saved=child(Ref(box)) box.child=Ref(b)
- let current=child(Ref(box))
- return saved.x+current.x
-end
+let main():U32=do let a=Point{x=17} let b=Point{x=25} let box=Box{child=Ref(a)}
+ let saved=child(Ref(box)) box.child=Ref(b) let current=child(Ref(box)) return saved.x+current.x end
 ]],42)
-do
- local B,T=S.Borrow,S.Lifetime
- local entry=getter.program.ownership.child.summary
- check(entry.results[1].roots[1].source.kind=='ContentsInput','open getter records an external contents obligation')
- check(#entry.counted==0,'external contents do not invent a fresh allocation')
- for id,facts in pairs(getter.program.flow.contexts) do
-  if facts.fn_id=='child' and id~=getter.program.flow.roots.child then
-   for _,value in ipairs(facts.result_provenance) do for _,targets in pairs(value.refs) do for _,target in pairs(targets) do
-    check(target.source.kind=='Local' and target.source.frame=='main','bound getter returns actual caller provenance')
-   end end end
-  end
- end
- local partial=C.typed{profile='slet',source=[[
-let Point={x:U32}
-let Box={a:Ref(Point),b:Ref(Point)}
-let untouched(p:Ref(Box),q:Ref(Point)):Ref(Point)=do p.a=q return p.b end
-let main():U32=0
- ]]}
- local untouched=partial.program.ownership.untouched.summary
- check(#untouched.results==1 and #untouched.results[1].roots>0,'writing another field cannot erase untouched external contents')
- local recursive=C.typed{profile='slet',source=[[
-let Node={next:Ref(Node),value:U32}
-let walk(p:Ref(Node),n:U32):Ref(Node)=if n==0 then p else walk(p.next,n-1)
-let main():U32=0
- ]]}
- check(recursive.program.access.walk~=nil,'recursive external field reads converge without recursive input-path expansion')
- local nested=C.typed{profile='slet',source=[[
-let Point={x:U32} let Box={child:Ref(Point)} let Outer={inner:Ref(Box)}
-let nested(p:Ref(Outer)):Ref(Point)=p.inner.child
-let main():U32=0
- ]]}
- local nestedFacts=nested.program.flow.contexts[nested.program.flow.roots.nested]
- local origins={}
- for _,site in pairs(nestedFacts.sites) do for _,read in pairs(site.contents) do for _,target in pairs(read.provenance) do
-  if target.source.kind=='ContentsInput' then origins[target.source]=true end
- end end end
- local n=0;for _ in pairs(origins) do n=n+1 end
- check(n>=2,'nested reads at one source point retain distinct original operand identities')
- local fn=I.Fn('array_dependencies',I.Entry,0,L{S.inValue(S.Ref(S.U32)),S.inValue(S.Ref(S.U32)),S.inValue(S.U32)},
-  L{S.Ref(S.U32),S.Ref(S.U32)},L{
-   I.ValueParam(0,I.Value(1),S.Ref(S.U32)),I.ValueParam(1,I.Value(2),S.Ref(S.U32)),I.ValueParam(2,I.Value(3),S.U32)},L{
-   I.Var(I.Storage(1),S.Array(S.Ref(S.U32),2),I.Make(S.Array(S.Ref(S.U32),2),L{I.Ref(I.Value(1),S.Ref(S.U32)),I.Ref(I.Value(2),S.Ref(S.U32))})),
-   I.Read(I.Value(4),S.Ref(S.U32),I.Index(I.Local(I.Storage(1)),I.Const(S.U32,I.UInt(0)),S.Ref(S.U32))),
-   I.Read(I.Value(5),S.Ref(S.U32),I.Index(I.Local(I.Storage(1)),I.Const(S.U32,I.UInt(1)),S.Ref(S.U32))),
-   I.Store(I.Index(I.Local(I.Storage(1)),I.Ref(I.Value(3),S.U32),S.Ref(S.U32)),I.Ref(I.Value(2),S.Ref(S.U32))),
-   I.Read(I.Value(6),S.Ref(S.U32),I.Index(I.Local(I.Storage(1)),I.Ref(I.Value(3),S.U32),S.Ref(S.U32))),
-   I.Read(I.Value(7),S.Array(S.Ref(S.U32),2),I.Local(I.Storage(1))),
-   I.Store(I.Index(I.Local(I.Storage(1)),I.Const(S.U32,I.UInt(0)),S.Ref(S.U32)),I.Ref(I.Value(2),S.Ref(S.U32))),
-   I.Return(L{I.Ref(I.Value(4),S.Ref(S.U32)),I.Ref(I.Value(5),S.Ref(S.U32))})})
- local program=Program.analyze{fn};local facts=program.flow.contexts[program.flow.roots.array_dependencies]
- local template=program.ownership.array_dependencies.lifetime_template.contexts[program.flow.roots.array_dependencies]
- local function point(n) return B.Point(fn.id,n) end
- local root=B.StorageRoot(B.Local(fn.id,1))
- local first,second,any=B.Location(root,B.Index(B.Root,0)),B.Location(root,B.Index(B.Root,1)),B.Location(root,B.Element(B.Root))
- local function onlySource(value,wanted)
-  local n=0
-  for _,target in pairs(facts.values[value].refs[B.Root]) do n=n+1;check(target.source==wanted,'exact array read does not merge the other field') end
-  check(n==1,'exact array read has one actual input provenance')
- end
- onlySource(4,B.ValueInput(fn.id,0,B.Root));onlySource(5,B.ValueInput(fn.id,1,B.Root))
- local destinations={}
- for _,holding in ipairs(program.ownership[fn.id].summary.holdings) do
-  if holding.site.point==point(1) then destinations[holding.destination]=true end
- end
- check(destinations[first] and destinations[second],'array construction retains two independent destination components')
- local shared=I.Fn('shared_array',I.Entry,0,L{S.inValue(S.Ref(S.U32))},L{S.Ref(S.Array(S.Ref(S.U32),2))},
-  L{I.ValueParam(0,I.Value(1),S.Ref(S.U32))},L{
-   I.Var(I.Storage(1),S.Array(S.Ref(S.U32),2),I.Make(S.Array(S.Ref(S.U32),2),L{I.Ref(I.Value(1),S.Ref(S.U32)),I.Ref(I.Value(1),S.Ref(S.U32))})),
-   I.Return(L{I.Addr(I.Local(I.Storage(1)),S.Ref(S.Array(S.Ref(S.U32),2)),B.WriteAccess)})})
- local sharedProgram=Program.analyze{shared};local holdings=sharedProgram.ownership.shared_array.summary.holdings
- check(#holdings==2 and holdings[1].target==holdings[2].target and holdings[1].destination~=holdings[2].destination,'equal roots do not merge independently replaceable array holdings')
- check(facts.sites[point(4)].invalidates[first] and facts.sites[point(4)].invalidates[second],'dynamic index may invalidate either concrete cell')
- check(facts.sites[point(7)].invalidates[first] and not facts.sites[point(7)].invalidates[second],'constant index replacement leaves the other cell version intact')
- local whole=template.relations[T.Defined(point(6),7,B.Index(B.Root,0))].dependencies
- local sources={}
- for _,target in pairs(facts.sites[point(6)].contents[next(whole).use].provenance) do sources[target.source]=true end
- check(sources[B.ValueInput(fn.id,0,B.Root)] and sources[B.ValueInput(fn.id,1,B.Root)],'aggregate snapshot components include prior wildcard writes')
- local write=template.relations[T.Contents(T.Written(point(4),first))].dependencies
- check(write[T.Carrier(T.Parameter(fn.id,1,B.Root))],'dynamic store carries the incoming component dependency')
- check(write[T.Carrier(T.Contents(T.Written(point(1),first)))],'dynamic store also preserves possibly untouched contents')
- local read=template.relations[T.Defined(point(2),4,B.Root)].dependencies
- local edge=next(read)
- check(edge and edge.kind=='Read' and facts.sites[point(2)].contents[edge.use].locations[first],'snapshot dependency identifies its actual read/locator')
- local dynamicRead=template.relations[T.Defined(point(5),6,B.Root)].dependencies
- check(facts.sites[point(5)].contents[next(dynamicRead).use].locations[any],'unknown index keeps a conservative locator, not a fabricated exact field')
- local initialized=template.relations[T.Contents(T.Written(point(1),any))].dependencies
- check(initialized[T.Carrier(T.Parameter(fn.id,0,B.Root))] and initialized[T.Carrier(T.Parameter(fn.id,1,B.Root))],'whole-array initialization supplies every member of the wildcard contents class')
- -- Tagged dependencies carry the enclosing tag of the original produced value.
- local sum=S.Sum{empty=S.Unit,one=S.Ref(S.U32)}
- local tagged=I.Fn('tagged_dependencies',I.Entry,0,L{S.inValue(S.Ref(S.U32))},L{sum},L{I.ValueParam(0,I.Value(1),S.Ref(S.U32))},L{
-  I.ConstructVariant(I.Value(2),sum,'one',I.Ref(I.Value(1),S.Ref(S.U32))),I.Return(L{I.Ref(I.Value(2),sum)})})
- local taggedProgram=Program.analyze{tagged};local tf=taggedProgram.flow.contexts[taggedProgram.flow.roots.tagged_dependencies]
- local payload=B.Case(B.Root,'one')
- check(tf.sites[B.Point(tagged.id,1)].definitions[2][payload][T.Carrier(T.Parameter(tagged.id,0,B.Root))],'constructor maps the loan into its actual payload component')
- local guarded=false
- for _,use in pairs(tf.sites[B.Point(tagged.id,2)].uses) do
-  if use.loan.path==payload then guarded=#use.active_cases==1 and use.active_cases[1].tag=='one' end
- end
- check(guarded,'payload use records the original enclosing tag condition')
- local emptyView=S.View(S.Sig({}, {S.U32}))
- local code=I.Fn('empty_environment_body',I.Body,0,L{},L{S.U32},L{},L{I.Return(L{I.Const(S.U32,I.UInt(42))})})
- local closed=I.Fn('empty_environment',I.Entry,0,L{},L{emptyView},L{},L{
-  I.View(I.Value(1),emptyView,code.id,L{},nil),I.Return(L{I.Ref(I.Value(1),emptyView)})})
- local closedProgram=Program.analyze{code,closed};local closedTemplate=closedProgram.ownership[closed.id].lifetime_template
- local closedRelation=closedTemplate.contexts[closedTemplate.entry].relations[T.Defined(B.Point(closed.id,1),1,B.Root)]
- check(closedRelation and not next(closedRelation.dependencies),'empty callable environment has an explicit empty relation, not an unresolved definition')
- -- Calls preserve the original argument/result component relations.
- local ref=S.Ref(S.U32);local p,r,slot=I.Value(1),I.Value(2),I.Storage(1)
- local identity=I.Fn('gather_identity',I.Body,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{I.Return(L{I.Ref(p,ref)})})
- local gather=I.Fn('gather',I.Entry,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Call(L{r},identity.id,L{I.ValueArg(I.Ref(p,ref))}),I.Return(L{I.Ref(r,ref)})})
- local gathered=Program.analyze{identity,gather};local gf=gathered.flow.contexts[gathered.flow.roots.gather]
- local site=gf.sites[B.Point(gather.id,2)];local child=next(site.calls)
- local dep=next(site.call_arguments[child][1][1].dependencies[B.Root])
- check(dep==T.Carrier(T.Parameter(gather.id,0,B.Root)),'call input dependency names the actual incoming loan')
- local result=next(site.definitions[r.id][B.Root])
- check(result==T.Result(B.Point(gather.id,2),0,B.Root),'call result carries a bound-return dependency rather than guessing its owner')
+check(getter.program.access.child.results[1].components[1].loans.sources[1].kind=='ContentsInput','open field results preserve an input contents relation')
+-- Opaque provenance and readonly permission failures stay closed at typed IR.
+local function rejectsIR(code,functions,modules,foreigns)
+ local ok,err=pcall(Program.analyze,functions,modules,foreigns);check(not ok and D.is(err) and err.code==code,tostring(err))
 end
--- Cross-call loan binding uses the completed access facts; it must not replay
--- source analysis or merge the guards of separate invocations of one query.
-do
- local Own=require('let.ownership');local Access=require('let.access')
- local B,T=S.Borrow,S.Lifetime
- local unit=C.typed{profile='slet',source=[[
-let Point={x:U32} let Box={child:Ref(Point)}
-let leaf(n:U32):Ref(Point)=do let p=Point{x=n} return Ref(p) end
-let parent(n:U32):Ref(Box)=do let b=Box{child=leaf(n)} return Ref(b) end
-let child(p:Ref(Box)):Ref(Point)=p.child
-let relay(p:Ref(Box)):Ref(Point)=child(p)
-let replace(p:Ref(Box),q:Ref(Point)):Ref(Point)=do p.child=q return child(p) end
-let unused():Ref(Point)=leaf(999)
-let main():U32=do
- let p=parent(1) let saved=relay(p) let q=leaf(2) let current=replace(p,q)
- return saved.x+current.x
+local Point=S.Record{x=S.U32};local ref=S.Ref(S.U32);local p,r=I.Value(1),I.Value(2);local slot=I.Storage(1)
+rejectsIR('ir-initialized',{I.Fn('uninitialized',I.Entry,0,L{},L{ref},L{},L{
+ I.Var(slot,ref,nil),I.Read(r,ref,I.Local(slot)),I.Return(L{I.Ref(r,ref)})})})
+local flag=I.Value(3)
+rejectsIR('ir-initialized',{I.Fn('maybe_initialized',I.Entry,0,L{S.inValue(ref),S.inValue(S.Bool)},L{ref},L{I.ValueParam(0,p,ref),I.ValueParam(1,flag,S.Bool)},L{
+ I.Var(slot,ref,nil),I.If(I.Ref(flag,S.Bool),L{I.Store(I.Local(slot),I.Ref(p,ref))},L{}),
+ I.Read(r,ref,I.Local(slot)),I.Return(L{I.Ref(r,ref)})})})
+local foreign=I.Foreign('unknown',L{},L{ref})
+rejectsIR('borrow-proof',{I.Fn('unknown_result',I.Entry,0,L{},L{ref},L{},L{
+ I.Call(L{r},'unknown',L{}),I.Return(L{I.Ref(r,ref)})})},nil,{foreign})
+local view=S.View(S.Sig({}, {ref}))
+rejectsIR('borrow-proof',{I.Fn('opaque_view',I.Entry,0,L{},L{ref},L{},L{
+ I.View(p,view,'unknown',L{},nil),I.Indirect(L{r},I.Ref(p,view),L{}),I.Return(L{I.Ref(r,ref)})})},nil,{foreign})
+local borrowing=I.Foreign('uncontracted',L{S.inValue(ref)},L{S.Unit})
+rejectsIR('borrow-proof',{I.Fn('opaque_borrow',I.Entry,0,L{S.inValue(ref)},L{S.Unit},L{I.ValueParam(0,p,ref)},L{
+ I.Call(L{r},'uncontracted',L{I.ValueArg(I.Ref(p,ref))}),I.Return(L{I.Const(S.Unit,I.UInt(0))})})},nil,{borrowing})
+local root=I.ModuleRoot('readonly',Point,false)
+local mutate=I.Fn('mutate',I.Body,0,L{S.inPlace(Point)},L{S.Unit},L{I.PlaceParam(0,slot,Point)},L{
+ I.Store(I.Project(I.Local(slot),I.Field('x')),I.Const(S.U32,I.UInt(1))),I.Return(L{I.Const(S.Unit,I.UInt(0))})})
+local caller=I.Fn('caller',I.Entry,0,L{},L{S.Unit},L{},L{I.Call(L{r},'mutate',L{I.BorrowArg(I.Global(root))}),I.Return(L{I.Const(S.Unit,I.UInt(0))})})
+rejectsIR('readonly-write',{mutate,caller},{I.ModuleData(root,string.char(42,0,0,0))})
+-- A conditional trap does not erase its success edge; an unconditional one does.
+for _,fatal in ipairs{false,true} do
+ local fn=I.Fn('after_trap',I.Entry,0,L{},L{ref},L{},L{
+  I.Var(slot,S.U32,I.Const(S.U32,I.UInt(42))),I.Trap(I.Const(S.Bool,I.Boolean(fatal)),'failure'),
+  I.Return(L{I.Addr(I.Local(slot),ref,S.Borrow.WriteAccess)})})
+ if fatal then check(Program.analyze{fn}~=nil,'unreachable escape after fatal trap') else rejectsIR('borrow-escape',{fn}) end
 end
- ]]}
- local analyze=Access.analyze;Access.analyze=function() error('loan binding replayed source analysis') end
- local contracts=Own.bindLoans(unit.program,{'main'})
- Access.analyze=analyze
- check(contracts.phase=='loan-contracts' and contracts.source==unit.program,'loan binding owns a separate graph, not a mutated checked program')
- local main=contracts.entries.main;local parentCall,relayCall,replaceCall
- for _,call in ipairs(contracts.calls) do
-  check(call.callee.facts.fn_id~='unused','unrequested private definitions remain templates')
-  if call.caller==main then
-   if call.callee.facts.fn_id=='parent' then parentCall=call
-   elseif call.callee.facts.fn_id=='relay' then relayCall=call
-   elseif call.callee.facts.fn_id=='replace' then replaceCall=call end
-  end
- end
- check(parentCall and relayCall and replaceCall,'binding follows the original checked call edges')
- local published=main.facts.sites[parentCall.point].published_contents
- check(next(published)~=nil,'returned aggregate construction publishes actual contents definitions')
- local location=next(published)
- check(main.facts.contents_versions.after[parentCall.point][location]==T.Written(parentCall.point,location),'new returned contents are not invented Entry versions')
- local relay=relayCall.callee
- check(relay.facts.contents_versions.locations[location],'a forwarding function imports its callee-only field location')
- local entry=relay.loans[T.Contents(T.Entry(location))]
- check(entry and entry.bindings[relayCall]==main.loans[T.Contents(main.facts.contents_versions.before[relayCall.point][location])],'relative entry contents bind to this invocation\'s caller version')
- local result=main.dependencies[T.Result(relayCall.point,0,B.Root)]
- check(result and #result.edges>0 and result.edges[1].call==relayCall,'result-to-return edge retains its invocation substitution')
- local callWrite=main.dependencies[T.CallContents(replaceCall.point,location)]
- check(callWrite and #callWrite.edges>0 and callWrite.edges[1].call==replaceCall,'call writes bind to actual callee exit contents')
- local requests=Own.capabilities(contracts,{result})
- check(next(requests.nodes) and not next(requests.unresolved),'capability requirements cross known calls without an opaque fallback')
- local supplied=Own.capabilities(contracts,{result},{[result]={kind='result-resource'}})
- check(supplied.supplied[result] and not next(supplied.inputs) and not next(supplied.addresses),'a concrete supplied resource stops producer-capability propagation')
- check(not next(Own.capabilities(contracts,{}).nodes),'demand solving does not leak requests into shared templates')
- local arrays=C.typed{profile='slet',source=[[
-let Point={x:U32} let Collection={points:Array(Ref(Point),2)}
-let leaf(n:U32):Ref(Point)=do let p=Point{x=n} return Ref(p) end
-let collection():Ref(Collection)=do let c=Collection{points=[leaf(1),leaf(2)]} return Ref(c) end
-let get(c:Ref(Collection),i:U32):Ref(Point)=c.points[i]
-let main(i:U32):U32=do let c=collection() let p=get(c,i) return p.x end
- ]]}
- local arrayContracts=Own.bindLoans(arrays.program,{'main'});local wildcard=false
- for dep,n in pairs(arrayContracts.entries.main.dependencies) do
-  if dep.kind=='CallContents' and dep.location.path.kind=='Element' then
-   for _,edge in ipairs(n.edges) do
-    if edge.call and edge.call.callee.facts.fn_id=='collection' then
-     wildcard=true
-     check(edge.target.kind=='Contents' and edge.target.symbol.version.kind=='Written','caller wildcard projection resolves to callee construction, not an invented entry')
-    end
-   end
-  end
- end
- check(wildcard,'call-relative contents domains include downstream dynamic array projections')
- local ref=S.Ref(S.U32);local p,a,b=I.Value(1),I.Value(2),I.Value(3)
- local identity=I.Fn('identity_query',I.Body,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{I.Return(L{I.Ref(p,ref)})})
- local twice=I.Fn('twice',I.Entry,0,L{S.inValue(ref)},L{ref,ref},L{I.ValueParam(0,p,ref)},L{
-  I.Call(L{a},identity.id,L{I.ValueArg(I.Ref(p,ref))}),I.Call(L{b},identity.id,L{I.ValueArg(I.Ref(p,ref))}),I.Return(L{I.Ref(a,ref),I.Ref(b,ref)})})
- local shared=Own.bindLoans(Program.analyze{identity,twice},{'twice'})
- check(#shared.calls==2 and shared.calls[1].callee==shared.calls[2].callee,'identical access queries really share a callee context')
- local formal=shared.calls[1].callee.loans[T.Parameter(identity.id,0,B.Root)]
- check(formal.bindings[shared.calls[1]][1]~=formal.bindings[shared.calls[2]][1] and #formal.edges==0,'same-query calls keep distinct argument binding environments')
- local identityResult=shared.entries.twice.dependencies[T.Result(B.Point(twice.id,1),0,B.Root)]
- local identityDemand=Own.capabilities(shared,{identityResult})
- check(not identityDemand.inputs[formal] and not next(identityDemand.results),'known input-origin results recover caller capabilities without widening the identity ABI')
- check(identityDemand.inputs[shared.entries.twice.loans[T.Parameter(twice.id,0,B.Root)]],'the recovered capability belongs to the original caller input')
- local scalarSlot=I.Storage(1)
- local address=I.Fn('place_identity',I.Body,0,L{S.inPlace(S.U32)},L{ref},L{I.PlaceParam(0,scalarSlot,S.U32)},L{
-  I.Return(L{I.Addr(I.Local(scalarSlot),ref,B.WriteAccess)})})
- local caller=I.Fn('place_caller',I.Entry,0,L{},L{S.U32},L{},L{
-  I.Var(scalarSlot,S.U32,I.Const(S.U32,I.UInt(42))),I.Call(L{a},address.id,L{I.BorrowArg(I.Local(scalarSlot))}),I.Return(L{I.Const(S.U32,I.UInt(0))})})
- local places=Own.bindLoans(Program.analyze{address,caller},{caller.id})
- local placeResult=places.entries[caller.id].dependencies[T.Result(B.Point(caller.id,2),0,B.Root)]
- local placeDemand=Own.capabilities(places,{placeResult})
- check(not next(placeDemand.results) and not next(placeDemand.inputs) and next(placeDemand.addresses),'a place-root borrow is recovered from the caller, not mistaken for a callee allocation')
- local recursive=C.typed{profile='slet',source=[[
-let Point={x:U32}
-let forward(p:Ref(Point),n:U32):Ref(Point)=if n==0 then p else forward(p,n-1)
-let main():U32=do let p=Point{x=42} let q=forward(Ref(p),3) return q.x end
- ]]}
- local cycle=Own.bindLoans(recursive.program,{'main'});local roots={}
- for _,c in pairs(cycle.contexts) do for dep,n in pairs(c.dependencies) do if dep.kind=='Result' then roots[#roots+1]=n end end end
- local demanded=Own.capabilities(cycle,roots)
- local seen=0;for _ in pairs(demanded.nodes) do seen=seen+1 end
- check(seen>0 and seen<=#cycle.nodes,'recursive capability worklist converges on the finite bound graph')
- check(not next(demanded.results),'recursive identity returns do not invent outgoing resource requirements')
- local closure=C.typed{profile='slet',source=[[
-let Point={x:U32}
-let make(n:U32):():Ref(Point)=do let p=Point{x=n} return do():Ref(Point)=Ref(p) end
-let main():U32=do let f=make(42) let p=f() return p.x end
- ]]}
- local closures=Own.bindLoans(closure.program,{'main'});local environmentRead=false
- for _,call in ipairs(closures.calls) do
-  local statement=call.caller.graph.statement_at[call.point]
-  if statement.kind=='Indirect' then
-   for _,actual in ipairs(call.arguments) do for _,parts in pairs(actual) do for _,argument in pairs(parts) do
-    for _,e in ipairs(argument.edges) do
-     if e.target.kind=='Read' then
-      environmentRead=true
-      check(e.target.context==call.caller and e.target.locator==statement.callable,'captured argument reads the current callable environment, not expired producer SSA')
-     end
-    end
-   end end end
-  end
- end
- check(environmentRead,'captured reference has an explicit invocation-site environment read')
- -- Repeated formation at one call site shares code identity, but different
- -- queries must not feed a code-global union back into their actual captures.
- local view=S.View(S.Sig({}, {ref}));local v=I.Value(4);local env=I.Storage(1)
- local body=I.Fn('capture_body',I.Body,1,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{I.Return(L{I.Ref(p,ref)})})
- local factory=I.Fn('capture_factory',I.Body,0,L{S.inValue(ref)},L{view},L{I.ValueParam(0,p,ref)},L{
-  I.View(v,view,body.id,L{I.ValueArg(I.Ref(p,ref))},env),I.Return(L{I.Ref(v,view)})})
- local loop=I.Fn('capture_loop',I.Entry,0,L{S.inValue(ref),S.inValue(ref),S.inValue(S.Bool)},L{S.U32},L{
-  I.ValueParam(0,p,ref),I.ValueParam(1,a,ref),I.ValueParam(2,b,S.Bool)},L{
-  I.Var(I.Storage(1),ref,I.Ref(p,ref)),I.Loop(L{
-   I.Read(I.Value(5),ref,I.Local(I.Storage(1))),I.Call(L{I.Value(6)},factory.id,L{I.ValueArg(I.Ref(I.Value(5),ref))}),
-   I.Store(I.Local(I.Storage(1)),I.Ref(a,ref)),I.If(I.Ref(b,S.Bool),L{I.Return(L{I.Const(S.U32,I.UInt(0))})},L{I.Next})})})
- local environments=Program.analyze{body,factory,loop};local identities={};local queries=0
- for _,facts in pairs(environments.flow.contexts) do if facts.fn_id==factory.id and #facts.context>0 then
-  queries=queries+1
-  local code,binding=next(facts.values[v.id].calls[B.Root]);identities[code]=true
-  check(binding.captures and binding.slots==nil,'materialized code stores capture shape, not a duplicate global captured-value state')
-  local root=B.StorageRoot(Own.localSource(factory.id,env.id,facts.context,facts.folded))
-  local contents=facts.before[B.Point(factory.id,2)][root].refs[B.Field(B.Root,'_0001')]
-  local expected,actual={},{}
-  for _,target in pairs(facts.formal_bindings[1].value.refs[B.Root]) do expected[target.source]=true end
-  for _,target in pairs(contents) do actual[target.source]=true end
-  for source in pairs(actual) do check(expected[source],'environment contains only this formation query\'s captured sources') end
-  for source in pairs(expected) do check(actual[source],'environment preserves every actual capture') end
- end end
- local codes=0;for _ in pairs(identities) do codes=codes+1 end
- check(queries>codes,'fixture exercises different queries sharing one code identity')
- local conditions=Own.activeCases(B.Case(B.Case(B.Root,'outer'),'inner'))
- check(#conditions==2 and conditions[1].tag=='outer' and conditions[2].tag=='inner','nested payload guards test the outer tag before inspecting the inner union')
- local unknown=C.typed{profile='slet',source=[[
-let Point={x:U32}
-let invoke(f:(Ref(Point)):Ref(Point),p:Ref(Point)):Ref(Point)=f(p)
-let forward(f:(Ref(Point)):Ref(Point),p:Ref(Point)):Ref(Point)=invoke(f,p)
-let farther(f:(Ref(Point)):Ref(Point),p:Ref(Point)):Ref(Point)=forward(f,p)
-let main():U32=0
- ]]}
- local open=Own.bindLoans(unknown.program,{'invoke'});local request
- for dep,n in pairs(open.entries.invoke.dependencies) do if dep.kind=='Result' then request=n end end
- check(request and request.frontier=='unbound-call','unknown callable results retain a contract obligation')
- local unresolved=Own.capabilities(open,{request})
- check(unresolved.unresolved[request]=='unbound-call' and not next(unresolved.addresses),'an absent callable contract is not an owner-capability proof')
- local forwarded=Own.bindLoans(unknown.program,{'farther'});local forwardedRequest
- for dep,n in pairs(forwarded.entries.farther.dependencies) do if dep.kind=='Result' then forwardedRequest=n end end
- local forwardedDemand=Own.capabilities(forwarded,{forwardedRequest});local missing=false
- for _,reason in pairs(forwardedDemand.unresolved) do if reason=='unbound-call' then missing=true end end
- check(missing,'forwarding through multiple result boundaries cannot conceal an unresolved callable contract')
- local scalar=I.Fn('scalar_contract',I.Entry,0,L{},L{S.U32},L{},L{
-  I.Var(I.Storage(1),S.U32,I.Const(S.U32,I.UInt(42))),I.Read(I.Value(1),S.U32,I.Local(I.Storage(1))),I.Return(L{I.Ref(I.Value(1),S.U32)})})
- local scalarContracts=Own.bindLoans(Program.analyze{scalar},{scalar.id})
- check(#scalarContracts.nodes==0,'scalar-only binding has no synthetic lifetime nodes')
- check(not next(Own.locators(scalarContracts).reads),'scalar-only binding has no invented field locators')
-end
--- Locator equality is temporal and operand-specific, never root-family equality.
-do
- local Own=require('let.ownership');local B,T=S.Borrow,S.Lifetime
- local ref=S.Ref(S.U32);local p,q,flag,i,j,saved,index=I.Value(1),I.Value(2),I.Value(3),I.Value(4),I.Value(5),I.Value(6),I.Value(7)
- local slot=I.Storage(1);local array=I.Storage(2);local counter=I.Storage(3)
- local function analyze(name,body,helpers)
-  local fn=I.Fn(name,I.Entry,0,L{S.inValue(ref),S.inValue(ref),S.inValue(S.Bool),S.inValue(S.U32),S.inValue(S.U32)},L{ref},L{
-   I.ValueParam(0,p,ref),I.ValueParam(1,q,ref),I.ValueParam(2,flag,S.Bool),I.ValueParam(3,i,S.U32),I.ValueParam(4,j,S.U32)},body)
-  local functions={fn};for _,helper in ipairs(helpers or {}) do functions[#functions+1]=helper end
-  local contracts=Own.bindLoans(Program.analyze(functions),{name});local c=contracts.entries[name]
-  local locators=Own.locators(contracts);local demands=Own.snapshotDemands(contracts,locators)
-  local function point(n) return B.Point(name,n) end
-  local function read(n,path)
-   for dep,node in pairs(c.dependencies) do if dep.kind=='Read' and dep.use.point==point(n) and dep.use.path==(path or B.Root) and node.locator==c.graph.statement_at[point(n)].place then return node end end
-   error('missing test read at '..name..'#'..n)
-  end
-  return locators,demands.contexts[c],read,point,c
- end
- local ret=I.Return(L{I.Ref(saved,ref)})
- local loc,demands,read,point=analyze('locator_direct',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Store(I.Local(slot),I.Ref(q,ref)),ret})
- local snapshot=read(2);local proof=Own.sameLocator(loc,snapshot,point(3))
- check(proof and proof.current_occurrence and proof.evaluate_destination_first,'direct locator proof requires this occurrence and destination evaluation before a move')
- check(loc.reads[snapshot].contents.before[point(3)] and not loc.reads[snapshot].contents.after[point(3)],'replacement kills the old contents after, not before, operand evaluation')
- check(demands.sites[point(3)][snapshot].loans[T.Defined(point(2),saved.id,B.Root)],'saved original loan demands protection at replacement')
- check(demands.sites[point(3)][snapshot].exact[B.Root],'direct replacement records an exact locator prerequisite, not an inferred holding')
- loc,demands,read,point=analyze('locator_dead',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Store(I.Local(slot),I.Ref(q,ref)),I.Return(L{I.Ref(q,ref)})})
- check(not next(demands.sites[point(3)]),'dead snapshots do not demand preservation')
- loc,demands,read,point=analyze('locator_branch',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),
-  I.If(I.Ref(flag,S.Bool),L{I.Store(I.Local(slot),I.Ref(q,ref))},L{}),I.Store(I.Local(slot),I.Ref(q,ref)),ret})
- snapshot=read(2)
- check(not loc.reads[snapshot].contents.before[point(5)] and loc.reads[snapshot].contents.may_before[point(5)],'join uses a must meet, not a union of available field guards')
- check(not Own.sameLocator(loc,snapshot,point(5)),'one surviving branch cannot certify the field on every path')
- check(demands.sites[point(4)][snapshot] and demands.sites[point(5)][snapshot],'each possible first invalidation retains its source demand')
- local xs=S.Array(ref,2)
- local function at(value) return I.Index(I.Local(array),value,ref) end
- loc,demands,read,point=analyze('locator_indices',L{
-  I.Var(array,xs,I.Make(xs,L{I.Ref(p,ref),I.Ref(q,ref)})),I.Read(saved,ref,at(I.Ref(i,S.U32))),
-  I.Store(at(I.Ref(j,S.U32)),I.Ref(q,ref)),ret})
- snapshot=read(2)
- check(not Own.sameLocator(loc,snapshot,point(3)),'two dynamic index operands do not become equal through one Element alias class')
- check(demands.sites[point(3)][snapshot] and not next(demands.sites[point(3)][snapshot].exact),'uncertain replacement needs a selected-root/holding decision, not an invented exact move')
- loc,demands,read,point=analyze('locator_captured_index',L{
-  I.Var(array,xs,I.Make(xs,L{I.Ref(p,ref),I.Ref(q,ref)})),I.Var(counter,S.U32,I.Ref(i,S.U32)),
-  I.Read(index,S.U32,I.Local(counter)),I.Read(saved,ref,at(I.Ref(index,S.U32))),
-  I.Store(I.Local(counter),I.Ref(j,S.U32)),I.Store(at(I.Ref(index,S.U32)),I.Ref(q,ref)),ret})
- check(Own.sameLocator(loc,read(4),point(6)),'changing the index variable does not change its already-captured SSA value')
- loc,demands,read,point=analyze('locator_disjoint_indices',L{
-  I.Var(array,xs,I.Make(xs,L{I.Ref(p,ref),I.Ref(q,ref)})),I.Read(saved,ref,at(I.Const(S.U32,I.UInt(1)))),
-  I.Read(I.Value(8),ref,at(I.Ref(i,S.U32))),I.Store(at(I.Const(S.U32,I.UInt(0))),I.Ref(q,ref)),ret})
- check(loc.reads[read(2)].contents.after[point(4)],'an invalidated wildcard class is not expanded again to kill a disjoint exact index')
- check(not loc.reads[read(3)].contents.after[point(4)],'the wildcard read itself is conservatively invalidated')
- loc,demands,read,point=analyze('locator_loop_old',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Loop(L{
-   I.Store(I.Local(slot),I.Ref(q,ref)),I.If(I.Ref(flag,S.Bool),L{ret},L{I.Next})})})
- snapshot=read(2)
- check(not loc.reads[snapshot].contents.before[point(4)] and loc.reads[snapshot].contents.may_before[point(4)],'a static loop write does not preserve the old occurrence on its backedge')
- check(not Own.sameLocator(loc,snapshot,point(4)),'a pre-loop snapshot cannot borrow each new occurrence of one static holding field')
- loc,demands,read,point=analyze('locator_loop_current',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Loop(L{I.Read(saved,ref,I.Local(slot)),I.Store(I.Local(slot),I.Ref(q,ref)),
-   I.If(I.Ref(flag,S.Bool),L{ret},L{I.Next})})})
- snapshot=read(3)
- check(loc.reads[snapshot].repeated and loc.reads[snapshot].contents.before[point(4)],'a fresh read occurrence establishes its own pre-write snapshot each iteration')
- check(not loc.reads[snapshot].contents.after[point(4)] and demands.sites[point(4)][snapshot],'every loop execution kills that occurrence, even with equal static version IDs')
- local carried=I.Storage(14)
- loc,demands,read,point=analyze('locator_loop_snapshots',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Var(carried,ref,I.Ref(q,ref)),I.Loop(L{
-   I.Read(I.Value(8),ref,I.Local(slot)),I.Read(saved,ref,I.Local(carried)),I.Store(I.Local(carried),I.Ref(I.Value(8),ref)),
-   I.Store(I.Local(slot),I.Ref(q,ref)),I.If(I.Ref(flag,S.Bool),L{ret},L{I.Next})})})
- snapshot=read(4)
- check(demands.reuses[point(4)] and next(demands.reuses[point(4)]),'old loop-carried loans are identified before their originating read site executes again')
- local surviving=0;for _ in pairs(demands.sites[point(7)][snapshot].loans) do surviving=surviving+1 end
- check(surviving>=2,'different surviving logical bindings are not collapsed into one static read occurrence')
- local condition=I.Storage(4);local test=I.Value(10)
- loc,demands,read,point=analyze('locator_index_reexecution',L{
-  I.Var(array,xs,I.Make(xs,L{I.Ref(p,ref),I.Ref(q,ref)})),I.Var(counter,S.U32,I.Ref(i,S.U32)),
-  I.Var(condition,S.Bool,I.Const(S.Bool,I.Boolean(true))),I.Var(slot,ref,I.Ref(p,ref)),
-  I.Loop(L{I.Read(index,S.U32,I.Local(counter)),I.Read(test,S.Bool,I.Local(condition)),
-   I.If(I.Ref(test,S.Bool),L{
-    I.Read(I.Value(8),ref,at(I.Ref(index,S.U32))),I.Store(I.Local(slot),I.Ref(I.Value(8),ref)),
-    I.Store(I.Local(counter),I.Ref(j,S.U32)),I.Store(I.Local(condition),I.Const(S.Bool,I.Boolean(false))),I.Next},L{
-    I.Store(at(I.Ref(index,S.U32)),I.Ref(q,ref)),I.Read(saved,ref,I.Local(slot)),ret})})})
- snapshot=read(9)
- check(loc.reads[snapshot].locator_kills[point(6)]=='operand-redefinition','executing the same index definition again kills the earlier evaluated operand')
- check(not Own.sameLocator(loc,snapshot,point(14)),'static index value IDs cannot equate different loop executions')
- check(demands.sites[point(14)][snapshot],'a snapshot transported through loop-carried storage retains its invalidation demand')
- loc,demands,read,point=analyze('locator_false_trap',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Trap(I.Const(S.Bool,I.Boolean(false)),'not taken'),
-  I.Store(I.Local(slot),I.Ref(q,ref)),ret})
- check(Own.sameLocator(loc,read(2),point(4)) and demands.sites[point(4)][read(2)],'a false conditional trap retains normal locator and protection demand flow')
- local external=I.Storage(10)
- local replace=I.Fn('locator_replace',I.Body,0,L{S.inPlace(ref),S.inValue(ref)},L{},L{
-  I.PlaceParam(0,external,ref),I.ValueParam(1,q,ref)},L{I.Store(I.Local(external),I.Ref(q,ref)),I.Return(L{})})
- loc,demands,read,point=analyze('locator_call',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),
-  I.Call(L{},replace.id,L{I.BorrowArg(I.Local(slot)),I.ValueArg(I.Ref(q,ref))}),ret},{replace})
- snapshot=read(2)
- check(loc.reads[snapshot].losses[point(3)].reason=='call-write','callee writes invalidate the caller snapshot at the original call')
- check(demands.sites[point(3)][snapshot] and not next(demands.sites[point(3)][snapshot].exact),'a callee may read before writing: callers cannot clear its field before entry')
- local box=S.Record{child=ref};local boxRef=S.Ref(box)
- local left,right,selected=I.Storage(11),I.Storage(12),I.Storage(13)
- local function child(place) return I.Project(place,I.Field('child')) end
- loc,demands,read,point=analyze('locator_changed_base',L{
-  I.Var(left,box,I.Make(box,L{I.Ref(p,ref)})),I.Var(right,box,I.Make(box,L{I.Ref(q,ref)})),
-  I.Var(selected,boxRef,I.Addr(I.Local(left),boxRef,B.WriteAccess)),
-  I.Read(saved,ref,child(I.Deref(I.Local(selected),box))),
-  I.Store(I.Local(selected),I.Addr(I.Local(right),boxRef,B.WriteAccess)),
-  I.Store(child(I.Deref(I.Local(selected),box)),I.Ref(q,ref)),ret})
- snapshot=read(4)
- local _,reason=Own.sameLocator(loc,snapshot,point(6))
- check(reason=='changed-operands','identical place syntax cannot reread a mutated base to locate the old field')
- check(loc.reads[snapshot].contents.before[point(6)],'changing the base variable does not destroy the old captured field itself')
- loc,demands,read,point=analyze('locator_alternatives',L{
-  I.Var(left,box,I.Make(box,L{I.Ref(p,ref)})),I.Var(right,box,I.Make(box,L{I.Ref(q,ref)})),
-  I.Var(selected,boxRef,I.Addr(I.Local(left),boxRef,B.WriteAccess)),
-  I.If(I.Ref(flag,S.Bool),L{I.Store(I.Local(selected),I.Addr(I.Local(right),boxRef,B.WriteAccess))},L{}),
-  I.Read(saved,ref,child(I.Deref(I.Local(selected),box))),I.Store(child(I.Local(left)),I.Ref(q,ref)),ret})
- snapshot=read(6);local alive,dead=0,0
- for _,alternative in pairs(loc.reads[snapshot].alternatives) do
-  if alternative.contents.after[point(7)] then alive=alive+1 else dead=dead+1 end
- end
- check(alive==1 and dead==1,'read alternatives keep their own invalidation witnesses')
- local alternatives=0;for _ in pairs(loc.reads[snapshot].losses[point(7)].alternatives) do alternatives=alternatives+1 end
- check(alternatives==1,'a loss identifies the affected alternative, not a union of unrelated guards')
- local view=S.View(S.Sig({},{}));local callback=I.Value(9)
- local wrapper=I.Fn('locator_callback_wrapper',I.Body,0,L{S.inValue(view)},L{},L{I.ValueParam(0,callback,view)},L{
-  I.Indirect(L{},I.Ref(callback,view),L{}),I.Return(L{})})
- local caller=I.Fn('locator_callback_caller',I.Entry,0,L{S.inPlace(ref),S.inValue(view),S.inValue(ref)},L{ref},L{
-  I.PlaceParam(0,slot,ref),I.ValueParam(1,callback,view),I.ValueParam(2,q,ref)},L{
-  I.Read(saved,ref,I.Local(slot)),I.Call(L{},wrapper.id,L{I.ValueArg(I.Ref(callback,view))}),
-  I.Store(I.Local(slot),I.Ref(q,ref)),ret})
- local contracts=Own.bindLoans(Program.analyze{wrapper,caller},{caller.id});loc=Own.locators(contracts)
- local context=contracts.entries[caller.id]
- for dep,n in pairs(context.dependencies) do if dep.kind=='Read' and dep.use.point.ordinal==1 then snapshot=n end end
- check(loc.reads[snapshot].losses[B.Point(caller.id,2)].reason=='unbound-effect','unknown effects survive a known wrapper even with no concrete writes')
- check(not Own.sameLocator(loc,snapshot,B.Point(caller.id,3)),'missing call-effect edges cannot certify a field guard')
- check(loc.reads[snapshot].descriptor.complete,'an InPlace input is a stable borrowed place, not a local allocation with a missing storage ID')
- local identity=I.Fn('locator_identity',I.Body,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,p,ref)},L{I.Return(L{I.Ref(p,ref)})})
- loc,demands,read,point=analyze('locator_forward',L{
-  I.Var(slot,ref,I.Ref(p,ref)),I.Read(saved,ref,I.Local(slot)),I.Call(L{I.Value(8)},identity.id,L{I.ValueArg(I.Ref(saved,ref))}),
-  I.Store(I.Local(slot),I.Ref(q,ref)),I.Return(L{I.Ref(I.Value(8),ref)})},{identity})
- check(demands.sites[point(4)][read(2)].loans[T.Defined(point(3),8,B.Root)],'input-relative result forwarding retains the caller snapshot demand')
- local source=C.typed{profile='slet',source=[[
-let Point={x:U32} let Box={child:Ref(Point)}
-let leaf(n:U32):Ref(Point)=do let p=Point{x=n} return Ref(p) end
-let parent():Ref(Box)=do let p=Box{child=leaf(1)} return Ref(p) end
-let main():U32=do let p=parent() let old=p.child p.child=leaf(2) return old.x end
- ]]}
- local bound=Own.bindLoans(source.program,{'main'});local actual=Own.locators(bound)
- local needs=Own.snapshotDemands(bound,actual);local direct=false
- for site,losses in pairs(needs.contexts[bound.entries.main].sites) do
-  for _,demand in pairs(losses) do if next(demand.exact) then
-   direct=true
-   check(bound.entries.main.graph.statement_at[site].kind=='Store','source preservation candidate attaches to the original field store')
-  end end
- end
- check(#source.program.ownership.main.summary.counted>0 and direct,'counted saved-child source reaches the locator/demand solver without opening physical admission')
-end
--- Placement must be decided before creation if an earlier allocation occurrence
--- remains observable after its frame storage would be reinitialized.
-do
- local Own=require('let.ownership');local B,O=S.Borrow,S.Ownership
- local ref=S.Ref(S.U32);local input,flag,number,old=I.Value(1),I.Value(2),I.Value(3),I.Value(4)
- local carried,object=I.Storage(1),I.Storage(2)
- local function fixture(name,selflink,survives)
-  local ty=selflink and S.Record{link=ref,x=S.U32} or S.Record{x=S.U32}
-  local initial=selflink and I.Make(ty,L{I.Ref(input,ref),I.Ref(number,S.U32)}) or I.Make(ty,L{I.Ref(number,S.U32)})
-  local field=I.Project(I.Local(object),I.Field('x'))
-  local body=L{I.Var(object,ty,initial),I.Read(old,S.U32,survives and I.Deref(I.Local(carried),S.U32) or field)}
-  if selflink then body:insert(I.Store(I.Project(I.Local(object),I.Field('link')),I.Addr(field,ref,B.WriteAccess))) end
-  if survives then body:insert(I.Store(I.Local(carried),I.Addr(field,ref,B.WriteAccess))) end
-  body:insert(I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next}))
-  local fn=I.Fn(name,I.Entry,0,L{S.inValue(ref),S.inValue(S.Bool),S.inValue(S.U32)},L{S.U32},L{
-   I.ValueParam(0,input,ref),I.ValueParam(1,flag,S.Bool),I.ValueParam(2,number,S.U32)},L{
-   I.Var(carried,ref,I.Ref(input,ref)),I.Loop(body)})
-  local program=Program.analyze{fn};local bound=Own.bindLoans(program,{name})
-  return program,bound
- end
- local program,bound=fixture('reuse_frame_address',false,true)
- check(#program.ownership.reuse_frame_address.summary.counted==0,'source extent-only inference does not yet see the storage-occurrence escape')
- local placement=Own.reuseRequirements(bound)
- local root=O.Fresh(B.Local('reuse_frame_address',object.id));local state=placement.contexts[bound.entries.reuse_frame_address]
- check(state.roots[root] and next(state.roots[root].loans),'an old carrier survives its allocation site reexecution')
- local promoted=false
- for _,requirement in ipairs(placement.entries.reuse_frame_address.summary.counted) do
-  if requirement.root==root and requirement.reason=='reuse' then promoted=true end
- end
- check(promoted,'the root must be counted from creation; retaining an overwritten frame address is not a repair')
- check(#program.ownership.reuse_frame_address.summary.counted==0,'placement requirements do not mutate the checked ownership summary')
- local admitted,admission=pcall(require('let.layout').program,program)
- check(not admitted and D.is(admission) and admission.code=='ownership-materialization','newly required counted placement cannot fall through to borrowed emission')
- program,bound=fixture('reuse_current_only',false,false)
- placement=Own.reuseRequirements(bound)
- check(not next(placement.contexts[bound.entries.reuse_current_only].roots) and #placement.entries.reuse_current_only.summary.counted==0,'current-iteration scalar accesses do not force counted placement')
- check(require('let.layout').program(program),'ordinary current-iteration frame use remains admitted')
- program,bound=fixture('reuse_self_cycle',true,true)
- check(not program.ownership.reuse_self_cycle.cycle,'the original frame-only self-link has its frame borrow proof')
- local ok,err=pcall(Own.reuseRequirements,bound)
- check(not ok and D.is(err) and err.code=='Ref-cycle' and err.witness,'counted placement invalidates the frame proof and reuses the authoritative cycle checker')
- ok,err=pcall(require('let.layout').program,program)
- check(not ok and D.is(err) and err.code=='Ref-cycle','executable admission cannot conceal the newly exposed cycle')
- local leaf=I.Fn('reuse_leaf',I.Body,0,L{S.inValue(S.U32)},L{ref},L{I.ValueParam(0,number,S.U32)},L{
-  I.Var(object,S.U32,I.Ref(number,S.U32)),I.Return(L{I.Addr(I.Local(object),ref,B.WriteAccess)})})
- local caller=I.Fn('reuse_result',I.Entry,0,L{S.inValue(ref),S.inValue(S.Bool),S.inValue(S.U32)},L{S.U32},L{
-  I.ValueParam(0,input,ref),I.ValueParam(1,flag,S.Bool),I.ValueParam(2,number,S.U32)},L{
-  I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{
-   I.Call(L{I.Value(8)},leaf.id,L{I.ValueArg(I.Ref(number,S.U32))}),I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
-   I.Store(I.Local(carried),I.Ref(I.Value(8),ref)),I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
- bound=Own.bindLoans(Program.analyze{leaf,caller},{caller.id});placement=Own.reuseRequirements(bound)
- check(placement.contexts[bound.entries[caller.id]].results[B.Point(caller.id,3)],'an old result survives the next execution of its call site; output slots cannot be assumed empty')
- local identity=I.Fn('reuse_identity',I.Body,0,L{S.inValue(ref)},L{ref},L{I.ValueParam(0,input,ref)},L{I.Return(L{I.Ref(input,ref)})})
- local borrowed=I.Fn('reuse_borrowed_result',I.Entry,0,caller.inputs,caller.results,caller.params,L{
-  I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{
-   I.Call(L{I.Value(8)},identity.id,L{I.ValueArg(I.Ref(input,ref))}),I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
-   I.Store(I.Local(carried),I.Ref(I.Value(8),ref)),I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
- bound=Own.bindLoans(Program.analyze{identity,borrowed},{borrowed.id});placement=Own.reuseRequirements(bound)
- check(not next(placement.contexts[bound.entries[borrowed.id]].results),'a borrowed identity result does not invent an output holding on loop reuse')
- local other=I.Storage(3);local ty=S.Record{link=ref,x=S.U32}
- local dependent=I.Fn('reuse_retained_target',I.Entry,0,caller.inputs,caller.results,caller.params,L{
-  I.Var(other,S.U32,I.Ref(number,S.U32)),I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{
-   I.Var(object,ty,I.Make(ty,L{I.Addr(I.Local(other),ref,B.WriteAccess),I.Ref(number,S.U32)})),
-   I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
-   I.Store(I.Local(carried),I.Addr(I.Project(I.Local(object),I.Field('x')),ref,B.WriteAccess)),
-   I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
- program=Program.analyze{dependent};bound=Own.bindLoans(program,{dependent.id});placement=Own.reuseRequirements(bound)
- local counted={};for _,r in ipairs(placement.entries[dependent.id].summary.counted) do counted[r.root.source.storage]=true end
- check(#program.ownership[dependent.id].summary.counted==0 and counted[object.id] and counted[other.id],'counting the reused aggregate also revisits its previously frame-borrowed retained target')
- local inner=I.Fn('reuse_inner',I.Body,0,caller.inputs,caller.results,caller.params,L{
-  I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{
-   I.Var(object,ty,I.Make(ty,L{I.Ref(input,ref),I.Ref(number,S.U32)})),I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
-   I.Store(I.Local(carried),I.Addr(I.Project(I.Local(object),I.Field('x')),ref,B.WriteAccess)),
-   I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
- local parent=I.Fn('reuse_caller_cycle',I.Entry,0,caller.inputs,caller.results,caller.params,L{
-  I.Var(other,ty,I.Make(ty,L{I.Ref(input,ref),I.Ref(number,S.U32)})),
-  I.Store(I.Project(I.Local(other),I.Field('link')),I.Addr(I.Project(I.Local(other),I.Field('x')),ref,B.WriteAccess)),
-  I.Call(L{old},inner.id,L{I.ValueArg(I.Addr(I.Project(I.Local(other),I.Field('x')),ref,B.WriteAccess)),I.ValueArg(I.Ref(flag,S.Bool)),I.ValueArg(I.Ref(number,S.U32))}),
-  I.Return(L{I.Ref(old,S.U32)})})
- program=Program.analyze{parent,inner}
- check(#program.ownership[parent.id].summary.counted==0 and not program.ownership[parent.id].cycle,'caller initially has only frame-borrowed links')
- ok,err=pcall(require('let.layout').program,program)
- check(not ok and D.is(err) and err.code=='Ref-cycle','admission binds affected callers so callee promotion cannot conceal a caller self-cycle')
- local callback=I.Value(9);local view=S.View(S.Sig({S.inValue(ref)},{ref}))
- local unknown=I.Fn('reuse_unknown_origin',I.Entry,0,L{S.inValue(ref),S.inValue(S.Bool),S.inValue(S.U32),S.inValue(view)},L{S.U32},L{
-  I.ValueParam(0,input,ref),I.ValueParam(1,flag,S.Bool),I.ValueParam(2,number,S.U32),I.ValueParam(3,callback,view)},L{
-  I.Var(carried,ref,I.Ref(input,ref)),I.Loop(L{I.Var(object,S.U32,I.Ref(number,S.U32)),
-   I.Read(old,S.U32,I.Deref(I.Local(carried),S.U32)),
-   I.Indirect(L{I.Value(8)},I.Ref(callback,view),L{I.ValueArg(I.Addr(I.Local(object),ref,B.WriteAccess))}),
-   I.Store(I.Local(carried),I.Ref(I.Value(8),ref)),I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
- program=Program.analyze{unknown};bound=Own.bindLoans(program,{unknown.id});placement=Own.reuseRequirements(bound)
- check(#placement.entries[unknown.id].summary.counted==0 and next(placement.entries[unknown.id].unresolved),'unknown call origins remain obligations, not invented counted roots')
- ok,err=pcall(require('let.layout').program,program)
- check(not ok and D.is(err) and err.code=='ownership-materialization','missing result/retention contracts cannot certify safe frame reuse')
- view=S.View(S.Sig({}, {S.U32}))
- local scalar=I.Fn('reuse_scalar_callback',I.Entry,0,L{S.inValue(S.Bool),S.inValue(S.U32),S.inValue(view)},L{S.U32},L{
-  I.ValueParam(0,flag,S.Bool),I.ValueParam(1,number,S.U32),I.ValueParam(2,callback,view)},L{I.Loop(L{
-   I.Var(object,S.U32,I.Ref(number,S.U32)),I.Let(I.Value(8),ref,I.Addr(I.Local(object),ref,B.WriteAccess)),
-   I.Indirect(L{old},I.Ref(callback,view),L{}),I.If(I.Ref(flag,S.Bool),L{I.Return(L{I.Ref(old,S.U32)})},L{I.Next})})})
- check(require('let.layout').program(Program.analyze{scalar}),'a scalar-only callback does not invent a reference-retention contract or a counted root')
-end
-print(('access proofs: %d checks, %d VM executions'):format(checks,executions))
+print(('borrow/effect checks: %d checks, %d VM executions'):format(checks,executions))

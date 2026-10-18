@@ -57,6 +57,7 @@ end
 function Ir.Convert:each(fn) fn(self.operand) end
 function Ir.Addr:each(fn) self.place:each(fn) end
 function Ir.SliceLength:each(fn) fn(self.view) end
+function Ir.RcBorrow:each(fn) self.holding:each(fn) end
 function Ir.Is:each(fn) fn(self.operand) end
 
 -- An `Ir.Place` hands over the expressions reaching it: its base is a place rather than an
@@ -86,6 +87,7 @@ function Ir.BorrowArg:each(fn) self.place:each(fn) end
 -- the body of a `Loop`, and the body of every `Switch` case. A statement with no nested list has
 -- no child statements, and the effects it carries are the pass visitor's business, not this one.
 function Ir.Let:each(fn) end
+function Ir.RcNew:each(fn) end
 function Ir.Var:each(fn) end
 function Ir.Read:each(fn) end
 function Ir.Store:each(fn) end
@@ -157,6 +159,14 @@ function Builder:ref(value, ty)
     return self:intern("ref|" .. value.id .. "|" .. S.encode(ty), function()
         return Ir.Ref(value, ty)
     end)
+end
+function Builder:rcNew(body,initial)
+    local value=self:valueId();local ty=S.Rc(initial.type)
+    self:emit(body,Ir.RcNew(value,self:storageId(),ty,initial))
+    return self:ref(value,ty)
+end
+function Builder:rcBorrow(holding,ty)
+    return self:intern('rc-borrow|'..S.encode(holding)..'|'..S.encode(ty),function() return Ir.RcBorrow(holding,ty) end)
 end
 function Builder:code(entry,ty,cEntry)
     return self:intern((cEntry and 'centry|' or 'code|')..entry..'|'..S.encode(ty),function()

@@ -1,0 +1,11 @@
+entry	loop	source declarations	5	functions	4	cpu	2.638776	heap MiB	95.658670425415
+access	seconds	2.619214
+access	relations	22
+access	iterations	1322
+access	contexts	460
+state snapshots	6098	total snapshot root entries	57226	query key bytes	2811614
+retained Lua heap MiB	44.45062828064
+function	leaf	queries	154	call paths	6	mean input roots	8.5324675324675
+function	parent	queries	153	call paths	5	mean input roots	8.5882352941176
+function	loop_word_1	queries	152	call paths	4	mean input roots	8.6447368421053
+function	loop	queries	1	call paths	1	mean input roots	0

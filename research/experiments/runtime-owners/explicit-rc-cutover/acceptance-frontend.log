@@ -1,0 +1,64 @@
+cd frontend && luajit tests/symmetric.lua "clang"
+PASS: symmetric frontend placement, NaN comparisons and evaluation order (43 executions)
+build/abc asm tools/validate_lifetime.abcasm -o build/validate-lifetime.abc
+build/validate-lifetime build/validate-lifetime.abc
+validated 48 public module/VM lifetime cases (all mode pairs, uncalled and called images)
+cd frontend && luajit tools/embed.lua --check
+schemas up to date
+cd frontend && luajit tests/schemas.lua
+PASS: ast.asdl/ir.asdl parse and construct; spans, interning and occurrences behave
+cd frontend && luajit tests/type_names.lua
+type names: 44 checks, 8 VM executions
+cd frontend && luajit tests/walk.lua
+PASS: schema-driven traversal (4 checks)
+cd frontend && luajit tests/parse.lua
+PASS: lexer/parser (232 checks)
+cd frontend && luajit tests/syntax_batch.lua
+syntax batch: 149 checks, 68 VM executions
+cd frontend && luajit tests/endall.lua
+endall: 57 checks, 16 VM executions
+cd frontend && luajit tests/word_bindings.lua
+word bindings: 107 checks, 84 VM executions
+cd frontend && luajit tests/application_chains.lua
+application chains: 122 checks, 112 VM executions
+cd frontend && luajit tests/vocabulary.lua
+vocabulary: 92 checks, 64 VM executions
+cd frontend && luajit tests/receiver_scopes.lua
+receiver scopes before imports: 300 checks, 288 VM executions
+receiver scopes: 407 checks, 384 VM executions
+cd frontend && luajit tests/anonymous_context.lua
+anonymous context: 221 checks, 192 VM executions; 4 probes unoptimized only
+cd frontend && luajit tests/compiler.lua
+PASS: Let compiler source ingestion and semantic IR (268 checks)
+cd frontend && luajit tests/lambdas.lua
+PASS: lambda signatures stated once (269 checks, 80 VM executions)
+cd frontend && luajit tests/lowering.lua
+PASS: checked ASDL Ir -> ABC lowering (101 checks)
+cd frontend && luajit tests/optimize.lua
+PASS: shared C residual-DAG optimizer and LuaJIT FFI (118 checks)
+cd frontend && luajit tests/staging.lua
+PASS: VM-backed compile-time execution (27 checks)
+cd frontend && luajit tests/source_demands.lua
+source demand checks: 52
+cd frontend && luajit tests/aggregate_staging.lua
+aggregate staging: 438 checks, 422 VM executions
+cd frontend && luajit tests/packed_tagged.lua
+packed tagged integer/storage subset: 737 checks, 200 VM executions
+packed tagged: 1894 checks, 496 VM executions
+cd frontend && luajit tests/spread.lua --unoptimized
+spread qualification: 379 checks, 108 VM executions, 0 optimized configurations BLOCKED
+cd frontend && luajit tests/rest_templates.lua
+rest templates: 616 checks, 276 VM executions
+cd frontend && luajit tests/access_proofs.lua
+borrow/effect checks: 172 checks, 120 VM executions
+cd frontend && luajit tests/program.lua
+program boundary: 37 checks, 2 VM executions
+cd frontend && luajit tests/ownership.lua
+explicit ownership checking: 55 checks; loop 7 bindings / 13 iterations
+cd frontend && LUA="luajit" luajit tests/staging_sessions.lua
+PASS: unoptimized staging uses only the in-process VM in all four modes
+PASS: owned staging sessions (280 checks)
+luajit tools/validate_slet_frontend.lua
+validated production SLet frontend/optimizer: 112 executions, 2 explicit static-demand diagnostics
+CC="clang" luajit tools/validate_c_aot.lua
+validated 12 mirrored portable C residual arithmetic, branch, loop, call, and export cases
