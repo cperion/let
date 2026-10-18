@@ -1,11 +1,12 @@
 # Runtime primitives and resumable execution
 
-**Status: blanket source lifetime lowering removed; proof-directed replacement pending.**
+**Status: explicit Rc/retain-on-copy source contract approved; cutover pending.**
 The32-byte C counting/queue core, six lifetime bindings and revision-7 native C
-lifecycle delivery remain. Counted source execution currently rejects. The preceding
-source integration qualified cleanup of generated holdings, not their necessity;
-its whole-function/type-driven holding policy has been removed. The v3 orchestration
-below remains historical, and the large revision7/v4 proposal remains withdrawn.
+lifecycle delivery remain. The implicit reference-promotion/resource-inference
+pipeline is superseded, including its interrupted rooted implementation at
+`4a9da5db`. Explicit Rc execution is not yet implemented. Earlier source integration
+qualifies only its recorded scope. The v3 orchestration below remains historical,
+and the large revision7/v4 proposal remains withdrawn.
 See runtime-interfaces' current concrete binding, WORKLIST E/O and
 `research/experiments/runtime-owners/source-cutover/` for exact supported contracts,
 full incremental checks and focused sanitizer limitations. General source ownership,
@@ -14,10 +15,10 @@ Unrelated task/container targets remain unchanged. This records
 the selected data structures and algorithms for the collector-free runtime and tasks.
 Private interface bindings, concrete fields/signatures and lock/state protocols are
 specified in [runtime-interfaces.md](runtime-interfaces.md); file-by-file changes are
-in [implementation-map.md](implementation-map.md). The concrete compiler-side lifetime
-algorithm and private call binding proposed for the replacement are in
-[source-lifetime-lowering.md](source-lifetime-lowering.md), explicitly under review,
-not current execution. The removed private v3 ABI and its
+in [implementation-map.md](implementation-map.md). The explicit Rc semantic contract,
+removal set and remaining concrete surface/private-ABI gates are in
+[source-lifetime-lowering.md](source-lifetime-lowering.md). Approved copy semantics
+are not current executable support. The removed private v3 ABI and its
 historical costs are recorded in runtime-interfaces §1.1 and WORKLIST E01/E02/O04–O08;
 this is not a completed runtime/concurrency or source-ownership implementation. Changes to
 these choices require discussion, not an undocumented alternate implementation.
@@ -87,10 +88,12 @@ value IR. All source execution modes, including interpreted, prepare this glue b
 allocating an owner. Platforms without executable-code preparation require an AOT
 binding; there is no ABC cleanup-engine fallback.
 
-References/slices preserve the agreed layout: borrow is target-only; retained ref
-is target plus root owner; retained slice adds length. Projection changes target,
-not owner. Escape analysis chooses separately allocated roots before publication;
-no activation counting, late promotion or pointer repair.
+Ref/Slice values are borrowed carriers, never conditionally owning representations.
+Rc construction explicitly selects a counted root; Rc copies retain that root and
+drops release it. Interior projections only borrow. The concrete root-handle and
+failure-safe call handoff are source binding gates, not new runtime algorithms.
+There is no escape-selected allocation, activation counting, late promotion or
+pointer repair.
 
 Counting rules:
 

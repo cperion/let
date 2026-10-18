@@ -5,6 +5,50 @@ work; [REFACTOR.md](REFACTOR.md) retains architectural rationale and chronologic
 implementation evidence. Feature specs define semantics, not completion. Historical
 checkboxes and O1–O9 packages are supporting records, not competing live task lists.
 
+## Latest ownership decision — explicit Rc, copy retains
+
+**Owner: coordinator. State: design; semantic decision approved, implementation
+not cut over (O01–O08/E01/E02).** The user explicitly chose `Rc(T)` ownership,
+strictly borrowed `Ref(T)` and **copy retains**, to make ownership developer-visible
+and typechecked and remove compiler inference complexity. No implicit promotion,
+owner-capability recovery or hidden acquisition to rescue invalid borrows remains
+in the target. Rc copies share the allocation; drops release. Proven moves may
+eliminate count pairs without changing semantics. Borrow and actual strong-edge
+cycle checks remain; the C owner core and six runtime bindings survive.
+
+The interrupted implicit implementation is preserved separately at `4a9da5db`.
+Its partial root/result binding is superseded, not an unfinished task to continue.
+Older E/O paragraphs below record chronological evidence, not current directives to
+finish automatic counted placement. No O/E item is closed by this decision.
+
+**Current scope/files:** revise `docs/{owners-references-ids,source-lifetime-lowering,
+syntax,runtime-interfaces,runtime-primitives,implementation-map,architecture,
+source-compilation-api}.md`, this ledger and the architectural decision record in
+`REFACTOR.md`. The implementation map names the actual schema, semantic,
+access/checking, layout/materialization and test cutover paths.
+Remove the implicit owner event channel, counted-selection solver, capability/
+preservation policy, reuse promotion and inferred resource ABI; preserve borrow,
+readonly/effect/callable and SCC algorithms with real remaining consumers.
+
+**Dependencies / next action:** settle the concrete construction/borrow surface,
+borrow-carrying Rc payload rule, private handle/failure-safe handoff and explicitly
+owning environment/snapshot APIs for the selected slice (source-lifetime-lowering
+§7). Section 8 now presents a concrete first binding for approval: `Rc(value)`,
+`r.borrow()`, no borrow-carrying payloads initially, one owner-address handle and
+caller-owned typed owning-value slots for failure-safe private calls. These details
+are proposed, not approved by the semantic decision. After approval replace
+producers/consumers together. Copy-retains is settled and must not be reopened.
+Public/foreign, erasure, containers/tasks and `.let` migration remain their existing
+separate gates, not silently enabled by a type name. No new sidecar or parallel
+implementation is authorized.
+
+**Evidence:** this is a specification/removal-plan change, not new runtime support.
+Documentation diffs reviewed; `git diff --check` passed and 88 local Markdown file
+targets across the ten changed documents resolved. Runtime tests were not rerun
+for this documentation-only change. Explicit-Rc source acceptance and compiler/
+code-size/count/storage/performance measurements remain outstanding. Preserve
+existing raw experiments and historical `.slet` filenames.
+
 ## Guide and latest approved source conventions
 
 `docs/designing-and-writing-let.md` is the design/style guide, not a claim of executable
@@ -624,7 +668,10 @@ removed binding directly. Unrelated task protocols are unchanged.
 
 ## O — Collector-free proofs, placement and reclamation
 
-Authority: `docs/owners-references-ids.md`; corresponds to O1–O3 in frontend plan.
+Authority: `docs/owners-references-ids.md` and the explicit-Rc replacement in
+`docs/source-lifetime-lowering.md`; corresponds to O1–O3 in frontend plan.
+**Current target is explicit Rc/copy-retains. Historical implementation paragraphs
+below do not authorize implicit Ref promotion or capability/resource inference.**
 
 **Structural cut completed — coordinator, O03–O05/E01 remain partial:**
 `frontend/let/program.lua` now owns checked functions/declarations and program-local
@@ -640,16 +687,19 @@ binding or cleanup mechanism was added. `validate-slet` passes after two migrati
 errors were fixed; final program/ownership/access/lowering/lambda checks pass after
 review cleanup. New boundary coverage:37 checks/1 VM execution. Evidence:
 `research/experiments/frontend-syntax/program-boundary/README.md`.
-Next: design per-root owning materialization, holding locations and failure cleanup;
-then integrate those producers/consumers before widening executable admission.
+Historical next step was per-root implicit materialization. It is superseded by
+explicit Rc typing/lowering; see the latest ownership decision above.
 
-- [ ] **O01** Freeze adversarial proof tests: self/interior edges, closure cycles,
-  stored borrows, branch joins, COW self-insertion and hidden module access.
-- [ ] **O02** Specify actual-root provenance, independent borrow extents and strict
-  owning-edge inference; recursive fixed points, polymorphism and separate-compilation
-  summaries must preserve bounds without runtime cycle detection.
-- [ ] **O03** Implement these proofs in the existing source place/state model and
-  reject unprovable cycles. No second native value IR or placement reconstruction.
+- [ ] **O01** Freeze explicit-Rc tests: retain-on-copy/drop, invalid Ref escape and
+  invalidation, strong self/closure cycles, stored borrows, joins, COW self-insertion
+  and hidden module access. Preserve positive owning execution coverage with Rc.
+- [ ] **O02** Specify actual strong-root constraints and independent borrow validity
+  for declared ownership types; preserve recursive/polymorphic/separate-compilation
+  bounds without runtime cycle detection. Remove automatic ownership selection.
+- [ ] **O03** Implement explicit Rc typing/semantic operations and these checks in
+  the existing source place/state model. Remove implicit counted/capability/resource
+  inference and its producers/consumers; reject invalid borrows instead of repairing
+  them. No second native value IR or placement reconstruction.
   **Implemented source-inference chunk (O01–O03 remain partial):** canonical
   `Ownership` metadata in `frontend/ir.asdl`, `frontend/let/ownership.lua`, and the
   existing access worklist now infer formal/fresh/module/deferred roots, counted
@@ -920,12 +970,10 @@ contracts remain unresolved. No full suite, sanitizer, count-traffic or performa
 qualification was run. The user stopped this implementation and selected explicit
 `Rc(T)` with retain-on-copy; do not continue completing this implicit-resource solver.
 
-Next action in the approved scope: solve actual bound field/input/result guards,
-normalized aliases and preservation/rebinding across joins and loop reuse; seed and
-resolve capability requirements from those decisions; bind concrete consume/offer and
-result-slot contracts/instances, then integrate `Placement.program` and its consumers.
-The counted gate stays until that boundary is implemented. No runtime ABI change,
-restored blanket materializer, full-suite/sanitizer result or count/storage qualification.
+Superseded next action (historical, **do not execute**): finish guard selection,
+capability requirements, preservation and consume/offer/result-slot inference.
+The explicit-Rc cutover removes that responsibility rather than completing it.
+Retained runtime code/evidence is not full Rc source qualification.
 
 Specification checkpoint description (before implementation approval):
 `docs/source-lifetime-lowering.md` now proposes concrete loan/guard/version records,
@@ -938,8 +986,10 @@ implementation. The specification is kept in a separate jj change from removal.
 The subsequent explicit implementation approval is recorded above. All executable
 admission failures above remain until the replacement is integrated and validated.
 
-- [ ] **O04** Specify owner/reference/slice/environment layouts and escape placement;
-  allocate escaping roots separately from activations before publishing any address.
+- [ ] **O04** Specify explicit Rc handle/payload and failure-safe call transport;
+  Ref/Slice remain borrowed with fixed roles. Allocate only declared Rc roots and
+  owning library/environment storage, never escape-promoted locals. Concrete
+  construction/borrow/payload and owning environment/snapshot gates remain open.
   **Partial implemented:** `placement.lua` selects checked counted local roots from
   creation, materializes root-preserving refs/slices/arrays/callable environments and
   appended owning-result storage, and structurally checks a separate physical graph.
@@ -947,8 +997,10 @@ admission failures above remain until the replacement is integrated and validate
   Tagged alternatives now share canonical packed transport and active-case holdings.
   Context-dependent unresolved instances, persistent owning modules, erasure
   and owning public/foreign/task ABI remain closed. See E01 source-cutover evidence.
-- [ ] **O05** Implement retain/release obligations, borrow elision and alias-aware moves
-  through assignments, calls, returns, sums, containers and erased callables.
+- [ ] **O05** Implement Rc retain-on-copy/release and proven move optimizations
+  through value bindings, reads, assignments, calls, returns, captures and active
+  sums; extend containers/erasure only under their contracts. Ref transport has no
+  RC traffic or hidden preservation acquisitions.
   **Partial:** concrete copy retains into cleanup-visible scratch before replacement;
   single-use same-loop moves clear sources. Borrowed-function specialization avoids
   owner traffic. Active tagged payloads are now integrated; containers/erased paths

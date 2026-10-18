@@ -196,18 +196,24 @@ The Makefile's runtime/tooling object lists establish what is actually linked.
   [source-compilation-api.md](source-compilation-api.md).
 - **Collector-free source target.** Profiles 1–4 remain active. The approved
   [owner design](owners-references-ids.md) replaces tracing GC/profile-5 ownership:
-  separate counted escaping roots, actual-owner rank constraints, immutable value
-  DAGs, stores/ids and value tables. Source place/provenance analysis owns lifetime
-  proofs; the execution allocator does not reconstruct them. One Let language has
+  explicit `Rc(T)` roots with retain-on-copy, strictly borrowed `Ref(T)`, actual
+  strong-edge rank constraints, immutable value DAGs, stores/ids and value tables.
+  Automatic reference promotion and hidden ownership repair are superseded. The
+  current implicit pipeline is not the explicit-Rc implementation. Source
+  place/provenance analysis checks borrow/cycle obligations; the execution allocator
+  does not reconstruct them. One Let language has
   independent capability facts, but legacy `.slet`/`.let` implementation behavior
   has not yet migrated. No collector, old tracing engine, quickening or opaque
   scalar fallback is authorized. Allocation remains an effect, not dynamic typing.
 
 ## Validation and remaining work
 
-The active suite passes, including a clean copied-source build after the native
-backedge correction. It checks selected operand order, A/B destinations, exact
-cache states with poisoned dead arguments, captures, explicit continuations,
+Historical machine qualification includes an active-suite pass and a clean
+copied-source build after the native backedge correction. This is not the current
+source-ownership acceptance status: the interrupted implicit cutover is partial,
+and explicit Rc remains unimplemented (see WORKLIST O/E). The historical checks
+cover selected operand order, A/B destinations, exact cache states with poisoned
+dead arguments, captures, explicit continuations,
 indirect observations, traps/capacity, optimizer/C contracts and frontend/staging
 boundaries. See `REFACTOR.md` for exact counts and retained logs.
 

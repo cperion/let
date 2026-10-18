@@ -44,17 +44,22 @@ and obtains a new program; lowering does not hash, revalidate or silently refres
 old program after in-place mutation. Private `ABC.lower` consumes that program, not
 a bare function list or a separate set of proof annotations.
 
-The blanket `Layout.program` owning switch and `ABC.lower` materializer dispatch
-have been removed. During this cutover, counted programs explicitly reject with
-`ownership-materialization`; retained-capable tagged values also await the replacement.
-Ordinary admitted borrowed programs still lower directly. The approved replacement
-must select physical contracts from source borrow/transfer/acquisition proofs rather
-than from reference-containing types. `Layout.physical` and the structural
-`Check.program(..., true)` boundary remain available, as does concrete C-entry field-
-drop emission; no alternate owning execution path is installed.
-Artifacts retain the exact source `.program` and `.functions`; the `.materialized`
-field has no physical graph during this removal checkpoint. Pointer-free
-staging/snapshots use `Layout.scalar`.
+At the interrupted implicit-ownership checkpoint `4a9da5db`, `ABC.lower` selects
+entry-rooted code through `Ownership.bind`, then calls `Placement.program` and
+`Layout.physical`. A narrow private pointer-free-root/result-slot path executes;
+outgoing holdings, preservation and general contracts remain incomplete and
+unqualified. Partial admission is not a complete safety proof. This implementation
+is superseded by explicit `Rc(T)` with retain-on-copy, not evidence
+of Rc support. Its `rootBindings`/counted requirements are removal targets.
+
+The explicit-Rc replacement preserves the checked-to-physical boundary and
+entry-rooted selection, but lowers declared owning types/operations instead of
+inferring ownership behind Ref. `Check.program(..., true)` remains structural
+physical validation; concrete C-entry field drops and the C owner core survive.
+Artifacts retain the exact checked source `.program` and `.functions`, with a
+separate `.materialized` physical graph. Pointer-free staging/snapshots use
+`Layout.scalar`. The current `.ownership[id].summary` is an implicit-era result,
+not a frozen API contract for the Rc cutover.
 
 Cycles and unsafe-access proofs still reject during analysis. The replacement does
 not open owning public/foreign transport, persistent module holdings, erasure or a

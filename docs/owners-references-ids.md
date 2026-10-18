@@ -1,21 +1,19 @@
 # Owners, references and ids
 
-**Status: approved collector-free semantics and source inference; blanket source
-lifetime lowering removed, proof-directed replacement pending.**
-This is the ownership target for one Let language, replacing the tracing-GC target.
-WORKLIST O03 records formal/fresh-root, borrow/count/strict-edge inference; E01/E02
-and O04–O08 record the approved correction and current removal checkpoint. The C
-counting/queue core, six lifetime bindings and native C-entry delivery remain; the
-blanket source-to-physical materializer does not. Source-cutover/tagged evidence
-qualifies the preceding implementation, not present source admission. Historical
-v3 c-release evidence and the withdrawn larger design remain separate. Typing retains
-valid counted requirements on the checked program, while executable admission
-currently rejects them. Borrowed transport must not become a holding merely because
-its source type contains access. The approved correction keeps §2.1's counted
-escaping-root policy and consumes borrow/transfer obligations before physical layout.
-General containers, tasks and owning public/foreign contracts remain incomplete. Cycle and unsafe-access proof failures still reject during
-analysis. Examples below remain target-language examples unless
-explicitly qualified by the worklist.
+**Status: explicit `Rc(T)`, strictly borrowed `Ref(T)` and retain-on-copy approved;
+implementation cutover pending.**
+This is the ownership target for one collector-free Let language. The user replaced
+automatic ownership inference with explicit ownership types: copying an Rc retains
+its allocation, while a reference never acquires ownership or promotes a local.
+[Source lifetime lowering](source-lifetime-lowering.md) records the removal set,
+compiler boundary, acceptance cases and remaining concrete binding gates.
+
+WORKLIST O01–O08/E01/E02 owns live status. The superseded implicit implementation
+is preserved at `4a9da5db`, including an incomplete rooted materializer. Its focused
+checks and the earlier source-cutover/tagged experiments do not qualify explicit Rc.
+The C counting/queue core, six lifetime bindings and native C-entry delivery remain.
+General containers, tasks, erased transport and owning public/foreign contracts
+remain incomplete. Examples are target semantics, not claims of executable support.
 
 This revision incorporates the engineering decisions approved after the initial
 proposal. In particular, it does **not** count whole activations, decide safety by
@@ -54,90 +52,96 @@ and concrete migration interfaces still need specification.
    not a new alias to the field. Reference values copy the reference, not the target.
 2. **Every addressable place has one root owner.** Subobjects inherit their root's
    owner. Moving storage after publishing an address is forbidden.
-3. **A reference is either a proven borrow or retains its owner.** The program does
-   not choose a different `Ref` spelling for the two representations.
+3. **`Ref(T)` borrows; `Rc(T)` owns.** Rc construction explicitly selects counted
+   storage. Each semantic Rc value copy retains the same root; destruction releases
+   it. Copying a Ref never retains, and an invalid borrow rejects rather than being
+   repaired with a hidden holding. Rc copies do not copy the target `T`.
 4. **Mutable owning edges must satisfy a static acyclicity proof.** Immutable value
    graphs have a separate construction proof. Neither uses cycle collection.
 5. **Ids carry no ownership.** They identify occupied store slots through a checked
    lookup using a separately held store.
-6. **A closure has an environment owner.** Value captures copy; place captures
-   retain access to their actual owner, by borrow or owning reference.
+6. **Capture modes preserve ownership types.** Value captures copy, including Rc
+   retains. Place captures borrow. An escaping environment must use an explicitly
+   owning construction/contract; it cannot silently promote borrowed captures.
 7. **Sharing cannot expose another task's mutable storage.** Read-only access alone
    does not establish immutable backing.
 8. **Destruction has no user behavior.** Freeing memory runs generated releases,
    never a destructor, finalizer, arbitrary callback or source-level `defer`.
 
-### 2.1 Owner selection
+### 2.1 Explicit ownership selection
 
 | Storage | Ownership and lifetime |
 | --- | --- |
-| ordinary locals, parameters, frame blocks | activation; proven uses end before it returns |
-| escaping addressable value | separate counted owner for its root aggregate, allocated from the start |
+| ordinary locals, parameters, frame blocks | activation; borrowed uses must fit their valid storage lifetime |
+| explicitly constructed `Rc(T)` root | separate counted allocation; every Rc copy is a holding |
 | module data | module lifetime; immutable data may be shared, mutable places stay in their task's world |
 | store slots | storage owned by that store; persistent links are ids |
-| closure environment | frame-local if proven nonescaping, otherwise separately counted |
-| value-container buffers | hidden counted storage, not addressable element places |
+| closure environment | borrowed/local or explicitly owning by its construction contract; no escape-driven promotion |
+| value-container buffers | owning library-value semantics; not a conditionally owning Ref representation |
 
-Counting an escaping `Ref(c.child)` retains the root `c`, not an independently
-promoted child and not every unrelated local in the activation. If the necessary
-root is embedded in a larger addressable aggregate, that aggregate is the root.
-Selection is static and precedes physical placement. There is no stack-to-heap
-promotion after an address has escaped.
+Ownership is declared, not inferred from escape. Returning `Ref(local)` after its
+storage dies rejects. A factory that creates independent storage declares an
+`Rc(T)` result instead. Interior projections borrow the same root's payload; the
+initial Rc design has no owning-subobject handle or implicit `Ref`→`Rc` conversion.
+Construction/borrowing spelling and private transport are binding gates in
+[source-lifetime-lowering.md §7](source-lifetime-lowering.md#7-remaining-concrete-binding-decisions).
 
 ```
 let Counter = { value: U32, bump() = do value += 1 end }
 let peek(c: Ref(Counter)): U32 = c.value
-let make(start: U32): Ref(Counter) = do
+let invalid(start: U32): Ref(Counter) = do
   let c = Counter { value = start }
-  return Ref(c)                    -- c has its own owner from the start
+  return Ref(c)                    -- rejects: c does not outlive the result
 end
 ```
 
-Module storage needs no retain. A borrow from a counted reference needs no extra
-count when the original retained access is kept live for the entire borrow.
-Foreign pointers supply no lifetime proof by themselves.
+Rc construction allocates its selected root directly; no counting of whole
+activations, later promotion or address repair occurs. Module storage needs no
+retain. Borrowing a live Rc-protected object adds no count. Foreign pointers supply
+no lifetime proof by themselves.
 
 ## 3. References, slices and lifetime proofs
 
-A `Ref(T)` names a place. Mutating through it mutates that place. References to
-fixed-layout parts keep the root owner alive. Replacing a record field's value
-preserves that field's place; existing references observe the replacement.
-`Ref(Ref(x))` and references to non-addressable temporaries still reject.
+A `Ref(T)` names a place without owning it. Mutating through it mutates that place.
+References to fixed-layout parts require independent protection of the root;
+they do not keep it alive by counting. Replacing a record field's value preserves
+that field's place, but can invalidate a borrow of the old referenced object.
+These are different accesses. `Ref(Ref(x))` and references to non-addressable
+temporaries still reject; an Rc handle must not silently change what `Ref(place)`
+names.
 
-A `Slice(T)` is a read-only view, not a mutable container. Its lifetime is proved
-or retained in the same way. A view of mutable array storage can observe writes
-to that storage; it is not therefore an immutable snapshot or transferable value.
-List/string views instead retain immutable snapshots (§6).
+A `Slice(T)` is a borrowed read-only view, not a mutable container or a conditionally
+owning value. Mutable backing can change; readonly access is not immutable backing.
+Owning list/string snapshots require an explicit owning type/API binding (§16),
+not inferred capability cells behind `Slice(T)`.
 
-Proposed representations, in 64-bit cells:
+| Value | Representation contract |
+| --- | --- |
+| `Ref(T)` | borrowed address; no owner cell or release obligation |
+| `Slice(T)` | borrowed address and length; no owner cell |
+| `Rc(T)` | root-owning handle with retain-on-copy; concrete ABI remains a binding gate |
+| id | position + generation packed in one 64-bit cell; no ownership |
 
-| Value | Cells |
-| --- | ---: |
-| borrowed reference | address: 1 |
-| owning reference | address + root owner: 2 |
-| borrowed slice | address + length: 2 |
-| retained slice | address + length + owner: 3 |
-| id | position + generation packed: 1 |
+A value parameter/result of type Rc is owning; one of type Ref is borrowed. A
+signature does not change ownership mode according to the caller's provenance.
+Borrowed calls need an actual borrow operation/contract, not an owning copy
+silently treated as borrowed. Public/foreign handoff still requires an explicit ABI.
 
-Specialization knows which representation a parameter receives. A non-retaining
-call can borrow from an owning argument without a retain/release pair. A public
-or indirect ABI must carry an explicit contract; the same source type does not
-license silently guessing its cell width.
-
-A borrow stored in an escaping value must be valid for that value's lifetime,
-not merely for the constructing call. Proof must be independent of the edge whose
-retain is being omitted. Unknown evidence causes conservative retention plus the
-ownership check, or rejection if that cannot be justified. It never means safe.
+A stored borrow must fit its destination's valid lifetime. Unknown protection
+rejects; it is never permission to acquire an invisible holding. An Rc allocation
+also does not make borrowed fields inside its payload safe. Admission of such
+payloads is an explicit gate, not automatic promotion of their referents.
 
 ## 4. Mutable ownership: exact proof obligation
 
-A finite layout through `Ref`, `Slice`, `id`, `Ptr` or a container indirection does
-not itself prove safe ownership. A cycle-capable type can be used with bounded
-borrows; that does not authorize counted cycles.
+A finite layout through `Rc`, `Ref`, `Slice`, `id`, `Ptr` or a container indirection
+does not itself prove safe ownership. Borrowed reference cycles do not create
+strong edges; explicit Rc edges and other declared owning values must still satisfy
+the collector-free acyclicity rules.
 
 ### 4.1 Owner constraints
 
-Every potentially counted owner in the mutable-reference domain has an implicit
+Every explicit counted owner in the mutable ownership domain has an implicit
 static rank parameter. For each possible strong edge from holder H to target O,
 require:
 
@@ -146,8 +150,9 @@ rank(H) > rank(O)
 ```
 
 Use the **actual retained root owner**, not just the referent's source type.
-Include owning containment, nested containers, references, slices of mutable
-storage, and closure environments. A non-transferable COW buffer participates in
+Include explicit Rc fields, owning containment, nested owning containers and
+owning closure environments. Ref and borrowed Slice fields are not strong edges;
+their independent borrow validity is checked separately. A non-transferable COW buffer participates in
 this domain too: sharing its storage does not erase its mutable dependencies.
 
 Check initialization, replacement stores, capture construction and value copies
@@ -167,20 +172,19 @@ Higher-order values retain environment bounds through parameter passing, returns
 and erasure. Separate compilation must export these summaries. An opaque ABI
 without sufficient evidence rejects; it does not erase an ownership obligation.
 
-This is deliberately conservative. Arbitrarily deep mutable owning structures
-that cannot satisfy finite inferred bounds use stores and ids, not a collector or
-a runtime cycle check. The first private inference/summary binding is implemented
-within the admission described in runtime-interfaces §9 and WORKLIST O03. Broader
-generalization and stable export/ABI encoding remain incomplete; the obligations
-above may not be weakened to make an example pass.
+This is deliberately conservative. Mutable owning structures that cannot satisfy
+finite checked bounds use stores and ids, not a collector or a runtime cycle check.
+The existing private solver contains reusable SCC/root-identity algorithms, but
+its automatic counted-placement policy is superseded. Explicit-Rc cycle checking,
+broader generalization and stable export/ABI encoding remain incomplete.
 
 ### 4.2 Interior-reference counterexample
 
-If `p` owns both `child` and a reference-valued `saved` field, storing
-`Ref(p.child)` into `p.saved` as an owning reference creates H → H. It rejects even
-when the declared child type has no references. A proven nonowning version can
-remain valid within a bounded extent. This is why referent-type reach alone was
-removed from the initial proposal.
+The former implicit-owning `Ref(p.child)` example is retired: this is now only a
+borrow and cannot be promoted into a strong edge. Storing a copy of an Rc handle
+into its own root's Rc field instead creates H → H and rejects, irrespective of
+the referent's type. Borrowed interior access still needs independent protection;
+finite referent-type layout is not an acyclicity or lifetime proof.
 
 ### 4.3 Closures
 
@@ -189,17 +193,12 @@ closure back into the button requires button → E. The inequalities contradict.
 A literal capture list makes this easy to diagnose, but hidden or passed callables
 must obey exactly the same rule through their summaries.
 
-```
-let adder(n: U32): (U32): U32 = (do(x: U32) = x + n)
-let tally(): (U32): Unit = do
-  let c = counter { value = 0 }
-  return do(k: U32) c.value += k end
-end
-```
-
-`tally` can allocate a counter owner and an environment retaining it: E → counter.
-It does not count the whole activation. Closures holding mutable references are
-not transferable, but can escape safely within their own task when ranks permit.
+The former `tally` example that returned a closure over an ordinary local counter
+and silently allocated both owners is no longer valid target semantics. Explicit
+Rc capture-by-value can create E → counter once an explicitly owning environment
+contract is defined. Borrowing a local cannot trigger either allocation. The
+callable surface/transport binding remains a gate; transferability still requires
+transitive immutable backing, not just valid counting.
 
 ## 5. Stores and ids
 
@@ -314,7 +313,7 @@ Content equality remains; `<` is not string ordering. No text encoding is impose
 | `s.append(t)`, `s.push(b)` | build in place only when unique and ending at buffer end; otherwise copy |
 | `s.sub(a,b)` | bytes in [a,b), sharing storage |
 | `s.compact()` | explicit copy into storage for precisely these bytes |
-| `s.view()` | immutable snapshot `Slice(U8)` |
+| `s.view()` | immutable snapshot; explicit owning result type remains gated, not a conditionally owning `Slice(U8)` |
 | `String(view)` | copy a byte view into a string |
 
 Writing a substring detaches its own bytes when required, not unrelated prefix
@@ -458,8 +457,8 @@ are forbidden. Allocation, counting and suspension are independent effects.
 ## 9. Objects and ordinary code
 
 Objects remain records with schema methods. A class is a schema; a receiver is a
-borrowed actual place. An owning acyclic link is a checked reference with inferred
-owner constraints. A potentially cyclic link is an id. World records can hold
+borrowed actual place. An owning acyclic link has type `Rc(T)` with checked
+strong-edge constraints. A potentially cyclic link is an id. World records can hold
 stores of bodies and players, connected by `Id(Body)` and `Id(Player)`. No vtable,
 inheritance system, garbage collector or object-specific destructor is introduced.
 
@@ -471,8 +470,8 @@ names for a universal dynamic object graph.
 ## 10. Reclamation and the collector-free argument
 
 An owner header carries its count and generated release operation. Generated
-release code knows outgoing owning references; it is not tracing metadata used
-by a collector. It never calls program code or follows borrow/id edges to free them.
+release code knows outgoing owning fields, including Rc handles; it is not tracing
+metadata used by a collector. It never calls program code or follows borrow/id edges to free them.
 
 On transition to zero, enqueue the owner on an intrusive destruction worklist,
 release its outgoing strong references, enqueue newly zero owners, and free storage.
@@ -505,9 +504,10 @@ or a new residual value IR. Required facts include root owner identity, borrow e
 possible retained owner edges, callable world effects, ownership bounds and sharing
 state. These are analysis facts, not additional source-value computations.
 
-Order: establish value/place identity and retention demands; solve owner/borrow
-constraints; choose owner roots and representations; materialize once; lower to
-ordinary ABC and explicit continuations. Escaping storage starts in its final owner.
+Order: elaborate explicit ownership types and semantic copy/allocation operations;
+check borrows and actual strong-edge constraints; materialize those operations once;
+lower to ordinary ABC and explicit continuations. Neither escape analysis nor
+capability propagation chooses counted allocation or a reference's representation.
 The VM remains the sole source computation engine. Build-time `abc-opt` and native/
 threaded residualization must not guess or reconstruct source ownership.
 
@@ -521,15 +521,18 @@ allocating; dropping a value may run generated releases but not user code.
 
 Facts are transitive through calls and callable contracts. Unknown effects cannot
 be treated as absent. Checked module requirements reject violations independent of
-filename. Diagnostics should explain the escape, store, call or sharing operation
-that required an owner/count/COW or made a proof fail.
+filename. Diagnostics identify the explicit Rc construction/copy, owning library
+operation, invalid borrow, strong cycle or sharing operation—not an inferred reason
+to manufacture ownership.
 
 ## 12. Lowering and ABI boundaries
 
-Borrowed frame/module references can continue using existing address instructions.
-Owning references retain a root handle; counted slices add that handle to address
-and length. Stores use segmented slots and generation checks. Strings/lists/tables
-use the buffer representations above, not tracing heap objects.
+Borrowed references use existing address instructions without ownership cells.
+Rc handles have an explicit owning transport contract; no counted Ref or inferred
+counted Slice representation remains. Physical argument/result handoff and cleanup
+must remain failure-safe even where an owning value uses ordinary ABC cells.
+Stores use segmented slots and generation checks. Strings/lists/tables use their
+own declared owning buffer contracts, not tracing heap objects.
 
 A nominal store segment target is about 4 KiB with at least 16 elements, using a
 power-of-two slot count. Large element types necessarily produce larger segments;
@@ -560,10 +563,12 @@ New numeric abort assignments are not allocated by this document.
 
 ## 14. Required evidence before implementation is called complete
 
-- Returned local/by-value-parameter references; part references retaining the whole
-  aggregate but not unrelated activation locals; addresses unchanged across escape.
-- Borrow elision for non-retaining calls and closures, including stored borrows
-  checked for holder lifetime and unknown-contract rejection.
+- Rejected returned references to dying locals/by-value parameters; explicit Rc
+  factory results; borrowed projections protected by a live holding without counting.
+- Rc copy-retain/drop behavior across bindings, reads, stores, arguments, results
+  and captures; shared target identity rather than target copying.
+- Borrowed calls and closures with no RC traffic, stored-borrow lifetime checks,
+  rejection rather than hidden repair on invalidation, and unknown-contract rejection.
 - Owner self-edges through interior references; multi-owner cycles; cycles through
   non-transferable list buffers, nested aggregates and closures; hidden callable
   captures preserved through return/erasure and separate-compilation summaries.
@@ -594,12 +599,12 @@ New numeric abort assignments are not allocated by this document.
 
 | Existing document/claim | Replacement |
 | --- | --- |
-| syntax §§8.2–8.4, 9: lexical-only escapes/string-as-slice | owners, inferred borrows/counts, distinct COW strings and snapshots |
+| implicit escaping Ref/Slice ownership | explicit root-only `Rc(T)`, copy retains; Ref/Slice remain borrowed; owning snapshot APIs are separate |
 | syntax §7 | `..` and compound `..=` with preserved evaluation order |
 | syntax §§8.7–8.8, 14 | explicit external-resource cleanup; invisible memory release; no finalizers |
 | syntax §15: tracing GC, reference-semantic open words, filename profiles | one progressively typed Let, transferable any, value tables and frozen values |
 | spec/memory/dynamic target | counted owners and immutable graphs; no tracing/safepoints/module trace roots |
-| initial proposal: counted activations | escaping root values allocated separately from the start |
+| counted activations or escape-selected counted locals | explicit Rc construction allocates its own root; invalid frame borrows reject |
 | initial proposal: type reach proves acyclicity | actual-owner strict-order constraints and immutable construction proof |
 | initial proposal: removed slot references see replacement | nonescaping element borrows; ids for durable links |
 | initial proposal: live length bounds ids | slot extent, occupancy and generation |
@@ -620,15 +625,16 @@ layout, counter/overflow policy, iterative release, allocator and concurrency
 algorithms are also already decided in the runtime contracts; this list does not
 reopen them. Remaining binding/qualification and genuinely open interfaces include:
 
-- broader inference/generalization and stable separate-compilation summary format
-  beyond the implemented private source binding (runtime-interfaces §9);
-- generalize the connected concrete source binding beyond its qualified records,
-  fixed arrays, slices, callable environments and active tagged alternatives: resolve
-  context-specific instances, persistent module holdings, containers/initialized-element
-  loops and erasure; qualify broader shared memory orders and foreign teardown beyond
-  the tested source/physical-layout clients;
-- counted/reference/callable export ABI, raw-pointer capability boundary and dynamic
-  encoding/profile revision (foreign code cannot be made safe by a documentation claim);
+- explicit Rc construction/borrowing spelling, borrow-carrying payload admission,
+  private handle/call handoff, owning environment and snapshot API types, as listed
+  in source-lifetime-lowering §7; copy retains is settled, not an open gate;
+- replace the implicit owner-selection pipeline with explicit Rc lowering and
+  borrow/strong-edge checking across records, fixed arrays and active tags; then
+  integrate persistent modules, containers/initialized-element loops and erasure;
+- borrow/strong-edge generalization and stable separate-compilation summaries,
+  Rc/callable export ABI, raw-pointer boundary and dynamic encoding/profile revision;
+  qualify shared memory orders and foreign teardown separately. Foreign code cannot
+  be made safe by a documentation claim;
 - exact copy-out and iteration mutation semantics, empty text/pattern cases, position
   capture result type, table builtin-name collisions and migration insertion history;
 - capability-requirement syntax and implementation of the approved `.let`-only

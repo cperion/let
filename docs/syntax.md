@@ -763,8 +763,12 @@ must already be defined, so a sum cannot mention itself by value. Section 8.2 su
 
 ### 8.2 References and recursive types
 
-A reference names a place instead of copying it. References, slices, pointers and ids
-are indirection boundaries; growable containers also have finite handle representations.
+A reference borrows a place instead of copying or owning it. `Rc(T)` is the approved
+explicit owning type: semantic copies retain the same root, not a copy of `T`.
+Rc construction/borrowing surface and ABI gates are recorded in
+[source-lifetime-lowering.md §7](source-lifetime-lowering.md#7-remaining-concrete-binding-decisions);
+the current compiler has not implemented that cutover. References, Rc handles,
+slices, pointers and ids are indirection boundaries; growable containers also have finite handle representations.
 Finite layout is separate from acyclic ownership. For example:
 
 ```
@@ -786,8 +790,9 @@ let again = Ref(c)             -- a second reference to the same instance
 A reference is an ordinary value: it may be a parameter, a result, a field or a local binding, and
 passing or returning one passes the reference, not the instance. A function may therefore take
 `Ref(T)` and write through it, and a reference to module storage may be returned from a call and
-followed there. Foreign use requires the declared borrow or owning-handle ABI; a host
-must not guess that every `Ref(T)` is one pointer.
+followed there. Foreign use requires a declared borrow ABI and its lifetime guarantee.
+An Rc owning-handle ABI is distinct and remains gated; a host cannot manufacture a
+checked borrow or owning handle from an arbitrary pointer.
 
 `Ref(T)` is not a copy of `T`. When `T` denotes a schema, that annotation also selects the
 schema's methods; a method call through the reference borrows its actual referent. It does not
@@ -797,30 +802,32 @@ observe each other's writes. A reference has stable identity under copying: copy
 holds a reference copies the reference, not the referenced instance. Assigning through a reference
 to a field of a *binding* still rejects: `r = ...` is not a store, only a place beneath `r` is.
 
-A reference either has an independent borrow proof or retains its root owner.
-Ownership is implicit, not a second source spelling. A reference to a field retains
-the entire addressable aggregate root, not just that field or every local in the
-activation. Counted roots are allocated in their final storage from the start.
+A reference always needs an independent borrow proof. Ownership is explicit in
+`Rc(T)`, not a second inferred representation of `Ref(T)`. A reference to a field
+borrows its root's storage; it neither retains that root nor promotes the field or
+activation. Explicit Rc roots are allocated directly, with no later relocation.
 
 #### What a reference may name
 
-A reference requires an addressable place and proven or retained lifetime. Named
+A reference requires an addressable place and proven borrowed lifetime. Named
 local records and arrays, their fixed-layout parts, caller places and module data
-follow this rule. Escaping a local can cause its root value to be counted; it does
-not cause runtime relocation. Store-slot references are the restricted temporary
+follow this rule. A reference escaping its valid storage lifetime rejects; it never
+causes counted allocation or hidden retention. Store-slot references are the restricted temporary
 borrows of [the store contract](owners-references-ids.md#5-stores-and-ids).
 
 `Ref-target` rejects a temporary or a value without an addressable target. A reference is not
 itself another target: `Ref(Ref(x))` rejects rather than collapsing two indirections.
 
 Passing a record or array by value creates separate storage. Returning a reference
-to that parameter or a local retains its separately allocated root when the owner
-constraints permit it. Returning a reference-valued field preserves its original
-referent and ownership bounds; copying the enclosing record does not retarget it.
+to that dying parameter storage or a local rejects. Returning a reference-valued
+field requires its original referent to remain valid through the result's use;
+copying the enclosing record neither retargets nor owns that referent. Returning an
+Rc value instead declares owning transport and applies its copy semantics.
 
 The compiler checks uses, stores, returns and loop transfers, including nested
-aggregates and environments. A longer-lived destination requires a lifetime proof
-or owning reference, checked against actual-owner acyclicity constraints. Replacing
+aggregates and environments. A longer-lived destination requires a valid borrowed
+lifetime or a declared owning value such as Rc. Strong Rc edges separately require
+actual-owner acyclicity; invalid borrowed references are not converted into Rc. Replacing
 a fixed-layout subobject overwrites its existing place: references observe the
 replacement, while earlier value snapshots retain their data.
 
@@ -840,9 +847,9 @@ let local(x: U32): U32 = do
   return n.next.value                            -- fine: the target is module storage
 end
 
-let retained(x: U32): Node = do
+let invalid(x: U32): Node = do
   let c = Counter { value = x }
-  return Node { value = x, next = Ref(c) }        -- retains c's separate owner
+  return Node { value = x, next = Ref(c) }        -- rejects: c dies on return
 end
 ```
 
@@ -875,9 +882,10 @@ Required reference tests include:
 
 - reference construction from each legal target, selection and store through a reference, aliasing
   between two references, and copying a reference by value;
-- safe local references and caller-derived results; invalid temporary targets and counted local/by-value-storage escapes;
+- safe local references and caller-derived results; invalid temporary targets and rejected local/by-value-storage escapes;
+- explicit Rc factory results and retain-on-copy/drop at each semantic value boundary;
 - branch and module retention, aliasing, adapters and unknown checked contracts;
-- owner self-edges through interior references, closure cycles, branch-unioned constraints,
+- explicit Rc self-edges, strong closure cycles, branch-unioned constraints,
   bounded borrowed cycles and cyclic structures built with store ids;
 - by-value cycles across one and several definitions (`type-cycle`), and a cycle broken only by a
   reference being accepted with a finite layout.
@@ -945,10 +953,12 @@ let view = Slice(xs)          -- Slice(U32); view.length is three
 let middle = view[1]          -- a run-time-checked element read
 ```
 
-A view names storage, so section 8.2's lifetime rule applies. It borrows with a proof
-or retains the array's root owner. A returned local-array view can therefore escape
-when owner constraints permit it. A read-only view of mutable storage is not a
-snapshot and cannot cross tasks or enter `Any` on read-only access alone.
+A view borrows storage, so section 8.2's lifetime rule applies. A returned view of
+a dying local array rejects; it cannot promote the array or acquire an owner cell.
+Keeping storage alive requires a separately declared owning value. An owning
+snapshot needs an explicit owning API/type, not a conditional Slice layout. A
+read-only view of mutable storage is not a snapshot and cannot cross tasks or enter
+`Any` on read-only access alone.
 
 A view is read-only. `xs[i] = v` writes the array; `view[i] = v` rejects (`not-a-place`), because the
 view does not own the storage it names, and the bytes of a string literal are not writable.
@@ -1208,7 +1218,8 @@ revision uses existing place capture transport. Capturing a mutable record insta
 actual place; copying its binding does
 not secretly copy its state. Owned value captures form a by-value environment. A closure containing
 receiver/place access or another callable carries that access's lifetime and owner
-bounds. It may remain borrowed or become a counted environment when the proof allows.
+bounds. Borrowed captures cannot cause implicit counted-environment allocation;
+escaping ownership needs an explicitly owning environment contract.
 
 Owned closures may return and copy when their retained access outlives the destination. A closure
 with no captures is pure code: its invocation pointer has a null environment and needs no adapter.
@@ -1216,10 +1227,11 @@ By-value environments may contain checked references or slices, and nested owned
 the same lifetime rule.
 
 Place-capturing closures and method values can be invoked locally or borrowed by
-non-retaining calls. Escaping environments retain their captured root owners and
-must satisfy owner-rank constraints. Storing an environment back into an owner it
-retains rejects `Ref-cycle`. This representation is a target, not implemented by
-the current typed compiler's callable-capture path.
+non-retaining calls. An explicitly owning environment copies its Rc captures and
+must satisfy strong-edge constraints. It cannot promote borrowed place captures.
+Storing an owning environment back into an owner it retains can form a strong
+cycle and rejects. The explicit owning-environment surface/transport is still a
+binding gate; the existing callable `Owned` form is not itself the new Rc type.
 
 A named word or schema method compiled in its own function cannot implicitly reuse another
 function's runtime values or places. Such captures need a represented environment, such as lambda
@@ -1697,8 +1709,8 @@ tests. `architecture.md` defines the implementation obligations supporting them.
 
 ## 15. Progressive typing and collector-free values
 
-The target is one Let language with implicit owners, proven borrows, acyclic
-counted references and immutable value sharing. There is no collector-backed
+The target is one Let language with explicit `Rc(T)` ownership, retain-on-copy,
+strictly borrowed references, acyclic strong edges and immutable value sharing. There is no collector-backed
 source profile. [Owners, references and ids](owners-references-ids.md) is the
 ownership authority. This target is not implemented by the current typed compiler.
 
@@ -1815,8 +1827,10 @@ owners can cross tasks; read-only access to mutable backing does not qualify.
 
 ### 15.8 Memory without collection
 
-Escaping addressable roots and environments are separately counted from creation.
-Mutable strong edges obey strict static owner-rank constraints. Immutable value
+Rc construction explicitly allocates counted roots; escape of an ordinary local
+reference instead rejects. Owning environments use explicit ownership contracts,
+not escape-driven promotion. Rc copies retain and drops release. Mutable strong
+edges obey strict static owner-rank constraints. Immutable value
 DAGs are constructed from completed values and updated with COW snapshot ordering.
 They cannot point back into mutable owners. Borrows prove independent lifetimes;
 ids own nothing. The proof and conservative rejection rules are in

@@ -1,12 +1,14 @@
 # Implementer contract: primitive, owner and task interfaces
 
-**Lifetime-lowering removal checkpoint: proof-directed replacement pending.**
-The blanket source materializer has been removed. Counted source currently rejects
-rather than falling back to borrowed execution; retained-capable tagged source also
-awaits the replacement. The C core, six runtime bindings, C-entry delivery and
-concrete active-tag drop generator remain. The source integration described below
-records the preceding checkpoint, not current executable admission. See WORKLIST
-O03–O08/E01/E02 for the approved correction and actual checks.
+**Explicit Rc cutover: source semantics approved; concrete binding pending.**
+`Rc(T)` owns and copies retain; `Ref(T)` is always borrowed. Automatic promotion,
+reference capability inference and inferred preservation/result-resource contracts
+are superseded. The interrupted implicit implementation is checkpointed at
+`4a9da5db`, not qualified as explicit Rc. The C core, six runtime bindings, C-entry
+delivery and concrete active-tag drop generator remain. Source integration below
+records earlier evidence, not current Rc admission. See WORKLIST O01–O08/E01/E02
+and [source-lifetime-lowering.md](source-lifetime-lowering.md) for the approved
+removal scope and remaining source/private-ABI gates.
 
 The v3 catalog/dispatch,
 release preparation/cache, scope-slot/prefix protocol and compiler lifetime client
@@ -617,64 +619,45 @@ entries eagerly and uses the same resume metadata/ownership contract.
 
 ## 9. Source analysis interfaces: no disconnected analysis layer
 
-New `frontend/let/ownership.lua` is a client of existing source value/place/state
-metadata, not another IR or evaluator. Its target interface is:
+The approved source owner is now the explicit type/operation contract:
+`Rc(T)` construction allocates; semantic Rc copies retain; drops release; Ref and
+Slice transport only borrows. Borrow checking rejects invalidation or escape rather
+than asking owner inference to repair it. Root-only Rc has no implicit owning
+projection. The concrete source and transport gates are in
+[source-lifetime-lowering.md §7](source-lifetime-lowering.md#7-remaining-concrete-binding-decisions).
 
-```text
-root(place) -> RootId
-borrow(origin, holder_extent, use) -> BorrowObligation
-retain(holder_root, target_root, source_site) -> StrictEdge
-join(states) -> state with union of possible edges/borrow obligations
-instantiate(call_summary, actual_roots, result_destinations) -> obligations
-solve(component) -> checked summary or diagnostic with edge/source witness
-```
+`semantic.lua`, schema and ordinary IR builders must preserve semantic owning-copy
+boundaries, including local Rc value bindings. Register transport is not a copy.
+`access.lua` remains the place/effect/provenance producer for readonly checks,
+borrow validity, callable effects and actual strong-edge checks; it is not an
+owner-capability or storage-promotion engine. No second scalar evaluator is added.
 
-Root identity is original context/storage root, not projected element type. Ordinary
-copy creates destination holdings and corresponding edges; projected refs retain the
-same root. Keep borrowing obligations separate from strong edges. A borrow proof
-cannot assume the very strong edge whose omission it is meant to justify.
+The existing `ownership.lua` counted-requirement solver, capability propagation,
+preservation acquisition policy, reuse promotion and interrupted `rootBindings`
+are removal targets. Borrow liveness/identity and iterative SCC algorithms may be
+retained where they have actual checking clients. Strict Rc edges use actual root
+identity rather than referent-type reach. Join possible strong edges, reject
+self/nontrivial SCCs and preserve conservative recursive constraints; no runtime
+rank words or cycle detector are introduced. Immutable construction/COW retains
+its separate proof obligations. There is no conditional borrowed/owning Ref ABI.
 
-For a finite inferred component, union all possible strict edges, run SCC detection,
-reject self-edges/nontrivial SCCs and topologically order the remainder. Cross-function
-summaries carry formal owner variables and inequalities; instantiate them at calls.
-Recursive inference conservatively stabilizes these finite summaries, rejecting
-unprovable demands rather than inventing runtime ranks or a cycle detector. Immutable
-construction/COW has separate proof obligations and cannot point into mutable owners.
-The approved first private binding is now implemented in `frontend/ir.asdl`,
-`access.lua`, `ownership.lua` and `program.lua`: program-local function summaries carry formal,
-fresh, module and deferred owner variables, component results, holding obligations,
-independent borrow evidence, strict edges and counted requirements. The existing
-access worklist performs actual-root substitution and call-context qualification;
-owner inference does not replay bodies. Fresh factory results remain distinct through
-wrappers. Recursive allocation families fold at repeated call sites; equal family
-names alone never prove an activation borrow. Actual same-activation formations
-supply independent extent evidence. Relative access-origin markers are cleared at
-call boundaries; formation proofs remain bound to their original extent and become
-invalid when their holder becomes counted.
-Formal-only inequalities remain conditional on borrowing/owning specialization;
-instantiation with concrete counted roots checks their contradictions.
+`program.lua` continues to own an immutable checked graph and its analysis results.
+`check.lua` continues structural/type validation, with the source lifetime/cycle
+validators at the program boundary. `placement.lua` lowers declared Rc operations
+and concrete owning fields; it no longer chooses ownership behind reference types.
+`Layout.physical` and `Check.program(..., true)` remain the physical boundary.
+Entry-rooted code selection must survive independently of the discarded resource
+solver. No source program is reinterpreted through the retired materializer.
 
-These are source inference facts, not a finalized public summary format.
-`check.lua` performs structural/type checks only. `program.lua` explicitly runs
-analysis and owns the results for the completed graph; it never publishes proofs on
-shared function nodes. The former program-wide borrowed/owning layout selection and counted-only source
-materializer have been removed. `layout.lua` currently rejects counted requirements;
-`placement.lua` retains only the concrete field-drop emitter. The replacement must
-consume per-use borrow/transfer/acquisition proofs before choosing physical contracts.
-The proposed detailed compiler binding is [source-lifetime-lowering.md](source-lifetime-lowering.md):
-loan/guard/version records, fixed-point rules, private input/result signatures, concrete
-moves and failure sequencing. It is a design under review, not an implemented or
-already-approved extension of this runtime ABI.
-The preceding concrete source binding above, not historical §1.1, records the first
-connected executable slice. Broader polymorphic/recursive borrowing precision,
-erased/dynamic/container admission and separate-compilation/FFI contracts remain
-incomplete. See WORKLIST O03 and the ownership-inference evidence; a finite SCC
-solver alone is not a complete ownership language implementation.
+The current tree is not this target: it still contains the implicit summaries and
+a partial rooted materializer from `4a9da5db`. Earlier source/tagged and C-core
+qualification remains historical evidence for its exact scope, not acceptance of
+explicit Rc. Separate-compilation, public/foreign Rc handoff, owning environments,
+snapshots, erased/container/task transport and their qualification remain gated.
 
-Packs/spread/operator elaboration stays in `semantic.lua` and ordinary IR builders.
-Owner/effect queries attach to those operations; they must not rerun source computation.
-Only the VM staging service computes user values. Borrowed/consumed/produced holding
-annotations then drive ordinary lowering and explicit lifetime effects.
+Packs/spread/operators still elaborate through ordinary source/IR mechanisms.
+Only the VM staging service computes user values. RC lowering binds the existing
+runtime and ABC mechanisms; backends do not independently choose ownership policy.
 
 ## 10. Remaining hard gates and definition of a complete slice
 
@@ -682,9 +665,11 @@ The following are actual decisions, not ordinary implementation discretion:
 
 - Public encoding/profile revision and metadata validation for new effects/types.
 - Dynamic cell/interface representation and operator authority through structural joins.
-- Remaining polymorphic/recursive owner-summary qualification, separate-compilation
-  encoding and public FFI retention contracts; the first private source binding above
-  is approved and implemented, not awaiting another model approval.
+- Explicit Rc construction/borrow surface, borrow-carrying payload admission and
+  failure-safe private handle/call transport (source-lifetime-lowering §7).
+- Remaining polymorphic/recursive strong-edge/borrow-summary qualification,
+  separate-compilation encoding and public FFI retention contracts. The old private
+  implicit-owner binding is superseded, not authority to guess these Rc interfaces.
 - Exact source abort/embedding shutdown behavior with foreign calls in flight.
 
 Do not silently decide these by assigning a free opcode, adding fallback semantics or

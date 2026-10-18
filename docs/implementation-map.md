@@ -48,57 +48,39 @@ New tests: `frontend/tests/source_demands.lua`, `source_snapshots.lua`; wire the
 
 ## E / O — Primitive contracts, ownership and execution state
 
-**Removal checkpoint:** the v3 owner orchestration and subsequent large redesign
-proposal remain removed. The connected replacement now uses checked source proofs,
-concrete physical storage and six narrow C bindings over the small counting/queue core.
-See WORKLIST E/O and `research/experiments/runtime-owners/source-cutover/` for exact
-supported source execution, failure, full incremental and focused sanitizer evidence;
-generalized owning public/foreign/container/task and erased contracts remain incomplete.
+**Explicit Rc replacement:** `Rc(T)` owns, copies retain, Ref/Slice borrow. The
+implicit promotion/capability/resource pipeline is superseded, not an implementation
+to finish. Its interrupted state is preserved at `4a9da5db`. The C counting/queue
+core, six runtime bindings and concrete C-entry delivery remain. Earlier source
+execution and sanitizer evidence qualifies only its recorded scope. WORKLIST E/O
+owns current status; public/foreign/container/task and erased transport remain gated.
 
 | IDs | Existing files | New files / concrete responsibility |
 | --- | --- | --- |
 | E01 | `tools/assembler.lua`, `src/internal.h`, `src/module.c`, `src/memory_module.c`, `src/verify.c`, `src/optimize.c`, `src/cli.c`, `gen/cold.lua`, `Makefile` | Revision-7/profile-4 section-10 C-entry metadata implemented; explicit `.centry`, typed entry-role validation, distinct optimizer roots/index rewriting and ABC target exclusion. `tools/validate_c_entries.lua`/`.c` cover format and fail-closed boundaries. `src/lifetime.h/.c` validates/binds six exact reserved source contracts. VM/residualizer/native-emitter prepare and publish real C lifecycle entries in all modes; tooling residual IR/portable C still reject. No new instruction/cell kind, primitive catalog or retired import fallback |
-| E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`: standalone C concrete-allocation/count/replacement/queue core; no stored payload offset, progress or traffic counters. `frontend/let/placement.lua` retains concrete C-entry field drops (including finite active-tag branches); its blanket source materializer has been removed. The replacement must consume per-use borrow/transfer/acquisition proofs and concrete call contracts before choosing fields. Tagged values retain canonical packed cells and ADDR2BITS/BITS2ADDR. `layout.lua` no longer selects program-wide owning widths; counted source rejects pending replacement. Physical layout remains available. `src/lifetime.h/.c` (new), owner/context/VM/residualizer/emitter and stencil bindings own allocation/cleanup delivery without scope slots, prefix, release cache, dispatcher or pinned register. Unresolved placement/representation and owning public/foreign contracts reject |
+| E02, O04–O07 | `src/internal.h`, `src/vm_internal.h`, `gen/execution_forms.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `frontend/let/abc.lua` | `src/owner.h/.c`: standalone C concrete-allocation/count/replacement/queue core; no stored payload offset, progress or traffic counters. `frontend/let/placement.lua` retains concrete C-entry field drops (including finite active-tag branches); its blanket source materializer has been removed. Replace inferred allocation/holding/result contracts with declared Rc types and semantic allocation/copy/drop operations; retain independent borrow checking and concrete failure-safe cleanup. Tagged values retain canonical packed cells and ADDR2BITS/BITS2ADDR. `layout.lua` must give Ref a borrowed contract and Rc its selected explicit handle contract, without ownership-mode widths. Physical layout remains available. `src/lifetime.h/.c` (new), owner/context/VM/residualizer/emitter and stencil bindings own allocation/cleanup delivery without scope slots, prefix, release cache, dispatcher or pinned register. Unresolved placement/representation and owning public/foreign contracts reject |
 | E03, T03–T04 | `src/execution_emit.h`, `src/residualize.c/.h`, `src/symbolic.c/.h`, `src/vm.c`, `src/vm_internal.h`, `src/threaded.h`, `src/threaded_emit.c`, `src/native_image.c`, `gen/banked.lua`, `gen/cold.lua`, `gen/threaded.lua`, `gen/stencils.lua`, `gen/execution_forms.lua` | `src/execution_context.h`: persistent root/context-bound limits plus concrete activation chain/owner queue; no second cleanup execution context. Ownership SERVICE/resume snapshots remain removed; source entry returns packed status. `src/task.h/.c` and PARK/task scheduling remain pending |
 | E04 | same E03 bindings plus P/T files below | Exact ticket/state/lock protocol in `task.c`, `channel.c`, `task_select.c`, `scheduler.c`; no generic concurrency facade |
 | E05 | `src/native_image.c`, `src/native_emit.c/.h`, `src/execution_emit.h`, `src/residualize.c/.h`, `src/vm.c` | Fresh-page RX publication/atomic entry slots implemented; published bytes never reopen RW. Emitter region diagnostics replace contiguous-code views. Qualify fragmentation and broader image sharing/lifetime |
-| E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | `tools/validate_owner_core.c` covers the standalone C core; `tools/validate_c_entries.lua`/`.c` cover format/ABC exclusion. `frontend/tests/source_owners.lua` and `tools/validate_source_owners.c` remain wired into `validate` as end-to-end acceptance tests, currently failing at the explicit lifetime-lowering cutover gate. Do not skip them or replace their successful-execution expectations with rejections. Their preceding qualification covers four modes, raw/optimized/both lifecycle banks, tagged partial acquisition and active-case-only cleanup. `tools/opcodes.lua`, `gen/semantics.lua`, residualizer/optimizer and `schema/residual.asdl` bind the two raw address casts; ISA/oracle/residual/cache tests cover both banks and exact bits. Old v3 fixtures remain removed; task integration still pending |
-| O01–O03 | `frontend/let/semantic.lua`, `source_state.lua`, `analysis.lua`, `access.lua`, `check.lua`, `frontend/ir.asdl`, generated `schema/ir.lua`; S metadata above | `frontend/let/program.lua` owns the completed graph and access/ownership results; `ownership.lua` retains the root/borrow/count/edge solver and iterative SCC diagnostics. `check.lua` is structural/type-only. Removed function proof annotations and checker-driven inference; semantic/compiler/demand/specialization producers now pass a checked program to ABC. `tests/program.lua` and `tests/ownership.lua` cover the boundary and proofs. Counted source execution is closed during the materializer replacement; extend existing ordered facts and summaries with protection/transfer obligations rather than re-inferring them in lowering. Broad precision/ABI/representation debt remains under WORKLIST O03–O08 |
+| E06, O08 | `Makefile`, `tools/validate_execution_emit.c`, `tools/validate_api.c`, `tools/validate_lifetime.c`, `frontend/tests/compiler.lua` | `tools/validate_owner_core.c` covers the standalone C core; `tools/validate_c_entries.lua`/`.c` cover format/ABC exclusion. `frontend/tests/source_owners.lua` and `tools/validate_source_owners.c` remain wired into `validate` as end-to-end acceptance tests, awaiting the explicit-Rc migration. Convert owning fixtures to explicit Rc while preserving positive execution coverage; separately test that formerly promoted local Ref escapes now reject. Do not turn owning execution acceptance into rejection tests. Their preceding qualification covers four modes, raw/optimized/both lifecycle banks, tagged partial acquisition and active-case-only cleanup. `tools/opcodes.lua`, `gen/semantics.lua`, residualizer/optimizer and `schema/residual.asdl` bind the two raw address casts; ISA/oracle/residual/cache tests cover both banks and exact bits. Old v3 fixtures remain removed; task integration still pending |
+| O01–O03 | `frontend/let/semantic.lua`, `source_state.lua`, `analysis.lua`, `access.lua`, `check.lua`, `frontend/ir.asdl`, generated `schema/ir.lua`; S metadata above | `program.lua` keeps immutable checked-program ownership. Remove counted-placement inference, owner-capability propagation, hidden preservation and inferred reference-resource contracts from `ownership.lua`; reuse necessary borrow and SCC algorithms. Remove their event producers from `access.lua`, preserving readonly/effect/callable/provenance checking. Add explicit Rc type/semantic operations through schema and `semantic.lua`; do not erase Rc copies as scalar aliases. Migrate tests to explicit owning copies and rejected invalid borrows. `check.lua` remains structural/type validation, with lifetime/cycle checks at the program boundary |
 
-**Approved lifetime replacement binding:** [source-lifetime-lowering.md](source-lifetime-lowering.md)
-§9 defines the concrete frontend APIs and file responsibilities, including `compiler.lua`
-entry requests, new schema metadata and the consuming/mixed-result private contracts.
-The first partial checkpoint adds original-site flow/contents versions in `access.lua`,
-program-owned flow in `program.lua`, and `loan-demand` templates in `ownership.lua`,
-with schema identities and regressions in `tests/access_proofs.lua`. The continuation
-connects original component dependencies, finite external-field obligations, exact
-static array paths and conservative wildcard invalidation in those same files. It also
-corrects expression memo IDs being mistaken for SSA definitions. `ownership.lua` now
-also supplies the finite entry-rooted `bindLoans` graph and recursive `capabilities`
-requirement solver, preserving per-call substitutions and caller recovery of input-origin
-result capabilities. `access.lua` supplies callee-entry/exit memory versions, returned
-construction effects and invocation-site reads of actual callable environment fields;
-code-global materialized capture values are no longer a second state owner. Regressions
-in `tests/access_proofs.lua` include shared-query call bindings, recursive forwarding,
-known-input ABI preservation, wildcard returned contents, unknown callable obligations,
-and distinct query captures sharing code. The next continuation in `ownership.lua`
-adds normal-CFG SCCs, `locators` / `sameLocator`, per-alternative snapshot survival and
-`snapshotDemands`. Original operand definitions and memory loads constrain equality;
-loop reuse never becomes equality merely through static IDs. `reuseRequirements`
-strengthens counted-from-creation requirements when old carriers survive allocation-site
-reuse, revisits retained targets/cycles through the existing solver, and records result
-reuse without inventing output slots. `layout.lua` now delegates borrowed admission to
-`Ownership.requireBorrowed`; the former count-only gate cannot admit these newly
-identified or unresolved cases. Tests cover joins, indices, calls/wrappers, old loop
-snapshots, placement propagation, caller/self cycles and ordinary frame admission.
-Actual guard/holding selection, preservation actions, normalized concrete contracts /
-instances and replacement physical emission remain pending; counted source admission
-stays closed. Locator/demand records are not holding or container-lifetime certificates. Runtime C bindings and the native/threaded allocator are not
-replacement targets for this slice. Current evidence is under
-`research/experiments/runtime-owners/source-lifetime-analysis/`,
-`research/experiments/runtime-owners/source-lifetime-dependencies/` and
-`research/experiments/runtime-owners/source-lifetime-contracts/` and
-`research/experiments/runtime-owners/source-lifetime-locators/`.
+**Explicit-Rc file/removal binding:**
+[source-lifetime-lowering.md §§5–7](source-lifetime-lowering.md#5-concrete-removal-and-survivor-set)
+is the current target, replacing the old private consume/offer/mixed-Ref-resource design.
+
+| Responsibility | Actual files / removals / tests |
+| --- | --- |
+| Rc vocabulary and semantic copy boundaries | `frontend/ir.asdl`, generated `frontend/let/schema/ir.lua`, `frontend/let/{schema,semantic,ir}.lua`; constructors and type resolution currently live in `semantic.lua`, not a new builtin subsystem. Extend `tests/{schemas,type_names,ownership}.lua`. Source spelling/borrow gates must be settled first. |
+| Borrow/cycle checking, not promotion | `frontend/let/{access,ownership,program,check}.lua`; remove `returned`, promotion-dependent `independent`/`solve`, `capabilities`, preservation acquisition, reuse promotion, `requireBorrowed`, implicit `rootBindings`, and their event channel. Audit dependency/version/locator facts for surviving borrow/cycle clients. Retain SCC algorithms and actual invocation-site environments. Migrate `tests/{access_proofs,ownership,program}.lua`. |
+| Typed Rc materialization | `frontend/let/{layout,placement,abc,compiler}.lua`; discard inferred reference resources and ownership-mode instances. Keep entry-rooted selection, concrete drop traversal, packed values and checked/physical separation. Specify physical handle/handoff before editing. |
+| Runtime boundary | `src/owner.h/.c`, `src/lifetime.h/.c`, native/threaded allocator and C-entry bindings survive; do not add a registry, alternate interpreter or new runtime ownership dispatcher. |
+| Integration and measurements | `frontend/tests/{source_owners,packed_tagged,ownership,program}.lua`, `tools/validate_source_owners.c`, existing core/C-entry validators and `Makefile` wiring if needed. Preserve positive owning scenarios with explicit Rc; add invalid-Ref rejection and no-hidden-count checks. Measure compiler time/query counts/memory, emitted code, exact RC traffic, cleanup storage and peak owner bytes. |
+
+Do not delete the whole access analysis or `Ty.Owned` (the existing callable
+specialization form). Do not restore code-global captured-value unions. Keep
+archives and raw logs under `research/experiments/runtime-owners/source-lifetime-*`
+unchanged; they describe the superseded implementation, not explicit-Rc acceptance.
 
 Historical v1/v2/v3 evidence remains under `research/experiments/runtime-owners/`.
 It describes removed bindings, not current execution. The subsequent minimal C-entry

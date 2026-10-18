@@ -2291,3 +2291,34 @@ Remaining work or design questions:
  The redesign is not about making the compiler more general by adding machinery. It is about making ownership, proofs and effects precise enough that the fast existing machinery can do more work directly.
 
  That is the base on which dynamic operations should return.
+
+## Explicit Rc replaces implicit reference ownership
+
+The user stopped the implicit lifetime cutover and chose explicit `Rc(T)` with
+**copy retains**. The stated goal is developer-visible, typechecked ownership and
+an efficient, simple compiler. `Ref(T)` remains borrowed; invalid escape or loss of
+protection rejects instead of causing promotion or hidden acquisitions. Rc copies
+share the target allocation, and drops release their actual holdings. Proven moves
+may eliminate redundant count operations without changing source semantics.
+
+This retires the organizing responsibilities of counted-root inference, owner-
+capability propagation, inferred snapshot preservation/reuse promotion and hidden
+reference-result resource contracts. Necessary borrow/effect/callable facts and
+actual strong-edge cycle checking remain. The C core, six lifecycle bindings,
+concrete drops, packed-tag machinery and shared ABC allocator/continuations survive.
+The existing callable `Ty.Owned` is not the new Rc type.
+
+The interrupted implementation is preserved at `4a9da5db`, separately from this
+specification revision. It includes an incomplete rooted materializer and a narrow
+private pointer-free-root probe, not a completed source-lifetime implementation.
+The replacement contract is `docs/source-lifetime-lowering.md`; source semantics,
+syntax, runtime-interface references and the implementation map now point to the
+explicit design. WORKLIST O01–O08/E01/E02 retains all delivery status and open gates.
+
+Construction/borrow syntax, borrowed payload admission, failure-safe private Rc
+transport and explicitly owning environment/snapshot APIs must be bound before
+implementation. No public ABI, new encoding or implicit compatibility path is
+approved by the type decision. This documentation change does not implement Rc or
+claim speedups. Compiler time/memory, count traffic, emitted code and retained-memory
+measurements belong to integrated qualification; immutable historical logs remain
+unchanged.
