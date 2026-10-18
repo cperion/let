@@ -33,11 +33,12 @@ readonly/effect/callable and SCC algorithms with real remaining consumers.
 **Dependencies / next action:** settle the concrete construction/borrow surface,
 borrow-carrying Rc payload rule, private handle/failure-safe handoff and explicitly
 owning environment/snapshot APIs for the selected slice (source-lifetime-lowering
-§7). Section 8 now presents a concrete first binding for approval: `Rc(value)`,
-`r.borrow()`, no borrow-carrying payloads initially, one owner-address handle and
-caller-owned typed owning-value slots for failure-safe private calls. These details
-are proposed, not approved by the semantic decision. After approval replace
-producers/consumers together. Copy-retains is settled and must not be reopened.
+§7). The user has now explicitly approved section 8: `Rc(value)`, `r.borrow()`,
+no borrow-carrying payloads initially, one owner-address handle and caller-owned
+typed owning-value slots for failure-safe private calls. Owner: coordinator;
+state: active implementation of this integrated slice. Replace producers/consumers
+and retire the implicit solver together; no implementation deliverable is yet closed.
+Copy-retains is settled and must not be reopened.
 Public/foreign, erasure, containers/tasks and `.let` migration remain their existing
 separate gates, not silently enabled by a type name. No new sidecar or parallel
 implementation is authorized.

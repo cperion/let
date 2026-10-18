@@ -222,9 +222,11 @@ name the retired producers/consumers and test the integrated replacement. Until
 then the code at the interrupted checkpoint remains partial and superseded, not
 an implementation of this specification.
 
-## 8. Proposed first integrated binding — awaiting approval
+## 8. Approved first integrated binding
 
-The following is a concrete proposal, **not additional approved semantics**:
+The user explicitly approved this concrete binding after selecting retain-on-copy.
+Approval covers the integrated removal/replacement and tests below; it is not
+implementation or qualification evidence:
 
 - **Construction:** `Rc(value)` copies a value into a fresh counted root and returns
   `Rc(T)`. It does not move existing addressed storage or adopt a borrowed pointer.
