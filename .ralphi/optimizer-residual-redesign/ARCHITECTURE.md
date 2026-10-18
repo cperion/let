@@ -1,12 +1,13 @@
 # Architecture
 
-Status: candidate (round 5). Derived from `CONTRACT.md`, checked against the
-code, and corrected by the round-2, round-3, round-4 and round-5 probes. Rationale and
-citations: [experiments/1-rederive.md](experiments/1-rederive.md);
+Status: candidate (round 6). Derived from `CONTRACT.md`, checked against the
+code, and corrected by the round-2 … round-6 probes. Rationale and citations:
+[experiments/1-rederive.md](experiments/1-rederive.md);
 [experiments/2-abc-versioned-sink.md](experiments/2-abc-versioned-sink.md);
 [experiments/3-loop-versions.md](experiments/3-loop-versions.md);
 [experiments/4-entry-lattice.md](experiments/4-entry-lattice.md);
-[experiments/5-loop-key.md](experiments/5-loop-key.md).
+[experiments/5-loop-key.md](experiments/5-loop-key.md);
+[experiments/6-may-write.md](experiments/6-may-write.md).
 
 The one-line design: **execute ABC semantics once, symbolically, per version;
 module facts and version identity have one owner; a sink owns only residue.**
@@ -30,10 +31,13 @@ A residualizing compiler is five things:
    signatures, block leaders, direct-call graph, recursive/tail-only/nontail
    components (they also feed the inline rule), unknown-call reachability, entry
    roots, **loop headers** (a leader with an incoming edge whose source pc is at
-   or after it) and, per loop header, the **loop may-write set** over the
-   binding's key components plus the per-pc A/B/C layouts it needs (Q12). The
-   may-write set is what makes the loop-invariant key computable before the body
-   is walked.
+   or after it) and, per loop header, its **backedge instructions** and **cycle
+   body** (the pcs on a path from the header to a backedge source, excluding the
+   backedge instructions), plus the per-pc A/B/C heights and `CSET` target slots
+   it needs (Q12). The cycle body and the heights yield the loop's **may-write
+   set**, which is what makes the loop-invariant key computable before the body
+   is walked. The may-write set is a *heuristic*: exact keys keep any widening
+   sound, so a conservative set costs code quality, never meaning.
 2. **Symbolic machine** — A/B/C stacks of `constant | home | sink value`, C frame
    coordinates, explicit continuations, transfer dispatch. This is the only
    semantics and, for native, the register allocation.
@@ -75,9 +79,9 @@ Invariants:
   all-location key, because the binding has one entry address and the callee must
   be correct for every caller (ABC `CALL`/`TCALL`, `verify.c:131-134`);
   (ii) an edge into a **non-entry loop header** takes the **loop-invariant key**:
-  the key with every component whose storage the loop may write or destroy
-  replaced by a location, and every other component unchanged, because the header
-  body is one version that runs every iteration (see below);
+  the key with every component whose value can change on a cycle through the
+  header replaced by a location, and every other component unchanged, because the
+  header body is one version that runs every iteration (see below);
   (iii) at the per-pc version budget a key is replaced by the canonical
   all-location key. All three are static functions of the key and module facts.
   **There is no entry join, no entry-fact lattice, no call facts, no widening
@@ -97,21 +101,32 @@ Invariants:
 - **edge-key modes are the whole loop rule**: a plain forward edge keeps
   constants; an edge into a non-entry loop header takes the loop-invariant key;
   at the per-pc version budget the key becomes the all-location key. The
-  loop-invariant key is the join of the header's incoming keys over all
-  iterations, computed statically: a component can differ between iterations only
-  if the loop changes its storage, so the join's fixpoint is the entry key with
-  the loop's may-write components widened. For ABC a component (a C home or a
-  drained A/B depth) is may-write when the loop interval writes that home, or its
-  minimum A/B/C height reaches the component's depth, or a call in the interval
-  gathers arguments at or below its home; for native the same predicate over A/B
-  depths and C-frame homes. A may-written component whose value happens to stay
-  the same constant is widened unnecessarily — the static rule's only loss
-  against a dynamic join, and the price of running no fixpoint. **A loop header
-  is a version like any other**: one version per distinct loop-invariant key (one
-  for a single-entry loop), its backedge is an edge, and its body keeps every
-  constant the loop does not overwrite (measured: the documented counter's one
-  body with `BLTUI_A 50`/`ADDI_A 7`). There is no loop state, no loop prologue, no
-  backedge lowering and no path-shaped control-flow representation;
+  loop-invariant key keeps the entry key's constant on a component iff the loop
+  cannot change the value the header sees there. Its **body is the cycle body,
+  not a pc interval** (measured: an interval includes live exit code and the
+  frame-replacing backedge; `experiments/6-may-write.md` §2–3), and the
+  **backedge instruction is the join, not a body write**: a self-tail `TCALL`
+  replaces the local frame from its argument vector (`docs/spec.md` "Calls"), so
+  its writes define the target key exactly like `binding.join`. The static
+  predicate is binding-owned and one pass: **ABC** — C slot `k` is may-write iff
+  the cycle body's minimum C height is `<= k` or the cycle body contains a `CSET`
+  targeting `k` (ABC keys are C-only, and a call cannot touch the caller's slots
+  below its base: a callee frame starts at the caller's call-time C height and a
+  callee addresses only its own frame, `symbolic.c:467-484`, so no call clause is
+  needed); **native** — the same C clause plus A/B depth `d` iff the cycle body's
+  minimum A/B height is `<= d` (native loop backedges are plain jumps).
+  A same-function self-tail backedge is position-preserving (measured: the callee
+  `C_k` receives selected-stack depth `k`, all four modes); a computed or
+  re-ordered argument vector is widened at the edge. The may-write set is a
+  **heuristic, not a correctness condition**: over-widening loses constants,
+  under-widening only makes the backedge create another version, bounded by the
+  per-pc budget, and exact keys keep every version body correct either way. **A
+  loop header is a version like any other**: one version per distinct
+  loop-invariant key (one for a single-entry loop), its backedge is an edge, and
+  its body keeps every constant the loop does not overwrite (measured: the
+  documented counter's one body with `BLTUI_A 50`/`ADDI_A 7`). There is no loop
+  state, no loop prologue, no backedge lowering and no path-shaped
+  control-flow representation;
 - **a residual-function entry has exactly one version**, keyed by the generic
   all-location key where the binding has one entry address; the same is true of a
   module entry (export, relocation, C entry). No join is computed, so no
@@ -139,8 +154,9 @@ at the loop-invariant key, everything else exact.
   continuation list survives canonicalization (it is not a location). Keys are
   compared for exact equality. The binding supplies two further descriptors: its
   **canonical all-location form** (residual-call entry and per-pc budget) and its
-  **loop-entry form** (the loop-invariant key: a constant component whose
-  may-write predicate is true becomes a location, everything else is unchanged).
+  **loop-entry form** (the loop-invariant key: a component the loop's cycle body
+  may write or the backedge transports non-identically becomes a location,
+  everything else keeps its constant).
   The core does not assume `HOME(stack,index)` for every slot (that is the native
   form only).
 - **ABC canonical form**: A/B empty, every value either a constant or a **C-frame
@@ -188,8 +204,10 @@ version_at(pc, key, origin):
     v = create(pc, key); queue.push(v); return v
 
 # binding predicate used by loop_invariant:
-#   may_write(pc_component, loop header) -- true iff the loop can change or
-#   destroy the storage of that component.  Static, from module facts.
+#   may_write(component, header) -- true iff the loop's cycle body can change the
+#   value the header sees at that component.  Static, from module facts: the
+#   cycle body, per-pc A/B/C heights, CSET targets and the backedge transport
+#   identity.  A heuristic: exact keys keep it sound either way.
 
 run():
     for each residual function f:
@@ -245,16 +263,18 @@ run():
   (Q10), and the vtable/state limits of the bindings. The ABC
   `ABC_OPTIMIZER_PATH_LIMIT` is a path-tree bound and retires with the path tree
   if Q1 is approved; it is not a module code-size budget either way.
-- **Complexity**: facts O(V+E); one walk per version body; per-body key
-  comparison and scheduling; no fixpoint over functions, so no function is ever
-  walked twice. No pass re-walks emitted
+- **Complexity**: facts O(V+E) plus one reverse walk per loop header bounded by
+  its cycle body (a nested loop is walked once per enclosing header); one walk per
+  version body; per-body key comparison and scheduling; no fixpoint over
+  functions, so no function is ever walked twice. No pass re-walks emitted
   code and no pass is exponential in branches or loop iterations.
 
 ## Interfaces and naming
 
 - Core: `symbolic.c` (+ generated handlers) owns machine, folding, captures,
-  continuations, module facts (loop headers, loop may-write sets, per-pc layouts),
-  and the key *rule*: exact equality, family counting, the three
+  continuations, module facts (loop headers, backedge instructions, cycle bodies,
+  per-pc heights and `CSET` targets, loop may-write sets), and the key *rule*:
+  exact equality, family counting, the three
   canonicalization points (residual-call entry, loop-invariant loop header,
   budget), and the two canonical descriptors (all-location and loop-entry).
 - Driver: one sink-agnostic unit, conceptually
@@ -348,6 +368,18 @@ run():
   instructions vs 16 for the loop-invariant key, and its executed-instruction
   advantage (152 vs 188 at trip count 18) vanishes above about 36 iterations
   (`experiments/5-loop-key.md` §2).
+- **The pc-interval body plus a CALL/TCALL argument clause (round 5's concrete
+  predicate)** — rejected round 6. An interval `[header .. largest backedge
+  source]` contains live exit code (measured: a loop whose exit path pops the
+  frame marks every slot may-write while the cycle writes one,
+  `experiments/6-may-write.md` §3) and contains the self-tail `TCALL` whose frame
+  replacement gathers arguments at C base 0, so the clause marks all four slots
+  of the documented counter may-write and the loop-invariant key collapses to the
+  all-location key (0 constants kept vs 2 under the cycle-body rule, §2) — i.e.
+  the documented P shape round 5 used as its justification becomes unreachable.
+  The call clause is also unnecessary: callee frames start at the caller's
+  call-time C height and are frame-local. The interval's only surviving
+  justification was that dead code over-widens, but the exit path is not dead.
 - **Unroll a constant-trip loop up to the per-pc budget (exact prefix + 
   loop-invariant tail)** — the best measured code for small constant loops
   (152 vs 188 executed instructions at trip 18) but it deliberately emits up to
@@ -440,6 +472,21 @@ run():
   write-time call encoding `:826-833`; C sink generic entries
   `residual_c.c:1239`, `residual_builder.c:2177-2210, 898-933`; dead lattice
   `residual_analysis.c:215-266`; continuation in key identity `symbolic.c:39-75`.
+- Round-6 measured may-write probe (the documented counter and an exit-path-pop
+  loop through the existing assembler, disassembler and the verifier's join rule
+  as the height oracle): `experiments/6-may-write.md` §1–7 and
+  `experiments/6-may-write.lua`, artifacts in `experiments/6-may-write-out/`.
+  Key numbers: the documented counter's `loop` (header pc 41, C height 4,
+  self-tail `TCALL` backedge at pc 72, body `CSET`s slots 2 and 3) is marked
+  may-write `{0,1,2,3}` by round 5's interval + CALL/TCALL rule (0 constants kept)
+  and `{2,3}` by the cycle-body rule (2 constants kept — the incumbent's
+  two-unknown-slot body); the exit-path fixture goes `{0,1,2}` → `{0}` (min C
+  height 0 → 3); argument 0 is the first pushed value (`f(1,2,3)` returns
+  `1 2 3`), so a self-tail transport is position-preserving. Rule citations:
+  `src/symbolic.c:467-484` (a call's frame starts at the caller's C height and
+  does not change `n[C]` when residualized), `docs/spec.md` "Calls" (`TCALL`
+  replaces the complete frame), `src/verify.c` C cases (a callee addresses only
+  its own C frame), `gen/banked.lua:234` (gather).
 - Round-5 measured loop-key probe (hand-built ABC through the existing assembler,
   verifier, four execution modes, incumbent optimizer and portable-C sink):
   `experiments/5-loop-key.md` §1–3 and `experiments/5-loop-key.lua`. Key numbers:
@@ -462,8 +509,9 @@ run():
 
 See `QUESTIONS.md` (Q1 ABC version policy gate; Q2 version-budget authority;
 Q3 portable-C scope; Q9 native loop-header policy; Q10 ABC inline policy and its
-bound; Q12 layout/may-write fact ownership). Q11 is answered: the loop-invariant
-key. Do not duplicate them here.
+bound; Q12 layout/cycle-body fact ownership; Q14 cross-function tail cycles).
+Q11 is answered (the loop-invariant key) and Q13 answers what its body is (the
+cycle body, backedge as join). Do not duplicate them here.
 
 Q1 is the one remaining scope gate for this design. Round-2, round-3 and round-4
 measurements make the recommendation explicit: **adopt versioned blocks for
@@ -485,6 +533,11 @@ single owner. Q9 decides whether native adopts the loop-invariant header key
 C-frame constants kept, the one-iteration peel dropped); the rule is otherwise
 fixed by Q11. Q10 decides the ABC inline rule and its per-function budget, now
 with self-tail recursion bounded by the loop rule rather than the budget. Q12
-decides where per-pc layouts and loop may-write sets are computed. Q3 decides
+decides where per-pc heights, `CSET` targets and cycle-body/may-write sets are
+computed (round 6 pins the required data: heights, `CSET` targets, successors and
+backedges; the verifier's discarded `Shape` records the same heights but must not
+become an optimizer dependency). Q14 decides whether a cross-function tail cycle
+keeps invariants (round 5's claim is unsupported; the conservative answer is the
+all-location key). Q3 decides
 whether the binding set is two or three (the C sink's policy is already the
 precedent for Q5/Q6 either way).

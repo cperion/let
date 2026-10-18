@@ -399,3 +399,86 @@ computed by one shared linear pass (and whether the verifier's discarded `Shape`
 data should feed it), because that decides the compile-cost of the loop rule the
 design now depends on. Q2 still blocks a single budget number; Q1 remains the
 scope gate.
+
+## Round 6 — the loop may-write predicate is the cycle body with the backedge as the join
+
+**Mode:** experiment (a measured correction). **Question ranked first (of three in
+`experiments/6-may-write.md`):** round 5 fixed the loop-header *key form*
+(loop-invariant) and sketched the may-write *predicate* concretely — the pc
+interval `[header .. largest backedge source]`, min A/B/C heights, CSET targets,
+and a "CALL/TCALL in the interval gathers args at or below h" clause. That
+predicate is the load-bearing part of Q11: it decides whether the design emits
+the documented counter as P (one body, limit/step immediates) or G (all-location).
+Is it right? Ranked above (B) whether the predicate is a correctness condition or
+a heuristic (answered as a by-product) and (C) Q12's fact ownership (refined).
+
+**What was measured.** `experiments/6-may-write.lua` assembles the exact
+documented counter source (`frontend/tests/optimize.lua:229`) and an exit-path-pop
+loop with the existing assembler, disassembles with `build/abc dis`, and computes
+per-pc A/B/C heights by abstract interpretation that aborts on any join-height
+disagreement (so the heights match the verifier's `Shape`). Artifacts in
+`6-may-write-out/`. Non-identity of the argument transport was tested separately
+(`6-gather.lua`, `6-gather3.lua`).
+
+**Answers.**
+
+1. **Round 5's predicate collapses the documented counter to the generic key.**
+   `loop` is function 2 at pc 0x29, one self-tail `TCALL` backedge at pc 0x48, C
+   height 4, body CSETs slots 2 and 3. Round 5's rule marks may-write
+   `{0,1,2,3}` (0 constants kept) because the interval contains the tail call,
+   whose frame replacement gathers at C base `4-4 = 0`, so "args at or below h"
+   fires for every slot. The cycle-body rule marks `{2,3}` (2 constants kept) —
+   exactly the incumbent's measured two-unknown-slot body with `BLTUI_A 50` /
+   `ADDI_A 7`. The documented P shape round 5 used as its justification is
+   unreachable under its own predicate.
+2. **The interval is the wrong body: it includes live code that is not on a cycle
+   through the header.** The exit-path fixture (exit pops the frame before RET)
+   goes from may-write `{0,1,2}` (interval, min C height 0) to `{0}` (cycle, min C
+   height 3). "Dead code in the interval only over-widens" is false: the exit path
+   is live.
+3. **The backedge instruction is the join.** A self-tail `TCALL` replaces the
+   complete local frame from the argument vector (`docs/spec.md` "Calls"), so its
+   writes define the target key like `binding.join` defines a join. Corrected
+   predicate: `cycle_body(h)` (pcs on a path from `h` to a backedge source,
+   excluding the backedge instructions) + min C height + CSET targets (ABC;
+   C-only because ABC keys are A/B-empty, so round 5's A/B clause is vacuous) +
+   min A/B heights (native) + the per-edge transport check. The CALL clause is
+   deleted: a callee frame starts at the caller's call-time C height
+   (`symbolic.c:467-484`), a callee addresses only its own frame (`verify.c` C
+   cases), `machine_return` restores `frame.cbase`, and a residual call does not
+   change `n[C]` at all — so no plain call can touch a caller slot below its base,
+   and a caller-side pop is already caught by the min-height clause.
+4. **The predicate is a heuristic, not a correctness condition.** Exact keys are
+   the correctness rule: over-widening loses constants; under-widening makes the
+   backedge edge key differ, creating another version whose own body is still
+   correct, bounded by the per-pc budget (Q2). This is what lets the rule be a
+   cheap static function and why no fixpoint is needed anywhere.
+5. **Transport.** The ABC gather is slot-identity (measured: `f(1,2,3)` returns
+   `1 2 3`; argument 0 is the first pushed, callee `C_k` ← selected depth `k`, all
+   four modes), so a same-function self-tail backedge preserves positions and
+   needs no transport widening. A computed/re-ordered argument vector is widened
+   at the edge (quality, not soundness). A cross-function tail cycle has no
+   per-function cycle body and no position identity: round 5's claim that mutual
+   tail recursion "keeps its invariant constants" is unsupported; the conservative
+   answer is the all-location key (Q14).
+
+**Decision recorded in ARCHITECTURE.md.** The loop rule now names the cycle body,
+the backedge-as-join, the transport identity and the heuristic status; the call
+clause and the ABC A/B clause are gone; the module facts gain backedge
+instructions, cycle bodies, per-pc heights and CSET targets; the complexity note
+admits one bounded reverse walk per header; the interval+CALL clause is recorded
+as a rejected alternative with its measured cost; Q12's required data set is
+pinned; Q13 (body definition) is answered and Q14 (cross-function tail cycles) is
+opened.
+
+**Not established.** Corpus effect of the corrected predicate (the probe is two
+hand-built modules); whether a real loop's self-tail argument vector is ever
+non-identity; the portable-C binding's corrected predicate (it still forgets all
+constants at a loop entry, `residual_builder.c:1090-1091, 1195-1207`); Q9's native
+measurement; whether the loop body can be computed without the bounded walk (e.g.
+by a dominator-based reduction).
+
+**Next uncertainty.** Q14 (cross-function tail cycles) and then Q12's ownership
+decision: one shared shape/cycle-body pass in the core, with the verifier's
+discarded `Shape` heights proving that the data is already computed today. Q2
+still blocks a single budget number and Q1 remains the scope gate.
