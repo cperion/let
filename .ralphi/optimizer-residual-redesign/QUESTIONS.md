@@ -1,0 +1,12 @@
+# Questions
+
+Materiality: could the answer change correctness, the data representation, the
+number of concepts, or violate a requirement? Keep only material questions.
+
+| # | Question | Materiality | Status | Evidence |
+|---|----------|-------------|--------|----------|
+| Q1 | Does `abc-opt` adopt block-version residue (the shared `(pc, key)` traversal) in place of its whole-path tree? This changes abc-opt's specialization/version policy and its canonical output bytes, so it is a version-policy hard gate. Sub-question: are today's abc-opt bytes themselves a compatibility requirement? | high | open | `experiments/1-rederive.md` §5; current tree `src/optimize.c:361-387`; limit `src/symbolic.h:6-9`; fixture requirement `docs/abc-opt.md` (straight-line, unaffected) |
+| Q2 | Which policy is authoritative for the native version budget: "eight total versions per original PC, including the general slot", or the implemented family count that includes the virtual-continuation chain (currently reaching 10 at one PC)? One owner must encode the approved answer. | high | open (hard gate) | `REFACTOR.md:811`; `src/residualize.c:408-438`; `src/symbolic.c:56-75` |
+| Q3 | Does the portable-C sink stay in the target architecture? It is the sole consumer of `residual.asdl` (+1,293-line C writer) and supports only integer/control/direct-call residue. Removing it deletes one residue representation; keeping it fixes a third binding in the design. | high | open (scope) | `schema/residual.asdl`; `src/residual_builder.c`; `docs/symbolic-vm.md` peer sinks |
+| Q4 | Should module facts (call graph, SCC/recursion, nested eligibility, unknown-call reachability, block leaders) have one shared owner used by every sink? | high | answered: yes, one owner in the core | literal duplicate `src/optimize.c:57-118` vs `src/residual_analysis.c:24-85`; per-function DFS `src/symbolic.c:553-578` with O(F·(V+E)) callers `src/residualize.c:822-826`, `src/residual_builder.c:2684`; drifted leader discovery `src/residualize.c:440-463` vs `src/residual_builder.c:2047-2110`; `experiments/1-rederive.md` §3 |
+| Q5 | Should context-key canonicalization, compatibility, family budget and recursion widening live in the core rather than in each sink? | high | answered: yes, move to the core | native policy `src/residualize.c:408-438` + `src/symbolic.c:45-75`; C reimplementation `src/residual_builder.c:851-978`; `experiments/1-rederive.md` §3 |
