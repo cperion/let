@@ -1,0 +1,21 @@
+function 0: 0 arguments, 1 results
+  00000000  PUSH8_A        0
+  00000002  CPUSH_A       
+  00000003  PUSH8_A        40
+  00000005  CPUSH_A       
+  00000006  PUSH8_A        3
+  00000008  CPUSH_A       
+  00000009  CGET0_A       
+  0000000a  CGET1_B       
+  0000000b  BLTU_A         0x00000015
+  0000000e  CGET0_A       
+  0000000f  CPOP          
+  00000010  CPOP          
+  00000011  CPOP          
+  00000012  RET_A          0 1
+  00000015  CGET0_A       
+  00000016  CGETN_B        2
+  00000018  ADD_A         
+  00000019  CSETN_A        2
+  0000001b  JMP            0x00000009
+export main = function 0

@@ -1,0 +1,58 @@
+function 0: 0 arguments, 2 results
+  00000000  PUSH8_A        50
+  00000002  CALL_A         0x0000000b 1
+  00000008  RET_A          0 2
+function 1: 1 arguments, 2 results
+  0000000b  PUSH8_A        0
+  0000000d  CPUSH_A       
+  0000000e  PUSH8_A        0
+  00000010  CPUSH_A       
+  00000011  CGET0_A       
+  00000012  CGET1_A       
+  00000013  CPOP          
+  00000014  CPOP          
+  00000015  CPUSH_A       
+  00000016  CPUSH_A       
+  00000017  PUSH8_A        7
+  00000019  CPUSH_A       
+  0000001a  CGET1_A       
+  0000001b  CGETN_A        2
+  0000001d  CGETN_A        3
+  0000001f  CGET0_A       
+  00000020  CALL_A         0x00000029 4
+  00000026  RET_A          4 2
+function 2: 4 arguments, 2 results
+  00000029  CGET1_A       
+  0000002a  CGETN_B        2
+  0000002c  BLTU_A         0x00000034
+  0000002f  CGET1_A       
+  00000030  CGET0_A       
+  00000031  RET_A          4 2
+  00000034  CGET0_A       
+  00000035  CGET1_A       
+  00000036  CGETN_A        3
+  00000038  CALL_A         0x0000004f 3
+  0000003e  CSETN_A        1
+  00000040  CSET0_A       
+  00000041  DROP_A        
+  00000042  CGET0_A       
+  00000043  CGET1_A       
+  00000044  CGETN_A        2
+  00000046  CGETN_A        3
+  00000048  TCALL_A        0x00000029 4 4
+function 3: 3 arguments, 3 results
+  0000004f  CGET1_A       
+  00000050  CGETN_B        2
+  00000052  ADD_A         
+  00000053  ZX32_A        
+  00000054  CSETN_A        1
+  00000056  CGET0_A       
+  00000057  PUSH8_B        1
+  00000059  ADD_A         
+  0000005a  ZX32_A        
+  0000005b  CSET0_A       
+  0000005c  CGET1_A       
+  0000005d  CGET0_A       
+  0000005e  CGET1_A       
+  0000005f  RET_A          3 3
+export main = function 0

@@ -1,0 +1,25 @@
+.function f3 1 1
+  CGET.A 0
+  RET.A 1 1
+.function f2 1 1
+  CGET.A 0
+  CALL.A f3 1
+  CGET.B 0
+  CALL.B f3 1
+  ADD.A
+  RET.A 1 1
+.function f1 1 1
+  CGET.A 0
+  CALL.A f2 1
+  CGET.B 0
+  CALL.B f2 1
+  ADD.A
+  RET.A 1 1
+.function f0 1 1
+  CGET.A 0
+  CALL.A f1 1
+  CGET.B 0
+  CALL.B f1 1
+  ADD.A
+  RET.A 1 1
+.export f0

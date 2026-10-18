@@ -1,0 +1,51 @@
+
+== mutual-nontail ==
+  value: abc-opt=13  execution: off=13 threaded=13 eager=13 lazy=13
+  pre-optimizer (shared symbolic machine, no path tree): total=58 CALL_=2 TCALL_=1
+    f0 00000020  CALL_A         0x00000032 1 -> next: 00000026  CSETN_A        1
+      successor is post-call computation in the same emitted sequence (no transfer)
+    f1 00000052  CALL_A         0x00000000 1 -> next: 00000058  CSETN_A        1
+      successor is post-call computation in the same emitted sequence (no transfer)
+    f2 00000069  TCALL_A        0x00000000 1 1 -> next: <end>
+      successor is nothing
+  abc-opt: total=24 CALL_=2 TCALL_=1
+    f0 0000000f  CALL_A         0x0000001b 1 -> next: 00000015  ADDI_A         1
+      successor is post-call computation in the same emitted sequence (no transfer)
+    f1 0000002a  CALL_A         0x00000000 1 -> next: 00000030  ADDI_A         2
+      successor is post-call computation in the same emitted sequence (no transfer)
+    f2 00000038  TCALL_A        0x00000000 0 1 -> next: <end>
+      successor is nothing
+  portable-C output: .ralphi/optimizer-residual-redesign/experiments/10-call-continuation-out/mutual-nontail.c
+
+== self-nontail ==
+  value: abc-opt=15  execution: off=15 threaded=15 eager=15 lazy=15
+  pre-optimizer (shared symbolic machine, no path tree): total=31 CALL_=1 TCALL_=1
+    f0 00000020  CALL_A         0x00000000 1 -> next: 00000026  CSETN_A        1
+      successor is post-call computation in the same emitted sequence (no transfer)
+    f1 00000037  TCALL_A        0x00000000 1 1 -> next: <end>
+      successor is nothing
+  abc-opt: total=13 CALL_=1 TCALL_=1
+    f0 0000000f  CALL_A         0x00000000 1 -> next: 00000015  ADDI_A         3
+      successor is post-call computation in the same emitted sequence (no transfer)
+    f1 0000001d  TCALL_A        0x00000000 0 1 -> next: <end>
+      successor is nothing
+  portable-C output: .ralphi/optimizer-residual-redesign/experiments/10-call-continuation-out/self-nontail.c
+
+== generated C: where does the residual call live? ==
+-- mutual-nontail --
+  block block_9: v_19=abc_aot_function_1(v_17);
+    next statement: v_22=v_19+v_20;
+    same block: the caller continues in-body after the call
+  block block_31: v_41=abc_aot_function_0(v_39);
+    next statement: v_44=v_41+v_42;
+    same block: the caller continues in-body after the call
+  block block_49: results[0]=abc_aot_function_2();
+    next statement: return ABC_AOT_OK;
+    same block: the caller continues in-body after the call
+-- self-nontail --
+  block block_8: v_18=abc_aot_function_0(v_16);
+    next statement: v_21=v_18+v_19;
+    same block: the caller continues in-body after the call
+  block block_26: results[0]=abc_aot_function_1();
+    next statement: return ABC_AOT_OK;
+    same block: the caller continues in-body after the call

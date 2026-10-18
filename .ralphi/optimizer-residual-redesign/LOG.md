@@ -728,3 +728,104 @@ gates Q1 (ABC version policy), Q2 (budget number/scope), Q3 (portable-C scope),
 Q9 (native loop-header policy), and the two measurements that need no user input:
 Q12's one-owner shape pass and the value of `K` (Q10), plus whether the family
 scan at a pc is acceptable compile cost.
+
+## Round 10 — a residual call is an effect; `edge_to` is the only keyed edge
+
+**Mode:** experiment (code reading + a measured probe of emitted ABC, generated C
+and the native version count). **Question ranked first (of three in
+`experiments/10-call-continuation.md`):** what creates a version and what ends a
+version body? Is a residual (non-inlined) direct call an **in-body effect** that
+resumes in the caller's body, or a control transfer plus a separate return
+version/key — and which machine events create the keyed edges (branch/switch
+arms, virtual returns, virtual call entries, fallthrough into a leader)? Ranked
+above (B) the residual-function set (which functions get an entry version/body)
+and (C) Q12's fact ownership, because it is a completeness/correctness defect in
+the design's only normative procedure, not a policy choice.
+
+**What was read.** `ARCHITECTURE.md:316-372` (the old `run()` block);
+`src/symbolic.c:220-259` (`machine_call`: virtual → pushes a continuation, emits
+an edge, `ABC_SYM_EXIT_CONTROL`; residual → pushes the sink's result values and
+**returns 1**, so the walk continues at `return_pc` in the same body),
+`:445-465` (`machine_foreign`/`machine_indirect`, same shape), `:471-477`
+(`machine_return`: a virtual return pops the continuation, emits the return and an
+edge to `frame.return_pc`); `gen/symbolic.lua:7` (`SYM_NEXT` returns
+`ABC_SYM_EXIT_BLOCK` iff `m->blocks[m->pc]` — the **sink's** block array decides
+body boundaries); `src/optimize.c:299-303, 364-385` (`dag_call` residual node;
+`simulate_tree` rejects BLOCK and keeps walking, so ABC has no call-return
+boundary); `src/residual_builder.c:1699-1758` (`on_call` emits an operation, no
+terminator) and `:2048-2113` (`discover_leaders` does not mark call returns);
+`src/residualize.c:445-462` (`discover_blocks`: `K_CALL → block[next]=1`),
+`:785-801` (`compile_version` ends the body at any block) and `:589` (an `FCALL`
+continues in-body); `:492-570, 592-598` (`native_emit_control`/`emit_edge` call
+`edge`/`version_for`); `residual_builder.c:1212-1348, 1980-2046`
+(`on_control`/`make_edge` compute target versions privately).
+
+**Answers** (evidence: `experiments/10-call-continuation.md`, `.lua`, `.out`,
+`10-version-count.c`, artifacts in `experiments/10-call-continuation-out/`).
+
+1. **A residual direct call is an in-body effect, not a control transfer.** The
+   shared machine already models it so: `machine_call` with `virtualize == 0`
+   pushes the result values as binding locations and returns 1, and the walk
+   continues at `return_pc`. There is no return edge, no return-pc version and no
+   return key; the callee is reached by the call ABI, and the runtime
+   continuation (ABC return address, C call expression, native stored resume
+   label) lives inside the body. Measured: mutual and same-function **non-tail**
+   recursive fixtures (`ping/pong`, `f(n)=f(n-1)+3`), abc-opt emits the post-call
+   computation directly after `CALL_A` (`f0 0f CALL_A` → `15 ADDI_A 1`;
+   `f1 2a CALL_A` → `30 ADDI_A 2`; self → `ADDI_A 3`), the pre-optimizer module
+   likewise (`CSETN_A`), and abc-opt shrinks 58→24 and 31→13 instructions with
+   values 13/15 in all four modes. The C sink keeps the call and its used result
+   in one block (`block_9: v_19=abc_aot_function_1(...)` then
+   `v_22=v_19+v_20`). Only native disagrees, because `discover_blocks` marks every
+   `K_CALL` return pc a block: measured 19/12 (eager) and 11/8 (lazy) version
+   bodies for 2/1 **non-tail** residual call sites (the fixtures' other call is a
+   tail call, which has no return pc). That boundary is redundant: native already
+   continues in-body after an `FCALL`, which clobbers the same cache, so the
+   call-return block and the post-call version bodies retire (binding obligation:
+   materialize values live across the call, hand back result locations, reset
+   placement state).
+2. **Every keyed edge is created by one driver function.** `edge_to(target,
+   context)` = canonicalize + loop-invariant rule for a loop-header target +
+   `version_at` (content lookup, per-family budget with lookup-after-widening).
+   It is called for both arms of a branch (and every switch arm plus
+   fallthrough), a virtual return's `frame.return_pc`, a virtual call's callee
+   entry, and straight-line fallthrough into a leader; a body ends at any of
+   these or at a terminator. The binding never sees a key: it receives version
+   handles (`jump/branch/switch/return/call`). This replaces the three private
+   target-version computations (`native_emit_control`'s `edge`, the C sink's
+   `make_edge`, the ABC path tree), which is the drift the design's one-owner key
+   rule exists to remove.
+3. **The inline/residual decision belongs at the call instruction**, inside the
+   driver-owned call hook — not to the old pre-dispatch test "pc is a direct-call
+   target" (that pc is the callee's entry, not the call site). Inline: the machine
+   pushes the continuation and the driver calls `edge_to` for the callee entry.
+   Residual: `binding.residual_call` emits the call, results are locations, the
+   walk continues at `return_pc`. The `K` fallback is exactly this residual form,
+   so it drops the chain without ending the caller's body. Every residual
+   function's entry version is created before any body is walked, so a call can
+   name its target independent of walk order (determinism).
+
+**Decision recorded in ARCHITECTURE.md.** The headline, the version concept, the
+leaders fact ("a call-return pc is not a leader"), the deterministic-order
+invariant, the new **bodies/edges/effects** invariant, the call-decision
+invariant, the invalid-states list, the whole algorithm block (new `edge_to`, the
+hook contract, the corrected `run()`), the join/loop/call bullets, the binding
+interface (version handles; `branch/switch/return`; the driver owns every
+version lookup), the retired paths (native's `K_CALL`-return block marking and
+post-call versions; the sinks' private `edge`/`make_edge` target computation),
+four rejected alternatives (post-call return version; residual call as a keyed
+edge; binding-computed arm targets; trace layout through the fallthrough arm) and
+a round-10 evidence block are updated; Q10's wording says "in-body residual call",
+Q17 is added and answered, and the open-questions list records it.
+
+**Not established.** The per-kind native version delta (only the total is
+measured; the call-return attribution is code-structural); candidate B, the exact
+residual-function set (entry roots, address-taken/indirect targets, the closure
+over non-inlined calls); whether a virtual return's `return_pc` could be an
+intra-body local label instead of a version (kept a version here, matching C and
+native; a layout question, not a key rule).
+
+**Next uncertainty.** Candidate B (residual-function set) is the last input-free
+omission in the algorithm — `run()` needs the set before it can create the entry
+versions; then the user gates Q1, Q2, Q3, Q9 and the input-free values Q10's `K`
+and Q12's one-owner shape pass.
