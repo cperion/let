@@ -218,3 +218,93 @@ without extra C traffic, and whether the generic-key-at-loop-header rule plus
 the entry lattice still reproduce the documented counter specialization
 (`BLTUI_A 50` / `ADDI_A 7`); both need a versioned driver prototype or an
 emission-level fixture, after Q2/Q9 are answered.
+
+## Round 4 — the entry lattice has no witness, and generic entries delete it
+
+**Mode:** simplify. **Question ranked first (of three in
+`experiments/4-entry-lattice.md`):** round 3 left a contradiction — a
+residual-function entry is "one version whose key is the monotone join of all
+incoming keys, re-executed until stable", yet call facts are produced by symbolic
+execution, so the join can widen after a body (and its residue) exists. Where
+does the widening physically live, what does it invalidate, and is it needed at
+all? Ranked above (B) which calls are actually residual — it turned out to decide
+A's whole scope — and (C) the join's push-vs-store emission schedule, deferred
+again as a sink-level choice with no correctness or representation content.
+
+**What was measured.** New fixtures through the existing assembler, verifier,
+four execution modes, incumbent optimizer and the portable-C sink
+(`experiments/4-entry-lattice.lua`, report in `experiments/4-entry-lattice.md`,
+artifacts in `4-entry-lattice-out/`). The documented counter
+(`frontend/tests/optimize.lua:229`) optimizes 53 → **18 instructions in ONE
+function** with no `CALL_A`: all its calls are inlined (non-recursive calls always
+virtualize, a nested-eligible self-tail callee virtualizes once as a loop
+candidate, `optimize.c:299-318`), so `BLTUI_A 50`/`ADDI_A 7` come from inline
+expansion, not from entry facts. Two roots calling `count_to(50)` and
+`count_to(40)` yield 2 functions and two *independent* specializations
+(`BLTUI_A 50`, `BLTUI_A 40`) — the entry keys are never joined. The real boundary
+is the residual call, emitted only for recursive components that cannot be
+inlined: mutual `even`/`odd` keeps `CALL_A`/`TCALL_A` and specializes the callees
+from caller facts (`PUSH8_A 7` at both call sites, folded `100-7=93` and
+`200-7=193`, while the decremented `i` widens); two roots passing steps 7 and 9
+widen `step` (per-argument join) and both folds disappear. `mutual` is
+`opt⁴ == opt` and execution-identical in all four modes. 40 roots cost 0.06–0.07
+ms either way (same vs distinct steps). The same module through `abc c` folds
+nothing and emits 13 static functions: the C sink uses generic entries and its
+lattice API (`residual_analysis.c:215-266`, plus `residual_builder.h`'s
+`argument_facts` option) has no caller. The incumbent's mechanism is a
+module-level fixpoint over residual functions: call facts joined per argument
+(`optimize.c:853-855`), dirty functions `clear_function_code`d and re-residualized
+(`:870-873`), call displacements encoded only at module-write time (`:826-833`).
+
+**Answers.**
+1. **The join is a function-granular rebuild, not a version rule.** A widened
+   entry key invalidates the whole function's residue; within one run every
+   version body executes exactly once. Bounds: monotone `unreached → constant →
+   unknown` per argument ⇒ ≤ 2·arity+1 runs per function; join is commutative and
+   monotone ⇒ order-independent, so determinism is structural. Measured proof that
+   the rebuild happens: with the first key `(50, 7)` retained, `i == 0` would have
+   folded and `JZ_A` vanished; the emitted body tests `i`, i.e. it was built under
+   the widened key.
+2. **It is ABC-only and deletable.** A call that can only name a function entry
+   is entered at the generic all-location key: one version, no join, no call
+   facts, no fixpoint, no rebuild, and the module-wide "one execution per body"
+   invariant is restored. The measured price is `mutual`'s cross-call folds. The
+   recovered mechanism is inlining: every call that can be inlined becomes a
+   **virtual entry** — an ordinary version carrying the caller's constants —
+   which the ABC sink must have anyway (`docs/abc-opt.md:82-91` fixes the inlined
+   `sq(a)+sq(b)` output). Nontail recursion cannot be inlined: continuation chains
+   are part of key identity (`symbolic.c:39-75`), so each layer is a new family
+   and the budget cannot merge them; tail-only cycles inline as version cycles.
+   That derives the incumbent's `nested_eligible` rule instead of citing it.
+3. **Inlining needs its own bound (Q10).** The per-pc budget counts key families
+   and the continuation chain distinguishes call sites, so inlining across a call
+   chain multiplies; the retired path limit was the only bound. One
+   per-residual-function version budget with a residual-call fallback (generic
+   entry) is the candidate; it needs corpus measurements.
+4. **Round 3's loop-header generic key is not neutral (Q11).** It was justified as
+   losing only loop-carried constants, but a loop header also has forward
+   predecessors carrying constants that stay invariant inside the loop (the
+   counter's `BLTUI_A 50` lives in the steady-state loop body; native peels; the C
+   sink forgets them). The three coherent key forms (generic / per-slot join /
+   exact) trade code size, version count and whether the widening mechanism
+   survives; Q11 decides it, and Q9's recommendation is weakened accordingly.
+
+**Decision recorded in ARCHITECTURE.md.** Keys are now exact; the only
+forced-generic triggers are the residual-call entry and the per-pc budget. The
+entry lattice, call facts, the function-level dirty fixpoint and the rebuild
+policy leave the architecture and join the retired-path list (with the C sink's
+dead lattice API and the `argument_facts` option). The call/inline rule becomes
+part of the binding contract (bounded, Q10). The rejected alternative keeps the
+lattice's measured mechanism and its cost on record. Q7 is revised to "generic
+entry, no join"; Q10 (inline rule/bound) and Q11 (loop-header key form) are new;
+Q1 gains the round-4 scope, Q4/Q5/Q9 are refined.
+
+**Not established.** The byte-level cost of a generic-entry versioned ABC sink and
+its inline budget; the value of the dropped cross-call specialization on real
+modules; the loop-header key choice; whether removing the documented
+`docs/abc-opt.md:100` behavior is acceptable (part of Q1's gate).
+
+**Next uncertainty.** Q11's loop-header key form is the last place where a key is
+deliberately generalized while constants are still available; it decides whether
+"no widening anywhere except the forced entry" is really the whole key rule, and
+how many versions a constant-initialized loop costs.
