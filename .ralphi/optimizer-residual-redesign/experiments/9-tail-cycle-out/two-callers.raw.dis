@@ -1,0 +1,68 @@
+function 0: 2 arguments, 1 results
+  00000000  PUSH8_A        0
+  00000002  CPUSH_A       
+  00000003  PUSH8_A        0
+  00000005  CPUSH_A       
+  00000006  CGETN_A        2
+  00000008  PUSH8_B        0
+  0000000a  EQ_A          
+  0000000b  JZ_A           0x00000013
+  0000000e  CGETN_A        3
+  00000010  RET_A          4 1
+  00000013  CGETN_A        2
+  00000015  PUSH8_B        1
+  00000017  SUB_A         
+  00000018  ZX32_A        
+  00000019  CSETN_A        1
+  0000001b  CGET1_A       
+  0000001c  CGETN_A        3
+  0000001e  TCALL_A        0x00000025 4 2
+function 1: 2 arguments, 1 results
+  00000025  PUSH8_A        0
+  00000027  CPUSH_A       
+  00000028  PUSH8_A        0
+  0000002a  CPUSH_A       
+  0000002b  PUSH8_A        0
+  0000002d  CPUSH_A       
+  0000002e  CGETN_A        3
+  00000030  PUSH8_B        0
+  00000032  EQ_A          
+  00000033  JZ_A           0x00000043
+  00000036  CGETN_A        4
+  00000038  PUSH8_B        1
+  0000003a  ADD_A         
+  0000003b  ZX32_A        
+  0000003c  CSETN_A        2
+  0000003e  CGETN_A        2
+  00000040  RET_A          5 1
+  00000043  CGETN_A        3
+  00000045  PUSH8_B        1
+  00000047  SUB_A         
+  00000048  ZX32_A        
+  00000049  CSETN_A        1
+  0000004b  CGET1_A       
+  0000004c  CGETN_A        4
+  0000004e  TCALL_A        0x00000000 5 2
+function 2: 0 arguments, 1 results
+  00000055  PUSH8_A        0
+  00000057  CPUSH_A       
+  00000058  PUSH8_A        0
+  0000005a  CPUSH_A       
+  0000005b  PUSH8_A        0
+  0000005d  CPUSH_A       
+  0000005e  PUSH8_A        4
+  00000060  PUSH8_A        9
+  00000062  CALL_A         0x00000000 2
+  00000068  CSETN_A        2
+  0000006a  PUSH8_A        4
+  0000006c  PUSH8_A        7
+  0000006e  CALL_A         0x00000000 2
+  00000074  CSETN_A        1
+  00000076  CGETN_A        2
+  00000078  CGET1_B       
+  00000079  ADD_A         
+  0000007a  ZX32_A        
+  0000007b  CSET0_A       
+  0000007c  CGET0_A       
+  0000007d  RET_A          3 1
+export main = function 2

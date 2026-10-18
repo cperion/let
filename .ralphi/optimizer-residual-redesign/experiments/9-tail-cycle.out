@@ -1,0 +1,32 @@
+== A/B/D. canonical fixture: abc-opt vs pre-optimizer vs generic-entry oracle ==
+
+-- monomorphic: main = even(4, 9)   (value 9) --
+abc-opt                f0:9/ f1:9/ f2:3/   total=21
+    f0: CGET0_A | BNEI_A         0 0x0000000b | PUSH8_A        9 | RET_A          2 1 | CGET0_A | SUBI_A         1 | ZX32_A | PUSH8_A        9 | TCALL_A        0x00000018 2 2
+    f1: CGET0_A | BNEI_A         0 0x00000023 | PUSH8_A        10 | RET_A          2 1 | CGET0_A | SUBI_A         1 | ZX32_A | PUSH8_A        9 | TCALL_A        0x00000000 2 2
+    f2: PUSH8_A        4 | PUSH8_A        9 | TCALL_A        0x00000000 0 2
+pre-optimizer          f0:18/ f1:25/ f2:5/   total=48
+    f0: PUSH8_A        0 | CPUSH_A | PUSH8_A        0 | CPUSH_A | CGETN_A        2 | PUSH8_B        0 | EQ_A | JZ_A           0x00000013 | CGETN_A        3 | RET_A          4 1 | CGETN_A        2 | PUSH8_B        1 | SUB_A | ZX32_A | CSETN_A        1 | CGET1_A | CGETN_A        3 | TCALL_A        0x00000025 4 2
+    f1: PUSH8_A        0 | CPUSH_A | PUSH8_A        0 | CPUSH_A | PUSH8_A        0 | CPUSH_A | CGETN_A        3 | PUSH8_B        0 | EQ_A | JZ_A           0x00000043 | CGETN_A        4 | PUSH8_B        1 | ADD_A | ZX32_A | CSETN_A        2 | CGETN_A        2 | RET_A          5 1 | CGETN_A        3 | PUSH8_B        1 | SUB_A | ZX32_A | CSETN_A        1 | CGET1_A | CGETN_A        4 | TCALL_A        0x00000000 5 2
+    f2: PUSH8_A        0 | CPUSH_A | PUSH8_A        4 | PUSH8_A        9 | TCALL_A        0x00000000 1 2
+    PUSH8 9=4  PUSH8 10=1  CGET=4  ADD=0  TCALL=3  CALL=0
+    execution: off=9 threaded=9 eager=9 lazy=9
+
+-- two-callers: main = even(4, 9) + even(4, 7)   (value 16) --
+abc-opt                f0:9/ f1:11/ f2:12/   total=32
+    f0: CGET0_A | BNEI_A         0 0x0000000a | CGET1_A | RET_A          2 1 | CGET0_A | SUBI_A         1 | ZX32_A | CGET1_A | TCALL_A        0x00000016 2 2
+    f1: CGET0_A | BNEI_A         0 0x00000023 | CGET1_A | ADDI_A         1 | ZX32_A | RET_A          2 1 | CGET0_A | SUBI_A         1 | ZX32_A | CGET1_A | TCALL_A        0x00000000 2 2
+    f2: PUSH8_A        4 | PUSH8_A        9 | CALL_A         0x00000000 2 | CPUSH_A | PUSH8_A        4 | PUSH8_A        7 | CALL_A         0x00000000 2 | CPUSH_A | CGET1_A | ADDC_A         0 | ZX32_A | RET_A          2 1
+    PUSH8 9=1  PUSH8 10=0  CGET=9  ADD=2  TCALL=2  CALL=2
+    execution: off=16 threaded=16 eager=16 lazy=16
+
+== C. design rule for the monomorphic source ==
+residual entry = all-location key, so every callee body reads marker from its C frame:
+  even  = unchanged instruction count (PUSH8_A 9 -> CGET1_A)
+  odd   = CGET1_A; ADDI_A 1; ZX32_A instead of PUSH8_A 10: 9 -> 11 instructions
+  module = 21 -> 23 instructions; the two frontend/tests/compiler.lua:803
+  assertions (PUSH8_A 9 and PUSH8_A 10) no longer hold; shape and TCALL still hold.
+inlining the tail-only SCC instead would restore the constants as virtual-entry
+constants but changes 3 functions/TCALL into 1 function and duplicates the cycle
+per call site; after the per-family budget the all-location slot widens marker too,
+because no cross-function cycle body exists (Q14).

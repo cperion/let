@@ -641,3 +641,90 @@ linear in the versions at a pc, and the family count is a scan, not an index).
 cycle body, or residualize it as the incumbent does) is now the only key-rule
 question with a concept cost; then Q2's scope decision, Q12's ownership and Q10's
 `K` value.
+
+## Round 9 — only inlined recursion keeps constants; a live fixture prices Q7
+
+**Mode:** experiment (a measured oracle on a live in-repo fixture). **Question
+ranked first (of three in `experiments/9-tail-cycle.md`):** a canonical fixture
+(`frontend/tests/compiler.lua:790-804`, `docs/abc-opt.md:100`) pins
+residual-*entry* invariant specialization for a mutual tail-recursive SCC, while
+the design's residual entry is the generic all-location key (Q7). Is that
+precision recoverable by any key rule, and what does the design's inline rule for
+cross-function tail cycles (Q14) have to say? Ranked above (B) Q2's total-vs-
+per-family scope (the design-side answer came out as a corollary: a new *family*
+at a pc arrives only on a call edge, so a one-pass driver can only bound the
+value keys inside a family) and (C) Q12's fact ownership.
+
+**What was read and measured.** `frontend/tests/compiler.lua:790-804` (staged with
+the default `optimize=true`, so abc-opt output; live via `Makefile:212`, suite
+passes), `docs/abc-opt.md:100`, `src/optimize.c:108-114, 299-318, 850-873`,
+`docs/spec.md:167-170`; a probe that stages the fixture with and without abc-opt,
+a two-caller variant, all four execution modes, and diffs the callee bodies
+(`experiments/9-tail-cycle.lua`, artifacts `9-tail-cycle-out/`).
+
+**Answers.**
+
+1. **The fold is abc-opt's entry facts.** Pre-optimizer: 48 instructions, callee
+   bodies read the parameter (`CGETN_A 4`/`3`) and add; after abc-opt: 21
+   instructions, `even` returns/passes `PUSH8_A 9`, `odd` returns `PUSH8_A 10`
+   (folded `marker+1`). Value 9 in off/threaded/eager/lazy; `opt` is a
+   byte-identical fixpoint. So the fixture witnesses the per-argument entry join,
+   not frontend lowering — Q7/Q4's "the lattice has no witness" needs this
+   correction: the documented counter was fully inlined, but this fixture is a
+   real residual-entry witness.
+2. **The two-caller variant is the measured oracle for the design's entry
+   policy.** With `even(4,9) + even(4,7)` the join widens `marker` and the callee
+   bodies become exactly the generic-entry shape: `even` 9 instructions
+   unchanged, `odd` 9 → 11 (`CGET1_A; ADDI_A 1; ZX32_A` instead of
+   `PUSH8_A 10`). Value 16 in all four modes. The design therefore does not
+   invent a code shape; it applies the incumbent's disagreeing-caller shape to
+   every caller.
+3. **No key rule can recover a residual entry's constants.** At a residual call
+   the ABC ABI supplies *locations* (`CALL` gathers argument zero at `C0`; callee
+   A/B empty), and one body serves every caller. The loop rule preserves
+   constants **already present in a key**, so it is a no-op on an all-location
+   entry key. This kills round 8's hope that a module-wide cycle body would keep
+   a mutual SCC's invariants; only (i) the per-argument entry join or (ii)
+   inlining can carry a caller constant into a callee body.
+4. **Q14 answered: residualize every cross-function recursive call, tail or not;
+   no module-wide cycle body.** Inlining a tail-only SCC would restore the
+   constants as virtual-entry constants but replace the documented
+   three-function/`TCALL` shape with one function, duplicate the cycle per call
+   site, and still need a cross-function cycle body to keep the invariants past
+   the all-location budget slot. The kept rule is the incumbent's derived
+   `nested_eligible`: the only inlined recursion is a same-function self-tail
+   cycle, which is a loop header. The core owns this recursion decision; the
+   binding may only narrow it (frames, effects, hidden results).
+5. **The consequence is a design rule, not a sink limitation:** only inlined
+   recursion keeps constants. A residual recursive function — mutual *or*
+   self-tail — has an all-location entry and therefore a no-op loop rule. The
+   measured price on the canonical fixture: module 21 → 23 instructions (odd's
+   body 9 → 11) and the two `PUSH8_A 9`/`PUSH8_A 10` assertions at
+   `compiler.lua:803` stop holding. That output change rides on Q1/Q7's gate,
+   which round 4 had already raised for `docs/abc-opt.md:100`; round 9 adds the
+   frontend test to the blast radius and prices the loss.
+
+**Decision recorded in ARCHITECTURE.md.** The headline adds "recursion is inlined
+only when it is a same-function tail cycle, so residual recursion carries no
+entry constants"; the calls-and-edges invariant and the call-policy bullet state
+the core-owned recursion rule, the cross-function-cycle rejection and the
+measured price; the entry-keys bullet states the residual self-tail case; the
+algorithm comment marks the call gate; the round-4 lattice bullet's
+"recoverable at virtual entries" justification is corrected and priced; a new
+rejected alternative records the cross-function cycle inline option with the
+measured comparison; the round-9 evidence block is added; Q14 is answered, Q7's
+answer carries the round-9 correction, Q10 is narrowed to an open `K` value, and
+the open-questions list loses Q14.
+
+**Not established.** Corpus-wide cost of deleting the entry lattice (the
+canonical witness is +2 instructions; round 4 measured larger folds on hand-built
+mutual fixtures); whether the frontend test should be rewritten to assert values
+and shape rather than immediates, or whether the user prefers keeping the lattice
+for `docs/abc-opt.md:100` compatibility; policy (b)'s code size at a non-constant
+trip count (a projection from round 5's exact-key loop).
+
+**Next uncertainty.** With Q7/Q14 closed, the remaining decisions are the user
+gates Q1 (ABC version policy), Q2 (budget number/scope), Q3 (portable-C scope),
+Q9 (native loop-header policy), and the two measurements that need no user input:
+Q12's one-owner shape pass and the value of `K` (Q10), plus whether the family
+scan at a pc is acceptable compile cost.
