@@ -32,7 +32,7 @@ files; before experimentation, verify them with:
 
 The manifest is a frozen starting point: later intentional edits will differ.
 The original VM contracts remain in [`../docs/`](../docs/), and
-[`../WORKLIST.md`](../WORKLIST.md) remains the single live work ledger (V01–V04).
+[`../WORKLIST.md`](../WORKLIST.md) remains the single live work ledger (V01–V05).
 Existing test results elsewhere are not fresh validation of this copy.
 `VALIDATION.log` records the initial checks: source equality, ISA metadata,
 execution forms and the local collector-free audit pass. The full build is blocked:

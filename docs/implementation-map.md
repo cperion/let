@@ -39,6 +39,11 @@ production or copied VM implementation changes. `next/DESIGN.md` records the
 user-confirmed no-eager-refill choice and links the experiment; `next/README.md`
 provides discovery. Public V3 ABI/encoding gates remain unresolved.
 
+V05 records the user's stack-resident-continuation/no-dedicated-link-register
+choice in `next/DESIGN.md` sections 1, 2 and 6. It does not close continuation
+size/encoding/caller-coordinate gates or claim a link-register performance test.
+No runtime files change.
+
 ## A / R — Runtime audit and execution-region work
 
 | IDs | Existing files to inspect/change | Required change / removal |

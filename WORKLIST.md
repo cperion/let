@@ -257,6 +257,17 @@ is recorded under S05 below.
   fixed; no more measurements in this slice. Boundary: baseline-interpreter refill
   comparison only, not V3 JIT qualification or a current-V2 speedup claim.
 
+- [x] **V05 — Record stack-resident continuations without a dedicated link register.**
+  Owner: coding assistant (user assigned). State: documented (design only).
+  Scope: `next/DESIGN.md`, documentation discovery/map and this ledger; no runtime
+  changes or removals. User confirmed keeping continuations on A above arguments.
+  Record the simplicity/register-budget rationale without claiming a measured
+  link-register comparison: V03/V04 varied refill policy, not continuation placement.
+  Continuation size/contents, caller coordinates and public ABI gates remain open.
+  Evidence: `next/DESIGN.md` sections 1, 2 and 6. Documentation diff reviewed;
+  no runtime tests required. Next action: continue with the remaining call/frame
+  contracts rather than reopening this placement choice without new cause.
+
 ## How to maintain this record
 
 - Stable item IDs survive reordering. `[x]` means that exact deliverable has evidence;

@@ -29,6 +29,8 @@ no eager refill; the design uses the explicit name to avoid ambiguity.
 - **Call arguments stay in place.** The caller's top argument cells become the
   callee's argument portion of its frame; ordinary call entry does not copy them
   to another stack.
+- **Continuations stay on A above the arguments.** There is no dedicated link
+  register in the selected V3 calling design.
 - **A's concrete interpreter cache is a ring.** Its placement state is `(R,T)`,
   rotation and occupancy, not three separately partitioned stack occupancies.
 - **Pushes fill free registers.** Full-bank pushes spill the deepest cached cell
@@ -49,7 +51,7 @@ between frame storage and expression storage.
 A cells carry 64 bits. The topology does not by itself change integer arithmetic,
 float behavior, value kinds, error reasons, ownership or memory-safety obligations.
 
-The sketch's entry layout, shown deepest to shallowest, is:
+The selected continuation placement, shown deepest to shallowest, is:
 
 ```text
 ... caller cells | arg0 ... arg(n-1) | continuation | locals | operands
@@ -58,8 +60,8 @@ The sketch's entry layout, shown deepest to shallowest, is:
 
 The arguments are already in A before the call. The continuation is placed above
 those arguments rather than inserted below them. Locals and operands grow above
-it. This layout is the working call proposal; the exact continuation contents and
-frame bookkeeping remain gates in section 6.
+it. Stack-resident continuation placement is selected; the exact continuation
+contents, size and frame bookkeeping remain gates in section 6.
 
 A binding can remain where its value was produced: changing its role from operand
 to local requires no CPUSH. Ending a binding with a result above it can require a
@@ -280,6 +282,19 @@ specialization by cache state does not itself require rewriting bytecode.
 
 ## 6. Calls, returns and continuations
 
+### Selected placement: no dedicated link register
+
+Keep the continuation on A above the arguments, created as part of CALL. The user
+confirmed this choice after discussing the leaf/non-leaf trade-off. It gives each
+recursive activation its explicit continuation without reserving a dedicated link
+register or introducing a separate non-leaf save instruction.
+
+This is a simplicity/register-budget decision, not a measured defeat of link
+registers. Both refill experiments used stack continuations throughout; neither
+compared a link-register convention. A different convention could benefit leaf
+calls or fuse saving into CALL, so an extra SAVE dispatch is not an inherent cost
+of every possible link-register design. That alternative is not selected here.
+
 ### Entry
 
 The intended ordinary-call dataflow is:
@@ -306,7 +321,7 @@ and provide or recover the required caller coordinates. Whether that information
 fits one cell, uses immutable metadata, or requires additional explicit fields is
 unresolved. A bare return PC is not assumed sufficient.
 
-Arguments and locals lie on opposite sides of the proposed continuation cell.
+Arguments and locals lie on opposite sides of the continuation storage.
 A single total frame-cell count does not necessarily identify its depth when local
 counts vary. RET operands and/or verified layout metadata must settle that before
 implementation; the sketch's `RET k,r` is not yet a complete frame contract.
