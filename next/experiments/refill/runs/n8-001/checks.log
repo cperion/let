@@ -1,0 +1,3 @@
+PASS: independent rerun produced byte-identical results.json and summary.csv.
+PASS: attempting to reuse an evidence directory rejected before overwriting results.
+PASS: all 193 copied baseline files retain original SHA-256 hashes.

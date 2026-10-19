@@ -32,7 +32,7 @@ files; before experimentation, verify them with:
 
 The manifest is a frozen starting point: later intentional edits will differ.
 The original VM contracts remain in [`../docs/`](../docs/), and
-[`../WORKLIST.md`](../WORKLIST.md) remains the single live work ledger (V01–V02).
+[`../WORKLIST.md`](../WORKLIST.md) remains the single live work ledger (V01–V03).
 Existing test results elsewhere are not fresh validation of this copy.
 `VALIDATION.log` records the initial checks: source equality, ISA metadata,
 execution forms and the local collector-free audit pass. The full build is blocked:
@@ -50,3 +50,9 @@ support or approval to implement unresolved contracts.
 
 The root VM specifications remain authoritative for the original VM and this
 unchanged source baseline; the experimental design does not amend them.
+
+## Experiments
+
+[Ring-cache refill](experiments/refill/README.md) compares demand-only, eager and
+return-only refill with identical checked traces. It records modeled traffic and
+state frequencies, not native timings, and does not change the no-refill baseline.

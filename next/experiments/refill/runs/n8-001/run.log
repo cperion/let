@@ -1,0 +1,20 @@
+workload,policy,steps,demand_loads,refill_loads,total_loads,spill_stores,explicit_stores,refill_used,refill_unused,states,transitions
+fib16,demand,22350,1970,0,1970,1594,376,0,0,72,335
+fib16,eager,22350,0,11151,11151,11151,0,1594,9557,16,92
+fib16,return-only,22350,0,7964,7964,7964,0,1594,6370,23,98
+expressions,demand,11744,5632,0,5632,2816,2816,0,0,16,35
+expressions,eager,11744,0,2816,2816,2816,0,2816,0,16,47
+expressions,return-only,11744,5632,0,5632,2816,2816,0,0,16,35
+locals,demand,18432,12288,0,12288,2048,0,0,0,16,26
+locals,eager,18432,4096,2048,6144,2048,0,1024,1024,16,33
+locals,return-only,18432,12288,0,12288,2048,0,0,0,16,26
+oscillation,demand,8256,0,0,0,24,0,0,0,16,26
+oscillation,eager,8256,0,4120,4120,4120,0,0,4120,16,33
+oscillation,return-only,8256,0,0,0,24,0,0,0,16,26
+pop-drop-streams,demand,32768,7680,0,7680,15360,0,0,0,16,34
+pop-drop-streams,eager,32768,0,15360,15360,15360,0,7680,7680,16,48
+pop-drop-streams,return-only,32768,7680,0,7680,15360,0,0,0,16,34
+mixed,demand,30095,6561,0,6561,118,3380,0,0,69,693
+mixed,eager,30095,6388,8861,15249,8861,3304,147,8714,16,124
+mixed,return-only,30095,6561,0,6561,118,3380,0,0,69,693
+All traces matched the uncached oracle after every operation; counts only, no timings.

@@ -25,6 +25,12 @@ It maps the existing copied producers/consumers, obsolete three-stack responsibi
 validation boundaries and unresolved ABI/encoding gates. No production contract or
 runtime implementation is changed by this documentation slice.
 
+V03 adds `next/experiments/refill/model.py`, `test_model.py`, `README.md` and
+exclusive `runs/` evidence. The model compares three ring refill policies against
+an uncached oracle on identical traces, including scalar-B and call-shaped traffic.
+No copied runtime files or production cache policy change; model counts are not
+native timings. `next/README.md` links the experiment.
+
 ## A / R — Runtime audit and execution-region work
 
 | IDs | Existing files to inspect/change | Required change / removal |

@@ -1,0 +1,15 @@
+{
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "platform": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "source_parent": "dffa5f2cdb3e7abed0ca18fcbcb8f014f14c9baa",
+  "commands": [
+    "python3 next/experiments/refill/test_model.py",
+    "python3 next/experiments/refill/model.py --output next/experiments/refill/runs/n8-001"
+  ],
+  "sha256": {
+    "model.py": "068a3f4d9cf09f0aa828709414b7f817af183e1016edbc6f82a1fb095714c6af",
+    "test_model.py": "1d9114566e90ff273e6c56ce10ab6b151343323e352abaab59244a57b1438a99",
+    "runs/n8-001/results.json": "92812e2fb30e5fd1ecb338a35dd48a9160e529eea64cb584b62896220df2f54c",
+    "runs/n8-001/summary.csv": "0e1917b085ac0040f4eba79efa80665c013c42afb696aa4d68dbd8f6d1c9daf8"
+  }
+}

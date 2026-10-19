@@ -202,6 +202,31 @@ is recorded under S05 below.
   gates before selecting implementation. Integration boundary: documentation only,
   no new ABI or encoding assignment and no VM 3 executable-support claim.
 
+- [x] **V03 — Compare ring-cache refill policies in an isolated model.**
+  Owner: coding assistant (user assigned). State: completed (model evidence only).
+  Dependency: V02 topology;
+  user approved a model experiment, not a production policy change or native timer.
+  Scope: `next/experiments/refill/{model.py,test_model.py,README.md}` plus reproducible
+  raw results. Compare demand-only, eager after a completed depth-reducing operation,
+  and return-only refill at N=8 on identical traces. Verify every transition against
+  an uncached oracle; count demand/refill loads, spills, refill usefulness, occupancy
+  and state transitions. Include recursion, deep expressions, locals, oscillation,
+  pop/drop streams and seeded mixed traffic. No new module/continuation ABI.
+  Removal set: none. No runtime/source-baseline changes. Outcome: nine tests pass,
+  including all ring rotations/occupancies at N=1,2,3,4,8, refill accounting,
+  poisoned inactive slots, capture/return ordering and seeded differential checks.
+  Six N=8 traces (123,645 events each policy) match the oracle after every event;
+  a fresh rerun produces byte-identical JSON/CSV. Evidence reuse rejects. All 193
+  baseline checksums remain unchanged. Evidence:
+  `next/experiments/refill/runs/n8-001/{results.json,summary.csv,run.log,tests-final.log,provenance.json,checks.log}`.
+  Eager halves modeled loads for expression/local-read traces, but increases
+  Fibonacci loads from 1,970 to 11,151 (return-only: 7,964), and oscillation loads
+  from zero to 4,120. Actual entry-state counts are recorded; these are neither
+  hardware cache misses nor speed measurements. README states workload/ABI limits.
+  Next action: discuss results before any native-timing slice or policy change.
+  Integration boundary: isolated Python model; the documented no-refill rule stays
+  unchanged. Full runtime builds and native timing were not run.
+
 ## How to maintain this record
 
 - Stable item IDs survive reordering. `[x]` means that exact deliverable has evidence;

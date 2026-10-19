@@ -1,0 +1,14 @@
+test_atomic_return_refills_only_after_result_transport (__main__.RingTests.test_atomic_return_refills_only_after_result_transport) ... ok
+test_b_and_wrapping (__main__.RingTests.test_b_and_wrapping) ... ok
+test_drop_does_not_load_and_demand_pop_never_refills (__main__.RingTests.test_drop_does_not_load_and_demand_pop_never_refills) ... ok
+test_exhaustive_small_transitions (__main__.RingTests.test_exhaustive_small_transitions) ... ok
+test_fibonacci_and_seeded_traces (__main__.RingTests.test_fibonacci_and_seeded_traces) ... ok
+test_full_push_one_store_no_survivor_moves (__main__.RingTests.test_full_push_one_store_no_survivor_moves) ... ok
+test_oscillation_refills_are_immediately_respilled (__main__.RingTests.test_oscillation_refills_are_immediately_respilled) ... ok
+test_refill_preserves_survivor_registers (__main__.RingTests.test_refill_preserves_survivor_registers) ... ok
+test_refill_use_accounting_including_live_and_overwritten (__main__.RingTests.test_refill_use_accounting_including_live_and_overwritten) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.958s
+
+OK
