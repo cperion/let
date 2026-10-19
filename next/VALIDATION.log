@@ -1,0 +1,49 @@
+V01 source-copy qualification
+Baseline: 54b964dc5c40d5705b8686e4744a30d88271bac0
+
+$ make -C next all
+make: Entering directory '/home/cperion_ext/dev/let/next'
+mkdir -p build
+mkdir -p build/generated
+mkdir -p build/pic
+cp tools/int64.lua build/int64.lua
+cp tools/tool_util.lua build/tool_util.lua
+cp tools/assembler.lua build/assembler.lua
+cp tools/opcodes.lua build/opcodes.lua
+luajit tools/gen_opcodes.lua build/opcodes.h
+luajit gen/foreign.lua build/generated/foreign.c
+luajit gen/banked.lua build/generated
+luajit gen/cold.lua build/generated/cold.inc
+luajit gen/symbolic.lua build/generated
+luajit gen/fold.lua build/generated/symbolic_fold.c
+luajit gen/execution_layout.lua build/generated/execution_forms.h
+luajit gen/stencils.lua build/generated
+luajit gen/threaded.lua build/generated/threaded.c
+luajit: gen/foreign.lua:9: ')' expected near '&'
+make: *** [Makefile:62: build/generated/foreign.c] Error 1
+make: *** Waiting for unfinished jobs....
+generated 3771 register-addressed stencils
+generated 2950 seven-register threaded handlers
+make: Leaving directory '/home/cperion_ext/dev/let/next'
+
+$ make -C next build/validate-isa build/validate-execution-forms validate-no-collector
+make: Entering directory '/home/cperion_ext/dev/let/next'
+make: 'build/validate-isa' is up to date.
+make: 'build/validate-execution-forms' is up to date.
+luajit tools/validate_no_collector.lua
+collector-free dependency audit: 195 active files, 17 negative/positive guard probes; archives/build artifacts excluded
+make: Leaving directory '/home/cperion_ext/dev/let/next'
+
+$ cd next && build/validate-isa && build/validate-execution-forms
+revision-6 ISA metadata: byte map, mirror contracts, layouts and decoding passed
+
+$ make validate-no-collector
+luajit tools/validate_no_collector.lua
+luajit: tools/validate_no_collector.lua:66: .ralphi/optimizer-residual-redesign/runs.jsonl: collector dependency/API reference
+stack traceback:
+	[C]: in function 'assert'
+	tools/validate_no_collector.lua:66: in main chunk
+	[C]: at 0x634d350c3120
+make: *** [Makefile:229: validate-no-collector] Error 1
+
+PASS: 193 baseline files match their SHA-256 manifest and original baseline bytes; no shared source inodes or symlinks.

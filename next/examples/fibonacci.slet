@@ -1,0 +1,5 @@
+-- A typed recursive word. Only main is exported by default.
+let fib(n: U32): U32 = if n < 2 then n else fib(n - 1) + fib(n - 2)
+
+let main(): U32 = fib(10)
+

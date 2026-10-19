@@ -13,6 +13,12 @@ item. Keep stable IDs when splitting tasks. Interface authority for runtime work
 feature specs. Do not start a fresh architecture discussion for choices already made;
 raise only concrete mismatches or the listed hard gates.
 
+## V — Isolated VM 3 experiments
+
+| IDs | Existing files to inspect/change | Required change / removal |
+| --- | --- | --- |
+| V01 | `Makefile`, `src/`, `include/`, `gen/`, `schema/`, `tools/`, `frontend/`, `examples/`, `lab/`, `vendor/` | Independent source copy under `next/`, including build/test support, license and ignores; `next/README.md` documents the baseline and isolation, `next/BASELINE.sha256` records copied source checksums. Build only in `next/build/`; root `tools/validate_no_collector.lua` prunes the independent experiment tree. No existing runtime paths removed or changed. No V3 semantic implementation in this slice. |
+
 ## A / R — Runtime audit and execution-region work
 
 | IDs | Existing files to inspect/change | Required change / removal |

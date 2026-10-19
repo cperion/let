@@ -1,0 +1,106 @@
+#include "abc.h"
+#include "vm_internal.h"
+#include "residualize.h"
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+static unsigned noted;
+
+static double host_mix(uint64_t x,double y) { return (double)x+y+0.5; }
+static uint64_t host_wide(uint64_t a,double b,uint64_t c,const uint64_t *d,double e,uint64_t f,double g,const uint64_t *h,double i,uint64_t j) { return a+(uint64_t)b+c+*d+(uint64_t)e+f+(uint64_t)g+*h+(uint64_t)i+j; }
+static void host_note(uint64_t x) { noted=(unsigned)x; }
+static uint64_t bits(double d) { uint64_t x; memcpy(&x,&d,8); return x; }
+static int fail(const char *what,const abc_error *e) {
+    fprintf(stderr,"validate-api: %s: %s\n",what,e->message); return 1;
+}
+static int image_checks(abc_vm *v,const abc_module *m,abc_error *e) {
+    size_t size=m->image_size;
+    unsigned char *copy=malloc(size+2);
+    if(!copy) return 1;
+    memset(copy,0xa5,size+2);
+    if(abc_vm_read_image(v,m,0,copy+1,size,e)!=ABC_OK || copy[0]!=0xa5 || copy[size+1]!=0xa5 ||
+       (size && memcmp(copy+1,v->images->bytes,size))) {
+        free(copy);return fail("image copy",e);
+    }
+    unsigned char sentinel=0x5a;
+    if(abc_vm_read_image(v,m,size,NULL,0,e)!=ABC_OK ||
+       abc_vm_read_image(v,m,size,&sentinel,1,e)!=ABC_ARGUMENTS || sentinel!=0x5a ||
+       abc_vm_read_image(v,m,SIZE_MAX,&sentinel,1,e)!=ABC_ARGUMENTS || sentinel!=0x5a ||
+       abc_vm_read_image(v,m,0,&sentinel,SIZE_MAX,e)!=ABC_ARGUMENTS || sentinel!=0x5a ||
+       abc_vm_read_image(NULL,m,0,&sentinel,1,e)!=ABC_INVALID || sentinel!=0x5a ||
+       abc_vm_read_image(v,NULL,0,&sentinel,1,e)!=ABC_INVALID || sentinel!=0x5a ||
+       abc_vm_read_image(v,m,0,NULL,1,e)!=ABC_INVALID) {
+        free(copy);return fail("image-copy failure publication",e);
+    }
+    free(copy);return 0;
+}
+int main(int argc,char **argv) {
+    if(argc<2||argc>4) { fprintf(stderr,"usage: validate-api callables.abc [virtual.abc] [foreign.abc]\n"); return 2; }
+    abc_module *m=NULL; abc_vm *v=NULL; abc_error e; abc_limits limits={.mode=ABC_EXEC_COMPILED};
+    uint64_t add=0,sub=0,cell=40,args[3],result=0; size_t n=0; abc_site_stats stats;
+    if(abc_module_read(argv[1],&m,&e)!=ABC_OK) return fail("read",&e);
+    if(abc_module_export_address(m,"add",&add,&e)!=ABC_OK || abc_module_export_address(m,"sub",&sub,&e)!=ABC_OK) return fail("address",&e);
+    const char *entries[]={"invoke","invoke_b","invoke_tail"};
+    for(unsigned mode=0;mode<4;mode++) for(unsigned entry=0;entry<3;entry++) {
+        limits.mode=(abc_execution_mode)mode; v=NULL;
+        if(abc_vm_create(&limits,&v,&e)!=ABC_OK) return fail("create",&e);
+        unsigned char sentinel=0x5a;
+        if(abc_vm_read_image(v,m,0,&sentinel,0,&e)!=ABC_NOT_FOUND || sentinel!=0x5a || v->images) return fail("image copy must not load",&e);
+        if(abc_vm_load(v,m,&e)!=ABC_OK || image_checks(v,m,&e)) return fail("load/image copy",&e);
+        if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions || stats.specific || stats.final_generic) return fail("initial stats",&e);
+        size_t prepared=v->images->execution?v->images->execution->compiled_versions:0;
+        args[0]=(uint64_t)(uintptr_t)&cell; args[1]=2; args[2]=0; result=991;
+        if(abc_vm_call(v,m,entries[entry],args,3,&result,1,&n,&e)!=ABC_INVALID || result!=991) return fail("invalid first target",&e);
+        if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions || stats.specific || stats.final_generic) return fail("failed first observation",&e);
+        args[2]=add;
+        if(abc_vm_call(v,m,entries[entry],args,3,&result,1,&n,&e)!=ABC_OK || n!=1 || result!=42) return fail("specific call",&e);
+        if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions!=1 || stats.specific!=1 || stats.final_generic) return fail("monomorphic stats",&e);
+        if(abc_vm_call(v,m,entries[entry],args,3,&result,1,&n,&e)!=ABC_OK || n!=1 || result!=42) return fail("repeated specific call",&e);
+        if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions!=1 || stats.specific!=1 || stats.final_generic) return fail("stable monomorphic stats",&e);
+        args[2]=sub;
+        if(abc_vm_call(v,m,entries[entry],args,3,&result,1,&n,&e)!=ABC_OK || n!=1 || result!=38) return fail("mismatch call",&e);
+        if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions!=2 || stats.specific || stats.final_generic!=1) return fail("final generic stats",&e);
+        args[2]=0; result=991;
+        if(abc_vm_call(v,m,entries[entry],args,3,&result,1,&n,&e)!=ABC_INVALID || result!=991) return fail("invalid final target",&e);
+        if(abc_vm_site_stats(v,m,&stats,&e)!=ABC_OK || stats.transitions!=2 || stats.specific || stats.final_generic!=1) return fail("stable final generic stats",&e);
+        if((limits.mode==ABC_EXEC_COMPILED||limits.mode==ABC_EXEC_THREADED) && v->images->execution->compiled_versions!=prepared) return fail("eager compiled during execution",&e);
+        abc_vm_free(v);
+    }
+    abc_module_free(m); limits.mode=ABC_EXEC_COMPILED;
+    if(argc>=3) {
+        m=NULL; v=NULL; result=0; n=0;
+        if(abc_module_read(argv[2],&m,&e)!=ABC_OK) return fail("virtual read",&e);
+        if(abc_vm_create(&limits,&v,&e)!=ABC_OK || abc_vm_load(v,m,&e)!=ABC_OK) return fail("virtual load",&e);
+        abc_execution_image *native=v->images?v->images->execution:NULL;
+        if(!native) { fprintf(stderr,"validate-api: residual native image is missing\n"); return 1; }
+        if(abc_vm_call(v,m,"main",NULL,0,&result,1,&n,&e)!=ABC_OK || n!=1 || result!=42) return fail("virtual call",&e);
+        abc_vm_free(v);v=NULL;limits.mode=ABC_EXEC_LAZY;
+        if(abc_vm_create(&limits,&v,&e)!=ABC_OK||abc_vm_load(v,m,&e)!=ABC_OK)return fail("lazy load",&e);native=v->images?v->images->execution:NULL;
+        if(!native||!native->lazy||native->compiled_versions){fprintf(stderr,"validate-api: lazy residual entries activated before first call\n");return 1;}
+        if(abc_vm_call(v,m,"main",NULL,0,&result,1,&n,&e)!=ABC_OK||n!=1||result!=42)return fail("lazy call",&e);
+        size_t compiled=native->compiled_versions;if(!compiled){fprintf(stderr,"validate-api: lazy residual entry was not activated\n");return 1;}
+        if(abc_vm_call(v,m,"main",NULL,0,&result,1,&n,&e)!=ABC_OK||native->compiled_versions!=compiled){fprintf(stderr,"validate-api: lazy version was not reused\n");return 1;}
+        abc_vm_free(v); abc_module_free(m);limits.mode=ABC_EXEC_COMPILED;
+    }
+    if(argc>=4) {
+        abc_module *fm=NULL; if(abc_module_read(argv[3],&fm,&e)!=ABC_OK)return fail("foreign read",&e);
+        for(unsigned mode=0;mode<4;mode++){limits.mode=(abc_execution_mode)mode;v=NULL;
+            if(abc_vm_create(&limits,&v,&e)!=ABC_OK)return fail("foreign VM",&e);
+            if(abc_vm_load(v,fm,&e)!=ABC_NOT_FOUND){fprintf(stderr,"validate-api: unbound foreign load accepted\n");return 1;}abc_vm_free(v);v=NULL;
+            if(abc_vm_create(&limits,&v,&e)!=ABC_OK ||
+               abc_vm_bind_foreign(v,"host_mix",(abc_foreign_address)host_mix,&e)!=ABC_OK ||
+               abc_vm_bind_foreign(v,"host_wide",(abc_foreign_address)host_wide,&e)!=ABC_OK ||
+               abc_vm_bind_foreign(v,"host_note",(abc_foreign_address)host_note,&e)!=ABC_OK || abc_vm_load(v,fm,&e)!=ABC_OK)return fail("foreign load",&e);
+            uint64_t fa[10]={4,bits(2.5),1,2,3,bits(4.0),5,bits(6.0),7,bits(8.0)};
+            if(abc_vm_call(v,fm,"mix",fa,2,&result,1,&n,&e)!=ABC_OK||result!=bits(7.0))return fail("foreign mixed call",&e);
+            uint64_t pv=4,qv=8,wa[10]={1,bits(2.0),3,(uint64_t)(uintptr_t)&pv,bits(5.0),6,bits(7.0),(uint64_t)(uintptr_t)&qv,bits(9.0),10};
+            if(abc_vm_call(v,fm,"wide",wa,10,&result,1,&n,&e)!=ABC_OK||result!=55)return fail("foreign wide call",&e);
+            noted=0;fa[0]=37;if(abc_vm_call(v,fm,"note",fa,1,&result,1,&n,&e)!=ABC_OK||result!=37||noted!=37)return fail("foreign void call",&e);
+            abc_vm_free(v);
+        } abc_module_free(fm);
+    }
+    puts("validated four-mode image copies, A/B/tail callable observations, foreign calls, and stable native linkage"); return 0;
+}
+

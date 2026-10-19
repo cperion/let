@@ -1,5 +1,6 @@
 -- D07: active dependencies must not bring the retired collector back.
 -- Historical prose/experiments are evidence, never build inputs. Run from repo root.
+-- next/ is an independent experiment tree with its own copy of this audit.
 package.path='tools/?.lua;'..package.path
 local util=require('tool_util')
 local function buildInput(path)
@@ -47,7 +48,7 @@ local probes={
 for _,p in ipairs(probes) do assert((violation(p[1],p[2])~=nil)==p[3],'dependency guard probe: '..p[1]..' '..p[2]) end
 assert(os.execute('test ! -e vendor/whippet && test ! -L vendor/whippet')==0,'retired vendor/whippet path exists')
 local ok,listing,err=util.capture({'find','.',
- '(','-path','./.git','-o','-path','./.jj','-o','-path','./.pi','-o','-path','./build','-o','-path','./research',')','-prune','-o',
+ '(','-path','./.git','-o','-path','./.jj','-o','-path','./.pi','-o','-path','./build','-o','-path','./research','-o','-path','./next',')','-prune','-o',
  '(','-type','f','-o','-type','l',')','-printf','%p\\0%l\\0'})
 assert(ok,err)
 local count,failures=0,{}

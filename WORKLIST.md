@@ -156,6 +156,33 @@ Evidence: `research/experiments/frontend-syntax/type-names/`. The naming pass di
 not close S05/S06 or packed-float lowering; the subsequent higher-order correction
 is recorded under S05 below.
 
+## V — VM 3 isolated experiments
+
+- [ ] **V01 — Copy the current VM into `next/` without changing semantics.**
+  Owner: coding assistant (user assigned). State: partial (source copy complete;
+  full-build qualification blocked by the installed toolchain). Dependency: fetched
+  `master@origin` baseline `54b964dc5c40d5705b8686e4744a30d88271bac0`.
+  Scope: independent regular-file copies of `src/`, `include/`, `gen/`, `schema/`,
+  `tools/`, `frontend/`, `examples/`, `lab/`, `vendor/`, `Makefile`, `LICENSE` and
+  `.gitignore`; add `next/README.md` and a source checksum manifest. Frontend and
+  tooling are copied to preserve existing build/test consumers, not redesigned.
+  Existing runtime/build paths remain unchanged; removal set: none. Exclude
+  generated build output, VCS/agent state, research archives and upstream design
+  experiments. Keep this root WORKLIST as the only live ledger.
+  Outcome: 193 independent files match baseline bytes and `next/BASELINE.sha256`;
+  no symlinks/shared source inodes. ISA metadata, execution-form checks and the
+  copied collector-free audit pass. `next/build/` is ignored. The root dependency
+  audit (`tools/validate_no_collector.lua`) now prunes `next/` to avoid treating
+  experimental files/generated output and copied negative controls as production
+  inputs; its run still fails on the fetched, unchanged
+  `.ralphi/optimizer-residual-redesign/runs.jsonl` collector-reference text.
+  `make -C next all` stops at the copied `gen/foreign.lua:9`: default LuaJIT rejects
+  its bitwise `&` syntax. No generator/toolchain workaround was introduced; full
+  runtime tests were not run. Evidence: `next/VALIDATION.log`.
+  Next action: supply a compatible build toolchain, then finish isolated build and
+  runtime qualification before V3 implementation. Integration boundary:
+  `make -C next`; no root-build dependency, no VM 3 semantics or encoding change.
+
 ## How to maintain this record
 
 - Stable item IDs survive reordering. `[x]` means that exact deliverable has evidence;

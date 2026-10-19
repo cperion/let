@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ABC VM Lab: three stacks and an operand bank</title>
+<style>
+:root{
+  --paper:#f4e9dc; --clay:#dfbea5; --clay-strong:#ca9b7a;
+  --ink:#4a3d36; --muted:#806d62; --faint:#ab9181;
+  --line:rgba(91,66,52,.16); --line-strong:rgba(91,66,52,.28);
+  --cold:#5d9fb0; --cold-deep:#3f7f91; --indigo:#7284ad; --indigo-deep:#596a99;
+  --mint:#79aa9d; --mint-deep:#4e8376; --ice:#c9e3e7; --brick:#a65a4a; --plum:#8a6a9a;
+  --shadow:0 18px 42px rgba(79,52,37,.10), 0 2px 7px rgba(79,52,37,.08);
+  --shadow-soft:0 8px 24px rgba(79,52,37,.08), 0 1px 4px rgba(79,52,37,.08);
+  --mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sans:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:14px/1.45 var(--sans);color:var(--ink);overflow:hidden;
+  background:radial-gradient(circle at 9% 2%, rgba(255,255,255,.56), transparent 26rem),
+             radial-gradient(circle at 90% 10%, rgba(93,159,176,.08), transparent 24rem),
+             linear-gradient(135deg,#f7eee4 0%,var(--paper) 46%,#efe0d1 100%)}
+button,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid rgba(93,159,176,.35);outline-offset:2px}
+.app{height:100vh;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px;padding:14px;max-width:1800px;margin:0 auto}
+.top{display:flex;align-items:center;gap:14px;padding:10px 12px 10px 14px;border:1px solid var(--line);border-radius:20px;background:rgba(244,233,220,.88);box-shadow:var(--shadow-soft)}
+.brand{display:flex;align-items:center;gap:11px;min-width:max-content}
+.brand .mark{width:42px;height:38px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(145deg,#e7c9b1,#d5ac90);box-shadow:inset 0 1px 0 rgba(255,255,255,.65),0 5px 12px rgba(92,61,43,.12);border:1px solid rgba(106,72,53,.12);color:var(--cold-deep);font:900 13px var(--mono);letter-spacing:.02em}
+.brand h1{margin:0;font-size:15px;font-weight:800;letter-spacing:-.025em}
+.brand span{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.brand>div:last-child{display:flex;flex-direction:column;gap:3px}
+.pick{display:flex;align-items:center;gap:9px;flex:1;min-width:0}
+.pick label{font-size:11px;text-transform:uppercase;letter-spacing:.11em;color:var(--muted);font-weight:750}
+.pick select{width:min(430px,100%);min-width:0;border:1px solid var(--line);border-radius:12px;padding:9px 12px;background:#f8efe6;font-weight:700;outline:none}
+.end{display:flex;gap:7px;margin-left:auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:8px 11px;border:1px solid var(--line);border-radius:11px;background:#f8efe6;font-weight:750;font-size:12px;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,.72);transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease}
+.btn:hover{transform:translateY(-1px);border-color:var(--line-strong);box-shadow:var(--shadow-soft)}
+.btn:disabled{opacity:.42;cursor:default;transform:none;box-shadow:none}
+.btn.primary{background:var(--cold);border-color:transparent;color:#f8ffff;box-shadow:0 7px 16px rgba(63,127,145,.22),inset 0 1px 0 rgba(255,255,255,.24)}
+.btn.icon{width:38px;padding:8px 0}
+.btn svg{width:15px;height:15px}
+.main{min-height:0;display:grid;grid-template-columns:minmax(270px,.82fr) minmax(500px,1.6fr) minmax(290px,.95fr);grid-template-rows:minmax(0,1fr);gap:12px}
+.panel{min-width:0;min-height:0;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:24px;background:rgba(240,225,212,.78);box-shadow:var(--shadow);overflow:hidden}
+.phead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;min-height:58px;padding:12px 14px;border-bottom:1px solid var(--line);background:rgba(247,237,227,.55)}
+.phead h2{margin:0;font-size:13px;font-weight:850;display:flex;align-items:center;gap:9px}
+.phead h2::before{content:"";width:8px;height:8px;border-radius:99px;background:var(--cold);box-shadow:0 0 0 4px rgba(93,159,176,.12)}
+.prog .phead h2::before{background:var(--clay-strong);box-shadow:0 0 0 4px rgba(202,155,122,.12)}
+.acts{display:flex;gap:8px;align-items:center;margin-left:auto}
+.tag{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.11em;font-weight:800}
+.pbody{min-height:0;overflow:auto;flex:1}
+.seg{display:inline-flex;background:#ead8ca;border:1px solid var(--line);padding:3px;border-radius:10px;gap:2px}
+.seg button{border:0;background:transparent;border-radius:7px;padding:5px 9px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;font-weight:850;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:#faf2e9;color:var(--ink);box-shadow:0 2px 6px rgba(82,56,42,.08)}
+.seg button:disabled{opacity:.4;cursor:default}
+.note{margin:12px 12px 0;padding:11px 12px;border:1px solid rgba(93,159,176,.20);background:rgba(201,227,231,.32);border-radius:14px;font-size:12px;line-height:1.45;color:#5d514b}
+.note b{color:var(--cold-deep)}
+.src{margin:12px;font:12px/1.7 var(--mono);background:rgba(249,241,232,.72);border:1px solid var(--line);border-radius:14px;padding:8px 0}
+.src .l{display:grid;grid-template-columns:28px 1fr;gap:10px;padding:1px 12px 1px 8px;border-left:3px solid transparent;white-space:pre-wrap;word-break:break-word}
+.src .l .n{text-align:right;color:var(--faint);user-select:none}
+.src .l.on{background:rgba(201,227,231,.44);border-left-color:var(--cold)}
+.tk-k{color:#785f91;font-weight:700}.tk-c{color:#9b8578}.tk-n{color:var(--cold-deep)}.tk-a{color:var(--cold-deep);font-weight:700}.tk-b{color:var(--indigo-deep);font-weight:700}.tk-l{color:#785f91;font-weight:700}
+.warn{margin:0 12px 12px;font-size:11.5px;color:var(--muted)}
+.warn p{margin:0 0 6px;padding:7px 10px;border-radius:10px;background:rgba(202,155,122,.14)}
+.editor{display:flex;flex-direction:column;gap:10px;padding:12px}
+.editor textarea{min-height:320px;resize:vertical;border:1px solid var(--line);border-radius:14px;background:rgba(249,241,232,.85);padding:10px 12px;font:12px/1.7 var(--mono);tab-size:4;outline:none}
+.editor textarea:focus{border-color:rgba(63,127,145,.55);box-shadow:0 0 0 3px rgba(93,159,176,.12)}
+.editor .err{font-size:12px;color:var(--brick);background:rgba(166,90,74,.10);border:1px solid rgba(166,90,74,.22);padding:8px 10px;border-radius:10px}
+.editor .row{display:flex;gap:7px;flex-wrap:wrap}
+.editor .hint{font-size:11px;color:var(--muted)}
+/* tree */
+.tree{padding:6px 8px 18px;display:flex;flex-direction:column;gap:14px}
+.tree .stmt{overflow-x:auto;padding:14px 4px 4px}
+.tree ul{position:relative;display:flex;justify-content:center;margin:0;padding:18px 0 0}
+.tree li{list-style:none;text-align:center;position:relative;padding:18px 6px 0}
+.tree li::before,.tree li::after{content:"";position:absolute;top:0;right:50%;width:50%;height:18px;border-top:1px solid rgba(95,73,61,.28)}
+.tree li::after{right:auto;left:50%;border-left:1px solid rgba(95,73,61,.28)}
+.tree li:only-child::before,.tree li:only-child::after{display:none}
+.tree li:only-child{padding-top:0}
+.tree li:first-child::before,.tree li:last-child::after{border:0}
+.tree li:last-child::before{border-right:1px solid rgba(95,73,61,.28);border-radius:0 7px 0 0}
+.tree li:first-child::after{border-radius:7px 0 0 0}
+.tree ul ul::before{content:"";position:absolute;top:0;left:50%;border-left:1px solid rgba(95,73,61,.28);height:18px}
+.tree>.stmt>ul{padding-top:0;width:max-content;min-width:100%;margin:0 auto}
+.tn{display:inline-flex;position:relative;min-width:44px;min-height:34px;padding:6px 9px;align-items:center;justify-content:center;border-radius:12px;background:#efdccc;border:1px solid var(--line);box-shadow:var(--shadow-soft);font:850 12px var(--mono);white-space:nowrap}
+.tn.st{background:transparent;box-shadow:none;border-style:dashed;color:var(--muted);font-family:var(--sans)}
+.tn.dA{box-shadow:inset 0 -3px 0 var(--cold),var(--shadow-soft)}
+.tn.dB{box-shadow:inset 0 -3px 0 var(--indigo),var(--shadow-soft)}
+.tn.on{background:var(--ice);border-color:rgba(63,127,145,.32)}
+.tn .er{position:absolute;right:-7px;top:-9px;padding:2px 5px;border-radius:6px;background:var(--clay-strong);color:#fff;font-size:8px}
+.tn .first{position:absolute;left:-6px;top:-9px;padding:2px 4px;border-radius:6px;background:var(--mint-deep);color:#fff;font-size:8px}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:10px 12px 0;font-size:10.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:4px;border-radius:2px;margin-right:4px;vertical-align:middle}
+/* machine */
+.hero{padding:10px 14px 12px;border-bottom:1px solid var(--line);background:linear-gradient(90deg,rgba(247,237,227,.46),rgba(201,227,231,.17))}
+.lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.13em;font-weight:800}
+.eq{display:flex;align-items:baseline;flex-wrap:wrap;gap:0 12px;margin:4px 0;font-size:28px;line-height:1.15;font-weight:850;letter-spacing:-.025em;min-height:36px}
+.eq .r{font:900 .8em var(--mono);padding:1px 8px;border-radius:10px}
+.eq .r.a{color:var(--cold-deep);background:rgba(93,159,176,.16)}
+.eq .r.b{color:var(--indigo-deep);background:rgba(114,132,173,.16)}
+.eq .r.c{color:#6e5a7e;background:rgba(138,106,154,.14)}
+.eq .o{color:var(--muted);font-weight:600}
+.eq .f{font-size:.42em;align-self:center;color:var(--muted);font-weight:750;letter-spacing:0;font-family:var(--mono)}
+.mean{font-size:12.5px;color:#5d514b}
+.lastbox{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.last,.native{padding:8px 10px;border-radius:12px;background:rgba(248,239,230,.6);border:1px solid var(--line);font-size:12px;color:#5d514b;min-height:3.4em}
+.last b{color:var(--cold-deep)}
+.last.bad{color:var(--brick);border-color:rgba(166,90,74,.25)}
+.native ol{margin:2px 0 0;padding-left:18px;font:11.5px/1.6 var(--mono);color:var(--ink)}
+.native .free{color:var(--mint-deep);font-weight:800}
+.native .spill{color:var(--brick);font-weight:800}
+.banks{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px 12px 0}
+.bank{border:1px solid var(--line);border-radius:18px;background:rgba(247,238,229,.52);padding:10px 12px}
+.bank h3{margin:0 0 8px;font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;display:flex;justify-content:space-between;gap:8px}
+.bank h3 span{font:600 10px var(--mono);letter-spacing:0;text-transform:none;color:var(--muted);white-space:nowrap}
+.regs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;position:relative}
+.reg{position:relative;border-radius:12px;padding:8px 6px 7px;text-align:center;border:1px solid rgba(91,66,52,.13);background:#efe2d6;min-height:62px}
+.reg .rn{font:900 10px var(--mono);color:var(--muted)}
+.reg .rv{font:900 13px var(--mono);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.reg .ro{font-size:9px;font-weight:900;letter-spacing:.06em;margin-top:3px}
+.reg.A{background:linear-gradient(180deg,#d9ebef,#c8e0e6);border-color:rgba(63,127,145,.32)}
+.reg.A .ro{color:var(--cold-deep)}
+.reg.B{background:linear-gradient(180deg,#dfe2ef,#d0d6ea);border-color:rgba(89,106,153,.32)}
+.reg.B .ro{color:var(--indigo-deep)}
+.reg.C{background:linear-gradient(180deg,#e6dcea,#dccfe2);border-color:rgba(138,106,154,.30)}
+.reg.C .ro{color:#6e5a7e}
+.reg.free{background:transparent;border-style:dashed;opacity:.7}
+.reg.istop{box-shadow:0 0 0 2px rgba(255,255,255,.7),0 0 0 4px currentColor}
+.reg.A.istop{color:var(--cold)}.reg.B.istop{color:var(--indigo)}.reg.C.istop{color:var(--plum)}
+.reg.istop .rv,.reg.istop .rn{color:var(--ink)}
+.reg.touched{animation:touch .6s ease}
+@keyframes touch{0%{transform:scale(.95);background:#cfe7e1}60%{transform:scale(1.03)}100%{transform:none}}
+.ring{margin-top:7px;font-size:10px;color:var(--muted);display:flex;justify-content:space-between}
+.stacks{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;padding:12px}
+.stk{min-width:0;border:1px solid var(--line);border-radius:18px;background:rgba(247,238,229,.52);padding:10px}
+.stk h3{margin:0;font-size:12px;font-weight:900;letter-spacing:.02em;display:flex;align-items:center;gap:7px;text-transform:uppercase}
+.stk h3 i{display:inline-block;width:14px;height:4px;border-radius:3px;background:var(--cold)}
+.stk.B h3 i{background:var(--indigo)}.stk.C h3 i{background:var(--plum)}
+.stk .role{font-size:10px;color:var(--muted);margin:3px 0 8px}
+.cells{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;min-height:120px}
+.cell{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:6px;min-height:36px;padding:5px 7px;border-radius:11px;border:1px solid rgba(91,66,52,.13);background:linear-gradient(180deg,#edd7c5,#e4c9b5)}
+.cell .dp{font:900 10px var(--mono);color:#8e7567}
+.cell .v{font:900 12.5px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cell .w{font:800 9px var(--mono);padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.4);color:var(--muted)}
+.cell.reg-A .w{background:rgba(93,159,176,.2);color:var(--cold-deep)}
+.cell.reg-B .w{background:rgba(114,132,173,.2);color:var(--indigo-deep)}
+.cell.reg-C .w{background:rgba(138,106,154,.18);color:#6e5a7e}
+.cell.mem{background:linear-gradient(180deg,#dfcfc2,#d8c6b8);opacity:.82}
+.cell.op{outline:2px solid rgba(63,127,145,.55);outline-offset:1px}
+.empty{height:70px;border:1px dashed rgba(91,66,52,.18);border-radius:11px;display:grid;place-items:center;color:#a58d7d;font-size:10px;text-transform:uppercase;letter-spacing:.1em}
+.stats{display:flex;flex-wrap:wrap;gap:7px;padding:10px 12px;border-top:1px solid var(--line);background:rgba(247,237,227,.44)}
+.stat{flex:1 1 72px;min-width:72px;border:1px solid var(--line);border-radius:11px;padding:6px 8px;background:#f7ede4;text-align:center}
+.stat b{display:block;font:900 13px var(--mono)}
+.stat span{display:block;font-size:8px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-top:2px;font-weight:800}
+/* bytecode */
+.box{margin:12px 12px 4px;padding:12px;border:1px solid var(--line);border-radius:14px;background:rgba(248,239,230,.6);font-size:11.5px;color:#5d514b}
+.box h4{margin:0 0 6px;font-size:12px;font-weight:850;color:var(--ink)}
+.box .kv{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px dashed var(--line)}
+.box .kv:last-child{border:0}
+.box .kv b{font-family:var(--mono)}
+.bc{list-style:none;margin:0;padding:8px 8px 16px}
+.bc .lab{font:800 11px var(--mono);color:#785f91;padding:6px 8px 0 46px}
+.bc .row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:34px;padding:5px 8px;border:1px solid transparent;border-radius:11px}
+.bc .row:hover{background:rgba(248,239,230,.70);border-color:var(--line)}
+.bc .row.cur{background:rgba(201,227,231,.45);border-color:rgba(63,127,145,.22);box-shadow:inset 3px 0 0 var(--cold)}
+.bc .a{font:9px var(--mono);color:#a38c7d;text-align:right}
+.bc .t{font:850 12px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bc .t small{display:block;font-size:9px;font-weight:400;color:var(--muted)}
+.bc .hits{font:9px var(--mono);color:#a38c7d;min-width:28px;text-align:right}
+/* transport */
+.bottom{display:flex;align-items:center;gap:14px;padding:10px 13px;border:1px solid var(--line);border-radius:20px;background:rgba(244,233,220,.90);box-shadow:var(--shadow-soft)}
+.ctl{display:flex;gap:7px;align-items:center}
+.scrub{flex:1;display:flex;align-items:center;gap:12px;min-width:0}
+.scrub input{flex:1;min-width:60px;accent-color:var(--cold)}
+.scrub output{font:11px var(--mono);color:var(--muted);min-width:max-content}
+dialog{border:1px solid var(--line);border-radius:24px;background:#f3e5d8;color:var(--ink);box-shadow:0 28px 80px rgba(59,39,29,.30);padding:0;width:min(900px,calc(100vw - 28px));max-height:calc(100vh - 28px)}
+dialog::backdrop{background:rgba(64,49,41,.28);backdrop-filter:blur(6px)}
+.dh{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line);background:rgba(248,239,230,.55)}
+.dh h2{margin:0;font-size:16px;font-weight:900}
+.db{padding:8px 18px 20px;overflow:auto;max-height:calc(100vh - 120px)}
+.db h3{font-size:13px;font-weight:850;margin:16px 0 6px}
+.db p{margin:0 0 8px;max-width:76ch;font-size:12.5px;line-height:1.5}
+.db table{border-collapse:collapse;width:100%;font-size:12px}
+.db td,.db th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.db th{font-weight:800;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.1em}
+.db td:first-child{font-family:var(--mono);white-space:nowrap;font-weight:700}
+.db pre{font:12px/1.6 var(--mono);background:rgba(249,241,232,.85);border:1px solid var(--line);border-radius:12px;padding:10px 12px;overflow-x:auto;margin:0 0 8px}
+.db kbd{font:11px var(--mono);border:1px solid var(--line-strong);border-radius:5px;padding:0 5px;background:#f8efe6}
+@media (max-width:1240px){
+  body{overflow:auto}.app{height:auto;min-height:100vh}
+  .main{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:auto auto}
+  .panel.machine{grid-column:1 / -1;grid-row:1}
+  .pbody{overflow:visible}
+  .bottom{position:sticky;bottom:10px;z-index:5}
+}
+@media (max-width:760px){
+  .app{padding:10px;gap:10px}.main{grid-template-columns:1fr}
+  .top{flex-wrap:wrap}.pick{order:3;flex-basis:100%}.pick select{width:100%}
+  .banks{grid-template-columns:1fr}.stacks{grid-template-columns:1fr 1fr 1fr;gap:6px;padding:8px}
+  .lastbox{grid-template-columns:1fr}.eq{font-size:22px}
+  .bottom{flex-wrap:wrap}.scrub{flex-basis:100%;order:2}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><div class="mark">ABC</div><div><h1>ABC VM Lab</h1><span>three stacks · one operand bank</span></div></div>
+    <div class="pick"><label for="progSel">Program</label><select id="progSel"></select></div>
+    <div class="end"><button class="btn" id="helpBtn">ISA reference</button></div>
+  </header>
+  <main class="main">
+    <section class="panel prog" aria-label="Program">
+      <div class="phead">
+        <h2>Program</h2><span class="tag" id="kindTag"></span>
+        <div class="acts">
+          <div class="seg" id="viewSeg" role="group" aria-label="Program view">
+            <button data-v="src" aria-pressed="true">Source</button>
+            <button data-v="tree" aria-pressed="false">Tree</button>
+            <button data-v="asm" aria-pressed="false">Asm</button>
+          </div>
+          <button class="btn" id="editBtn">Edit</button>
+        </div>
+      </div>
+      <div class="pbody" id="progBody"></div>
+    </section>
+    <section class="panel machine" aria-label="Machine">
+      <div class="hero" aria-live="polite">
+        <div class="lbl" id="nextLbl">Next instruction</div>
+        <div class="eq" id="eq"></div>
+        <div class="mean" id="mean"></div>
+        <div class="lastbox">
+          <div class="last" id="last"></div>
+          <div class="native" id="native"></div>
+        </div>
+      </div>
+      <div class="pbody">
+        <div class="banks">
+          <div class="bank"><h3>Operand bank <span id="abState"></span></h3><div class="regs" id="hregs"></div>
+            <div class="ring"><span>A fills from h0 →</span><span>← B fills from h3</span></div></div>
+          <div class="bank"><h3>C bank <span id="kState"></span></h3><div class="regs" id="cregs"></div>
+            <div class="ring"><span>C fills from c0 →</span><span></span></div></div>
+        </div>
+        <div class="stacks">
+          <div class="stk A"><h3><i></i>A</h3><div class="role">operand stack: left operands</div><ol class="cells" id="cellsA"></ol></div>
+          <div class="stk B"><h3><i></i>B</h3><div class="role">operand stack: right operands</div><ol class="cells" id="cellsB"></ol></div>
+          <div class="stk C"><h3><i></i>C</h3><div class="role">bindings and return addresses</div><ol class="cells" id="cellsC"></ol></div>
+        </div>
+      </div>
+      <div class="stats" id="stats"></div>
+    </section>
+    <section class="panel code" aria-label="Bytecode">
+      <div class="phead">
+        <h2>Bytecode</h2><span class="tag" id="sizeTag"></span>
+        <div class="acts"><div class="seg" id="bcSeg" role="group" aria-label="Bytecode view">
+          <button data-v="asm" aria-pressed="true">Asm</button><button data-v="spec" aria-pressed="false">Opcodes</button></div></div>
+      </div>
+      <div class="pbody"><div id="info"></div><ol class="bc" id="bc"></ol></div>
+    </section>
+  </main>
+  <footer class="bottom">
+    <div class="ctl">
+      <button class="btn icon" id="resetBtn" aria-label="Reset" title="Reset (R)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 8a5 5 0 1 0 1.5-3.6"/><path d="M3 2.5V5h2.5"/></svg></button>
+      <button class="btn icon" id="backBtn" aria-label="Step back" title="Step back (←)"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M10.5 3.5v9L4 8z"/></svg></button>
+      <button class="btn icon" id="playBtn" aria-label="Play" title="Play (space)"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l8 5-8 5z"/></svg></button>
+      <button class="btn primary" id="stepBtn" title="Step (→)">Step</button>
+      <div class="seg" id="speedSeg" role="group" aria-label="Speed"><button data-s="650" aria-pressed="false">Slow</button><button data-s="300" aria-pressed="true">Normal</button><button data-s="80" aria-pressed="false">Fast</button></div>
+    </div>
+    <div class="scrub"><input type="range" id="scrub" min="0" max="0" value="0" aria-label="Execution step"><output id="stepOut">Step 0 of 0</output></div>
+    <div class="seg" id="fmtSeg" role="group" aria-label="Value format"><button data-f="s" aria-pressed="true">Signed</button><button data-f="u" aria-pressed="false">Unsigned</button><button data-f="x" aria-pressed="false">Hex</button></div>
+  </footer>
+</div>
+<dialog id="help">
+  <div class="dh"><h2>ISA reference: ABC VM 2.0</h2><button class="btn" id="helpClose">Close</button></div>
+  <div class="db">
+    <p>Three stacks of 64-bit cells. Binary operations consume <b>A0</b> and <b>B0</b> and compute <span style="font-family:var(--mono)">A0 op B0</span>; the <span style="font-family:var(--mono)">.A</span> or <span style="font-family:var(--mono)">.B</span> suffix picks the stack that receives the result, and the other stack pops. Nothing reaches below a top of A or B. C holds bindings and return addresses and is read by depth.</p>
+    <h3>The operand bank</h3>
+    <p>A and B share four registers. A's cached cells fill them from <b>h0</b> upward and B's from <b>h3</b> downward, so the free registers form one gap between the two tops; closed into a circle, the two bottoms meet. Pushes and pops move no values. <b>MOVE changes ownership</b> (free when the bank is full, because the tops are then adjacent), <b>COPY creates liveness</b> (always a real copy), and only a push onto a full bank touches memory: the pushing stack spills its deepest cached cell. C has its own four-register bank. Values that are not cached are read in place from memory; nothing is refilled.</p>
+    <h3>Instructions</h3>
+    <table>
+      <tr><th>Form</th><th>Effect</th></tr>
+      <tr><td>PUSH.X n</td><td>Push a constant (encoded as PUSH8, PUSH32 or PUSH64 by size).</td></tr>
+      <tr><td>DUP.X, DROP.X</td><td>Duplicate or drop the top of X.</td></tr>
+      <tr><td>COPY.AB, COPY.BA, MOVE.AB, MOVE.BA</td><td>Copy or move a top to the other operand stack.</td></tr>
+      <tr><td>CPUSH.X, CPOP</td><td>Move the top of X onto C; pop C.</td></tr>
+      <tr><td>CGET.X n, CSET.X n</td><td>Copy C<sub>n</sub> to X; write the top of X into C<sub>n</sub> (consuming it).</td></tr>
+      <tr><td>ADD SUB MUL AND OR XOR .X</td><td>Wrapping 64-bit arithmetic.</td></tr>
+      <tr><td>DIVU DIVS REMU REMS .X</td><td>Division; a zero divisor aborts (reason 1). MIN / -1 wraps.</td></tr>
+      <tr><td>SHL SHR SAR .X</td><td>Shifts; an amount of 64 or more gives 0, or the sign fill for SAR.</td></tr>
+      <tr><td>EQ NE LT LE LTU LEU .X</td><td>Compare, result 0 or 1. There are no greater-than forms: route the operands to the other stacks.</td></tr>
+      <tr><td>NEG NOT LNOT ZX32 SX32 .X</td><td>Negate, bitwise not, bool not, zero- or sign-extend from 32 bits.</td></tr>
+      <tr><td>ZX8 ZX16 POW POWS</td><td>A only. POWS aborts on a negative exponent (reason 4).</td></tr>
+      <tr><td>CHKU8 CHKU16 CHKU32 CHKI32 CHKNN</td><td>A only. Abort (reason 3) when A0 does not fit.</td></tr>
+      <tr><td>JMP l, JZ.X l, JNZ.X l</td><td>Jump; test the top of X (consumed).</td></tr>
+      <tr><td>BEQ BNE BLT BLE BLTU BLEU l</td><td>Compare A0 with B0, consume both, jump if true.</td></tr>
+      <tr><td>CALL.X f n</td><td>Push the return address (recording X), move n argument cells from A into the new frame, jump. The results arrive on X.</td></tr>
+      <tr><td>TCALL f k n</td><td>Drop k frame cells, move n cells from A in, jump; the return address and the stack it records are kept.</td></tr>
+      <tr><td>RET k r</td><td>Drop k frame cells, pop the return address, jump; move the r results to B if the call asked for B.</td></tr>
+      <tr><td>ADDI.X k (and SUB MUL AND OR XOR SHL SHR SAR)</td><td>Operand form: X0 op an i8 immediate, in place.</td></tr>
+      <tr><td>ADDC.X n (and SUB MUL XOR)</td><td>Operand form: X0 op C<sub>n</sub>, in place; C is only read.</td></tr>
+      <tr><td>BEQI.A k l (NE LT LE GT GE, LTU LEU GTU GEU)</td><td>Compare A0 with an immediate, consume it, jump if true.</td></tr>
+      <tr><td>ABORT n, HALT</td><td>Stop with a reason; stop normally.</td></tr>
+    </table>
+    <h3>SLet programs</h3>
+<pre>let xorshift(a, b, c, s: u32) : u32 = do
+  let s1 = s ~ (s << a)
+  let s2 = s1 ~ (s1 >> b)
+  return s2 ~ (s2 << c)
+end
+let next32 = xorshift(13, 17, 5)     -- static partial supply
+let main() : u32 = next32(2463534242)</pre>
+    <p>The simulator compiles a subset of SLet: words with typed parameters and result contracts (one result or a list such as <span style="font-family:var(--mono)">(u32, u32)</span>), <span style="font-family:var(--mono)">do ... end</span> blocks with <span style="font-family:var(--mono)">let</span> (several names at once), statement <span style="font-family:var(--mono)">if</span>, <span style="font-family:var(--mono)">return</span>, field stores, compound stores and call statements, expression conditionals, <span style="font-family:var(--mono)">and</span>/<span style="font-family:var(--mono)">or</span>/<span style="font-family:var(--mono)">not</span>, static constants, static partial supply, and record schemas with keyed construction, nested records and methods. Types: <span style="font-family:var(--mono)">u32 i32 u64 i64 bool</span> and schemas. Operators follow the spec: <span style="font-family:var(--mono)">~</span> is xor (and unary not), <span style="font-family:var(--mono)">^</span> is power. A literal is a <span style="font-family:var(--mono)">u32</span> unless it needs 64 bits, and adopts the type of a typed operand. A file defines <span style="font-family:var(--mono)">main</span>, which the program calls; its arguments are treated as run-time values so there is code to watch.</p>
+    <p><b>Records are scalarized</b> (the VM spec's open question 3): a record is its fields' cells in canonical name order, so it needs no memory. Passing and returning copy the cells; <span style="font-family:var(--mono)">let c = b</span> on a record binding is a local alias with no code. <b>Methods compile copy-in/copy-out</b>: the receiver's cells go in as leading arguments and come back as trailing results, and the caller writes them back. A result vector is several cells on A, last result on top.</p>
+    <p>Code generation is the recursive invariant <b>compile(E, dst)</b>: the left operand goes to A, the right to B, and the destination bit folds them; each node evaluates its heavier operand first (its Ershov number). Parameters and lets live on C and are read with <span style="font-family:var(--mono)">CGET</span>. A comparison used as a condition becomes one compare-and-branch. A tail self-call becomes <span style="font-family:var(--mono)">CSET</span> plus a <span style="font-family:var(--mono)">JMP</span>. Known values are folded, and a known zero divisor is a compile error. Not supported yet: sums, references, arrays, slices, strings, lambdas, defer, modules and foreign words.</p>
+    <h3>Keyboard</h3>
+    <p><kbd>→</kbd> step, <kbd>←</kbd> back, <kbd>Space</kbd> play, <kbd>R</kbd> reset, <kbd>Home</kbd>/<kbd>End</kbd> jump to the start or end.</p>
+  </div>
+</dialog>
+<script>
+/*CORE*/
+</script>
+<script>
+/*UI*/
+</script>
+</body>
+</html>

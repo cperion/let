@@ -1,0 +1,27 @@
+; A folded first decrement must not introduce a home-backed loop realization.
+.profile memory
+.datazero 8
+.function main 0 1
+PUSH.A 0
+GST64.A 0
+PUSH.A 6
+CPUSH.A
+loop:
+CGET.A 0
+BEQI.A 0 done
+GLD64.A 0
+ADDI.A 1
+GST64.A 0
+; On the unknown path, the zero-left add produces a fresh register payload.
+; A stale constant payload from the first backedge must not split contexts.
+PUSH.A 0
+CGET.B 0
+ADD.A
+SUBI.A 1
+CSET.A 0
+JMP loop
+done:
+CPOP
+GLD64.A 0
+RET.A 0 1
+.export main

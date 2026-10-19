@@ -1,0 +1,38 @@
+; Revision-6 instruction boundaries and independent call-graph expectations.
+.profile callables
+.signature environment 1 0 a -
+.function main 0 0
+    PUSH64.A 0x0088898687f9f800
+    DROP.A
+    PUSH.B 0
+    BEQI.B 0 calls
+calls:
+    CALL.B first 0
+    RET.B 0 0
+.function first 0 0
+    TCALL.A second 0 0
+.function second 0 0
+    TCALL.B first 0 0
+.function self 0 0
+    CALL.A self 0
+    RET.A 0 0
+.function leaf 0 0
+    PUSH.A 0
+    SWITCH.A done
+done:
+    RET.B 0 0
+.function mixed_first 0 0
+    CALL.B mixed_second 0
+    RET.B 0 0
+.function mixed_second 0 0
+    TCALL.A mixed_first 0 0
+.function indirect 1 0 a -
+    CGET.B 0
+    CGET.A 0
+    CALLI.B 1 environment
+    CALL.A leaf 0
+    RET.B 1 0
+.function indirect_tail 1 0 a -
+    CGET.A 0
+    CGET.B 0
+    TCALLI.A 1 1 environment

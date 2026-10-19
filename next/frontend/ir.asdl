@@ -1,0 +1,229 @@
+# Let runtime semantic types and structured IR. Checkable with vendor/asdl.lua.
+module Ty {
+  # The fieldless constructors are the language's own primitive words: they are the spellings a
+  # source file writes, and diagnostics print them verbatim. The parameterised constructors below
+  # them describe representation and are not source syntax.
+  V = U32 | U8 | U16 | I32 | U64 | I64 | F64 | Bool | Unit | Type | Any
+    | Record(string meaning, Field* fields) unique
+    | Sig(Input* inputs, V* results) unique
+    | Owned(string entry, Sig visible, V environment) unique
+    | View(Sig visible) unique
+    | Sum(string meaning, Field* cases) unique
+    | Tagged(Sig visible, Field* arms) unique
+    | Ref(V target) unique
+    | Rc(V target) unique
+    # An address the compiler does not track: no lifetime, no ownership and no null check. It is a
+    # different type from Ref on purpose, so a signature says which guarantee it carries.
+    | Ptr(V target) unique
+    | Array(V element, number length) unique
+    # A Slice is a runtime-length view of storage someone else owns: an element pointer and a
+    # length. It is the only Array-like type whose length is not part of the type.
+    | Slice(V element) unique
+    | Named(string cell) unique
+  Field = (string name, V type) unique
+  Input = InValue(V type) unique | InPlace(V type) unique
+}
+
+# Compile-time source interfaces, separate from structural Ty identity and C layout. The ids
+# refer only to a compilation's schema registry; these interned nodes retain no source programs.
+module Surface {
+  Face = Schema(number id) unique
+       | Element(Face target) unique
+       | Knot(string cell) unique
+}
+
+# Provenance descriptors for checked access. These describe where a value's access comes from, not
+# how it is represented: `Ty` stays lifetime-free, so two refs of one type may retain different
+# sources. The ids here are per-compilation symbols; the lifetimes they name live in per-function
+# metadata, not on an interned node.
+module Borrow {
+  # A route from a storage root to one component: a record field, a sum payload, or an element.
+  # `Element` covers any runtime-selected element; `Index` keeps statically known
+  # cells independent. Element overlaps every Index at the same array boundary.
+  Access = ReadAccess | WriteAccess
+  Path = Root unique | Field(Path base, string name) unique | Element(Path base) unique
+       | Index(Path base, number index) unique | Case(Path base, string name) unique
+
+  # One place whose continued existence keeps a value valid. `Global` is program-lived storage:
+  # a module object or a literal's read-only bytes. `Local` is storage of the frame named here,
+  # including a compiler-created callable adapter. The two inputs differ deliberately: a by-value
+  # argument's own storage is a `Local` of the callee, while a checked view *inside* that copied
+  # value still names caller storage, which is `ValueInput`. A place parameter names caller
+  # storage directly, which is `PlaceInput`. `ValueInput` also describes access in the entry
+  # contents read through a place parameter: its contents and its address are distinct facts.
+  Source = Global(string storage) unique
+         | Local(string frame, number storage) unique
+         # A fresh allocation family in a finite call context. Unlike ValueInput,
+         # this names storage, not the target inferred from an input loan.
+         | Instantiated(string frame, number storage, Point* context) unique
+         # A recursive family is finite but does not prove two activations equal.
+         | Recurring(string frame, number storage, Point* context) unique
+         | Heap(string frame, number storage, Point* context, boolean folded) unique
+         | ValueGuard(string frame, number value, Point* context, boolean folded) unique
+         | FieldGuard(Source parent, Location slot) unique
+         | ValueInput(string frame, number parameter, Path path) unique
+         | PlaceInput(string frame, number parameter, Path path) unique
+         # Finite open-template field-content obligation, qualified by the original
+         # read and component. Its relative locators live in source flow. This is
+         # not evidence that two dynamic reads denote the same allocation.
+         | ContentsInput(string frame, Point read, number operand, Path path) unique
+         # A deferred result retains its invocation identity until the actual callable
+         # contract is substituted. This is an obligation, not proof of a global owner.
+         | CallOutput(Point invocation, number result, Path path) unique
+
+  # Function-qualified analysis points/code origins. They carry no executable code,
+  # address, scalar value, placement or ABI cell. Formal origins survive transport
+  # through records, parameters and results until an actual callable is substituted.
+  Point = (string frame, number ordinal) unique
+  Code = KnownCode(Point formation) unique
+       | InstanceCode(Point formation, Point* context, boolean folded) unique
+       | ParameterCode(string frame, number parameter, Path path) unique
+       | ResultCode(Point invocation, number result, Path path) unique
+       | ContentsCode(Point read, number operand, Path path) unique
+  Invocation = (Point point, Code callable) unique
+
+  # A canonical set of sources. Canonicalise (sort, deduplicate) before constructing: ASDL
+  # interns a `unique` list by sequence, and it does not sort.
+  Loans = (Source* sources) unique
+
+  # Retained access in a value, indexed by component path. Nil loans mean an unknown origin
+  # at that component; no component means no retained access. Lists are copied/canonicalized.
+  Component = (Path path, Loans? loans) unique
+  Contents = (Component* components) unique
+
+  # Physical/symbolic targets are distinct from retained-owner sources. StorageRoot
+  # permits only Global, Local, Instantiated, Recurring or PlaceInput sources (checked by the access pass).
+  # InputTarget/OutputTarget are substitution obligations for the target carried by
+  # that value component, never an address inferred from ValueInput/CallOutput loans.
+  Target = StorageRoot(Source storage) unique
+         | InputTarget(string frame, number parameter, Path path) unique
+         | OutputTarget(Point invocation, number result, Path path) unique
+         | ContentsTarget(string frame, Point read, number operand, Path path) unique
+  Location = (Target root, Path path) unique
+  Footprint = (Location* writes, boolean unknown) unique
+
+}
+
+# Concrete strong-edge checking identities; never inferred storage or holdings.
+module Ownership {
+  Root = Module(Borrow.Source source) unique | Formal(Borrow.Source source) unique
+       | Fresh(Borrow.Source source) unique
+  Extent = Activation(string frame, Borrow.Point* context, boolean folded) unique
+  Site = (Borrow.Point point, Extent extent) unique
+  Edge = (Root holder, Root target, Site site) unique
+}
+
+module Ir {
+  # Not marked unique, for the reason Ir.Expr gives: these ids are function-local, so interning by
+  # value in the context-wide cache would make two functions' value 1 the same table.
+  Value = (number id)
+  Storage = (number id)
+  # Pure component selection. Element indices are static and checked in range.
+  Selector = Field(string name) unique | Element(number index) unique
+
+  Literal = UInt(number value) unique
+          | UInt64(number high, number low) unique
+          | Boolean(boolean value) unique
+          # Byte string; a compile-time constant whose bytes live in read-only static storage.
+          | Str(string bytes) unique
+          # An IEEE-754 double. The value is exact: a Lua number is one, and an encoding of it is
+          # written with enough digits to round-trip. Deliberately not unique: Lua has one table
+          # key for 0.0 and -0.0, so interning by value would give -0.0 the node of whichever
+          # zero was built first and lose the sign of a constant the C backend emits verbatim.
+          | Float(number value)
+          # VM-produced f64 bits, including NaN payloads; never round-trip through a host number.
+          | FloatBits(number high, number low) unique
+          # Exact durable pointer-free aggregate layout, published by VM transport.
+          | Bytes(string bytes) unique
+  Unary = Neg | Not | BitNot
+  Binary = Add | Sub | Mul | Div | Rem | Pow
+         | BitAnd | BitOr | BitXor | Shl | Shr
+         | Eq | Ne | Lt | Le | Gt | Ge
+
+  DynamicOp = WordNew | WordGet | WordSet | WordMethod | WordHas | WordRemove | WordCount | WordKey | WordSupply | WordFreeze | WordBind(number argument)
+  # Pure immutable expressions. No read, call, trap or address acquisition.
+  # Deliberately NOT marked unique: Value IDs are function-local, so interning is the
+  # builder's per-function memo table, not ASDL's context-wide cache.
+  Expr = Const(Ty.V type, Literal literal)
+       | Ref(Value value, Ty.V type)
+       | Un(Unary op, Expr operand, Ty.V type)
+       | Bin(Binary op, Expr left, Expr right, Ty.V type)
+       | Get(Expr aggregate, Selector field, Ty.V type)
+       | Make(Ty.V type, Expr* fields)
+       | Convert(Expr operand, Ty.V type)
+       | Addr(Place place, Ty.V type, Borrow.Access? access)
+       # The length of a slice value. Pure, like a record field projection.
+       | SliceLength(Expr view, Ty.V type)
+       | RcBorrow(Arg holding, Ty.V type)
+       # A dynamic type test. `operand` is any, `tested` is a concrete run-time type and `type` is bool.
+       | Is(Expr operand, Ty.V tested, Ty.V type)
+       # The null pointer of a ptr type. Pure, so it is interned like any other constant.
+       | Null(Ty.V type)
+       # Private code identity in the current module; existing code relocation ABI.
+       | Code(string entry, Ty.V type)
+       # Materialized private C entry, never an ABC code identity.
+       | CEntry(string entry, Ty.V type)
+       # Physical callable transport; environment ownership is held by its container.
+       | Callable(Expr code, Expr environment, Ty.V type)
+
+  # One persistent module root; identity and initial bytes are independent of its
+  # eventual image offset. No VM/process addresses occur in the initial image.
+  ModuleRoot = (string identity, Ty.V type, boolean writable) unique
+  ModuleData = (ModuleRoot root, string bytes)
+
+  Place = Global(ModuleRoot root)
+        | Local(Storage storage)
+        | Project(Place base, Selector field)
+        | Deref(Place base, Ty.V type)
+        | Index(Place base, Expr index, Ty.V type)
+        # `base[index]` through a slice: base names the slice place, and the element is at data[index]
+        # after a runtime bounds check against length.
+        # `view[index]`: the element a slice value views, checked against its length before use. The
+        # slice is a value rather than a place because a view needs no storage of its own; and it is
+        # read-only, because a view does not own the storage it names, so a `SliceIndex` is reached by
+        # `Read` and never by `Store` (`view[i] = v` rejects, syntax.md §8.4).
+        | SliceIndex(Expr view, Expr index, Ty.V type)
+        # `view[index]`: the element an unchecked pointer addresses. No length, so no bounds check,
+        # which is the whole difference between this and a slice.
+        | PtrIndex(Expr view, Expr index, Ty.V type)
+
+  Arg = ValueArg(Expr value) | BorrowArg(Place place)
+
+  # Ordered effects. Loop-carried storage is declared by Var before its Loop.
+  Stmt = Let(Value value, Ty.V type, Expr expr)
+       | RcNew(Value value, Storage root, Ty.V type, Expr initial)
+       | Var(Storage storage, Ty.V type, Expr? initial)
+       | Read(Value value, Ty.V type, Place place)
+       | Store(Place place, Expr value)
+       # Nonempty slots allocate a local environment with its own Storage identity. It is
+       # not an ordinary typed Place; empty slots use a null environment and no adapter.
+       | View(Value value, Ty.V type, string entry, Arg* slots, Storage? adapter)
+       | Call(Value* results, string target, Arg* arguments)
+       | Indirect(Value* results, Expr callable, Arg* arguments)
+       # Profile-5 open-word operations. Operands and results are typed `any` cells; the enum keeps
+       # operation identity durable and checkable instead of passing lowering-only strings.
+       | Dynamic(Value* results, DynamicOp operation, Expr* operands)
+       | If(Expr test, Stmt* yes, Stmt* no)
+       # A multi-way branch on a sum's tag. The cases are the alternatives in canonical order; the
+       # last one carries `fallback` and is emitted as C's `default`, so the switch is total and a
+       # dense tag range becomes one jump table instead of a chain of compares.
+       | Switch(Value variant, Ty.V sum, Case* cases)
+       | Loop(Stmt* body)
+       | Next
+       | Trap(Expr failure, string reason)
+       | ConstructVariant(Value value, Ty.V type, string tag, Expr? payload)
+       | VariantMatches(Value value, Value variant, Ty.V sum, string tag)
+       | VariantPayload(Value value, Value variant, Ty.V sum, string tag)
+       | Return(Expr* values)
+
+  Case = (string tag, boolean fallback, Stmt* body)
+
+  # Actual ABI inputs, including the hidden owner/capture prefix at input 0..hidden-1.
+  Param = ValueParam(number input, Value binding, Ty.V type)
+        | PlaceParam(number input, Storage binding, Ty.V type)
+  Role = Body | Entry
+  # A verified host ABI declaration. Keeping this in the schema makes foreign call targets part of
+  # the typed compiler interface instead of an unstructured lowering option.
+  Foreign = (string target, Ty.Input* inputs, Ty.V* results)
+  Fn = (string id, Role role, number hidden, Ty.Input* inputs, Ty.V* results, Param* params, Stmt* body)
+}
