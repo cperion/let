@@ -1,0 +1,130 @@
+{
+  "fib20": {
+    "demand": {
+      "median_ns": 107933.06649999999,
+      "q1_ns": 106592.802,
+      "q3_ns": 110487.40024999999,
+      "min_ns": 106078.057,
+      "max_ns": 146481.797,
+      "median_paired_ratio_to_demand": 1.0,
+      "iterations_per_sample": 512,
+      "instructions_per_run": 153237
+    },
+    "eager": {
+      "median_ns": 139435.245,
+      "q1_ns": 137907.99375,
+      "q3_ns": 142602.965,
+      "min_ns": 137082.15,
+      "max_ns": 155720.561,
+      "median_paired_ratio_to_demand": 1.293134453201093,
+      "iterations_per_sample": 512,
+      "instructions_per_run": 153237
+    },
+    "return-only": {
+      "median_ns": 119662.7625,
+      "q1_ns": 118119.97675,
+      "q3_ns": 121390.27125,
+      "min_ns": 115438.863,
+      "max_ns": 124361.846,
+      "median_paired_ratio_to_demand": 1.0996881249106505,
+      "iterations_per_sample": 512,
+      "instructions_per_run": 153237
+    }
+  },
+  "expressions64": {
+    "demand": {
+      "median_ns": 26724.817,
+      "q1_ns": 26051.165999999997,
+      "q3_ns": 26928.6665,
+      "min_ns": 25820.292,
+      "max_ns": 27286.313,
+      "median_paired_ratio_to_demand": 1.0,
+      "iterations_per_sample": 2048,
+      "instructions_per_run": 50436
+    },
+    "eager": {
+      "median_ns": 42832.073000000004,
+      "q1_ns": 42542.73875,
+      "q3_ns": 43398.117,
+      "min_ns": 41599.033,
+      "max_ns": 44880.41,
+      "median_paired_ratio_to_demand": 1.5987680068693304,
+      "iterations_per_sample": 2048,
+      "instructions_per_run": 50436
+    },
+    "return-only": {
+      "median_ns": 26556.832000000002,
+      "q1_ns": 26092.467249999998,
+      "q3_ns": 27078.736750000004,
+      "min_ns": 25539.172,
+      "max_ns": 28894.525,
+      "median_paired_ratio_to_demand": 1.0088238378418866,
+      "iterations_per_sample": 2048,
+      "instructions_per_run": 50436
+    }
+  },
+  "locals12": {
+    "demand": {
+      "median_ns": 18586.516,
+      "q1_ns": 17956.288,
+      "q3_ns": 19341.143249999997,
+      "min_ns": 16972.16,
+      "max_ns": 21101.205,
+      "median_paired_ratio_to_demand": 1.0,
+      "iterations_per_sample": 2048,
+      "instructions_per_run": 32476
+    },
+    "eager": {
+      "median_ns": 30095.6495,
+      "q1_ns": 29966.843249999998,
+      "q3_ns": 30856.72775,
+      "min_ns": 29004.793,
+      "max_ns": 32306.489,
+      "median_paired_ratio_to_demand": 1.6343965134270544,
+      "iterations_per_sample": 2048,
+      "instructions_per_run": 32476
+    },
+    "return-only": {
+      "median_ns": 22165.305,
+      "q1_ns": 21750.80875,
+      "q3_ns": 22786.310750000004,
+      "min_ns": 21212.375,
+      "max_ns": 23717.785,
+      "median_paired_ratio_to_demand": 1.18669131814574,
+      "iterations_per_sample": 2048,
+      "instructions_per_run": 32476
+    }
+  },
+  "oscillation": {
+    "demand": {
+      "median_ns": 7429.9439999999995,
+      "q1_ns": 7357.827,
+      "q3_ns": 7630.954250000001,
+      "min_ns": 7238.385,
+      "max_ns": 8081.003,
+      "median_paired_ratio_to_demand": 1.0,
+      "iterations_per_sample": 4096,
+      "instructions_per_run": 20544
+    },
+    "eager": {
+      "median_ns": 12738.4925,
+      "q1_ns": 12368.243750000001,
+      "q3_ns": 13502.998,
+      "min_ns": 12027.38,
+      "max_ns": 14471.169,
+      "median_paired_ratio_to_demand": 1.7304123264203746,
+      "iterations_per_sample": 4096,
+      "instructions_per_run": 20544
+    },
+    "return-only": {
+      "median_ns": 7457.8235,
+      "q1_ns": 7430.1465,
+      "q3_ns": 7565.981000000001,
+      "min_ns": 7215.962,
+      "max_ns": 8079.062,
+      "median_paired_ratio_to_demand": 1.0062219172218194,
+      "iterations_per_sample": 4096,
+      "instructions_per_run": 20544
+    }
+  }
+}

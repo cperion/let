@@ -1,0 +1,165 @@
+{
+  "scope": "baseline interpreter elapsed times; not hardware attribution or current V2 comparison",
+  "runs": [
+    "runs/n8-001",
+    "runs/n8-002",
+    "runs/n8-003",
+    "runs/n8-004",
+    "runs/n8-005",
+    "runs/n8-006"
+  ],
+  "workloads": {
+    "fib20": {
+      "demand": {
+        "median_of_layout_medians_ns": 107932.2275,
+        "layout_median_ns_range": [
+          107573.48800000001,
+          109866.8425
+        ],
+        "paired_ratio_range": [
+          1.0,
+          1.0
+        ],
+        "instructions_per_run": 153237
+      },
+      "eager": {
+        "median_of_layout_medians_ns": 139139.8725,
+        "layout_median_ns_range": [
+          137295.26049999997,
+          157705.1525
+        ],
+        "paired_ratio_range": [
+          1.27463626106654,
+          1.4420890255340821
+        ],
+        "instructions_per_run": 153237
+      },
+      "return-only": {
+        "median_of_layout_medians_ns": 120316.63024999999,
+        "layout_median_ns_range": [
+          118677.9785,
+          121856.3505
+        ],
+        "paired_ratio_range": [
+          1.0870851961386925,
+          1.126320760717106
+        ],
+        "instructions_per_run": 153237
+      }
+    },
+    "expressions64": {
+      "demand": {
+        "median_of_layout_medians_ns": 26447.53775,
+        "layout_median_ns_range": [
+          26285.1515,
+          26758.8835
+        ],
+        "paired_ratio_range": [
+          1.0,
+          1.0
+        ],
+        "instructions_per_run": 50436
+      },
+      "eager": {
+        "median_of_layout_medians_ns": 37581.5965,
+        "layout_median_ns_range": [
+          35928.2225,
+          43009.06
+        ],
+        "paired_ratio_range": [
+          1.353812811165146,
+          1.6246652573752498
+        ],
+        "instructions_per_run": 50436
+      },
+      "return-only": {
+        "median_of_layout_medians_ns": 26405.92725,
+        "layout_median_ns_range": [
+          26042.578999999998,
+          26733.1155
+        ],
+        "paired_ratio_range": [
+          0.9858587543139328,
+          1.0092789638899933
+        ],
+        "instructions_per_run": 50436
+      }
+    },
+    "locals12": {
+      "demand": {
+        "median_of_layout_medians_ns": 18579.17675,
+        "layout_median_ns_range": [
+          18094.36,
+          23126.639499999997
+        ],
+        "paired_ratio_range": [
+          1.0,
+          1.0
+        ],
+        "instructions_per_run": 32476
+      },
+      "eager": {
+        "median_of_layout_medians_ns": 30246.02275,
+        "layout_median_ns_range": [
+          24986.2995,
+          31602.161500000002
+        ],
+        "paired_ratio_range": [
+          1.3599040442670853,
+          1.7089189811382388
+        ],
+        "instructions_per_run": 32476
+      },
+      "return-only": {
+        "median_of_layout_medians_ns": 18421.305249999998,
+        "layout_median_ns_range": [
+          17675.7175,
+          22165.305
+        ],
+        "paired_ratio_range": [
+          0.8181006883604681,
+          1.1969947474527451
+        ],
+        "instructions_per_run": 32476
+      }
+    },
+    "oscillation": {
+      "demand": {
+        "median_of_layout_medians_ns": 7550.362499999999,
+        "layout_median_ns_range": [
+          7429.9439999999995,
+          9099.7
+        ],
+        "paired_ratio_range": [
+          1.0,
+          1.0
+        ],
+        "instructions_per_run": 20544
+      },
+      "eager": {
+        "median_of_layout_medians_ns": 12753.638,
+        "layout_median_ns_range": [
+          11774.672999999999,
+          13438.0155
+        ],
+        "paired_ratio_range": [
+          1.3274288280571755,
+          1.7677500113015734
+        ],
+        "instructions_per_run": 20544
+      },
+      "return-only": {
+        "median_of_layout_medians_ns": 7486.1985,
+        "layout_median_ns_range": [
+          7441.506,
+          7572.558499999999
+        ],
+        "paired_ratio_range": [
+          0.8414147043665712,
+          1.0062219172218194
+        ],
+        "instructions_per_run": 20544
+      }
+    }
+  }
+}

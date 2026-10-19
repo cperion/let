@@ -227,6 +227,36 @@ is recorded under S05 below.
   Integration boundary: isolated Python model; the documented no-refill rule stays
   unchanged. Full runtime builds and native timing were not run.
 
+- [x] **V04 — Measure refill policies in real register-specialized execution.**
+  Owner: coding assistant (user assigned). State: completed (isolated interpreter
+  experiment). Dependency: V03 model;
+  user approved the runtime experiment. Scope: `next/experiments/refill-native/`
+  generator, C oracle/driver, runner, README and exclusive raw evidence. Generate
+  x86-64 handlers using eight physical ring registers and scalar B, separate policy
+  entry points, real branches and explicit stack continuations. Private benchmark
+  records/call layout do not assign a V3 public ABI. Validate per-event state in a
+  separate checked build, inspect normal assembly, then pin/warm/alternate repeated
+  timings for recursion, expressions, locals and oscillation. No timing counters
+  or oracle callbacks in the timed interpreter. Removal set: none. No production
+  or copied runtime changes. Outcome: six policy-placement orders each passed
+  15,504 checked policy/case runs and 884,808 instruction-entry checks; all 72 ring
+  states covered per policy. Timed object inspection found zero host calls and
+  three outer returns. Each layout measured 18 balanced samples per policy/workload
+  on pinned CPU 0; raw timings, quartiles, checksums, environment/flags, assembly
+  inspection and hashed source snapshots are under
+  `next/experiments/refill-native/runs/n8-001` through `n8-006`, with aggregate
+  `runs/comparison.json`. Eager was 28–44% slower on Fibonacci across placements;
+  return-only was 9–13% slower. Eager also lost on the other three tested workloads.
+  Nonreturning controls expose substantial layout/noise sensitivity; no hardware
+  branch/cache counters were collected, so no causal prediction claim is made.
+  User confirmed **no eager refill, including on return**, after reviewing evidence;
+  `next/DESIGN.md` links the experiment without changing public ABI/encoding gates.
+  Final artifact/link/whitespace checks pass; archived source hashes match their
+  run metadata and all 193 copied baseline files retain their original checksums.
+  Next action: resume the V3 contract/implementation discussion with this policy
+  fixed; no more measurements in this slice. Boundary: baseline-interpreter refill
+  comparison only, not V3 JIT qualification or a current-V2 speedup claim.
+
 ## How to maintain this record
 
 - Stable item IDs survive reordering. `[x]` means that exact deliverable has evidence;

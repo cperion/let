@@ -13,6 +13,13 @@ returns**. That supersedes the sketch's anchored bank, block spilling and specia
 return refill. Unresolved contracts below are deliberately not implementation
 permission or silently assigned ABI/encoding decisions.
 
+**Refill decision confirmed by experiment:** retain **no eager refill**, including
+on return. The user confirmed this choice after the isolated
+[register-specialized runtime comparison](experiments/refill-native/README.md).
+That evidence supports this interpreter policy, not a universal optimum or a
+speedup over the current production VM. “Demand” in raw experiment files means
+no eager refill; the design uses the explicit name to avoid ambiguity.
+
 ## 1. Agreed architectural direction
 
 - **A is one logical stack:** activation storage and expression operands occupy

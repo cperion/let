@@ -32,7 +32,7 @@ files; before experimentation, verify them with:
 
 The manifest is a frozen starting point: later intentional edits will differ.
 The original VM contracts remain in [`../docs/`](../docs/), and
-[`../WORKLIST.md`](../WORKLIST.md) remains the single live work ledger (V01–V03).
+[`../WORKLIST.md`](../WORKLIST.md) remains the single live work ledger (V01–V04).
 Existing test results elsewhere are not fresh validation of this copy.
 `VALIDATION.log` records the initial checks: source equality, ISA metadata,
 execution forms and the local collector-free audit pass. The full build is blocked:
@@ -53,6 +53,12 @@ unchanged source baseline; the experimental design does not amend them.
 
 ## Experiments
 
-[Ring-cache refill](experiments/refill/README.md) compares demand-only, eager and
-return-only refill with identical checked traces. It records modeled traffic and
-state frequencies, not native timings, and does not change the no-refill baseline.
+[Ring-cache refill model](experiments/refill/README.md) compares no eager refill
+(called `demand` in raw files), eager and return-only refill with identical checked
+traces. It records modeled traffic and state frequencies, not native timings.
+
+[Real register-specialized execution](experiments/refill-native/README.md) measures
+the three policies in an x86-64 baseline interpreter, across six code placements.
+**No eager refill, including on return, is the user-confirmed V3 choice.** Evidence
+and limitations are recorded there; this is not native-JIT or current-V2 comparison
+coverage.

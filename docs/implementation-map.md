@@ -31,6 +31,14 @@ an uncached oracle on identical traces, including scalar-B and call-shaped traff
 No copied runtime files or production cache policy change; model counts are not
 native timings. `next/README.md` links the experiment.
 
+V04 adds `next/experiments/refill-native/{generate.py,driver.c,run.py,README.md}`,
+local build ignores and exclusive `runs/` evidence/source snapshots. The generator
+owns three private x86-64 policy bindings; the checked C oracle validates physical
+state while the normal build supplies uninstrumented runtime measurements. No
+production or copied VM implementation changes. `next/DESIGN.md` records the
+user-confirmed no-eager-refill choice and links the experiment; `next/README.md`
+provides discovery. Public V3 ABI/encoding gates remain unresolved.
+
 ## A / R — Runtime audit and execution-region work
 
 | IDs | Existing files to inspect/change | Required change / removal |

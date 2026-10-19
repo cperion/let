@@ -1,0 +1,26 @@
+$ /usr/bin/python3 /home/cperion_ext/dev/let/next/experiments/refill-native/generate.py /home/cperion_ext/dev/let/next/experiments/refill-native/build --order return_only,eager,demand
+
+$ clang -O2 -g -std=c11 -Wall -Wextra -Werror -fcf-protection=none -fno-pie -no-pie -I/home/cperion_ext/dev/let/next/experiments/refill-native/build -DCHECKED /home/cperion_ext/dev/let/next/experiments/refill-native/driver.c /home/cperion_ext/dev/let/next/experiments/refill-native/build/vm.S -o /home/cperion_ext/dev/let/next/experiments/refill-native/build/checked
+
+$ /home/cperion_ext/dev/let/next/experiments/refill-native/build/checked
+# cpu=0 clock=CLOCK_MONOTONIC_RAW ring_registers=8
+demand fixture_checked_states=72/72
+eager fixture_checked_states=72/72
+return-only fixture_checked_states=72/72
+workload=fib20 policy=demand states=72 handlers=323
+workload=fib20 policy=eager states=16 handlers=100
+workload=fib20 policy=return-only states=23 handlers=107
+workload=expressions64 policy=demand states=24 handlers=48
+workload=expressions64 policy=eager states=16 handlers=49
+workload=expressions64 policy=return-only states=24 handlers=48
+workload=locals12 policy=demand states=32 handlers=91
+workload=locals12 policy=eager states=16 handlers=56
+workload=locals12 policy=return-only states=32 handlers=91
+workload=oscillation policy=demand states=23 handlers=33
+workload=oscillation policy=eager states=16 handlers=36
+workload=oscillation policy=return-only states=23 handlers=33
+validated_policy_runs=15504 checked_instruction_entries=884808
+
+$ clang -g -fno-pie -fcf-protection=none -c /home/cperion_ext/dev/let/next/experiments/refill-native/build/vm.S -o /home/cperion_ext/dev/let/next/experiments/refill-native/build/vm.o
+
+$ clang -O2 -g -std=c11 -Wall -Wextra -Werror -fcf-protection=none -fno-pie -no-pie -I/home/cperion_ext/dev/let/next/experiments/refill-native/build /home/cperion_ext/dev/let/next/experiments/refill-native/driver.c /home/cperion_ext/dev/let/next/experiments/refill-native/build/vm.o -o /home/cperion_ext/dev/let/next/experiments/refill-native/build/bench

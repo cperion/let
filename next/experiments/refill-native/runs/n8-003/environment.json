@@ -1,0 +1,32 @@
+{
+  "timestamp_utc": "2026-10-19T09:51:38.992984+00:00",
+  "platform": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "compiler": "Ubuntu clang version 18.1.3 (1ubuntu1)\nTarget: x86_64-pc-linux-gnu\nThread model: posix\nInstalledDir: /usr/bin\n",
+  "cpu": "Architecture:                            x86_64\nCPU op-mode(s):                          32-bit, 64-bit\nAddress sizes:                           39 bits physical, 48 bits virtual\nByte Order:                              Little Endian\nCPU(s):                                  12\nOn-line CPU(s) list:                     0-11\nVendor ID:                               GenuineIntel\nModel name:                              12th Gen Intel(R) Core(TM) i7-1255U\nCPU family:                              6\nModel:                                   154\nThread(s) per core:                      2\nCore(s) per socket:                      6\nSocket(s):                               1\nStepping:                                4\nBogoMIPS:                                5222.42\nFlags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology tsc_reliable nonstop_tsc cpuid tsc_known_freq pni pclmulqdq vmx ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch ssbd ibrs ibpb stibp ibrs_enhanced tpr_shadow ept vpid ept_ad fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb sha_ni xsaveopt xsavec xgetbv1 xsaves avx_vnni vnmi umip waitpkg gfni vaes vpclmulqdq rdpid movdiri movdir64b fsrm md_clear serialize ibt flush_l1d arch_capabilities\nVirtualization:                          VT-x\nHypervisor vendor:                       Microsoft\nVirtualization type:                     full\nL1d cache:                               288 KiB (6 instances)\nL1i cache:                               192 KiB (6 instances)\nL2 cache:                                7.5 MiB (6 instances)\nL3 cache:                                12 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-11\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Mitigation; Clear Register File\nVulnerability Retbleed:                  Mitigation; Enhanced IBRS\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI BHI_DIS_S\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n",
+  "timing_header": "# cpu=0 clock=CLOCK_MONOTONIC_RAW ring_registers=8",
+  "perf_available": false,
+  "hardware_counters_collected": false,
+  "flags": [
+    "-O2",
+    "-g",
+    "-std=c11",
+    "-Wall",
+    "-Wextra",
+    "-Werror",
+    "-fcf-protection=none",
+    "-fno-pie",
+    "-no-pie",
+    "-I/home/cperion_ext/dev/let/next/experiments/refill-native/build"
+  ],
+  "policy_placement_order": "eager,demand,return_only",
+  "sha256": {
+    "generate.py": "81686009e0ceed5e4425d7835754e7f014279ff3b34365b04661e89bda67f41f",
+    "driver.c": "b4bacd331159d833253f2dd13c42ee5529b79892391a2e5ccb20e0540b4bacc3",
+    "run.py": "c9a49d066073d71e389356b27152b4521444260048bb38038e7a8cebd88f344e",
+    "build/vm.S": "43129b4ae42d6d760e45834e23e8a629440c81b7a3d95dd7ee7b53cbba4c8d95",
+    "build/vm.o": "01f1b7f1345336c1c7f3a390119ace3ecd913a6126db8c1c4c674bc264dd6f4d",
+    "build/bench": "280b0e7b89f3b74589f08c429056daa3f2c60a76c29d653f31f160660259ada9",
+    "build/checked": "241ce3d7278b3a9fc5155e1b09836bbaf115d27fc175ae9308bae08980074019"
+  }
+}

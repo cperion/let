@@ -1,0 +1,28 @@
+{
+  "interpreter_host_calls": 0,
+  "host_returns": 3,
+  "text_bytes": {
+    "vm_demand": 110063,
+    "vm_eager": 115439,
+    "vm_return_only": 121199
+  },
+  "object_text_offsets": {
+    "vm_demand": 0,
+    "vm_eager": 231264,
+    "vm_return_only": 110064
+  },
+  "bank_registers": [
+    "r8",
+    "r9",
+    "r10",
+    "r11",
+    "r12",
+    "r13",
+    "r14",
+    "r15"
+  ],
+  "B": "rbx",
+  "ip": "rsi",
+  "asp": "rbp",
+  "disassembly_sha256": "b5e5c7cd0e4a9a48b39cd8b48465e3f5fb7a15051955616f246962d41578fe17"
+}
