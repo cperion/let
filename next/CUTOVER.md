@@ -1,9 +1,13 @@
-# VM 3 cutover: contract proposal and execution plan
+# VM 3 cutover: approved approach and execution plan
 
-**Status: proposed; implementation is not authorized yet.** The user requested a
-fully specified plan executed in substantial batches, without microstep/test/reward
-loops. This document supplies that plan and a concrete decision bundle for approval.
-It does not silently promote new encodings or ABI choices into approved contracts.
+**Status: semantic/execution approach approved; not implemented.** After discussion
+of B liveness, in-place calls, one-cell continuations, explicit returns/tails, stable
+blocks, virtual execution, logical capacity and delivery scope, the user confirmed:
+“i validate that approach”. V07 records that approval. It covers the three coherent
+implementation batches without per-file approval or repeated full validation.
+Section 9's exact opcode numbers/field widths remain a working draft to finalize
+with V08's producers/consumers, not a frozen public ABI. Material semantic changes
+still require discussion; mechanical encoding finalization is not a new micro-gate.
 
 [DESIGN.md](DESIGN.md) owns the settled topology. [WORKLIST V](../WORKLIST.md#v--vm-3-isolated-experiments)
 is the single live ledger. V06 delivers this plan; V07 records approval; V08–V10 are
@@ -17,8 +21,8 @@ Implement VM 3 **inside `next/`**, replacing the copied organizing paths directl
 - One logical A sequence for arguments, continuation, locals/blocks and operands.
 - One scalar B; no B operand stack, C stack or C bank.
 - Concrete interpreter: ring `(R,T)`, single deepest-cell spill,
-  **no eager refill, including on return**. This cutover proposes N=8 as its initial
-  T0 binding, not a public ABI or proven optimum. No refill-policy flag in the VM.
+  **no eager refill, including on return**. Use N=8 as the initial T0 binding,
+  not a public ABI or proven optimum. No refill-policy flag in the VM.
 - Continuation storage on A above arguments; no dedicated link register.
 - The symbolic cache remains the allocator. Known eligible calls reinterpret
   existing cells and use virtual continuations; the emitted tape/stencils already
@@ -56,15 +60,15 @@ The lab's historical observation that B was shallow is not a proof that the curr
 frontend already respects scalar B. Literal substitution or an old-ISA adapter is
 not an acceptable migration.
 
-## 2. Approval bundle (V07)
+## 2. Approved approach (V07)
 
-The following are **specific proposals**, not worker discretion. Approve or amend
-this bundle once before implementation. These choices close the current design's
-remaining machine gates for the existing admitted feature set.
+The user validated the following semantic/execution approach after discussion.
+These are the implementation invariants, not worker discretion. Exact byte allocation
+and operand widths in section 9 remain provisional as described above.
 
-| Proposal | Concrete choice | Why approval is needed |
+| Contract | Concrete choice | Rationale |
 | --- | --- | --- |
-| P1 — encoding | New `ABC3`, revision 1, profiles 1–4; exact allocation/layouts in section 9; reject `ABC2` outright in next | Incompatible bytecode and changed operand meanings cannot silently reuse revision 6/7 |
+| P1 — encoding | New `ABC3`, revision 1, profiles 1–4; one-byte core plus extension prefix; section 9 allocation/layouts remain draft; reject `ABC2` outright in next | Incompatible bytecode and changed operand meanings cannot silently reuse revision 6/7 |
 | P2 — scalar B | Fixed A-left/B-right binary operands; suffix chooses result; B empty at direct/foreign call entry and full of only the target at indirect entry; A-only argument/result vectors | Current frontend and verifier permit deeper B and both argument banks |
 | P3 — frames/control | One opaque continuation cell; explicit `RET k,d,r`, `TCALL target,k,d,n`; all host entries have a protected sentinel; exact transports in section 4 | A return PC alone does not settle routing, varying locals, tails or host delivery |
 | P4 — addressable storage | Blocks have stable canonical A homes; no eager caching of block bytes; explicit ALLOC/FREE and top-relative byte offsets | Folding C into A must not invalidate frame addresses or cleanup records |
@@ -434,10 +438,12 @@ optimization redesign during this topology migration.
 
 ### Entry to implementation
 
-V07 approval freezes sections 2–9 as one bundle, or incorporates the user's edits.
-Then the executor may implement all three batches without further per-file approval.
-Only a material contract mismatch reopens discussion. No code starts before that
-approval. Build breaks during a batch are expected and must not motivate adapters.
+V07 records approval of the semantic/execution approach. The executor may implement
+all three batches without further per-file approval, finalizing the draft encoding
+in the integrated manifest/producers/consumers. Only a material contract mismatch
+reopens discussion. Build breaks during a batch are expected and must not motivate
+adapters. A missing qualified toolchain is an external dependency, not a reason to
+change the handler ABI or add a fallback.
 
 Before heavy editing, do one targeted toolchain preflight. The installed Clang 18
 lacks the copied handler ABI support and the copied foreign generator uses Lua

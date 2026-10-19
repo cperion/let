@@ -282,22 +282,38 @@ is recorded under S05 below.
   Evidence: `next/CUTOVER.md`; documentation diff reviewed, 18 local file links
   resolve, proposed opcode inventory is 229 core + 44 extended forms, whitespace
   check passes, and all 193 baseline source checksums still match. No runtime
-  tests were run for this documentation-only change. Next action: obtain V07
-  approval. Boundary: a proposed execution contract, not an approved ABI or
-  completed VM.
+  tests were run for this documentation-only change. V07 subsequently records user
+  approval of the semantic/execution approach. Boundary: V06 delivered the proposal,
+  not an implemented VM or a frozen numeric ABI.
 
-- [ ] **V07 — Approve the VM 3 contract bundle before implementation.**
-  Owner: unassigned. State: design. Dependency: V06.
-  Scope: `next/CUTOVER.md` sections 2–9; P1 encoding, P2 scalar-B routing,
-  P3 continuation/return/tail transport, P4 stable block homes, P5 unified capacity,
-  P6 full typed-feature delivery. Next action: user approves or amends the bundle;
-  reconcile `next/DESIGN.md`'s open sketch contracts with the approved details.
-  No runtime code is authorized until this gate closes. Approval then covers the
-  three coherent batches, not repeated per-file permission requests.
+- [x] **V07 — Approve the VM 3 semantic/execution approach.**
+  Owner: coding assistant (recording user approval). State: documented (approved,
+  not implemented). Dependency: V06. After discussion of the contracts, the user
+  confirmed “i validate that approach”: checked B liveness/call rules, in-place
+  arguments, one-cell continuations and explicit returns/tails, scalar locals and
+  stable blocks, virtual calls/cache allocation, unified logical capacity, ABC3
+  core/extension encoding approach, initial N=8 and preservation of admitted features.
+  Scope: `next/CUTOVER.md`, `next/DESIGN.md`, `next/README.md`, implementation map
+  and this ledger. The exact opcode numbers/field widths remain draft for integrated
+  V08 finalization, not a frozen public ABI or another per-file approval gate.
+  Evidence: explicit user approval; reconciled stale open-gate/locals/B/return prose.
+  No runtime files changed or runtime suites run. Next action: resolve V08's external
+  compiler dependency, then execute the three approved batches. Material semantic
+  changes still require discussion; ordinary implementation edits do not.
 
 - [ ] **V08 — Replace the runtime and execution-backend machine end to end.**
-  Owner: unassigned. State: design. Dependency: V07 and a qualified handler-ABI
-  toolchain; the copied LuaJIT generator syntax also needs the documented fix.
+  Owner: coding assistant (preflight only so far). State: blocked on toolchain.
+  Dependency: V07 is approved; a qualified x86-64 handler-ABI compiler is missing.
+  One targeted preflight attempted compilation of the existing handler signature
+  and unified-A eight-register/scalar-B signature with preserve_none/musttail at -O2,
+  treating unknown/ignored attributes as errors. `/usr/bin/clang` (18.1.3) failed
+  with unknown attribute `preserve_none`. `/opt/wasi-sdk/bin/clang` (19.1.5), invoked
+  with `--target=x86_64-linux-gnu --sysroot=/`, failed because its build has no x86-64
+  target. Historical `/tmp/clang20` is absent. No compiler installed, attributes
+  removed, wrapper added, full build rerun or runtime implementation changed.
+  Next external action: provide a compatible compiler path or authorize a local
+  toolchain installation. The copied LuaJIT generator syntax still needs its
+  approved in-source fix as part of the integrated implementation.
   Scope/files: `next/CUTOVER.md` V08 table and implementation-map V08; module/ISA,
   verifier, one-A/scalar-B execution context, ring interpreter, shared semantics,
   symbolic frame views/cache allocation, native/threaded entries/resumes, foreign
@@ -306,8 +322,9 @@ is recorded under S05 below.
   roles. Preserve existing owner algorithms, register-entry recursion and effect
   guards. New tests: `next/tools/validate_v3_runtime.{lua,c}` and replacement
   `next/tools/validate_operand_register.lua`; retire the old symmetric-interpreter
-  test path. Next action after approval: one targeted toolchain preflight, then
-  implement the complete runtime cutover before grouped boundary-A checks.
+  test path. After the compiler dependency is resolved, implement the complete
+  runtime cutover before grouped boundary-A checks; do not repeat this failed
+  preflight unchanged or introduce a small compatibility patch.
   Boundary: typed V3 assembly works in four modes. Source/optimizer may remain
   temporarily broken until V09; no compatibility layer or overall completion claim.
 
@@ -341,7 +358,8 @@ is recorded under S05 below.
   `[ ]` means open, including partial, blocked or design-only work.
 - For an active item append `Owner`, `State` (design/active/blocked/partial), concrete
   scope, dependency/blocker and next action. Do not claim an owner before assignment.
-  All currently open items are unassigned; dependencies below are scheduling gates.
+  Open items are unassigned unless an explicit owner is recorded; dependencies
+  below are scheduling gates.
 - Before implementation, inspect code/contracts/tests and obtain approval for the
   concrete interfaces. Feature-direction approval is not approval of an unseen ABI.
 - On completion record changed files, removed paths, exact checks/results and evidence

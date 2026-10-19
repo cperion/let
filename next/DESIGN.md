@@ -7,16 +7,17 @@ production VM at the repository root. The copied sources still implement VM 2.
 [WORKLIST V](../WORKLIST.md#v--vm-3-isolated-experiments) is the only live delivery
 ledger. This document is a design contract, not an implementation progress report.
 
-[CUTOVER.md](CUTOVER.md) supplies the detailed **proposed** contract closure and
-three-batch execution plan (V06–V10), including cache-allocated virtual calls. Its
-encoding/ABI choices still require V07 user approval; they do not silently settle
-the open sketch contracts below or authorize implementation.
+[CUTOVER.md](CUTOVER.md) supplies the **approved semantic/execution approach** and
+three-batch execution plan (V06–V10), including cache-allocated virtual calls. V07
+records the user's validation after discussion. It owns the detailed frame/B/block/
+capacity contracts; its exact byte assignments/field widths remain draft for V08
+finalization, not a frozen public ABI.
 
 The user's initial sketch is the starting proposal. Subsequent discussion settled
 **a ring register bank with dynamic occupancy and no eager refill, including at
 returns**. That supersedes the sketch's anchored bank, block spilling and special
-return refill. Unresolved contracts below are deliberately not implementation
-permission or silently assigned ABI/encoding decisions.
+return refill. V07 closes the semantic approach described below; implementation and
+validation remain separate work, and material contract changes require discussion.
 
 **Refill decision confirmed by experiment:** retain **no eager refill**, including
 on return. The user confirmed this choice after the isolated
@@ -65,8 +66,8 @@ The selected continuation placement, shown deepest to shallowest, is:
 
 The arguments are already in A before the call. The continuation is placed above
 those arguments rather than inserted below them. Locals and operands grow above
-it. Stack-resident continuation placement is selected; the exact continuation
-contents, size and frame bookkeeping remain gates in section 6.
+it. One opaque control cell holds the execution-bound continuation. Section 6 and
+CUTOVER section 4 define its bindings and explicit return/tail coordinates.
 
 A binding can remain where its value was produced: changing its role from operand
 to local requires no CPUSH. Ending a binding with a result above it can require a
@@ -98,7 +99,7 @@ For the concrete stack interpreter, let:
 | `T` | Number of cached A cells, 0 through N |
 | `B` | Scalar operand/result register |
 
-`N = 8` is the starting proposal, not a measured optimum or a public ABI. Activation
+`N = 8` is the approved initial binding, not a measured optimum or a public ABI. Activation
 boundaries, stack capacity, module state and verification information still exist;
 this table is not a claim that five fields describe the entire runtime.
 
@@ -161,8 +162,10 @@ value = *asp
 T remains 0
 ```
 
-These transitions presume a legal, nonempty operand region. They do not authorize
-popping locals, protected continuation cells or caller prefixes as operands.
+These transitions presume a legal, nonempty scalar region. They cannot pop protected
+continuation cells, block bytes or caller prefixes. Source-designated scalar locals
+above the continuation are ordinary A cells; there is no separately tagged local/
+operand frontier (CUTOVER section 3.1).
 DROP can discard a value without physically loading its bits when semantics allow.
 Neither case reloads surviving backing cells into the bank.
 
@@ -180,9 +183,9 @@ is different: it reads a value, then **pushes a new logical copy**. That push fo
 section 3.2; it is not a refill of the source cell. GET_B d reads into B without
 changing A's occupancy.
 
-A write to an existing logical cell updates its authoritative location. SET's
-encoded depth convention (before or after consuming its input) must be settled in
-the instruction contract; these addressing formulas do not silently settle it.
+A write to an existing logical cell updates its authoritative location. CUTOVER
+section 3.2 specifies SET's depth after consuming its input; the ring-addressing
+formulas themselves do not choose an instruction's depth convention.
 Capture source values before a push, pop, overwrite or spill can change their
 locations. Addressable frame blocks and escaped addresses need the separate
 placement contract identified in section 8.
@@ -227,7 +230,7 @@ state synchronization. No eager refill does not mean no boundary publication.
 B is either empty or contains one live value. That validity belongs to verified
 logical state; it is not another dimension of A's register-cache occupancy.
 
-The sketch proposes these operations:
+The approved routing contract is:
 
 | Operation | Logical effect |
 | --- | --- |
@@ -239,18 +242,18 @@ The sketch proposes these operations:
 | OP_B | Compute A0 op B, pop A0, replace B with the result |
 | Unary/immediate `_A` or `_B` | Read and replace the selected operand |
 
-**In this proposal `_B` selects the result destination, not operand reversal.**
-SUB_B would compute A0 minus B. This differs deliberately from the copied VM's
-SUB.B, which computes B0 minus A0. Exact opcode spellings/encodings are not assigned.
+**`_B` selects the result destination, not operand reversal.** SUB_B computes A0
+minus B. This differs deliberately from the copied VM's SUB.B, which computes
+B0 minus A0. CUTOVER contains the working encoding draft.
 
 A read-modify-write of B consumes its old value and produces a new one; it is not
 an illegal overwrite. Writing an unrelated value while B remains live must reject.
 Joins need compatible B validity/kind as well as compatible A layouts.
 
-The caller/callee B contract is still open. Requiring B empty at ordinary call
-entry is a candidate, not a settled rule. A callee cannot silently overwrite a
-caller-live B, and the implementation must not introduce an automatic hidden B
-spill stack to disguise a missing contract.
+B must be empty at direct/foreign call entry; indirect entry consumes only its
+target from B. Argument vectors remain on A. CALL.B delivers exactly one result
+to B; values surviving calls remain represented on A. There is no hidden B spill
+stack or automatic caller-B preservation.
 
 The historical lab observation that B never exceeded one cell in compiled examples
 motivates the restriction; it does not prove that arbitrary current producers can
@@ -317,19 +320,17 @@ Zero argument movement is not a promise of zero call overhead.
 
 RET must capture its result vector, recover the continuation, remove the complete
 callee activation and deliver the results to the caller's declared destination.
-A destination-B call must return exactly one value to B if that sketch form is
-adopted. Delivery to A may relocate results over the removed activation. There is
-no eager refill before or after the return transfer.
+A destination-B call returns exactly one value to B. Delivery to A may relocate
+results over the removed activation. There is no eager refill before or after
+return transfer.
 
-The continuation must distinguish at least the return target and result destination
-and provide or recover the required caller coordinates. Whether that information
-fits one cell, uses immutable metadata, or requires additional explicit fields is
-unresolved. A bare return PC is not assumed sufficient.
-
-Arguments and locals lie on opposite sides of the continuation storage.
-A single total frame-cell count does not necessarily identify its depth when local
-counts vary. RET operands and/or verified layout metadata must settle that before
-implementation; the sketch's `RET k,r` is not yet a complete frame contract.
+CUTOVER section 4 replaces the incomplete `RET k,r` sketch with `RET k,d,r`: frame
+cells excluding control/results, pre-return control depth, and result count. One
+opaque continuation cell encodes return PC/destination in the interpreter or a
+resume entry in native/threaded execution. The resume entry restores caller origin
+and destination. Host entry uses a sentinel; virtual calls keep control information
+at preparation time until a real boundary requires materialization. No separate
+runtime frame array or dedicated link register is introduced.
 
 ### Tail replacement
 
@@ -378,16 +379,18 @@ function versions: rotation, placement, facts and continuations can matter too.
 Runtime execution remains independent of the build-time optimizer and portable-C
 writer. Shared semantics, not copied per-backend scalar algorithms, remain the goal.
 
-## 8. Semantic preservation and open gates
+## 8. Semantic preservation and integration obligations
 
-The topology does not authorize weaker correctness at any boundary. Before a
-runtime cutover, resolve:
+The topology does not authorize weaker correctness at any boundary. V07 approves
+CUTOVER's semantic/execution approach; the responsibilities below must be preserved
+by implementation, not reopened as unassigned design gates. Exact numeric encoding
+remains draft for V08; future suspension/stack-walker APIs are not added by this cutover:
 
 1. **Instruction/encoding contract:** complete producer-consumer inventory, exact
    depth conventions, operand order, result vectors and incompatible module
    admission. Never silently interpret VM 2 bytes as VM 3.
 2. **Frame/control contract:** continuation representation, caller isolation,
-   CALL_B return routing, variable-arity tails, frame limits and stack walking.
+   CALL_B return routing, variable-arity tails and frame limits.
 3. **B lifetime contract:** calls, joins, foreign boundaries and compiler scheduling.
 4. **Addressable storage:** frame blocks, pointer formation, escaped addresses,
    stable storage and writes that alias cached cells. Folding C into A must not
@@ -401,7 +404,7 @@ runtime cutover, resolve:
 7. **Foreign/host and future suspension:** preserve explicit ABI and state handoffs;
    no retained worker-host-stack dependency or second spill allocator.
 
-These are design questions, not permission to retain a hidden C engine, stage B
+These obligations are not permission to retain a hidden C engine, stage B
 through an obsolete A/B representation, add compatibility dispatch flags or claim
 that a working toy evaluator completes the full VM replacement.
 

@@ -46,8 +46,11 @@ No runtime files change.
 
 V06 adds [`next/CUTOVER.md`](../next/CUTOVER.md), a proposed contract closure and
 three-batch execution plan, with discovery links in `next/DESIGN.md` and
-`next/README.md`. V07 is explicit user approval of its P1–P6 bundle; no runtime
-implementation or public ABI assignment is authorized by the documentation itself.
+`next/README.md`. V07 now records the user's explicit approval of the semantic/
+execution approach, reconciling old open-gate/locals/B/return prose. The exact
+opcode numbers/field widths remain draft for V08 finalization, not a frozen public
+ABI. Approval covers the three batches; material semantic changes still require
+discussion. V08's external toolchain blocker is recorded in WORKLIST.
 The detailed per-file tables/removal sets are in CUTOVER sections 8–10. All paths
 in the following rows are under `next/`; the root runtime is not the target.
 

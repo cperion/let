@@ -44,15 +44,16 @@ No source workaround was applied; runtime execution has not been revalidated.
 [DESIGN.md](DESIGN.md) is the experimental VM 3 topology/design authority: unified
 A, scalar B, and a ring cache with dynamic occupancy and no eager refill, including
 at returns. It separates agreed decisions from the original sketch's proposals,
-records the unresolved ABI/encoding gates, maps cutover responsibilities and
-specifies correctness/performance evidence. It is not a claim of executable VM 3
-support or approval to implement unresolved contracts.
+maps cutover responsibilities and specifies correctness/performance evidence.
+It is not a claim of executable VM 3 support.
 
-[CUTOVER.md](CUTOVER.md) proposes the remaining encoding/frame/B/memory/capacity
-contracts and a three-batch runtime → producers → acceptance plan. It traces actual
-owners/removals, preserves virtual calls and cache-driven allocation, and groups
-validation at integration boundaries rather than per-file microsteps. V07 approval
-is still required; no refactor implementation has started.
+[CUTOVER.md](CUTOVER.md) records the user-approved semantic/execution approach and
+three-batch runtime → producers → acceptance plan (V07). It traces actual owners/
+removals, preserves virtual calls and cache-driven allocation, and groups validation
+at integration boundaries rather than per-file microsteps. Exact opcode numbers
+and field widths remain draft for integrated V08 finalization, not a frozen ABI.
+No runtime refactor has started: the single V08 preflight found no qualified x86-64
+compiler among the available candidates; see WORKLIST for the exact failures.
 
 The root VM specifications remain authoritative for the original VM and this
 unchanged source baseline; the experimental design does not amend them.
