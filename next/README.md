@@ -52,8 +52,13 @@ three-batch runtime → producers → acceptance plan (V07). It traces actual ow
 removals, preserves virtual calls and cache-driven allocation, and groups validation
 at integration boundaries rather than per-file microsteps. Exact opcode numbers
 and field widths remain draft for integrated V08 finalization, not a frozen ABI.
-No runtime refactor has started: the single V08 preflight found no qualified x86-64
-compiler among the available candidates; see WORKLIST for the exact failures.
+No runtime refactor has started. V08's compiler blocker is now resolved: the official
+Clang 23.1.3 is installed at `~/.local/opt/llvm-23.1.3/bin/clang` and exposed through
+`~/.local/bin/clang` on the existing user PATH. Both current and candidate V3 handler
+ABI probes compile/link/run, with preserve_none/musttail and verified tail jumps.
+System Clang 18 remains untouched. This is toolchain readiness, not full VM
+qualification; the LuaJIT generator fix still belongs to the integrated cutover.
+See WORKLIST for the release checksum, exact outcomes and host-local evidence.
 
 The root VM specifications remain authoritative for the original VM and this
 unchanged source baseline; the experimental design does not amend them.

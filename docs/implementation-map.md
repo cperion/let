@@ -50,7 +50,9 @@ three-batch execution plan, with discovery links in `next/DESIGN.md` and
 execution approach, reconciling old open-gate/locals/B/return prose. The exact
 opcode numbers/field widths remain draft for V08 finalization, not a frozen public
 ABI. Approval covers the three batches; material semantic changes still require
-discussion. V08's external toolchain blocker is recorded in WORKLIST.
+discussion. V08's compiler blocker is resolved by the user-authorized local Clang
+23.1.3 installation; WORKLIST records its limited preflight evidence, not a completed
+runtime cutover.
 The detailed per-file tables/removal sets are in CUTOVER sections 8–10. All paths
 in the following rows are under `next/`; the root runtime is not the target.
 

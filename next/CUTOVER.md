@@ -445,13 +445,15 @@ reopens discussion. Build breaks during a batch are expected and must not motiva
 adapters. A missing qualified toolchain is an external dependency, not a reason to
 change the handler ABI or add a fallback.
 
-Before heavy editing, do one targeted toolchain preflight. The installed Clang 18
-lacks the copied handler ABI support and the copied foreign generator uses Lua
-bitwise syntax that its default LuaJIT cannot parse. Select a compiler that actually
-accepts preserve_none + musttail for the generated handler signature; do not infer
-support solely from a version number or drop the attributes. If none is available,
-report that dependency once instead of repeatedly rebuilding. No silent installation
-or temporary compiler wrapper is authorized.
+The targeted toolchain preflight is complete: user-authorized official Clang 23.1.3
+at `~/.local/opt/llvm-23.1.3/bin/clang` (also on the existing user PATH) compiled,
+linked and ran the current and candidate V3 preserve_none/musttail signatures.
+Disassembly confirmed tail jumps without host calls. WORKLIST records the evidence
+and earlier Clang 18/WASI failures. Do not repeat that preflight unchanged or infer
+full VM qualification from it. Recheck only if the compiler/target/handler contract
+changes; never drop the attributes or introduce a compiler wrapper to hide failure.
+The copied foreign generator's LuaJIT-incompatible bitwise syntax still needs the
+approved direct correction below, as part of the integrated runtime replacement.
 
 In the approved implementation, fix `gen/foreign.lua` directly for LuaJIT by using
 its `bit.band/bit.lshift` API for the small generation-time masks, leaving emitted C

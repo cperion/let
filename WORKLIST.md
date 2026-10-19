@@ -297,13 +297,14 @@ is recorded under S05 below.
   and this ledger. The exact opcode numbers/field widths remain draft for integrated
   V08 finalization, not a frozen public ABI or another per-file approval gate.
   Evidence: explicit user approval; reconciled stale open-gate/locals/B/return prose.
-  No runtime files changed or runtime suites run. Next action: resolve V08's external
-  compiler dependency, then execute the three approved batches. Material semantic
-  changes still require discussion; ordinary implementation edits do not.
+  No runtime files changed or runtime suites run. V08's compiler dependency was
+  subsequently resolved below; next action is the approved runtime cutover.
+  Material semantic changes still require discussion; ordinary implementation
+  edits do not.
 
 - [ ] **V08 — Replace the runtime and execution-backend machine end to end.**
-  Owner: coding assistant (preflight only so far). State: blocked on toolchain.
-  Dependency: V07 is approved; a qualified x86-64 handler-ABI compiler is missing.
+  Owner: coding assistant. State: partial (toolchain preflight complete; runtime
+  implementation not started). Dependency: V07 approved; compiler blocker resolved.
   One targeted preflight attempted compilation of the existing handler signature
   and unified-A eight-register/scalar-B signature with preserve_none/musttail at -O2,
   treating unknown/ignored attributes as errors. `/usr/bin/clang` (18.1.3) failed
@@ -311,9 +312,22 @@ is recorded under S05 below.
   with `--target=x86_64-linux-gnu --sysroot=/`, failed because its build has no x86-64
   target. Historical `/tmp/clang20` is absent. No compiler installed, attributes
   removed, wrapper added, full build rerun or runtime implementation changed.
-  Next external action: provide a compatible compiler path or authorize a local
-  toolchain installation. The copied LuaJIT generator syntax still needs its
-  approved in-source fix as part of the integrated implementation.
+  User subsequently authorized updating to latest Clang. Installed the official
+  stable LLVM **23.1.3** Linux-X64 release under `~/.local/opt/llvm-23.1.3`, with
+  non-overwriting `~/.local/bin/{clang,clang++,clang-23,clang++-23}` symlinks on the
+  existing user PATH. System `/usr/bin/clang` remains 18.1.3; no sudo, system package
+  or shell-startup changes. Release: `llvmorg-23.1.3` on llvm/llvm-project GitHub;
+  tar.zst SHA256 matched
+  `14d2f701eb68fb799001bdea6231048f3990690fa2f406d563555ff8f744daba`.
+  Fresh -O2/-Wall/-Wextra/-Werror compile/link/run probes passed: existing-handler
+  result 7164 and V3 candidate result 1381 matched expected values; llvm-objdump
+  confirmed both probe bodies tail-jump to their callees without host calls.
+  A C++ standard-library compile/link/run also passed. Source, frozen current
+  handler header, binaries, disassembly, run log and release metadata are in
+  `~/.cache/let-toolchains/` (host-local artifacts, not repository backups).
+  This establishes toolchain readiness, not full runtime qualification. No full
+  build/suite rerun or runtime files changed. The copied LuaJIT generator syntax
+  still needs its approved in-source fix within the integrated runtime cutover.
   Scope/files: `next/CUTOVER.md` V08 table and implementation-map V08; module/ISA,
   verifier, one-A/scalar-B execution context, ring interpreter, shared semantics,
   symbolic frame views/cache allocation, native/threaded entries/resumes, foreign
@@ -322,9 +336,9 @@ is recorded under S05 below.
   roles. Preserve existing owner algorithms, register-entry recursion and effect
   guards. New tests: `next/tools/validate_v3_runtime.{lua,c}` and replacement
   `next/tools/validate_operand_register.lua`; retire the old symmetric-interpreter
-  test path. After the compiler dependency is resolved, implement the complete
-  runtime cutover before grouped boundary-A checks; do not repeat this failed
-  preflight unchanged or introduce a small compatibility patch.
+  test path. Next action: implement the complete runtime cutover using the qualified
+  Clang before grouped boundary-A checks; do not repeat historical failed preflights
+  or introduce a small compatibility patch.
   Boundary: typed V3 assembly works in four modes. Source/optimizer may remain
   temporarily broken until V09; no compatibility layer or overall completion claim.
 
