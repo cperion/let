@@ -7,6 +7,11 @@ production VM at the repository root. The copied sources still implement VM 2.
 [WORKLIST V](../WORKLIST.md#v--vm-3-isolated-experiments) is the only live delivery
 ledger. This document is a design contract, not an implementation progress report.
 
+[CUTOVER.md](CUTOVER.md) supplies the detailed **proposed** contract closure and
+three-batch execution plan (V06–V10), including cache-allocated virtual calls. Its
+encoding/ABI choices still require V07 user approval; they do not silently settle
+the open sketch contracts below or authorize implementation.
+
 The user's initial sketch is the starting proposal. Subsequent discussion settled
 **a ring register bank with dynamic occupancy and no eager refill, including at
 returns**. That supersedes the sketch's anchored bank, block spilling and special

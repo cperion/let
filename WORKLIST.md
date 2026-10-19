@@ -268,6 +268,73 @@ is recorded under S05 below.
   no runtime tests required. Next action: continue with the remaining call/frame
   contracts rather than reopening this placement choice without new cause.
 
+- [x] **V06 — Specify VM 3 contracts and substantial cutover batches.**
+  Owner: coding assistant (user assigned). State: documented (proposal only).
+  Dependency: V02/V04/V05 settled topology and experiment decisions; V01's copied
+  implementation exists, but its full-build toolchain blocker remains.
+  Scope: new `next/CUTOVER.md`, discovery links in `next/DESIGN.md` and
+  `next/README.md`, `docs/implementation-map.md` and this ledger. The user requested
+  full specification without agent microsteps, excessive validation or repeated
+  progress stalls. Concrete proposal covers format/opcodes, scalar B, frame/control
+  coordinates, addressable blocks, logical capacity, virtual calls/cache allocation,
+  source/optimizer producers and three implementation boundaries. No runtime
+  files removed or changed; proposed removal set is recorded for V08/V09.
+  Evidence: `next/CUTOVER.md`; documentation diff reviewed, 18 local file links
+  resolve, proposed opcode inventory is 229 core + 44 extended forms, whitespace
+  check passes, and all 193 baseline source checksums still match. No runtime
+  tests were run for this documentation-only change. Next action: obtain V07
+  approval. Boundary: a proposed execution contract, not an approved ABI or
+  completed VM.
+
+- [ ] **V07 — Approve the VM 3 contract bundle before implementation.**
+  Owner: unassigned. State: design. Dependency: V06.
+  Scope: `next/CUTOVER.md` sections 2–9; P1 encoding, P2 scalar-B routing,
+  P3 continuation/return/tail transport, P4 stable block homes, P5 unified capacity,
+  P6 full typed-feature delivery. Next action: user approves or amends the bundle;
+  reconcile `next/DESIGN.md`'s open sketch contracts with the approved details.
+  No runtime code is authorized until this gate closes. Approval then covers the
+  three coherent batches, not repeated per-file permission requests.
+
+- [ ] **V08 — Replace the runtime and execution-backend machine end to end.**
+  Owner: unassigned. State: design. Dependency: V07 and a qualified handler-ABI
+  toolchain; the copied LuaJIT generator syntax also needs the documented fix.
+  Scope/files: `next/CUTOVER.md` V08 table and implementation-map V08; module/ISA,
+  verifier, one-A/scalar-B execution context, ring interpreter, shared semantics,
+  symbolic frame views/cache allocation, native/threaded entries/resumes, foreign
+  and lifecycle bindings, runtime fixtures and build wiring. Retire B/C backing
+  arrays, frame side array, C-origin transport, bank shifts/refill and old opcode
+  roles. Preserve existing owner algorithms, register-entry recursion and effect
+  guards. New tests: `next/tools/validate_v3_runtime.{lua,c}` and replacement
+  `next/tools/validate_operand_register.lua`; retire the old symmetric-interpreter
+  test path. Next action after approval: one targeted toolchain preflight, then
+  implement the complete runtime cutover before grouped boundary-A checks.
+  Boundary: typed V3 assembly works in four modes. Source/optimizer may remain
+  temporarily broken until V09; no compatibility layer or overall completion claim.
+
+- [ ] **V09 — Migrate all current source, optimizer and tooling producers.**
+  Owner: unassigned. State: design. Dependency: V08.
+  Scope/files: `next/CUTOVER.md` V09 table and implementation-map V09; Let lowering,
+  placement/lifecycle assembly, staging/library bindings, DAG projection,
+  residual-C builder/analysis/validation/output, tests/examples and active lab.
+  Replace symmetric `expr(expr,stack)`/aggregate-B scheduling and C-temporary
+  projection directly; arguments and aggregate vectors stay on A. New replacement
+  `next/frontend/tests/vm3_lowering.lua` retires `symmetric.lua`; preserve historical
+  `.slet` evidence and unsupported-feature gates. Next action: coherent producer
+  migration, then grouped boundary-B checks, not a broad benchmark cycle.
+  Boundary: raw/optimized admitted source, sessions/snapshots and supported
+  portable-C output agree with V3; no old-ISA producer or fallback remains.
+
+- [ ] **V10 — Accept the integrated cutover and measure it once.**
+  Owner: unassigned. State: design. Dependency: V08/V09.
+  Scope: active-path/removal review across `next/`, current implementation docs,
+  one clean integrated suite, focused supported sanitizer boundary and one fixed
+  performance matrix with reproducible baseline/new artifacts. Preserve original
+  `next/BASELINE.sha256` and immutable experiment evidence. Next action: review
+  removals and run boundary C only after integration; batch diagnosed corrections
+  before rerunning relevant checks. Record actual files/logs, regressions and
+  blockers here; do not close on manifest edits, partial migration or demos.
+  Boundary: validated V3 implementation isolated from the unchanged root VM.
+
 ## How to maintain this record
 
 - Stable item IDs survive reordering. `[x]` means that exact deliverable has evidence;

@@ -32,7 +32,7 @@ files; before experimentation, verify them with:
 
 The manifest is a frozen starting point: later intentional edits will differ.
 The original VM contracts remain in [`../docs/`](../docs/), and
-[`../WORKLIST.md`](../WORKLIST.md) remains the single live work ledger (V01–V05).
+[`../WORKLIST.md`](../WORKLIST.md) remains the single live work ledger (V01–V10).
 Existing test results elsewhere are not fresh validation of this copy.
 `VALIDATION.log` records the initial checks: source equality, ISA metadata,
 execution forms and the local collector-free audit pass. The full build is blocked:
@@ -47,6 +47,12 @@ at returns. It separates agreed decisions from the original sketch's proposals,
 records the unresolved ABI/encoding gates, maps cutover responsibilities and
 specifies correctness/performance evidence. It is not a claim of executable VM 3
 support or approval to implement unresolved contracts.
+
+[CUTOVER.md](CUTOVER.md) proposes the remaining encoding/frame/B/memory/capacity
+contracts and a three-batch runtime → producers → acceptance plan. It traces actual
+owners/removals, preserves virtual calls and cache-driven allocation, and groups
+validation at integration boundaries rather than per-file microsteps. V07 approval
+is still required; no refactor implementation has started.
 
 The root VM specifications remain authoritative for the original VM and this
 unchanged source baseline; the experimental design does not amend them.

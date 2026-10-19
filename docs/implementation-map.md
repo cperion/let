@@ -44,6 +44,19 @@ choice in `next/DESIGN.md` sections 1, 2 and 6. It does not close continuation
 size/encoding/caller-coordinate gates or claim a link-register performance test.
 No runtime files change.
 
+V06 adds [`next/CUTOVER.md`](../next/CUTOVER.md), a proposed contract closure and
+three-batch execution plan, with discovery links in `next/DESIGN.md` and
+`next/README.md`. V07 is explicit user approval of its P1–P6 bundle; no runtime
+implementation or public ABI assignment is authorized by the documentation itself.
+The detailed per-file tables/removal sets are in CUTOVER sections 8–10. All paths
+in the following rows are under `next/`; the root runtime is not the target.
+
+| IDs | Existing/new file anchors | Required replacement and boundary |
+| --- | --- | --- |
+| V08 | `tools/{opcodes.lua,gen_opcodes.lua,assembler.lua}`, `src/{module.c,memory_module.c,verify.c,execution_context.h,handler_abi.h,vm_internal.h,vm.c,symbolic.h,symbolic.c,residualize.h,residualize.c,execution_emit.h,threaded.h,threaded_emit.c,native_emit.h,native_emit.c,native_image.c,lifetime.h,lifetime.c,owner.h,owner.c}`, `gen/`, `include/abc.h`, `Makefile`, runtime `tools/validate*`; **new** `tools/validate_v3_runtime.{lua,c}`, `tools/validate_operand_register.lua` | New module/ISA contract, one A/scalar B, protected control cells/stable blocks, exact ring, virtual frame views and real resume ABI across four modes. Remove B/C arrays, frame side array, C-origin/gather transport, shift/refill machinery and selected-first B semantics. Replace `tools/validate_symmetric_interpreter.lua`, not its regression responsibility. Preserve existing allocation, ownership, publication and register-entry algorithms. Runtime-only boundary A; no old-format fallback while later producers are broken. |
+| V09 | `frontend/let/{abc.lua,placement.lua,layout.lua,abi.lua,stage.lua,compiler.lua,optimize.lua,snapshot.lua}`, `tools/abc`, `src/{optimize.c,residual_analysis.h,residual_analysis.c,residual_builder.h,residual_builder.c,residual_ir.h,residual_ir.c,residual_validate.c,residual_dump.c,residual_c.c}`, `schema/residual.asdl`, `include/abc_tool.h`, `frontend/tests/`, `tools/validate*`, `examples/`, `lab/`; **new** `frontend/tests/vm3_lowering.lua` | Direct scalar/vector lowering, tracked A depths, source-ordered effects, aggregate/callable/ownership transport, A-local optimizer projection and unified build-time residual homes. Remove `other(stack)`/aggregate-B routing, C-temporary projection and old lifecycle assembly. Replace `frontend/tests/symmetric.lua`; preserve historical filenames and existing feature-refusal boundaries. Producer/tooling boundary B. |
+| V10 | Integrated changed paths, `next` current docs, `WORKLIST.md`; new exclusive evidence paths recorded when run | Active removal/architecture review, one clean full suite, focused supported sanitizer boundary and one reproducible four-mode performance comparison. Preserve baseline manifests/raw experiments; no claims of universal speedup or qualification from handler counts. Boundary C closes only actual validated scope. |
+
 ## A / R — Runtime audit and execution-region work
 
 | IDs | Existing files to inspect/change | Required change / removal |
