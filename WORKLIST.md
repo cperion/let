@@ -183,6 +183,25 @@ is recorded under S05 below.
   runtime qualification before V3 implementation. Integration boundary:
   `make -C next`; no root-build dependency, no VM 3 semantics or encoding change.
 
+- [x] **V02 — Ground the experimental VM 3 topology in a design document.**
+  Owner: coding assistant (user assigned). State: documented (design only;
+  unresolved contracts remain proposals, not approved implementation).
+  Dependency: V01 source copy exists; its toolchain blocker does not block design
+  documentation. Scope: `next/DESIGN.md`, linked from `next/README.md`, and the V
+  section in `docs/implementation-map.md`. Record unified A/scalar B, ring `(R,T)`,
+  demand-only backing reads and no eager refill even on return. Distinguish agreed
+  topology, original-sketch proposals, unresolved contracts and measured evidence;
+  identify cutover/removal boundaries without authorizing implementation.
+  Removal set: duplicated topology prose in `next/README.md`; no runtime removal.
+  Outcome: `next/DESIGN.md` records exact ring transitions/addressing, the no-refill
+  return rule, B routing proposal, call-layout gaps, current-backend distinctions,
+  cutover responsibilities and architectural/performance validation criteria.
+  Reviewed scope/formulas and diff; local link-target and whitespace checks pass.
+  All 193 copied files still match `next/BASELINE.sha256`. No runtime tests run
+  for this documentation-only change. Next action: discuss the explicit contract
+  gates before selecting implementation. Integration boundary: documentation only,
+  no new ABI or encoding assignment and no VM 3 executable-support claim.
+
 ## How to maintain this record
 
 - Stable item IDs survive reordering. `[x]` means that exact deliverable has evidence;

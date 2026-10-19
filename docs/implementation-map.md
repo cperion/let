@@ -19,6 +19,12 @@ raise only concrete mismatches or the listed hard gates.
 | --- | --- | --- |
 | V01 | `Makefile`, `src/`, `include/`, `gen/`, `schema/`, `tools/`, `frontend/`, `examples/`, `lab/`, `vendor/` | Independent source copy under `next/`, including build/test support, license and ignores; `next/README.md` documents the baseline and isolation, `next/BASELINE.sha256` records copied source checksums. Build only in `next/build/`; root `tools/validate_no_collector.lua` prunes the independent experiment tree. No existing runtime paths removed or changed. No V3 semantic implementation in this slice. |
 
+V02 adds `next/DESIGN.md` as the experimental topology/design authority and links
+it from `next/README.md`, replacing that README's duplicate topology description.
+It maps the existing copied producers/consumers, obsolete three-stack responsibilities,
+validation boundaries and unresolved ABI/encoding gates. No production contract or
+runtime implementation is changed by this documentation slice.
+
 ## A / R — Runtime audit and execution-region work
 
 | IDs | Existing files to inspect/change | Required change / removal |
